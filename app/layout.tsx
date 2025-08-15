@@ -1,5 +1,6 @@
 import type React from "react"
 import type { Metadata } from "next"
+import { Suspense } from "react"
 import Script from "next/script"
 import { Playfair_Display, Source_Sans_3 as Source_Sans_Pro } from "next/font/google"
 import "./globals.css"
@@ -49,8 +50,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </>
         )}
 
-        {/* Track client-side route changes */}
-        <Analytics />
+        {/* Wrap any client component that may use useSearchParams/usePathname in Suspense */}
+        <Suspense fallback={null}>
+          <Analytics />
+        </Suspense>
 
         {children}
       </body>
