@@ -2,6 +2,7 @@
   "name": "my-v0-project",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@10.8.2",
   "scripts": {
     "build": "next build",
     "dev": "next dev",
@@ -71,11 +72,5 @@
     "tw-animate-css": "1.3.3",
     "typescript": "^5"
   },
-  "engines": {
-    "node": ">=20 <21"
-  }
-  {
-  "packageManager": "pnpm@10.14.0"
-}
-
+  "engines": { "node": ">=20 <21" }
 }
