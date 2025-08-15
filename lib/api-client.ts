@@ -15,6 +15,38 @@ export class ApiError extends Error {
   }
 }
 
+/* =========================
+   Shapes from your backend
+   ========================= */
+
+export interface AuthResponse {
+  access_token: string
+  token_type: string
+}
+
+export interface UserProfile {
+  id: string | number
+  email?: string | null
+  full_name?: string | null
+}
+
+export interface Appointment {
+  // adjust to your real shape
+  id?: string | number
+  [k: string]: unknown
+}
+
+export interface MessageItem {
+  // adjust to your real shape
+  id?: string | number
+  [k: string]: unknown
+}
+
+export interface ProgressData {
+  // adjust to your real shape
+  [k: string]: unknown
+}
+
 type JsonValue =
   | string
   | number
@@ -75,39 +107,33 @@ export class ApiClient {
   }
 
   private async parseResponse<T>(response: Response): Promise<T> {
-    // 204/205 have no body
-    if (response.status === 204 || response.status === 205) return undefined as unknown as T
-
+    if (response.status === 204 || response.status === 205) {
+      return undefined as unknown as T
+    }
     const ct = response.headers.get("content-type") || ""
     if (ct.includes("application/json")) {
       return (await response.json()) as T
     }
-
-    // Fallback: try text
     const text = await response.text()
-    // Attempt to parse JSON anyway, but don’t crash if not JSON
     try {
       return JSON.parse(text) as T
     } catch {
-      // @ts-expect-error – caller expects T, but server didn’t return JSON
-      return text
+      // Non-JSON fallback
+      return text as unknown as T
     }
   }
 
-  private async request<T = unknown>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+  private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { headers, body, query, omitAuth, ...rest } = options
     const url = buildURL(this.baseURL, endpoint, query)
 
     const defaultHeaders: Record<string, string> = {
-      // For JSON bodies only; FormData must set its own boundary
       ...(body && !isFormData(body) ? { "Content-Type": "application/json" } : {}),
       ...this.authHeader(omitAuth),
     }
 
     const init: RequestInit = {
-      // Avoid Next.js caching surprises for dynamic API calls
       cache: "no-store",
-      // Keep credentials default; change to "include" if you later use cookie auth
       credentials: "same-origin",
       ...rest,
       headers: {
@@ -119,26 +145,19 @@ export class ApiClient {
 
     try {
       const response = await fetch(url, init)
-
       if (!response.ok) {
-        // Try to parse an error payload
         let details: unknown = undefined
         try {
           details = await this.parseResponse<unknown>(response)
-        } catch {
-          // ignore
-        }
+        } catch {}
         const message =
           (details && typeof details === "object" && (details as any).message) ||
           `HTTP ${response.status}`
         throw new ApiError(String(message), response.status, details)
       }
-
       return await this.parseResponse<T>(response)
     } catch (err) {
       if (err instanceof ApiError) throw err
-
-      // Network or runtime error
       const isTypeError = err instanceof TypeError || (err as any)?.name === "TypeError"
       if (isTypeError) {
         throw new ApiError(
@@ -147,102 +166,104 @@ export class ApiClient {
           { cause: "network" },
         )
       }
-
       throw new ApiError("Network error occurred. Please check your connection.", 0, {
         cause: (err as Error)?.message ?? "unknown",
       })
     }
   }
 
+  /* ============
+     Endpoints
+     ============ */
+
   // ---------- Auth ----------
-  async login(email: string, password: string) {
+  async login(email: string, password: string): Promise<AuthResponse> {
     const formData = new FormData()
     formData.append("username", email)
     formData.append("password", password)
 
-    return this.request<{ access_token: string; token_type: string }>("/auth/login", {
+    return this.request<AuthResponse>("/auth/login", {
       method: "POST",
-      // Don’t set Content-Type for FormData
       headers: {},
       body: formData,
       omitAuth: true,
     })
   }
 
-  async register(userData: { email: string; password: string; full_name: string }) {
+  async register(userData: { email: string; password: string; full_name: string }): Promise<{ message: string }> {
+    // Avoid TS 'satisfies' to reduce CI/Vercel config issues
     return this.request<{ message: string }>("/auth/register", {
       method: "POST",
-      body: JSON.stringify(userData satisfies Record<string, JsonValue>),
+      body: JSON.stringify(userData as Record<string, JsonValue>),
       omitAuth: true,
     })
   }
 
-  async getCurrentUser() {
-    return this.request<unknown>("/patients/me")
+  async getCurrentUser(): Promise<UserProfile> {
+    return this.request<UserProfile>("/patients/me")
   }
 
   // ---------- Patient ----------
-  async getPatientProfile() {
-    return this.request<unknown>("/patients/me")
+  async getPatientProfile(): Promise<UserProfile> {
+    return this.request<UserProfile>("/patients/me")
   }
 
-  async updatePatientProfile(data: Record<string, JsonValue>) {
-    return this.request<unknown>("/patients/me", {
+  async updatePatientProfile(data: Record<string, JsonValue>): Promise<UserProfile> {
+    return this.request<UserProfile>("/patients/me", {
       method: "PUT",
       body: JSON.stringify(data),
     })
   }
 
   // ---------- Appointments ----------
-  async getAppointments() {
-    return this.request<unknown[]>("/appointments/")
+  async getAppointments(): Promise<Appointment[]> {
+    return this.request<Appointment[]>("/appointments/")
   }
 
-  async createAppointment(appointmentData: Record<string, JsonValue>) {
-    return this.request<unknown>("/appointments/", {
+  async createAppointment(appointmentData: Record<string, JsonValue>): Promise<Appointment> {
+    return this.request<Appointment>("/appointments/", {
       method: "POST",
       body: JSON.stringify(appointmentData),
     })
   }
 
   // ---------- Messages ----------
-  async getMessages() {
-    return this.request<unknown[]>("/messages/")
+  async getMessages(): Promise<MessageItem[]> {
+    return this.request<MessageItem[]>("/messages/")
   }
 
-  async sendMessage(messageData: Record<string, JsonValue>) {
-    return this.request<unknown>("/messages/", {
+  async sendMessage(messageData: Record<string, JsonValue>): Promise<MessageItem> {
+    return this.request<MessageItem>("/messages/", {
       method: "POST",
       body: JSON.stringify(messageData),
     })
   }
 
   // ---------- Progress ----------
-  async getProgress() {
-    return this.request<unknown>("/patients/progress")
+  async getProgress(): Promise<ProgressData> {
+    return this.request<ProgressData>("/patients/progress")
   }
 
-  async updateProgress(progressData: Record<string, JsonValue>) {
-    return this.request<unknown>("/patients/progress", {
+  async updateProgress(progressData: Record<string, JsonValue>): Promise<ProgressData> {
+    return this.request<ProgressData>("/patients/progress", {
       method: "POST",
       body: JSON.stringify(progressData),
     })
   }
 
   // ---------- Videos ----------
-  async uploadVideo(videoFile: File, metadata: Record<string, JsonValue>) {
+  async uploadVideo(videoFile: File, metadata: Record<string, JsonValue>): Promise<unknown> {
     const formData = new FormData()
     formData.append("video", videoFile)
     formData.append("metadata", JSON.stringify(metadata))
-
     return this.request<unknown>("/videos/upload", {
       method: "POST",
-      headers: {}, // let the browser set multipart boundary
+      headers: {},
       body: formData,
     })
   }
 
-  async getVideos() {
+  async getVideos(): Promise<unknown[]> {
     return this.request<unknown[]>("/videos/")
   }
 }
