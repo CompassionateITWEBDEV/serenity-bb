@@ -3,8 +3,6 @@
 import { createContext, useContext, type ReactNode } from "react"
 import { apiClient } from "@/lib/api-client"
 
-// Derive the type from the exported instance,
-// so we don't need to import a named type.
 type ApiClientType = typeof apiClient
 
 const ApiContext = createContext<ApiClientType | null>(null)
@@ -15,8 +13,6 @@ export function ApiProvider({ children }: { children: ReactNode }) {
 
 export function useApi(): ApiClientType {
   const ctx = useContext(ApiContext)
-  if (!ctx) {
-    throw new Error("useApi must be used within an ApiProvider")
-  }
+  if (!ctx) throw new Error("useApi must be used within an ApiProvider")
   return ctx
 }
