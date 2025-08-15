@@ -1,7 +1,9 @@
 import type React from "react"
 import type { Metadata } from "next"
+import Script from "next/script"
 import { Playfair_Display, Source_Sans_3 as Source_Sans_Pro } from "next/font/google"
 import "./globals.css"
+import Analytics from "./analytics"
 
 const playfair = Playfair_Display({
   subsets: ["latin"],
@@ -18,18 +20,40 @@ const sourceSans = Source_Sans_Pro({
 
 export const metadata: Metadata = {
   title: "Serenity Rehabilitation Center - Lead Recovery Treatment",
-  description: "Professional lead poisoning treatment and recovery services. Restoring lives, one recovery at a time.",
+  description:
+    "Professional lead poisoning treatment and recovery services. Restoring lives, one recovery at a time.",
   generator: "v0.app",
 }
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode
-}>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const GA_ID = process.env.NEXT_PUBLIC_GA_ID
+
   return (
     <html lang="en" className={`${playfair.variable} ${sourceSans.variable} antialiased`}>
-      <body>{children}</body>
+      <body>
+        {/* Google Analytics (only inject if configured) */}
+        {GA_ID && (
+          <>
+            <Script
+              src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+              strategy="afterInteractive"
+            />
+            <Script id="ga-init" strategy="afterInteractive">
+              {`
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+                gtag('config', '${GA_ID}', { anonymize_ip: true });
+              `}
+            </Script>
+          </>
+        )}
+
+        {/* Track client-side route changes */}
+        <Analytics />
+
+        {children}
+      </body>
     </html>
   )
 }
