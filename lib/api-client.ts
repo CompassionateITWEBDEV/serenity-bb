@@ -1,13 +1,13 @@
+// lib/api-client.ts
 
-
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const API_BASE_URL =
+  (process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ?? "http://localhost:8000") as string
 
 export class ApiError extends Error {
   public status: number
-  public details?: any
+  public details?: unknown
 
-  constructor(message: string, status: number, details?: any) {
+  constructor(message: string, status: number, details?: unknown) {
     super(message)
     this.name = "ApiError"
     this.status = status
@@ -15,52 +15,146 @@ export class ApiError extends Error {
   }
 }
 
+type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: JsonValue }
+  | JsonValue[]
+
+type RequestOptions = RequestInit & {
+  /** Optional query parameters for GET-like requests */
+  query?: Record<string, string | number | boolean | undefined | null>
+  /** If true, don’t add Authorization even if a token exists */
+  omitAuth?: boolean
+}
+
+function isFormData(body: unknown): body is FormData {
+  return typeof FormData !== "undefined" && body instanceof FormData
+}
+
+function buildURL(base: string, endpoint: string, query?: RequestOptions["query"]) {
+  const url = new URL(`${base}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`)
+  if (query) {
+    for (const [k, v] of Object.entries(query)) {
+      if (v === null || v === undefined) continue
+      url.searchParams.set(k, String(v))
+    }
+  }
+  return url.toString()
+}
+
+function getStoredToken(): string | null {
+  // Browser-only storage (SSR-safe)
+  if (typeof window === "undefined") return null
+  try {
+    return localStorage.getItem("auth_token")
+  } catch {
+    return null
+  }
+}
+
 export class ApiClient {
   private baseURL: string
 
-  constructor() {
-    this.baseURL = API_BASE_URL
+  constructor(baseURL: string = API_BASE_URL) {
+    this.baseURL = baseURL
   }
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const url = `${this.baseURL}${endpoint}`
-    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
+  /** Optionally allow setting token programmatically (besides localStorage) */
+  private overrideToken: string | null = null
+  setAuthToken(token: string | null) {
+    this.overrideToken = token
+  }
 
-    const config: RequestInit = {
+  private authHeader(omitAuth?: boolean): Record<string, string> {
+    if (omitAuth) return {}
+    const token = this.overrideToken ?? getStoredToken()
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  }
+
+  private async parseResponse<T>(response: Response): Promise<T> {
+    // 204/205 have no body
+    if (response.status === 204 || response.status === 205) return undefined as unknown as T
+
+    const ct = response.headers.get("content-type") || ""
+    if (ct.includes("application/json")) {
+      return (await response.json()) as T
+    }
+
+    // Fallback: try text
+    const text = await response.text()
+    // Attempt to parse JSON anyway, but don’t crash if not JSON
+    try {
+      return JSON.parse(text) as T
+    } catch {
+      // @ts-expect-error – caller expects T, but server didn’t return JSON
+      return text
+    }
+  }
+
+  private async request<T = unknown>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+    const { headers, body, query, omitAuth, ...rest } = options
+    const url = buildURL(this.baseURL, endpoint, query)
+
+    const defaultHeaders: Record<string, string> = {
+      // For JSON bodies only; FormData must set its own boundary
+      ...(body && !isFormData(body) ? { "Content-Type": "application/json" } : {}),
+      ...this.authHeader(omitAuth),
+    }
+
+    const init: RequestInit = {
+      // Avoid Next.js caching surprises for dynamic API calls
+      cache: "no-store",
+      // Keep credentials default; change to "include" if you later use cookie auth
+      credentials: "same-origin",
+      ...rest,
       headers: {
-        "Content-Type": "application/json",
-        ...(token && { Authorization: `Bearer ${token}` }),
-        ...options.headers,
+        ...defaultHeaders,
+        ...(headers || {}),
       },
-      ...options,
+      body: body as BodyInit | null | undefined,
     }
 
     try {
-      const response = await fetch(url, config)
+      const response = await fetch(url, init)
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: "Unknown error" }))
-        throw new ApiError(errorData.message || `HTTP ${response.status}`, response.status, errorData)
+        // Try to parse an error payload
+        let details: unknown = undefined
+        try {
+          details = await this.parseResponse<unknown>(response)
+        } catch {
+          // ignore
+        }
+        const message =
+          (details && typeof details === "object" && (details as any).message) ||
+          `HTTP ${response.status}`
+        throw new ApiError(String(message), response.status, details)
       }
 
-      return await response.json()
-    } catch (error) {
-      if (error instanceof ApiError) {
-        throw error
+      return await this.parseResponse<T>(response)
+    } catch (err) {
+      if (err instanceof ApiError) throw err
+
+      // Network or runtime error
+      const isTypeError = err instanceof TypeError || (err as any)?.name === "TypeError"
+      if (isTypeError) {
+        throw new ApiError(
+          "Unable to connect to server. Using offline mode with demo credentials.",
+          0,
+          { cause: "network" },
+        )
       }
 
-      console.error("API request failed:", error)
-
-      // Network/connection errors
-      if (error instanceof TypeError || (error as any).name === "TypeError") {
-        throw new ApiError("Unable to connect to server. Using offline mode with demo credentials.", 0)
-      }
-
-      throw new ApiError("Network error occurred. Please check your connection.", 0)
+      throw new ApiError("Network error occurred. Please check your connection.", 0, {
+        cause: (err as Error)?.message ?? "unknown",
+      })
     }
   }
 
-  // Authentication endpoints
+  // ---------- Auth ----------
   async login(email: string, password: string) {
     const formData = new FormData()
     formData.append("username", email)
@@ -68,87 +162,88 @@ export class ApiClient {
 
     return this.request<{ access_token: string; token_type: string }>("/auth/login", {
       method: "POST",
-      headers: {
-        // Don't set Content-Type for FormData - let browser handle it
-      },
+      // Don’t set Content-Type for FormData
+      headers: {},
       body: formData,
+      omitAuth: true,
     })
   }
 
   async register(userData: { email: string; password: string; full_name: string }) {
     return this.request<{ message: string }>("/auth/register", {
       method: "POST",
-      body: JSON.stringify(userData),
+      body: JSON.stringify(userData satisfies Record<string, JsonValue>),
+      omitAuth: true,
     })
   }
 
   async getCurrentUser() {
-    return this.request<any>("/patients/me")
+    return this.request<unknown>("/patients/me")
   }
 
-  // Patient endpoints
+  // ---------- Patient ----------
   async getPatientProfile() {
-    return this.request<any>("/patients/me")
+    return this.request<unknown>("/patients/me")
   }
 
-  async updatePatientProfile(data: any) {
-    return this.request<any>("/patients/me", {
+  async updatePatientProfile(data: Record<string, JsonValue>) {
+    return this.request<unknown>("/patients/me", {
       method: "PUT",
       body: JSON.stringify(data),
     })
   }
 
-  // Appointments endpoints
+  // ---------- Appointments ----------
   async getAppointments() {
-    return this.request<any[]>("/appointments/")
+    return this.request<unknown[]>("/appointments/")
   }
 
-  async createAppointment(appointmentData: any) {
-    return this.request<any>("/appointments/", {
+  async createAppointment(appointmentData: Record<string, JsonValue>) {
+    return this.request<unknown>("/appointments/", {
       method: "POST",
       body: JSON.stringify(appointmentData),
     })
   }
 
-  // Messages endpoints
+  // ---------- Messages ----------
   async getMessages() {
-    return this.request<any[]>("/messages/")
+    return this.request<unknown[]>("/messages/")
   }
 
-  async sendMessage(messageData: any) {
-    return this.request<any>("/messages/", {
+  async sendMessage(messageData: Record<string, JsonValue>) {
+    return this.request<unknown>("/messages/", {
       method: "POST",
       body: JSON.stringify(messageData),
     })
   }
 
-  // Progress endpoints
+  // ---------- Progress ----------
   async getProgress() {
-    return this.request<any>("/patients/progress")
+    return this.request<unknown>("/patients/progress")
   }
 
-  async updateProgress(progressData: any) {
-    return this.request<any>("/patients/progress", {
+  async updateProgress(progressData: Record<string, JsonValue>) {
+    return this.request<unknown>("/patients/progress", {
       method: "POST",
       body: JSON.stringify(progressData),
     })
   }
 
-  // Video endpoints
-  async uploadVideo(videoFile: File, metadata: any) {
+  // ---------- Videos ----------
+  async uploadVideo(videoFile: File, metadata: Record<string, JsonValue>) {
     const formData = new FormData()
     formData.append("video", videoFile)
     formData.append("metadata", JSON.stringify(metadata))
 
-    return this.request<any>("/videos/upload", {
+    return this.request<unknown>("/videos/upload", {
       method: "POST",
-      headers: {},
+      headers: {}, // let the browser set multipart boundary
       body: formData,
     })
   }
 
   async getVideos() {
-    return this.request<any[]>("/videos/")
+    return this.request<unknown[]>("/videos/")
   }
 }
 
