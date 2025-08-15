@@ -1,14 +1,9 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
+// next.config.js
+module.exports = {
+  async rewrites() {
+    return [{ source: '/old', destination: '/new' }];
   },
-  typescript: {
-    ignoreBuildErrors: true,
+  async redirects() {
+    return [{ source: '/from', destination: '/to', permanent: true }];
   },
-  images: {
-    unoptimized: true,
-  },
-}
-
-export default nextConfig
+};
