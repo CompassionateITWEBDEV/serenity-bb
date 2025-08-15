@@ -1,15 +1,19 @@
 # ---------- base ----------
 FROM node:20-alpine AS base
 WORKDIR /app
-# Disable Next telemetry; tell npm to ignore peer-dep conflicts (React 19 vs older libs)
+
+# Disable telemetry and tell npm to ignore peer-dep conflicts
+# (needed because you're on React 19 with some libs that declare React 18 peers)
 ENV NEXT_TELEMETRY_DISABLED=1 \
     npm_config_legacy_peer_deps=true
 
 # ---------- deps (install WITH devDependencies for build) ----------
 FROM base AS deps
+# Only npm manifests — do NOT bring pnpm/yarn files into the image
 COPY package.json ./
 COPY package-lock.json* ./
-# If you truly only use npm, keep it simple:
+
+# Always use npm (never pnpm/yarn)
 RUN set -eux; \
   if [ -f package-lock.json ]; then \
     npm ci; \
@@ -22,10 +26,10 @@ FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Hot-fix PostCSS config if it's .mjs using CommonJS (prevents "module is not defined in ES module scope")
+# Safety net: if postcss.config.mjs exists but used CJS, overwrite with valid ESM
+# (prevents "module is not defined in ES module scope")
 RUN set -eux; \
   if [ -f postcss.config.mjs ]; then \
-    # Overwrite with valid ESM that works for Tailwind v4
     echo 'export default { plugins: { "@tailwindcss/postcss": {} } };' > postcss.config.mjs; \
   fi
 
@@ -40,13 +44,14 @@ ENV NODE_ENV=production \
     PORT=3000 \
     npm_config_legacy_peer_deps=true
 
+# Minimal files needed to run
 COPY package.json ./
 COPY package-lock.json* ./
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=deps  /app/node_modules ./node_modules
 
-# Trim dev deps for runtime
+# Trim devDependencies for smaller runtime
 RUN npm prune --omit=dev || true
 
 EXPOSE 3000
