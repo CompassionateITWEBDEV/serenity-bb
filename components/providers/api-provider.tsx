@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, type ReactNode } from "react"
-import { apiClient, type ApiClient } from "@/lib/api-client"
+import { apiClient } from "@/lib/api-client"
 
 const ApiContext = createContext<ApiClient | null>(null)
 
