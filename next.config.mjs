@@ -1,9 +1,6 @@
-// next.config.js
-module.exports = {
-  async rewrites() {
-    return [{ source: '/old', destination: '/new' }];
-  },
-  async redirects() {
-    return [{ source: '/from', destination: '/to', permanent: true }];
-  },
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // your config (rewrites, redirects, images, etc.)
 };
+
+export default nextConfig;
