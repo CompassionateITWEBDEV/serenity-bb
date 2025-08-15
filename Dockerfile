@@ -1,43 +1,32 @@
-# syntax=docker/dockerfile:1
-
 # ---------- base ----------
 FROM node:20-alpine AS base
 WORKDIR /app
-RUN apk add --no-cache libc6-compat
+ENV NEXT_TELEMETRY_DISABLED=1
 
-# ---------- deps ----------
+# ---------- deps (install WITH devDependencies for build) ----------
 FROM base AS deps
-# Copy manifests (wildcard = always matches package.json; also matches lockfile if present)
-COPY package*.json ./
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Avoid peer-dep conflicts (React 19 vs vaul) during install
-RUN npm config set legacy-peer-deps true
-
-# If lockfile exists -> npm ci; otherwise -> npm install
-RUN if [ -f package-lock.json ]; then \
-      npm ci --omit=dev; \
-    else \
-      npm install --omit=dev; \
-    fi
-
-# ---------- runner ----------
-FROM node:20-alpine AS runner
-ENV NODE_ENV=production
-WORKDIR /app
-
-# Bring in node_modules from deps stage
-COPY --from=deps /app/node_modules /app/node_modules
-
-# Copy manifests and the rest of the app
-COPY package*.json ./
+# ---------- build ----------
+FROM base AS build
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# If you use Tailwind, PostCSS needs the config files present here.
+RUN npm run build
 
-# If your app has a build step (Next/Vite/CRA), this won't fail the build if absent
-RUN npm run build || echo "No build script detected; skipping build."
+# ---------- runtime (prune to production) ----------
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+# Render injects PORT; Next will bind to it. Set HOSTNAME for Next 15+.
+ENV HOSTNAME=0.0.0.0
 
-# EXPOSE 3000
-# If you have "start" script in package.json, use this:
-# CMD ["npm", "run", "start"]
+COPY package.json ./
+COPY --from=build /app/.next ./.next
+COPY --from=build /app/public ./public
+COPY --from=deps  /app/node_modules ./node_modules
+RUN npm prune --omit=dev
 
-# Otherwise, for a Node server entry:
-# CMD ["node", "server.js"]
+EXPOSE 3000
+CMD ["npm", "start"]
