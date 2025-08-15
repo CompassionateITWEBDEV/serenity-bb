@@ -1,9 +1,6 @@
 {
   "version": 2,
-   {
-    "pages/api/**/*.js": { "maxDuration": 30 },
-    "pages/api/**/*.ts": { "maxDuration": 30 },
-    "app/api/**/route.js": { "maxDuration": 30 },
-    "app/api/**/route.ts": { "maxDuration": 30 }
-  }
+  "buildCommand": "pnpm build",
+  "installCommand": "corepack enable && corepack prepare pnpm@10 --activate && pnpm install --frozen-lockfile",
+  "outputDirectory": ".next"
 }
