@@ -15,7 +15,7 @@ export class ApiError extends Error {
   }
 }
 
-class ApiClient {
+export class ApiClient {
   private baseURL: string
 
   constructor() {
