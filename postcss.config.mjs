@@ -1,3 +1,6 @@
-module.exports = {
-  plugins: { '@tailwindcss/postcss': {} },
+// ESM syntax for .mjs
+export default {
+  plugins: {
+    '@tailwindcss/postcss': {},   // Tailwind v4
+  },
 };
