@@ -3,7 +3,8 @@
 import { createContext, useContext, type ReactNode } from "react"
 import { apiClient } from "@/lib/api-client"
 
-// Derive the type from the instance so we don't need a named type export
+// Derive the type from the exported instance,
+// so we don't need to import a named type.
 type ApiClientType = typeof apiClient
 
 const ApiContext = createContext<ApiClientType | null>(null)
