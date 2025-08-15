@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "functions": {
+   {
     "pages/api/**/*.js": { "maxDuration": 30 },
     "pages/api/**/*.ts": { "maxDuration": 30 },
     "app/api/**/route.js": { "maxDuration": 30 },
