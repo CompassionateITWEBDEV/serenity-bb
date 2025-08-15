@@ -16,6 +16,8 @@
     "setup:env": "cp .env.example .env.local && cd backend && cp .env.example .env"
   },
   "dependencies": {
+    "@radix-ui/react-scroll-area": "1.2.10"
+
     "@hookform/resolvers": "3.10.0",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",
