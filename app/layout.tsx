@@ -6,7 +6,7 @@ import { Playfair_Display, Source_Sans_3 as Source_Sans_Pro } from "next/font/go
 import "./globals.css"
 import Analytics from "./analytics"
 
-const SITE_URL = "https://YOUR_DOMAIN" // ← change this to your real domain
+const SITE_URL = "https://serenity-b9.onrender.com" // ← change this to your real domain
 const ORG_NAME = "Serenity Rehabilitation Center"
 const OG_IMAGE = "/og-image.jpg" // 1200x630 image in /public
 
