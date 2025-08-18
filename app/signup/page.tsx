@@ -1,18 +1,17 @@
-"use client"
+"use client";
 
-import type React from "react"
-
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useAuth } from "@/hooks/use-auth"
-import { Eye, EyeOff, UserPlus, AlertTriangle } from "lucide-react"
+import type React from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Eye, EyeOff, UserPlus, AlertTriangle } from "lucide-react";
+import { supabase } from "@/lib/supabase-browser";
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
@@ -27,53 +26,72 @@ export default function SignupPage() {
     emergencyContactPhone: "",
     emergencyContactRelationship: "",
     treatmentPlan: "",
-  })
-  const [showPassword, setShowPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [error, setError] = useState("")
-  const { signup, loading } = useAuth()
-  const router = useRouter()
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const router = useRouter();
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
-  }
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const backendMissing =
+    !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError("")
+    e.preventDefault();
+    setError("");
 
     if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match")
-      return
+      setError("Passwords do not match");
+      return;
     }
-
     if (formData.password.length < 6) {
-      setError("Password must be at least 6 characters")
-      return
+      setError("Password must be at least 6 characters");
+      return;
     }
 
-    const patientData = {
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      email: formData.email,
-      dateOfBirth: formData.dateOfBirth,
-      phoneNumber: formData.phoneNumber,
-      emergencyContact: {
-        name: formData.emergencyContactName,
-        phone: formData.emergencyContactPhone,
-        relationship: formData.emergencyContactRelationship,
-      },
-      treatmentPlan: formData.treatmentPlan,
-      password: formData.password, // Pass password to signup
-    }
+    setSubmitting(true);
+    try {
+      // Shape payload to match our API route
+      const payload = {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        email: formData.email,
+        password: formData.password,
+        phone: formData.phoneNumber,
+        dateOfBirth: formData.dateOfBirth, // yyyy-mm-dd
+        emergencyName: formData.emergencyContactName,
+        emergencyPhone: formData.emergencyContactPhone,
+        emergencyRelationship: formData.emergencyContactRelationship,
+        treatmentProgram: formData.treatmentPlan,
+      };
 
-    const result = await signup(patientData)
-    if (result.success) {
-      router.push("/dashboard")
-    } else {
-      setError(result.error || "Signup failed")
+      const res = await fetch("/api/patients/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Signup failed");
+
+      // Auto-login the new user (creates client session)
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
+      if (signInError) throw signInError;
+
+      router.push("/dashboard");
+    } catch (err: any) {
+      setError(err?.message ?? "Something went wrong");
+    } finally {
+      setSubmitting(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-cyan-50 via-white to-indigo-50 flex items-center justify-center p-4">
@@ -89,13 +107,15 @@ export default function SignupPage() {
           <p className="text-gray-600">Start your recovery journey with us today</p>
         </div>
 
-        <Alert variant="warning" className="mb-6">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            <strong>Development Mode:</strong> Backend not detected. Your account will be created locally for demo
-            purposes.
-          </AlertDescription>
-        </Alert>
+        {/* Show the warning only when env is missing */}
+        {backendMissing && (
+          <Alert variant="warning" className="mb-6">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              <strong>Development Mode:</strong> Backend not detected. Your account will be created locally for demo purposes.
+            </AlertDescription>
+          </Alert>
+        )}
 
         <Card className="shadow-lg border-0">
           <CardHeader className="space-y-1">
@@ -306,9 +326,9 @@ export default function SignupPage() {
               <Button
                 type="submit"
                 className="w-full h-11 bg-cyan-600 hover:bg-cyan-700 text-white font-medium"
-                disabled={loading}
+                disabled={submitting}
               >
-                {loading ? "Creating Account..." : "Create Account"}
+                {submitting ? "Creating Account..." : "Create Account"}
               </Button>
             </form>
 
@@ -330,5 +350,5 @@ export default function SignupPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }
