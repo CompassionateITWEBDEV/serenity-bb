@@ -3,7 +3,7 @@ import type { Metadata } from "next"
 import Script from "next/script"
 
 const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://YOUR_DOMAIN"
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://serenity-b9.onrender.com"
 
 export const metadata: Metadata = {
   title: "Frequently Asked Questions | Serenity Rehabilitation Center",
