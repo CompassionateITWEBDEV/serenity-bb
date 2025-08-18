@@ -49,6 +49,13 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: ORG_NAME }],
   alternates: { canonical: SITE_URL },
+
+  /** ✅ ADD THIS BLOCK **/
+  verification: {
+    google: "VrzkpR-U5IhfEdHyVKq7C0uqSyX3_Hp46XGQMOQYVjQ"
+    // bing: "optional-bing-code"
+  },
+
   openGraph: {
     type: "website",
     url: SITE_URL,
@@ -56,14 +63,7 @@ export const metadata: Metadata = {
     title: `${ORG_NAME} - Lead Recovery Treatment`,
     description:
       "Compassionate, evidence-based rehabilitation and recovery services with licensed clinicians.",
-    images: [
-      {
-        url: OG_IMAGE, // served from /public
-        width: 1200,
-        height: 630,
-        alt: `${ORG_NAME} cover`,
-      },
-    ],
+    images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: `${ORG_NAME} cover` }],
     locale: "en_US",
   },
   twitter: {
@@ -72,7 +72,6 @@ export const metadata: Metadata = {
     description:
       "Confidential assessments, licensed clinicians, and patient-centered rehab care.",
     images: [OG_IMAGE],
-    creator: "@yourhandle", // optional
   },
   icons: {
     icon: [
@@ -85,6 +84,7 @@ export const metadata: Metadata = {
   category: "healthcare",
   referrer: "strict-origin-when-cross-origin",
 }
+
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const GA_ID = process.env.NEXT_PUBLIC_GA_ID
