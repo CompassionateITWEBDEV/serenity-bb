@@ -1,6 +1,9 @@
+// app/sitemap.ts
+import type { MetadataRoute } from "next"
+
 const SITE_URL = "https://serenity-b9.onrender.com"
 
-export default function sitemap() {
+export default function sitemap(): MetadataRoute.Sitemap {
   return [
     { url: `${SITE_URL}/`, changeFrequency: "weekly", priority: 1.0 },
     { url: `${SITE_URL}/services/rehabilitation`, changeFrequency: "weekly", priority: 0.9 },
