@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://serenity-b9.onrender.com/sitemap.xml
