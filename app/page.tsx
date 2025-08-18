@@ -10,29 +10,30 @@ import { Footer } from "@/components/footer"
 import type { Metadata } from "next"
 
 const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://serenity-b9.onrender.com"
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
+  "https://serenity-b9.onrender.com"
 
-// --- Add SEO metadata ---
 export const metadata: Metadata = {
-  title: "Serenity Rehabilitation Center - Compassionate Rehab & Recovery",
+  title: "Serenity Rehabilitation Center – Rehab & Recovery in Detroit, MI",
   description:
-    "Professional rehabilitation and recovery services. Confidential assessments, licensed clinicians, and patient-centered care.",
+    "Evidence-based rehabilitation in Detroit. Confidential assessments, licensed clinicians, and personalized recovery plans.",
   alternates: { canonical: SITE_URL },
   openGraph: {
     url: SITE_URL,
-    title: "Serenity Rehabilitation Center",
+    title: "Serenity Rehabilitation Center – Rehab & Recovery in Detroit, MI",
     description:
-      "Evidence-based rehabilitation and recovery services with licensed clinicians.",
+      "Compassionate, evidence-based rehabilitation with licensed clinicians.",
     images: [{ url: `${SITE_URL}/og-image.jpg`, width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Serenity Rehabilitation Center",
+    title: "Serenity Rehabilitation Center – Rehab & Recovery in Detroit, MI",
     description:
-      "Compassionate rehab & recovery. Start your confidential assessment today.",
+      "Start your confidential assessment today.",
     images: [`${SITE_URL}/og-image.jpg`],
   },
 }
+
 
 export default function HomePage() {
   // ✅ Only inject JSON-LD (safe, invisible to UI)
