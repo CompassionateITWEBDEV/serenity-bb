@@ -27,7 +27,7 @@ export function HeroSection() {
                   size="lg"
                   className="bg-cyan-600 hover:bg-indigo-500 text-white px-8 py-4 text-lg transition-all duration-300 transform hover:scale-105 w-full sm:w-auto"
                 >
-                 Communty health workeer
+                 Communty health worker
                 </Button>
               </a>
               <Link href="/login">
