@@ -1,6 +1,12 @@
 // app/api/patients/login/route.ts
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { createClient } from "@supabase/supabase-js";
+
+// ✅ Use anon key for login, not service role
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 type Body = {
   email: string;
@@ -12,11 +18,10 @@ export async function POST(req: Request) {
     const { email, password } = (await req.json()) as Body;
 
     if (!email || !password) {
-      return NextResponse.json({ error: "Email and password required" }, { status: 400 });
+      return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
 
-    // ✅ Use Supabase Auth sign-in
-    const supabase = getSupabaseAdmin();
+    // ✅ Correct login method
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
