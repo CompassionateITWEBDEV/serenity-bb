@@ -1,24 +1,41 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextRequest, NextResponse } from "next/server";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
+// ✅ Correctly typed GET route handler for Next.js App Router
 export async function GET(
-  _req: Request,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const { data, error } = await supabase
-    .from("notifications")
-    .select("*")
-    .eq("id", params.id)
-    .single();
+  try {
+    const { id } = params;
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // Example: Fetch the notification from your database
+    // Replace this with your actual DB logic
+    // const notification = await db.notifications.findUnique({ where: { id } });
+
+    // Mock response (delete this when DB is connected)
+    const notification = {
+      id,
+      title: "Test Notification",
+      message: "This is a sample notification fetched successfully!",
+      read: false,
+    };
+
+    if (!notification) {
+      return NextResponse.json(
+        { success: false, error: "Notification not found" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: notification,
+    });
+  } catch (error) {
+    console.error("GET /api/notifications/[id] failed:", error);
+    return NextResponse.json(
+      { success: false, error: "Internal Server Error" },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({ data });
 }
