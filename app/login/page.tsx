@@ -21,15 +21,27 @@ export default function LoginPage() {
   const { login, loading } = useAuth()
   const router = useRouter()
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError("")
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
 
-    const result = await login(email, password)
-    if (result.success) {
-      router.push("/dashboard")
-    } else {
-      setError(result.error || "Login failed")
+    try {
+      const res = await fetch("/api/patients/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        setErr(json?.error || "Login failed");
+        return;
+      }
+
+      // Success – go to your app’s home/dashboard page
+      startTransition(() => router.push("/"));
+    } catch (e: any) {
+      setErr(e?.message || "Network error");
     }
   }
 
