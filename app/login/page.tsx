@@ -39,7 +39,7 @@ export default function LoginPage() {
       }
 
       // Success – go to your app’s home/dashboard page
-      startTransition(() => router.push("/"));
+      startTransition(() => router.push("/dashboard"));
     } catch (e: any) {
       setErr(e?.message || "Network error");
     }
