@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { supabase } from "@/lib/supabase"; // ✅ Correct import based on your project
+import { supabase } from "@/lib/supabase"; // ✅ Correct import
 
 /**
  * Custom hook to listen for new notifications in real-time.
@@ -15,7 +15,7 @@ export function useNotifications(
     // ✅ Guard: Don't subscribe if supabase isn't ready or patientId is missing
     if (!patientId || !supabase) return;
 
-    // ✅ Subscribe to Postgres real-time changes for the notifications table
+    // ✅ Subscribe to Postgres real-time changes for notifications
     const channel = supabase
       .channel("notifications")
       .on(
@@ -24,18 +24,17 @@ export function useNotifications(
           event: "INSERT",
           schema: "public",
           table: "notifications",
-          filter: `patient_id=eq.${patientId}`, // only listen for this patient
+          filter: `patient_id=eq.${patientId}`,
         },
         (payload) => {
-          // Call the provided callback with the new notification data
           onNew(payload.new);
         }
       )
       .subscribe();
 
-    // ✅ Cleanup subscription when the component unmounts or patientId changes
+    // ✅ Cleanup subscription safely using optional chaining
     return () => {
-      supabase.removeChannel(channel);
+      supabase?.removeChannel(channel); // ✅ FIXED HERE
     };
   }, [patientId, onNew]);
 }
