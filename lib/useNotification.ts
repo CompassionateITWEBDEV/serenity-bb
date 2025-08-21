@@ -1,6 +1,7 @@
 import { useEffect } from "react"
 import { supabase } from "@/lib/supabase-client"
 
+
 export function useNotifications(patientId: string, onNew: (n: any) => void) {
   useEffect(() => {
     const channel = supabase
