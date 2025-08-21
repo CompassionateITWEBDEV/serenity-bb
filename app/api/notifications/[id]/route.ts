@@ -1,22 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// ✅ Correctly typed GET route handler for Next.js App Router
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
-    const { id } = params;
+    const { id } = context.params;
 
-    // Example: Fetch the notification from your database
-    // Replace this with your actual DB logic
-    // const notification = await db.notifications.findUnique({ where: { id } });
+    // TODO: Replace with your database fetch logic
+    // Example: const notification = await db.notifications.findUnique({ where: { id } });
 
-    // Mock response (delete this when DB is connected)
+    // Mock response for testing
     const notification = {
       id,
-      title: "Test Notification",
-      message: "This is a sample notification fetched successfully!",
+      title: "Sample Notification",
+      message: "Fetched successfully!",
       read: false,
     };
 
@@ -27,12 +25,9 @@ export async function GET(
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      data: notification,
-    });
+    return NextResponse.json({ success: true, data: notification });
   } catch (error) {
-    console.error("GET /api/notifications/[id] failed:", error);
+    console.error("Error fetching notification:", error);
     return NextResponse.json(
       { success: false, error: "Internal Server Error" },
       { status: 500 }
