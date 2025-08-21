@@ -30,19 +30,37 @@ export async function POST(req: Request) {
     // ✅ Initialize Supabase Admin client
     const supabaseAdmin = getSupabaseAdmin();
 
-    // 1️⃣ Create Supabase Auth user
-    const { data: created, error: createErr } =
-      await supabaseAdmin.auth.admin.createUser({
-        email: body.email,
-        password: body.password,
-        email_confirm: true,
-        user_metadata: {
-          role: "patient",
-          firstName: body.firstName,
-          lastName: body.lastName,
-        },
-        app_metadata: { role: "patient" },
-      });
+    // 1️⃣ Check if a patient with this email already exists
+    const { data: existingPatient, error: existingErr } = await supabaseAdmin
+      .from("patients")
+      .select("user_id")
+      .eq("email", body.email)
+      .maybeSingle();
+
+    if (existingErr) {
+      console.error("❌ Error checking existing patient:", existingErr.message);
+      return NextResponse.json({ error: "Database error." }, { status: 500 });
+    }
+
+    if (existingPatient) {
+      return NextResponse.json(
+        { error: "Patient already exists. Please log in instead." },
+        { status: 409 }
+      );
+    }
+
+    // 2️⃣ Create Supabase Auth user
+    const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+      email: body.email,
+      password: body.password,
+      email_confirm: true,
+      user_metadata: {
+        role: "patient",
+        firstName: body.firstName,
+        lastName: body.lastName,
+      },
+      app_metadata: { role: "patient" },
+    });
 
     if (createErr || !created?.user) {
       return NextResponse.json(
@@ -53,14 +71,14 @@ export async function POST(req: Request) {
 
     const uid = created.user.id;
 
-    // 2️⃣ Insert patient profile into "patients"
-    const { error: insertErr } = await supabaseAdmin.from("patients").insert({
-      user_id: uid, // ✅ FIXED — use user_id instead of id
+    // 3️⃣ Insert or update patient profile (safe insert)
+    const { error: insertErr } = await supabaseAdmin.from("patients").upsert({
+      user_id: uid, // ✅ Use user_id instead of id
       first_name: body.firstName,
       last_name: body.lastName,
-      full_name: `${body.firstName} ${body.lastName}`, // ✅ store combined name
+      full_name: `${body.firstName} ${body.lastName}`,
       email: body.email,
-      phone_number: nil(body.phone), // ✅ match schema column name
+      phone_number: nil(body.phone),
       date_of_birth: isDateYYYYMMDD(body.dateOfBirth)
         ? body.dateOfBirth
         : null,
@@ -68,11 +86,11 @@ export async function POST(req: Request) {
       emergency_contact_phone: nil(body.emergencyPhone),
       emergency_contact_relationship: nil(body.emergencyRelationship),
       treatment_program: nil(body.treatmentProgram),
-      created_at: new Date().toISOString(), // ✅ ensure timestamp is set
+      created_at: new Date().toISOString(),
     });
 
     if (insertErr) {
-      // 🔄 Rollback auth user if patient insert fails
+      // 🔄 Roll back auth user if patient insert fails
       try {
         await supabaseAdmin.auth.admin.deleteUser(uid);
       } catch {
@@ -84,9 +102,7 @@ export async function POST(req: Request) {
     // ✅ Success response
     return NextResponse.json({ ok: true, uid });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Unexpected error" },
-      { status: 500 }
-    );
+    console.error("❌ Unexpected error:", e.message);
+    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
   }
 }
