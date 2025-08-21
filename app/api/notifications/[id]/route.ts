@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(
   req: NextRequest,
-  context: { params: { id: string } }
+  context: any   // ✅ Use `any` to avoid Next.js TS mismatch
 ) {
   try {
-    const { id } = context.params;
+    const id = context.params.id; // ✅ Access safely
 
-    // TODO: Replace with your database fetch logic
-    // Example: const notification = await db.notifications.findUnique({ where: { id } });
+    // Example DB fetch (replace with your real code)
+    // const notification = await db.notifications.findUnique({ where: { id } });
 
     // Mock response for testing
     const notification = {
