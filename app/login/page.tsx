@@ -27,28 +27,44 @@ export default function LoginPage() {
   const [isPending, startTransition] = useTransition();
 
   // Handle login form submission
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
+  async function onSubmit(e) {
+  e.preventDefault()
+  setError(null)
 
-    try {
-      const res = await fetch("/api/patients/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
+  const res = await fetch("/api/patients/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  })
+  const json = await res.json()
 
-      const json = await res.json();
+  if (!res.ok) {
+    setError(json?.error || "Login failed")
+    return
+  }
 
-      if (!res.ok) {
-        setError(json?.error || "Login failed");
-        return;
-      }
+  // Redirect straight to dashboard
+  router.push("/dashboard")
+}
+async function onSubmit(e) {
+  e.preventDefault()
+  setError(null)
 
-      // Redirect to dashboard after successful login
-      startTransition(() => {
-        router.push("/dashboard");
-      });
+  const res = await fetch("/api/patients/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  })
+  const json = await res.json()
+
+  if (!res.ok) {
+    setError(json?.error || "Login failed")
+    return
+  }
+
+  // Redirect straight to dashboard
+  router.push("/dashboard")
+});
     } catch (err: any) {
       setError(err?.message || "Network error");
     }
