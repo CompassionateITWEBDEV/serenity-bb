@@ -1,37 +1,39 @@
-import { useEffect } from "react"
-import { supabase } from "@/lib/supabase"  // ✅ FIXED: correct import
+import { useEffect } from "react";
+import { supabase } from "@/lib/supabase"; // ✅ Correct import based on your project
 
 /**
- * Hook to listen for new notifications in real-time.
+ * Custom hook to listen for new notifications in real-time.
  *
- * @param patientId - The ID of the patient to subscribe to
- * @param onNew - Callback when a new notification arrives
+ * @param patientId - ID of the patient to subscribe to.
+ * @param onNew - Callback function to handle a new notification.
  */
 export function useNotifications(
   patientId: string,
   onNew: (notification: any) => void
 ) {
   useEffect(() => {
-    if (!patientId) return;
+    // ✅ Guard: Don't subscribe if supabase isn't ready or patientId is missing
+    if (!patientId || !supabase) return;
 
-    // ✅ Subscribe to Postgres real-time changes for this patient's notifications
+    // ✅ Subscribe to Postgres real-time changes for the notifications table
     const channel = supabase
-      .channel("notifications") // channel name can be anything
+      .channel("notifications")
       .on(
         "postgres_changes",
         {
-          event: "INSERT",       // listen for new notifications only
+          event: "INSERT",
           schema: "public",
           table: "notifications",
-          filter: `patient_id=eq.${patientId}`, // filter by patient ID
+          filter: `patient_id=eq.${patientId}`, // only listen for this patient
         },
         (payload) => {
-          onNew(payload.new); // send new notification to callback
+          // Call the provided callback with the new notification data
+          onNew(payload.new);
         }
       )
       .subscribe();
 
-    // ✅ Cleanup subscription on unmount or patientId change
+    // ✅ Cleanup subscription when the component unmounts or patientId changes
     return () => {
       supabase.removeChannel(channel);
     };
