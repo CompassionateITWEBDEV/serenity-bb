@@ -23,7 +23,7 @@ export default function LoginPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setErr(null);
+    setError(null);
 
     try {
       const res = await fetch("/api/patients/login", {
