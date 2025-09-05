@@ -85,6 +85,17 @@ export default function SignupPage() {
       });
       if (signInError) throw signInError;
 
+      if (typeof window !== "undefined") {
+        const gtag = (window as any).gtag;
+        if (typeof gtag === "function") {
+          gtag("set", {
+            user_id: data.uid,
+            user_properties: { role: "patient" },
+          });
+          gtag("event", "sign_up", { method: "email" });
+        }
+      }
+
       router.push("/dashboard");
     } catch (err: any) {
       setError(err?.message ?? "Something went wrong");
