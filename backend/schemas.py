@@ -179,6 +179,38 @@ class Group(GroupBase):
     created_by: int
     is_active: bool
     created_at: datetime
-    
+
+    class Config:
+        from_attributes = True
+
+
+# Reminder Schemas
+class ReminderBase(BaseModel):
+    appointment_id: Optional[int] = None
+    reminder_type: str
+    message: Optional[str] = None
+    scheduled_time: datetime
+    status: str = "scheduled"
+
+
+class ReminderCreate(ReminderBase):
+    patient_id: int
+
+
+class ReminderResponse(ReminderBase):
+    id: int
+    patient_id: int
+
+    class Config:
+        from_attributes = True
+
+
+class ReminderSettings(BaseModel):
+    email_enabled: bool = True
+    sms_enabled: bool = True
+    push_enabled: bool = True
+    days_before: List[int] = Field(default_factory=list)
+    time_of_day: str = "09:00"
+
     class Config:
         from_attributes = True

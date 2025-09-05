@@ -189,3 +189,35 @@ class ActivityLog(Base):
     
     # Relationships
     patient = relationship("Patient", back_populates="activity_logs")
+
+
+class Reminder(Base):
+    __tablename__ = "reminders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    appointment_id = Column(Integer, ForeignKey("appointments.id"), nullable=True)
+    reminder_type = Column(String, nullable=False)
+    message = Column(Text)
+    scheduled_time = Column(DateTime(timezone=True), nullable=False)
+    status = Column(String, default="scheduled")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    patient = relationship("Patient")
+    appointment = relationship("Appointment")
+
+
+class ReminderSettings(Base):
+    __tablename__ = "reminder_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), unique=True, nullable=False)
+    email_enabled = Column(Boolean, default=True)
+    sms_enabled = Column(Boolean, default=True)
+    push_enabled = Column(Boolean, default=True)
+    days_before = Column(JSON, default=list)
+    time_of_day = Column(String, default="09:00")
+
+    # Relationships
+    patient = relationship("Patient")

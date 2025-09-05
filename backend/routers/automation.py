@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 import asyncio
 from ..database import get_db
-from ..models import Patient, Appointment, Reminder
-from ..schemas import ReminderCreate, ReminderResponse, ReminderSettings
+from ..models import Patient, Appointment, Reminder, ReminderSettings as ReminderSettingsModel
+from ..schemas import ReminderCreate, ReminderResponse, ReminderSettings as ReminderSettingsSchema
 from ..auth import get_current_patient
 
 router = APIRouter(prefix="/automation", tags=["automation"])
@@ -76,22 +76,22 @@ async def get_active_reminders(
 
 @router.post("/reminders/settings")
 async def update_reminder_settings(
-    settings: ReminderSettings,
+    settings: ReminderSettingsSchema,
     db: Session = Depends(get_db),
     current_patient: Patient = Depends(get_current_patient)
 ):
     """Update patient's reminder preferences"""
     
     # Update or create reminder settings
-    existing_settings = db.query(ReminderSettings).filter(
-        ReminderSettings.patient_id == current_patient.id
+    existing_settings = db.query(ReminderSettingsModel).filter(
+        ReminderSettingsModel.patient_id == current_patient.id
     ).first()
     
     if existing_settings:
         for key, value in settings.dict().items():
             setattr(existing_settings, key, value)
     else:
-        new_settings = ReminderSettings(
+        new_settings = ReminderSettingsModel(
             patient_id=current_patient.id,
             **settings.dict()
         )
@@ -126,13 +126,13 @@ async def schedule_sms_reminder(appointment_id: int, phone: str, send_time: date
 
 def get_reminder_settings(db: Session, patient_id: int):
     """Get patient's reminder settings with defaults"""
-    settings = db.query(ReminderSettings).filter(
-        ReminderSettings.patient_id == patient_id
+    settings = db.query(ReminderSettingsModel).filter(
+        ReminderSettingsModel.patient_id == patient_id
     ).first()
     
     if not settings:
         # Return default settings
-        return ReminderSettings(
+        return ReminderSettingsModel(
             patient_id=patient_id,
             email_enabled=True,
             sms_enabled=True,
