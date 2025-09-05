@@ -73,6 +73,7 @@ class AppointmentBase(BaseModel):
     notes: Optional[str] = None
 
 class AppointmentCreate(AppointmentBase):
+    patient_id: int
     staff_id: int
 
 class Appointment(AppointmentBase):
