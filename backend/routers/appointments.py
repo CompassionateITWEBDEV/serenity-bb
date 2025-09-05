@@ -26,11 +26,13 @@ async def create_appointment(
             )
         patient_id = patient.id
     else:
-        # For staff creating appointments, we'd need patient_id in the request
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Patient ID required for staff-created appointments"
-        )
+        patient = db.query(models.Patient).filter(models.Patient.id == appointment.patient_id).first()
+        if not patient:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Patient not found"
+            )
+        patient_id = patient.id
     
     db_appointment = models.Appointment(
         patient_id=patient_id,
