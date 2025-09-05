@@ -214,3 +214,24 @@ class ReminderSettings(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class LeadBase(BaseModel):
+    first_name: str
+    last_name: str
+    email: EmailStr
+    phone: Optional[str] = None
+    subject: Optional[str] = None
+    message: str
+
+
+class LeadCreate(LeadBase):
+    pass
+
+
+class Lead(LeadBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
