@@ -42,8 +42,9 @@ async def upload_video(
             detail="File must be a video"
         )
     
-    # Check file size
-    if video_file.size > settings.max_file_size:
+    # Read content and check file size
+    content = await video_file.read()
+    if len(content) > settings.max_file_size:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File size exceeds maximum limit of {settings.max_file_size} bytes"
@@ -61,7 +62,6 @@ async def upload_video(
     
     # Save file
     async with aiofiles.open(file_path, 'wb') as f:
-        content = await video_file.read()
         await f.write(content)
     
     # Create database record
