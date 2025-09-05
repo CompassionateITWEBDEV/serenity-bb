@@ -1,3 +1,6 @@
+"use client"
+
+import { FormEvent } from "react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { Button } from "@/components/ui/button"
@@ -8,6 +11,33 @@ import { Label } from "@/components/ui/label"
 import { MapPin, Phone, Mail, Clock, AlertCircle } from "lucide-react"
 
 export default function ContactPage() {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const formData = new FormData(e.currentTarget)
+
+    // Determine preferred contact method based on provided fields
+    const contact_method = formData.get("phone") ? "phone" : "email"
+
+    try {
+      const response = await fetch("/api/contact", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (response.ok) {
+        // @ts-ignore - gtag is injected by the layout when GA_ID is set
+        window.gtag?.("event", "generate_lead", {
+          form_type: "contact",
+          contact_method,
+        })
+
+        e.currentTarget.reset()
+      }
+    } catch (error) {
+      console.error("Failed to submit contact form", error)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
@@ -30,7 +60,7 @@ export default function ContactPage() {
                 <CardTitle className="text-2xl font-serif">Send Us a Message</CardTitle>
               </CardHeader>
               <CardContent>
-                <form className="space-y-6">
+                <form className="space-y-6" onSubmit={handleSubmit}>
                   <div className="grid md:grid-cols-2 gap-4">
                     <div>
                       <Label htmlFor="firstName">First Name *</Label>
