@@ -73,7 +73,9 @@ class AppointmentBase(BaseModel):
     notes: Optional[str] = None
 
 class AppointmentCreate(AppointmentBase):
-    patient_id: int
+    patient_id: Optional[int] = Field(
+        None, description="Target patient ID when created by staff"
+    )
     staff_id: int
 
 class Appointment(AppointmentBase):
