@@ -221,3 +221,16 @@ class ReminderSettings(Base):
 
     # Relationships
     patient = relationship("Patient")
+
+
+class Lead(Base):
+    __tablename__ = "leads"
+
+    id = Column(Integer, primary_key=True, index=True)
+    first_name = Column(String, nullable=False)
+    last_name = Column(String, nullable=False)
+    email = Column(String, nullable=False, index=True)
+    phone = Column(String)
+    subject = Column(String)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

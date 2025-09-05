@@ -18,10 +18,22 @@ export default function ContactPage() {
     // Determine preferred contact method based on provided fields
     const contact_method = formData.get("phone") ? "phone" : "email"
 
+    const data = {
+      first_name: formData.get("firstName"),
+      last_name: formData.get("lastName"),
+      email: formData.get("email"),
+      phone: formData.get("phone"),
+      subject: formData.get("subject"),
+      message: formData.get("message"),
+    }
+
     try {
-      const response = await fetch("/api/contact", {
+      const response = await fetch("/api/leads", {
         method: "POST",
-        body: formData,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
       })
 
       if (response.ok) {
@@ -64,28 +76,28 @@ export default function ContactPage() {
                   <div className="grid md:grid-cols-2 gap-4">
                     <div>
                       <Label htmlFor="firstName">First Name *</Label>
-                      <Input id="firstName" placeholder="Enter your first name" />
+                      <Input id="firstName" name="firstName" placeholder="Enter your first name" />
                     </div>
                     <div>
                       <Label htmlFor="lastName">Last Name *</Label>
-                      <Input id="lastName" placeholder="Enter your last name" />
+                      <Input id="lastName" name="lastName" placeholder="Enter your last name" />
                     </div>
                   </div>
                   <div>
                     <Label htmlFor="email">Email Address *</Label>
-                    <Input id="email" type="email" placeholder="Enter your email" />
+                    <Input id="email" name="email" type="email" placeholder="Enter your email" />
                   </div>
                   <div>
                     <Label htmlFor="phone">Phone Number</Label>
-                    <Input id="phone" type="tel" placeholder="Enter your phone number" />
+                    <Input id="phone" name="phone" type="tel" placeholder="Enter your phone number" />
                   </div>
                   <div>
                     <Label htmlFor="subject">Subject</Label>
-                    <Input id="subject" placeholder="What can we help you with?" />
+                    <Input id="subject" name="subject" placeholder="What can we help you with?" />
                   </div>
                   <div>
                     <Label htmlFor="message">Message *</Label>
-                    <Textarea id="message" placeholder="Tell us how we can help you..." className="min-h-[120px]" />
+                    <Textarea id="message" name="message" placeholder="Tell us how we can help you..." className="min-h-[120px]" />
                   </div>
                   <Button className="w-full bg-cyan-600 hover:bg-indigo-500">Send Message</Button>
                 </form>
