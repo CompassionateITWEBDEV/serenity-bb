@@ -41,3 +41,7 @@ NEXT_PUBLIC_GA_ID=<your-google-analytics-id>
 ```
 
 The `NEXT_PUBLIC_GA_ID` value must be provided for Google Analytics to initialize and for contact form submissions to report `generate_lead` events.
+
+## Backend Notes
+
+- Patients and staff can create appointments through the `/appointments/` endpoint. Staff must supply a `patient_id` when scheduling on behalf of a patient.

@@ -12,10 +12,23 @@ router = APIRouter()
 @router.post("/", response_model=schemas.Appointment)
 async def create_appointment(
     appointment: schemas.AppointmentCreate,
-    current_user: models.User = Depends(require_role([models.UserRole.DOCTOR, models.UserRole.NURSE, models.UserRole.ADMIN])),
+    current_user: models.User = Depends(
+        require_role(
+            [
+                models.UserRole.DOCTOR,
+                models.UserRole.NURSE,
+                models.UserRole.ADMIN,
+                models.UserRole.PATIENT,
+            ]
+        )
+    ),
     db: Session = Depends(get_db)
 ):
-    """Create a new appointment (staff only)."""
+    """Create a new appointment.
+
+    Patients may create appointments for themselves. Staff members must
+    provide a `patient_id` to schedule on behalf of a patient.
+    """
     # Get patient from current user if they're a patient, or from appointment data if staff
     if current_user.role == models.UserRole.PATIENT:
         patient = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
@@ -26,6 +39,11 @@ async def create_appointment(
             )
         patient_id = patient.id
     else:
+        if appointment.patient_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="patient_id is required for staff-created appointments"
+            )
         patient = db.query(models.Patient).filter(models.Patient.id == appointment.patient_id).first()
         if not patient:
             raise HTTPException(
