@@ -25,7 +25,7 @@ export function ContactSection() {
             </CardHeader>
             <CardContent>
               <p className="text-gray-600 mb-4">Speak with our intake specialists</p>
-              <p className="text-2xl font-bold text-cyan-600">(555) 123-HELP</p>
+              <p className="text-2xl font-bold text-cyan-600">(248)-838-3686</p>
               <p className="text-sm text-gray-500 mt-2">Available 24/7</p>
             </CardContent>
           </Card>
