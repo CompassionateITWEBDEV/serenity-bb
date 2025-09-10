@@ -54,9 +54,9 @@ export function ContactSection() {
             <CardContent>
               <p className="text-gray-600 mb-4">Come see our facility</p>
               <p className="text-gray-700">
-                123 Healing Way
+                673 Martin Luther King Jr
                 <br />
-                Serenity City, SC 12345
+                Blvd N, Pontiac, MI 48342
               </p>
               <p className="text-sm text-gray-500 mt-2">Open Mon-Fri 8AM-6PM</p>
             </CardContent>
