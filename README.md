@@ -33,12 +33,12 @@ Continue building your app on:
 
 Create a `.env.local` file in the project root with the following variables:
 
-```
+\`\`\`
 NEXT_PUBLIC_API_URL=<https://your-api-domain.com>
 NEXT_PUBLIC_SUPABASE_URL=<your-supabase-url>
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-supabase-anon-key>
 NEXT_PUBLIC_GA_ID=<your-google-analytics-id>
-```
+\`\`\`
 
 The `NEXT_PUBLIC_GA_ID` value must be provided for Google Analytics to initialize and for contact form submissions to report `generate_lead` events.
 
