@@ -42,8 +42,8 @@ export function HeroSection() {
           </div>
           <div className="relative">
             <img
-              src="/peaceful-rehabilitation-center.png"
-              alt="Serenity Rehabilitation Center - Peaceful healing environment"
+              src="/doctor-patient-automation.jpg"
+              alt="Doctor consulting with patient using advanced healthcare automation technology"
               className="rounded-2xl shadow-2xl"
             />
             <div className="absolute -bottom-6 -left-6 bg-white p-6 rounded-xl shadow-lg">
