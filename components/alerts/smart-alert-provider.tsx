@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, type ReactNode } from "react"
+import { useNotifications } from "@/hooks/use-notifications"
 import { SmartAlert } from "./smart-alert"
 
 interface Alert {
@@ -49,6 +50,16 @@ export function SmartAlertProvider({ children }: { children: ReactNode }) {
       }, alert.duration)
     }
   }
+
+  useNotifications({
+    onNotification: (n) =>
+      addAlert({
+        type: n.type as Alert["type"],
+        title: n.title,
+        message: n.message,
+        priority: n.priority as Alert["priority"],
+      }),
+  })
 
   const removeAlert = (id: string) => {
     setAlerts((prev) => prev.filter((alert) => alert.id !== id))

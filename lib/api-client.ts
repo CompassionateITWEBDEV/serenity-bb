@@ -119,6 +119,11 @@ class ApiClient {
     })
   }
 
+  // Notifications endpoints
+  async getNotifications() {
+    return this.request<any[]>("/notifications")
+  }
+
   // Progress endpoints
   async getProgress() {
     return this.request<any>("/patients/progress")

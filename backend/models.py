@@ -118,6 +118,17 @@ class Message(Base):
     recipient = relationship("User", foreign_keys=[recipient_id], back_populates="received_messages")
     group = relationship("Group", back_populates="messages")
 
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
+    priority = Column(String, default="medium")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class Group(Base):
     __tablename__ = "groups"
     
