@@ -48,7 +48,7 @@ export function Footer() {
 
         <div className="border-t border-gray-800 mt-8 pt-8 text-center">
           <p className="text-gray-400">
-            © 2024 Serenity Rehabilitation Center. All rights reserved. | Privacy Policy | Terms of Service
+            © 2025 Serenity Rehabilitation Center. All rights reserved. | Privacy Policy | Terms of Service
           </p>
         </div>
       </div>
