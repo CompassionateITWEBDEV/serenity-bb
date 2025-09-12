@@ -79,7 +79,7 @@ export class AuthService {
       }
 
       // Get user profile
-      const userProfile = await apiClient.getCurrentUser()
+      const userProfile = await apiClient.getPatientProfile()
 
       const patient: Patient = {
         id: String(userProfile.id),
@@ -270,7 +270,7 @@ export class AuthService {
       if (token && stored) {
         try {
           // Verify token is still valid
-          await apiClient.getCurrentUser()
+          await apiClient.getPatientProfile()
 
           const patient = JSON.parse(stored)
           this.authState = {
