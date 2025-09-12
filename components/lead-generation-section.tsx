@@ -109,7 +109,7 @@ export function LeadGenerationSection() {
                 <MapPin className="w-5 h-5 text-cyan-500" />
                 <div>
                   <div className="font-medium">Address</div>
-                  <div className="text-sm text-gray-600">123 Recovery St, Wellness, MI 48507</div>
+                  <div className="text-sm text-gray-600">673 Martin Luther King Jr Blvd N, Pontiac, MI 48342</div>
                 </div>
               </div>
               <div className="flex items-center space-x-3">
@@ -123,7 +123,7 @@ export function LeadGenerationSection() {
                 <Mail className="w-5 h-5 text-cyan-500" />
                 <div>
                   <div className="font-medium">Email</div>
-                  <div className="text-sm text-gray-600">info@serenityrehab.com</div>
+                  <div className="text-sm text-gray-600">src.health</div>
                 </div>
               </div>
 
