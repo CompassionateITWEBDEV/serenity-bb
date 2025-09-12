@@ -117,25 +117,6 @@ class Message(MessageBase):
     class Config:
         from_attributes = True
 
-# Notification Schemas
-class NotificationBase(BaseModel):
-    type: str
-    title: str
-    message: str
-    priority: str = "medium"
-
-
-class NotificationCreate(NotificationBase):
-    pass
-
-
-class Notification(NotificationBase):
-    id: int
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
 # Medication Log Schemas
 class MedicationLogBase(BaseModel):
     medication_name: str
