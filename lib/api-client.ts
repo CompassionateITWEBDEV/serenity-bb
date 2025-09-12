@@ -80,16 +80,16 @@ class ApiClient {
   }
 
   async getCurrentUser() {
-    return this.request<any>("/patients/me")
+    return this.request<any>("/api/patients/profile")
   }
 
   // Patient endpoints
   async getPatientProfile() {
-    return this.request<any>("/patients/me")
+    return this.request<any>("/api/patients/profile")
   }
 
   async updatePatientProfile(data: any) {
-    return this.request<any>("/patients/me", {
+    return this.request<any>("/api/patients/profile", {
       method: "PUT",
       body: JSON.stringify(data),
     })
