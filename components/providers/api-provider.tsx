@@ -1,18 +1,18 @@
 "use client"
 
 import { createContext, useContext, type ReactNode } from "react"
-import { apiClient } from "@/lib/api-client"
+import { apiClient, type ApiClient } from "@/lib/api-client"
 
-type ApiClientType = typeof apiClient
-
-const ApiContext = createContext<ApiClientType | null>(null)
+const ApiContext = createContext<ApiClient | null>(null)
 
 export function ApiProvider({ children }: { children: ReactNode }) {
   return <ApiContext.Provider value={apiClient}>{children}</ApiContext.Provider>
 }
 
-export function useApi(): ApiClientType {
-  const ctx = useContext(ApiContext)
-  if (!ctx) throw new Error("useApi must be used within an ApiProvider")
-  return ctx
+export function useApi() {
+  const context = useContext(ApiContext)
+  if (!context) {
+    throw new Error("useApi must be used within an ApiProvider")
+  }
+  return context
 }

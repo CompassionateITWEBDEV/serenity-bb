@@ -39,8 +39,7 @@ export function InteractiveMindfulnessExercise() {
   }, [])
 
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | null = null
-
+    let interval: NodeJS.Timeout | null = null
 
     if (isActive && timeRemaining > 0) {
       interval = setInterval(() => {

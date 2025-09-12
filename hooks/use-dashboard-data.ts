@@ -1,65 +1,77 @@
-// hooks/use-dashboard-data.ts
 "use client"
 
-import { useEffect, useState } from "react"
-import { useApi } from "@/components/providers/api-provider"
+import { useState, useEffect } from "react"
+import { apiClient } from "@/lib/api-client"
 
-// Minimal shapes — adjust fields to your real API as needed
-export type Appointment = Record<string, unknown>
-export type Message = Record<string, unknown>
-export type Progress = Record<string, unknown>
-
-type DashboardData = {
-  appointments: Appointment[]
-  messages: Message[]
-  progress: Progress | null
-  loading: boolean
-  error: string | null
-}
-
-export function useDashboardData(): DashboardData {
-  const api = useApi()
-
-  // ✅ Give state explicit types so it won't default to never[]
-  const [appointments, setAppointments] = useState<Appointment[]>([])
-  const [messages, setMessages] = useState<Message[]>([])
-  const [progress, setProgress] = useState<Progress | null>(null)
-
-  const [loading, setLoading] = useState<boolean>(true)
+export function useDashboardData() {
+  const [appointments, setAppointments] = useState([])
+  const [messages, setMessages] = useState([])
+  const [progress, setProgress] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    let cancelled = false
-
-    ;(async () => {
-      setLoading(true)
-      setError(null)
+    const fetchDashboardData = async () => {
       try {
-        // ✅ Tell TS what we expect back
+        setLoading(true)
         const [appointmentsData, messagesData, progressData] = await Promise.all([
-          api.getAppointments() as Promise<Appointment[]>,
-          api.getMessages() as Promise<Message[]>,
-          api.getProgress() as Promise<Progress>,
+          apiClient.getAppointments().catch(() => []),
+          apiClient.getMessages().catch(() => []),
+          apiClient.getProgress().catch(() => null),
         ])
 
-        if (cancelled) return
-
-        // ✅ Always set arrays with array types
-        setAppointments(Array.isArray(appointmentsData) ? appointmentsData : [])
-        setMessages(Array.isArray(messagesData) ? messagesData : [])
-        setProgress(progressData ?? null)
+        setAppointments(appointmentsData)
+        setMessages(messagesData)
+        setProgress(progressData)
       } catch (err) {
-        if (cancelled) return
-        setError(err instanceof Error ? err.message : "Failed to load dashboard data")
+        setError("Failed to load dashboard data")
+        console.error("Dashboard data fetch error:", err)
       } finally {
-        if (!cancelled) setLoading(false)
+        setLoading(false)
       }
-    })()
-
-    return () => {
-      cancelled = true
     }
-  }, [api])
 
-  return { appointments, messages, progress, loading, error }
+    fetchDashboardData()
+  }, [])
+
+  const createAppointment = async (appointmentData: any) => {
+    try {
+      const newAppointment = await apiClient.createAppointment(appointmentData)
+      setAppointments((prev) => [...prev, newAppointment])
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: "Failed to create appointment" }
+    }
+  }
+
+  const sendMessage = async (messageData: any) => {
+    try {
+      const newMessage = await apiClient.sendMessage(messageData)
+      setMessages((prev) => [...prev, newMessage])
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: "Failed to send message" }
+    }
+  }
+
+  const updateProgress = async (progressData: any) => {
+    try {
+      const updatedProgress = await apiClient.updateProgress(progressData)
+      setProgress(updatedProgress)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: "Failed to update progress" }
+    }
+  }
+
+  return {
+    appointments,
+    messages,
+    progress,
+    loading,
+    error,
+    createAppointment,
+    sendMessage,
+    updateProgress,
+  }
 }

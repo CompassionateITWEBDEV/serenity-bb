@@ -6,7 +6,6 @@ from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from config import settings
-from database import get_db
 import models
 import schemas
 
@@ -80,23 +79,6 @@ def get_current_active_user(current_user: models.User = Depends(get_current_user
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
-
-def get_current_patient(
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_active_user),
-):
-    """Return the patient profile for the logged-in user or raise if role mismatches."""
-    if current_user.role != models.UserRole.PATIENT:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions",
-        )
-
-    patient = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
-    if patient is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
-
-    return patient
 
 def require_role(allowed_roles: list):
     """Decorator to require specific user roles."""

@@ -40,7 +40,7 @@ export function Footer() {
 
           <div>
             <h4 className="font-semibold text-white mb-4">Emergency</h4>
-            <p className="text-cyan-400 font-bold text-lg">(248)-838-3686</p>
+            <p className="text-cyan-400 font-bold text-lg">(555) 123-HELP</p>
             <p className="text-gray-300 text-sm mt-2">24/7 Crisis Support</p>
             <p className="text-gray-300 text-sm mt-4">If this is a medical emergency, call 911 immediately.</p>
           </div>
@@ -48,7 +48,7 @@ export function Footer() {
 
         <div className="border-t border-gray-800 mt-8 pt-8 text-center">
           <p className="text-gray-400">
-            © 2025 Serenity Rehabilitation Center. All rights reserved. | Privacy Policy | Terms of Service
+            © 2024 Serenity Rehabilitation Center. All rights reserved. | Privacy Policy | Terms of Service
           </p>
         </div>
       </div>

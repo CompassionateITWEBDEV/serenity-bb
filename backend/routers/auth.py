@@ -22,52 +22,70 @@ async def register_user(user: schemas.UserCreate, db: Session = Depends(get_db))
             detail="Email already registered"
         )
     
-    # Try to create patient in Supabase if available
+    # Try to create user in Supabase if available
     supabase_patient = None
     if supabase_client.is_available():
         try:
-            supabase_patient = await supabase_client.create_patient({
+            supabase_user_data = {
                 "email": user.email,
-                "password_hash": get_password_hash(user.password),
+                "hashed_password": get_password_hash(user.password),
                 "full_name": f"{user.first_name} {user.last_name}",
-                "phone_number": user.phone,
-                "is_active": True
-            })
+                "is_active": True,
+                "role": user.role
+            }
+            supabase_user = await supabase_client.create_user(supabase_user_data)
+            
+            if user.role == "patient" and supabase_user:
+                supabase_patient_data = {
+                    "user_id": supabase_user["id"],
+                    "date_of_birth": getattr(user, 'date_of_birth', None),
+                    "phone_number": getattr(user, 'phone_number', None),
+                    "emergency_contact_name": getattr(user, 'emergency_contact_name', None),
+                    "emergency_contact_phone": getattr(user, 'emergency_contact_phone', None),
+                    "emergency_contact_relationship": getattr(user, 'emergency_contact_relationship', None),
+                    "treatment_plan": getattr(user, 'treatment_plan', None)
+                }
+                supabase_patient = await supabase_client.create_patient(supabase_patient_data)
         except Exception as e:
             # Log error but continue with local registration
             print(f"Supabase registration failed: {e}")
     
-    # Create new user in local database
+    # Create new user in local database with full patient information
     hashed_password = get_password_hash(user.password)
     db_user = models.User(
         email=user.email,
         hashed_password=hashed_password,
-        first_name=user.first_name,
-        last_name=user.last_name,
-        phone=user.phone,
-        role=user.role
+        full_name=f"{user.first_name} {user.last_name}",
+        is_active=True,
+        role=user.role or "patient"
     )
     
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
     
-    # Create patient profile if user is a patient
-    if user.role == models.UserRole.PATIENT:
-        patient_id = f"PAT{db_user.id:06d}"
+    # Create patient profile with all the collected data
+    if user.role == "patient" or not user.role:
         db_patient = models.Patient(
             user_id=db_user.id,
-            patient_id=patient_id
+            date_of_birth=getattr(user, 'date_of_birth', None),
+            phone_number=getattr(user, 'phone_number', None),
+            emergency_contact_name=getattr(user, 'emergency_contact_name', None),
+            emergency_contact_phone=getattr(user, 'emergency_contact_phone', None),
+            emergency_contact_relationship=getattr(user, 'emergency_contact_relationship', None),
+            treatment_plan=getattr(user, 'treatment_plan', None),
+            status='active'
         )
         db.add(db_patient)
         db.commit()
     
     # Create staff profile if user is staff
-    elif user.role in [models.UserRole.DOCTOR, models.UserRole.NURSE, models.UserRole.COUNSELOR]:
-        staff_id = f"STF{db_user.id:06d}"
+    elif user.role in ["doctor", "nurse", "counselor", "admin"]:
         db_staff = models.Staff(
             user_id=db_user.id,
-            staff_id=staff_id
+            staff_type=user.role,
+            phone_number=getattr(user, 'phone_number', None),
+            is_available=True
         )
         db.add(db_staff)
         db.commit()

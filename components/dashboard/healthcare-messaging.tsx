@@ -156,8 +156,7 @@ export function HealthcareMessaging() {
   const [newMessage, setNewMessage] = useState("")
   const [isTyping, setIsTyping] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
+  const typingTimeoutRef = useRef<NodeJS.Timeout>()
 
   useEffect(() => {
     const interval = setInterval(() => {

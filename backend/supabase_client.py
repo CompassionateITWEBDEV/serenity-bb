@@ -20,11 +20,11 @@ class SupabaseClient:
 
     def _initialize_client(self):
         """Initialize Supabase client with environment variables."""
-        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_url = os.getenv("SUPABASE_URL", "https://cycakdfxcsjknxkqpasp.supabase.co")
         supabase_key = os.getenv("SUPABASE_ANON_KEY")
         
-        if not supabase_url or not supabase_key:
-            logger.warning("Supabase credentials not found. Using fallback mode.")
+        if not supabase_key:
+            logger.warning("Supabase anon key not found. Using fallback mode.")
             return
         
         try:
@@ -48,7 +48,10 @@ class SupabaseClient:
             return None
         
         try:
-            result = self._client.table("patients").insert(patient_data).execute()
+            clean_patient_data = {k: v for k, v in patient_data.items() 
+                                if k not in ['updated_at', 'created_at']}
+            
+            result = self._client.table("patients").insert(clean_patient_data).execute()
             return result.data[0] if result.data else None
         except Exception as e:
             logger.error(f"Failed to create patient: {e}")
@@ -60,7 +63,7 @@ class SupabaseClient:
             return None
         
         try:
-            result = self._client.table("patients").select("*").eq("email", email).execute()
+            result = self._client.table("users").select("*, patients(*)").eq("email", email).execute()
             return result.data[0] if result.data else None
         except Exception as e:
             logger.error(f"Failed to get patient by email: {e}")
@@ -72,7 +75,9 @@ class SupabaseClient:
             return None
         
         try:
-            result = self._client.table("patients").update(update_data).eq("id", patient_id).execute()
+            clean_update_data = {k: v for k, v in update_data.items() if k != 'updated_at'}
+            
+            result = self._client.table("patients").update(clean_update_data).eq("id", patient_id).execute()
             return result.data[0] if result.data else None
         except Exception as e:
             logger.error(f"Failed to update patient: {e}")
@@ -101,6 +106,21 @@ class SupabaseClient:
         except Exception as e:
             logger.error(f"Failed to get intake forms: {e}")
             return []
+
+    async def create_user(self, user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Create a new user record in Supabase."""
+        if not self.is_available():
+            return None
+        
+        try:
+            clean_user_data = {k: v for k, v in user_data.items() 
+                             if k not in ['updated_at', 'created_at']}
+            
+            result = self._client.table("users").insert(clean_user_data).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            logger.error(f"Failed to create user: {e}")
+            return None
 
 # Global instance
 supabase_client = SupabaseClient()

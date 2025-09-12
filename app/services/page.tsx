@@ -1,40 +1,22 @@
-import { Suspense } from "react";
-import { Header } from "@/components/header";
-import { Footer } from "@/components/footer";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { CheckCircle, Users, Heart, Clock, Shield, Phone } from "lucide-react";
-import type { Metadata } from "next";
-
-export const metadata: Metadata = {
-  title: "Our Treatment Services | Serenity Rehabilitation Center",
-  description:
-    "Comprehensive, evidence-based treatment programs designed to support your recovery journey with dignity and care.",
-};
+import { Header } from "@/components/header"
+import { Footer } from "@/components/footer"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { CheckCircle, Users, Heart, Clock, Shield, Phone } from "lucide-react"
 
 export default function ServicesPage() {
   return (
     <div className="min-h-screen bg-gray-50">
-      <Suspense fallback={null}>
-        <Header />
-      </Suspense>
+      <Header />
 
       <main className="py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Hero Section */}
           <div className="text-center mb-16">
-            <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">
-              Our Treatment Services
-            </h1>
+            <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">Our Treatment Services</h1>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              Comprehensive, evidence-based treatment programs designed to
-              support your recovery journey with dignity and care.
+              Comprehensive, evidence-based treatment programs designed to support your recovery journey with dignity
+              and care.
             </p>
           </div>
 
@@ -46,9 +28,7 @@ export default function ServicesPage() {
                   <Heart className="w-6 h-6 text-cyan-600" />
                 </div>
                 <CardTitle>Individual Therapy</CardTitle>
-                <CardDescription>
-                  One-on-one counseling sessions tailored to your specific needs
-                </CardDescription>
+                <CardDescription>One-on-one counseling sessions tailored to your specific needs</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
@@ -74,9 +54,7 @@ export default function ServicesPage() {
                   <Users className="w-6 h-6 text-indigo-600" />
                 </div>
                 <CardTitle>Group Counseling</CardTitle>
-                <CardDescription>
-                  Peer support and shared healing experiences
-                </CardDescription>
+                <CardDescription>Peer support and shared healing experiences</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
@@ -102,9 +80,7 @@ export default function ServicesPage() {
                   <Shield className="w-6 h-6 text-green-600" />
                 </div>
                 <CardTitle>MAT Programs</CardTitle>
-                <CardDescription>
-                  Medication-Assisted Treatment for comprehensive care
-                </CardDescription>
+                <CardDescription>Medication-Assisted Treatment for comprehensive care</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
@@ -130,9 +106,7 @@ export default function ServicesPage() {
                   <Clock className="w-6 h-6 text-purple-600" />
                 </div>
                 <CardTitle>24/7 Support</CardTitle>
-                <CardDescription>
-                  Round-the-clock crisis intervention and support
-                </CardDescription>
+                <CardDescription>Round-the-clock crisis intervention and support</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
@@ -158,9 +132,7 @@ export default function ServicesPage() {
                   <Heart className="w-6 h-6 text-orange-600" />
                 </div>
                 <CardTitle>Holistic Care</CardTitle>
-                <CardDescription>
-                  Comprehensive wellness and recovery support
-                </CardDescription>
+                <CardDescription>Comprehensive wellness and recovery support</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
@@ -186,9 +158,7 @@ export default function ServicesPage() {
                   <Phone className="w-6 h-6 text-teal-600" />
                 </div>
                 <CardTitle>Outreach Programs</CardTitle>
-                <CardDescription>
-                  Community support and education initiatives
-                </CardDescription>
+                <CardDescription>Community support and education initiatives</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
@@ -211,12 +181,9 @@ export default function ServicesPage() {
 
           {/* CTA Section */}
           <div className="bg-cyan-600 rounded-lg p-8 text-center text-white">
-            <h2 className="text-3xl font-serif font-bold mb-4">
-              Ready to Start Your Recovery Journey?
-            </h2>
+            <h2 className="text-3xl font-serif font-bold mb-4">Ready to Start Your Recovery Journey?</h2>
             <p className="text-xl mb-6 opacity-90">
-              Our compassionate team is here to support you every step of the
-              way.
+              Our compassionate team is here to support you every step of the way.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Button size="lg" className="bg-white text-cyan-600 hover:bg-gray-100">
@@ -234,9 +201,7 @@ export default function ServicesPage() {
         </div>
       </main>
 
-      <Suspense fallback={null}>
-        <Footer />
-      </Suspense>
+      <Footer />
     </div>
-  );
+  )
 }

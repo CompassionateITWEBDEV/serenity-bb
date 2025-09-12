@@ -25,7 +25,7 @@ export function ContactSection() {
             </CardHeader>
             <CardContent>
               <p className="text-gray-600 mb-4">Speak with our intake specialists</p>
-              <p className="text-2xl font-bold text-cyan-600">(248)-838-3686</p>
+              <p className="text-2xl font-bold text-cyan-600">(555) 123-HELP</p>
               <p className="text-sm text-gray-500 mt-2">Available 24/7</p>
             </CardContent>
           </Card>
@@ -39,7 +39,7 @@ export function ContactSection() {
             </CardHeader>
             <CardContent>
               <p className="text-gray-600 mb-4">Send us your questions</p>
-              <p className="text-lg font-semibold text-cyan-600">src.health</p>
+              <p className="text-lg font-semibold text-cyan-600">help@serenityrehab.com</p>
               <p className="text-sm text-gray-500 mt-2">Response within 2 hours</p>
             </CardContent>
           </Card>
@@ -54,11 +54,11 @@ export function ContactSection() {
             <CardContent>
               <p className="text-gray-600 mb-4">Come see our facility</p>
               <p className="text-gray-700">
-                673 Martin Luther King Jr
+                123 Healing Way
                 <br />
-                Blvd N, Pontiac, MI 48342
+                Serenity City, SC 12345
               </p>
-              <p className="text-sm text-gray-500 mt-2">Open Mon-Fri 8AM-5PM</p>
+              <p className="text-sm text-gray-500 mt-2">Open Mon-Fri 8AM-6PM</p>
             </CardContent>
           </Card>
         </div>

@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -16,24 +17,20 @@ export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState("")
   const { login, loading } = useAuth()
   const router = useRouter()
 
-  // ✅ UPDATED LOGIN HANDLER
-  async function onSubmit(e: React.FormEvent) {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError(null)
+    setError("")
 
     const result = await login(email, password)
-
-    if (!result.success) {
-       setError(result.error ?? "Login failed");
-      return
+    if (result.success) {
+      router.push("/dashboard")
+    } else {
+      setError(result.error || "Login failed")
     }
-
-    // ✅ Go to dashboard if login succeeds
-    router.push("/dashboard")
   }
 
   return (
@@ -53,13 +50,10 @@ export default function LoginPage() {
         <Card className="shadow-lg border-0">
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl font-sans text-center">Patient Login</CardTitle>
-            <CardDescription className="text-center">
-              Enter your credentials to continue your treatment
-            </CardDescription>
+            <CardDescription className="text-center">Enter your credentials to continue your treatment</CardDescription>
           </CardHeader>
           <CardContent>
-            {/* ✅ Use our updated handler */}
-            <form onSubmit={onSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
@@ -111,10 +105,7 @@ export default function LoginPage() {
               </div>
 
               <div className="flex items-center justify-between">
-                <Link
-                  href="/forgot-password"
-                  className="text-sm text-cyan-600 hover:text-cyan-700 hover:underline"
-                >
+                <Link href="/forgot-password" className="text-sm text-cyan-600 hover:text-cyan-700 hover:underline">
                   Forgot password?
                 </Link>
               </div>
@@ -131,10 +122,7 @@ export default function LoginPage() {
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-600">
                 New patient?{" "}
-                <Link
-                  href="/signup"
-                  className="text-cyan-600 hover:text-cyan-700 font-medium hover:underline"
-                >
+                <Link href="/signup" className="text-cyan-600 hover:text-cyan-700 font-medium hover:underline">
                   Create an account
                 </Link>
               </p>
@@ -143,10 +131,7 @@ export default function LoginPage() {
         </Card>
 
         <div className="mt-6 text-center">
-          <Link
-            href="/"
-            className="text-sm text-gray-600 hover:text-gray-800 hover:underline"
-          >
+          <Link href="/" className="text-sm text-gray-600 hover:text-gray-800 hover:underline">
             ← Back to Home
           </Link>
         </div>

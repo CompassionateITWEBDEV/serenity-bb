@@ -1,18 +1,24 @@
 from pydantic import BaseModel, EmailStr, Field
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, List, Dict, Any
 from models import UserRole, AppointmentStatus, MessageStatus
 
 # User Schemas
 class UserBase(BaseModel):
     email: EmailStr
-    first_name: str
-    last_name: str
-    phone: Optional[str] = None
-    role: UserRole = UserRole.PATIENT
+    full_name: str
+    role: str = "patient"
 
 class UserCreate(UserBase):
     password: str
+    first_name: str
+    last_name: str
+    date_of_birth: Optional[date] = None
+    phone_number: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
+    treatment_plan: Optional[str] = None
 
 class UserUpdate(BaseModel):
     first_name: Optional[str] = None
@@ -29,15 +35,17 @@ class User(UserBase):
 
 # Patient Schemas
 class PatientBase(BaseModel):
-    date_of_birth: Optional[datetime] = None
+    date_of_birth: Optional[date] = None
+    phone_number: Optional[str] = None
+    address: Optional[str] = None
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
-    insurance_provider: Optional[str] = None
-    insurance_policy_number: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
     treatment_plan: Optional[str] = None
-    medical_history: Optional[Dict[str, Any]] = None
-    current_medications: Optional[Dict[str, Any]] = None
+    medical_history: Optional[str] = None
+    current_medications: Optional[str] = None
     allergies: Optional[str] = None
+    status: Optional[str] = "active"
 
 class PatientCreate(PatientBase):
     pass
@@ -45,9 +53,11 @@ class PatientCreate(PatientBase):
 class Patient(PatientBase):
     id: int
     user_id: int
-    patient_id: str
-    admission_date: Optional[datetime] = None
-    user: User
+    admission_date: Optional[date] = None
+    discharge_date: Optional[date] = None
+    avatar: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
     
     class Config:
         from_attributes = True
@@ -73,9 +83,6 @@ class AppointmentBase(BaseModel):
     notes: Optional[str] = None
 
 class AppointmentCreate(AppointmentBase):
-    patient_id: Optional[int] = Field(
-        None, description="Target patient ID when created by staff"
-    )
     staff_id: int
 
 class Appointment(AppointmentBase):
@@ -181,59 +188,93 @@ class Group(GroupBase):
     created_by: int
     is_active: bool
     created_at: datetime
-
+    
     class Config:
         from_attributes = True
 
+# Reward Token Schemas
+class RewardTokenBase(BaseModel):
+    tokens_earned: int = 0
+    tokens_spent: int = 0
+    total_tokens: int = 0
+    level: int = 1
 
-# Reminder Schemas
-class ReminderBase(BaseModel):
-    appointment_id: Optional[int] = None
-    reminder_type: str
-    message: Optional[str] = None
-    scheduled_time: datetime
-    status: str = "scheduled"
-
-
-class ReminderCreate(ReminderBase):
-    patient_id: int
-
-
-class ReminderResponse(ReminderBase):
+class RewardToken(RewardTokenBase):
     id: int
     patient_id: int
-
+    created_at: datetime
+    updated_at: datetime
+    
     class Config:
         from_attributes = True
 
+# Token Transaction Schemas
+class TokenTransactionBase(BaseModel):
+    transaction_type: str  # 'earned' or 'spent'
+    amount: int
+    reason: str
+    source_type: str  # 'appointment', 'video_upload', etc.
+    source_id: Optional[int] = None
+    description: Optional[str] = None
 
-class ReminderSettings(BaseModel):
-    email_enabled: bool = True
-    sms_enabled: bool = True
-    push_enabled: bool = True
-    days_before: List[int] = Field(default_factory=list)
-    time_of_day: str = "09:00"
-
-    class Config:
-        from_attributes = True
-
-
-class LeadBase(BaseModel):
-    first_name: str
-    last_name: str
-    email: EmailStr
-    phone: Optional[str] = None
-    subject: Optional[str] = None
-    message: str
-
-
-class LeadCreate(LeadBase):
+class TokenTransactionCreate(TokenTransactionBase):
     pass
 
-
-class Lead(LeadBase):
+class TokenTransaction(TokenTransactionBase):
     id: int
+    patient_id: int
     created_at: datetime
-
+    
     class Config:
         from_attributes = True
+
+# Rewards Catalog Schemas
+class RewardsCatalogBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    cost_tokens: int
+    category: str  # 'privilege', 'item', 'experience'
+    is_active: bool = True
+
+class RewardsCatalogCreate(RewardsCatalogBase):
+    pass
+
+class RewardsCatalog(RewardsCatalogBase):
+    id: int
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# Patient Reward Schemas
+class PatientRewardBase(BaseModel):
+    reward_id: int
+    tokens_spent: int
+    status: str = 'active'  # 'active', 'used', 'expired'
+
+class PatientRewardCreate(PatientRewardBase):
+    pass
+
+class PatientReward(PatientRewardBase):
+    id: int
+    patient_id: int
+    redeemed_at: datetime
+    reward: Optional[RewardsCatalog] = None
+    
+    class Config:
+        from_attributes = True
+
+# Gamification Response Schemas
+class TokenAwardResponse(BaseModel):
+    tokens_awarded: int
+    new_total: int
+    level: int
+    level_up: bool = False
+    message: str
+
+class PatientProgress(BaseModel):
+    patient_id: int
+    tokens: RewardToken
+    recent_transactions: List[TokenTransaction]
+    available_rewards: List[RewardsCatalog]
+    redeemed_rewards: List[PatientReward]

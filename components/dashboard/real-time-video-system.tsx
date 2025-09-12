@@ -94,8 +94,7 @@ export default function RealTimeVideoSystem() {
 
   // Recording timer
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>
-
+    let interval: NodeJS.Timeout
     if (isRecording) {
       interval = setInterval(() => {
         setRecordingTime((prev) => prev + 1)
