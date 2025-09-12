@@ -7,23 +7,80 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Calendar, Phone, Mail, MapPin, Heart, Activity, Award, Clock, Target, TrendingUp, Edit } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { useAuth } from "@/hooks/use-auth"
+import { useRealtimeProfile } from "@/hooks/use-realtime-profile"
+import { RealtimeStatusIndicator } from "@/components/realtime-status-indicator"
+import {
+  Calendar,
+  Phone,
+  Mail,
+  MapPin,
+  Heart,
+  Activity,
+  Award,
+  Clock,
+  Target,
+  TrendingUp,
+  Edit,
+  Save,
+  X,
+  CheckCircle,
+} from "lucide-react"
 
 export default function ProfilePage() {
+  const { patient, isAuthenticated } = useAuth()
+  const { profileData, updateProfile, isOnline, isRealtimeEnabled } = useRealtimeProfile()
   const [isEditing, setIsEditing] = useState(false)
+  const [editForm, setEditForm] = useState({
+    firstName: "",
+    lastName: "",
+    phoneNumber: "",
+    dateOfBirth: "",
+  })
+  const [updateStatus, setUpdateStatus] = useState<{ type: "success" | "error"; message: string } | null>(null)
 
-  const patientInfo = {
-    firstName: "John",
-    lastName: "Doe",
-    email: "john.doe@email.com",
-    phone: "+1 (555) 123-4567",
-    dateOfBirth: "January 15, 1990",
-    address: "123 Recovery Lane, Wellness City, WC 12345",
-    emergencyContact: "Jane Doe - (555) 987-6543",
-    admissionDate: "March 1, 2024",
-    treatmentType: "Outpatient",
-    primaryPhysician: "Dr. Sarah Smith",
-    counselor: "Mike Wilson",
+  const currentPatient = profileData || patient
+
+  if (!isAuthenticated || !currentPatient) {
+    return (
+      <div className="container mx-auto p-6 max-w-6xl">
+        <div className="text-center">
+          <p className="text-gray-600">Please log in to view your profile.</p>
+        </div>
+      </div>
+    )
+  }
+
+  const handleEditStart = () => {
+    setEditForm({
+      firstName: currentPatient.firstName,
+      lastName: currentPatient.lastName,
+      phoneNumber: currentPatient.phoneNumber,
+      dateOfBirth: currentPatient.dateOfBirth,
+    })
+    setIsEditing(true)
+    setUpdateStatus(null)
+  }
+
+  const handleSaveProfile = async () => {
+    const result = await updateProfile(editForm)
+
+    if (result.success) {
+      setUpdateStatus({ type: "success", message: "Profile updated successfully!" })
+      setIsEditing(false)
+
+      setTimeout(() => setUpdateStatus(null), 3000)
+    } else {
+      setUpdateStatus({ type: "error", message: result.error || "Failed to update profile" })
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setIsEditing(false)
+    setUpdateStatus(null)
   }
 
   const achievements = [
@@ -61,10 +118,24 @@ export default function ProfilePage() {
 
   return (
     <div className="container mx-auto p-6 max-w-6xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
-        <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
+          <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
+        </div>
+        <RealtimeStatusIndicator isOnline={isOnline} isRealtimeEnabled={isRealtimeEnabled} />
       </div>
+
+      {updateStatus && (
+        <Alert
+          className={`mb-6 ${updateStatus.type === "success" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}
+        >
+          {updateStatus.type === "success" && <CheckCircle className="h-4 w-4 text-green-600" />}
+          <AlertDescription className={updateStatus.type === "success" ? "text-green-800" : "text-red-800"}>
+            {updateStatus.message}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Profile Overview */}
@@ -73,43 +144,93 @@ export default function ProfilePage() {
             <CardHeader className="text-center">
               <div className="flex justify-center mb-4">
                 <Avatar className="h-24 w-24">
-                  <AvatarImage src="/patient-avatar.png" />
+                  <AvatarImage src={currentPatient.avatar || "/patient-avatar.png"} />
                   <AvatarFallback className="text-2xl">
-                    {patientInfo.firstName[0]}
-                    {patientInfo.lastName[0]}
+                    {currentPatient.firstName[0]}
+                    {currentPatient.lastName[0]}
                   </AvatarFallback>
                 </Avatar>
               </div>
               <CardTitle className="text-2xl">
-                {patientInfo.firstName} {patientInfo.lastName}
+                {currentPatient.firstName} {currentPatient.lastName}
               </CardTitle>
-              <CardDescription>Patient ID: #PAT-2024-001</CardDescription>
+              <CardDescription>Patient ID: #{currentPatient.id}</CardDescription>
               <div className="flex justify-center gap-2 mt-4">
-                <Badge variant="secondary">{patientInfo.treatmentType}</Badge>
+                <Badge variant="secondary">{currentPatient.treatmentPlan}</Badge>
                 <Badge variant="outline">Active</Badge>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center gap-3">
-                <Mail className="h-4 w-4 text-gray-500" />
-                <span className="text-sm">{patientInfo.email}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <Phone className="h-4 w-4 text-gray-500" />
-                <span className="text-sm">{patientInfo.phone}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <Calendar className="h-4 w-4 text-gray-500" />
-                <span className="text-sm">Born {patientInfo.dateOfBirth}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <MapPin className="h-4 w-4 text-gray-500" />
-                <span className="text-sm">{patientInfo.address}</span>
-              </div>
-              <Button className="w-full mt-4" onClick={() => setIsEditing(!isEditing)}>
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Profile
-              </Button>
+              {isEditing ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="firstName">First Name</Label>
+                    <Input
+                      id="firstName"
+                      value={editForm.firstName}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, firstName: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="lastName">Last Name</Label>
+                    <Input
+                      id="lastName"
+                      value={editForm.lastName}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, lastName: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phoneNumber">Phone Number</Label>
+                    <Input
+                      id="phoneNumber"
+                      value={editForm.phoneNumber}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, phoneNumber: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="dateOfBirth">Date of Birth</Label>
+                    <Input
+                      id="dateOfBirth"
+                      type="date"
+                      value={editForm.dateOfBirth}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, dateOfBirth: e.target.value }))}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button onClick={handleSaveProfile} className="flex-1">
+                      <Save className="h-4 w-4 mr-2" />
+                      Save
+                    </Button>
+                    <Button variant="outline" onClick={handleCancelEdit} className="flex-1 bg-transparent">
+                      <X className="h-4 w-4 mr-2" />
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3">
+                    <Mail className="h-4 w-4 text-gray-500" />
+                    <span className="text-sm">{currentPatient.email}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Phone className="h-4 w-4 text-gray-500" />
+                    <span className="text-sm">{currentPatient.phoneNumber}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Calendar className="h-4 w-4 text-gray-500" />
+                    <span className="text-sm">Born {currentPatient.dateOfBirth}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <MapPin className="h-4 w-4 text-gray-500" />
+                    <span className="text-sm">Emergency: {currentPatient.emergencyContact.name}</span>
+                  </div>
+                  <Button className="w-full mt-4" onClick={handleEditStart}>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit Profile
+                  </Button>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -212,7 +333,7 @@ export default function ProfilePage() {
                           <AvatarFallback>DS</AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="text-sm font-medium">{patientInfo.primaryPhysician}</p>
+                          <p className="text-sm font-medium">Dr. Sarah Smith</p>
                           <p className="text-xs text-gray-600">Primary Physician</p>
                         </div>
                       </div>
@@ -222,7 +343,7 @@ export default function ProfilePage() {
                           <AvatarFallback>MW</AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="text-sm font-medium">{patientInfo.counselor}</p>
+                          <p className="text-sm font-medium">Mike Wilson</p>
                           <p className="text-xs text-gray-600">Counselor</p>
                         </div>
                       </div>
@@ -271,12 +392,12 @@ export default function ProfilePage() {
                       <h4 className="font-medium mb-2">Treatment Information</h4>
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
-                          <span>Admission Date:</span>
-                          <span>{patientInfo.admissionDate}</span>
+                          <span>Join Date:</span>
+                          <span>{currentPatient.joinDate}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span>Treatment Type:</span>
-                          <span>{patientInfo.treatmentType}</span>
+                          <span>Treatment Plan:</span>
+                          <span>{currentPatient.treatmentPlan}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>Program Duration:</span>
@@ -289,11 +410,15 @@ export default function ProfilePage() {
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span>Contact:</span>
-                          <span>{patientInfo.emergencyContact}</span>
+                          <span>{currentPatient.emergencyContact.name}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Phone:</span>
+                          <span>{currentPatient.emergencyContact.phone}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>Relationship:</span>
-                          <span>Spouse</span>
+                          <span>{currentPatient.emergencyContact.relationship}</span>
                         </div>
                       </div>
                     </div>

@@ -14,6 +14,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/hooks/use-auth"
+import { useRealtimeProfile } from "@/hooks/use-realtime-profile"
+import { RealtimeStatusIndicator } from "@/components/realtime-status-indicator"
 import { Bell, Settings, LogOut, User, Heart, Menu, X } from "lucide-react"
 import type { Patient } from "@/lib/auth"
 
@@ -23,8 +25,11 @@ interface DashboardHeaderProps {
 
 export function DashboardHeader({ patient }: DashboardHeaderProps) {
   const { logout } = useAuth()
+  const { profileData, isOnline, isRealtimeEnabled } = useRealtimeProfile()
   const router = useRouter()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  const currentPatient = profileData || patient
 
   const handleLogout = () => {
     logout()
@@ -71,6 +76,8 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
 
           {/* Right Side */}
           <div className="flex items-center space-x-4">
+            <RealtimeStatusIndicator isOnline={isOnline} isRealtimeEnabled={isRealtimeEnabled} />
+
             {/* Notifications */}
             <Button variant="ghost" size="sm" className="relative">
               <Bell className="h-5 w-5" />
@@ -85,12 +92,12 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                   <Avatar className="h-8 w-8">
                     <AvatarImage
-                      src={patient.avatar || "/placeholder.svg"}
-                      alt={`${patient.firstName} ${patient.lastName}`}
+                      src={currentPatient.avatar || "/placeholder.svg"}
+                      alt={`${currentPatient.firstName} ${currentPatient.lastName}`}
                     />
                     <AvatarFallback>
-                      {patient.firstName[0]}
-                      {patient.lastName[0]}
+                      {currentPatient.firstName[0]}
+                      {currentPatient.lastName[0]}
                     </AvatarFallback>
                   </Avatar>
                 </Button>
@@ -99,9 +106,9 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
                     <p className="text-sm font-medium leading-none">
-                      {patient.firstName} {patient.lastName}
+                      {currentPatient.firstName} {currentPatient.lastName}
                     </p>
-                    <p className="text-xs leading-none text-muted-foreground">{patient.email}</p>
+                    <p className="text-xs leading-none text-muted-foreground">{currentPatient.email}</p>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
