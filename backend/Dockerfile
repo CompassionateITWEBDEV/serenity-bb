@@ -1,31 +1,41 @@
 FROM python:3.11-slim
 
+
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
+RUN apt-get update && apt-get install -y \
+gcc \
+postgresql-client \
+&& rm -rf /var/lib/apt/lists/*
+
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+
 COPY . .
 
-# Create non-root user
+
+# Non-root
 RUN useradd --create-home --shell /bin/bash app \
-    && chown -R app:app /app
+&& chown -R app:app /app
 USER app
 
-# Expose port
+
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health')"
 
-# Run the application
+# Healthcheck using stdlib (no requests needed)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+CMD python - <<'PY' || exit 1
+import urllib.request, sys
+try:
+with urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5) as r:
+sys.exit(0 if r.status == 200 else 1)
+except Exception:
+sys.exit(1)
+PY
+
+
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
