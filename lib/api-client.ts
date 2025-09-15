@@ -55,10 +55,13 @@ class ApiClient {
 
   // ==== Auth ====
   async login(email: string, password: string) {
-    const payload = { email, password };
+    const formData = new FormData();
+    formData.append("username", email);
+    formData.append("password", password);
     return this.request<{ access_token: string; token_type: string; user?: any }>("/auth/login", {
       method: "POST",
-      body: JSON.stringify(payload),
+      headers: {}, // Let browser set multipart boundary
+      body: formData,
     });
   }
 

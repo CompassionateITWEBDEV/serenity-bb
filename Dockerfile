@@ -15,9 +15,9 @@ RUN npm config set legacy-peer-deps true
 
 # If lockfile exists -> npm ci; otherwise -> npm install
 RUN if [ -f package-lock.json ]; then \
-      npm ci; \
+      npm ci --omit=dev; \
     else \
-      npm install; \
+      npm install --omit=dev; \
     fi
 
 # ---------- runner ----------
@@ -35,4 +35,9 @@ COPY . .
 # If your app has a build step (Next/Vite/CRA), this won't fail the build if absent
 RUN npm run build || echo "No build script detected; skipping build."
 
-CMD ["npm", "run", "start"]
+# EXPOSE 3000
+# If you have "start" script in package.json, use this:
+# CMD ["npm", "run", "start"]
+
+# Otherwise, for a Node server entry:
+# CMD ["node", "server.js"]
