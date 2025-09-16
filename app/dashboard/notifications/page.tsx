@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useNotifications } from "@/lib/useNotifications"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -14,106 +14,112 @@ import {
   CheckCircle,
   Clock,
   Trash2,
-  BookMarkedIcon as MarkAsUnread,
+  KanbanSquareDashed as MarkAsUnread,
   Settings,
+  Loader2,
 } from "lucide-react"
+import { formatDistanceToNow } from "date-fns"
+
+// Mock patient ID - in a real app, this would come from auth context
+const MOCK_PATIENT_ID = "123e4567-e89b-12d3-a456-426614174000"
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      type: "appointment",
-      title: "Upcoming Appointment Reminder",
-      message: "You have a group therapy session tomorrow at 2:00 PM",
-      time: "2 hours ago",
-      read: false,
-      priority: "medium",
-      icon: Calendar,
-    },
-    {
-      id: 2,
-      type: "medication",
-      title: "Medication Reminder",
-      message: "Time to take your morning medication",
-      time: "4 hours ago",
-      read: true,
-      priority: "high",
-      icon: Heart,
-    },
-    {
-      id: 3,
-      type: "message",
-      title: "New Message from Dr. Smith",
-      message: "Great progress in today's session! Keep up the excellent work.",
-      time: "1 day ago",
-      read: false,
-      priority: "medium",
-      icon: MessageCircle,
-    },
-    {
-      id: 4,
-      type: "achievement",
-      title: "Milestone Achieved!",
-      message: "Congratulations! You've completed 30 consecutive days of treatment.",
-      time: "2 days ago",
-      read: true,
-      priority: "low",
-      icon: CheckCircle,
-    },
-    {
-      id: 5,
-      type: "alert",
-      title: "Emergency Contact Update",
-      message: "Please update your emergency contact information in your profile.",
-      time: "3 days ago",
-      read: false,
-      priority: "high",
-      icon: AlertTriangle,
-    },
-  ])
-
-  const markAsRead = (id: number) => {
-    setNotifications(notifications.map((notif) => (notif.id === id ? { ...notif, read: true } : notif)))
-  }
-
-  const markAsUnread = (id: number) => {
-    setNotifications(notifications.map((notif) => (notif.id === id ? { ...notif, read: false } : notif)))
-  }
-
-  const deleteNotification = (id: number) => {
-    setNotifications(notifications.filter((notif) => notif.id !== id))
-  }
-
-  const markAllAsRead = () => {
-    setNotifications(notifications.map((notif) => ({ ...notif, read: true })))
-  }
+  const { notifications, loading, error, markAsRead, markAsUnread, deleteNotification, markAllAsRead } =
+    useNotifications(MOCK_PATIENT_ID)
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case "high":
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case "appointment":
+        return Calendar
+      case "medication":
+        return Heart
+      case "message":
+        return MessageCircle
+      case "achievement":
+        return CheckCircle
+      case "alert":
+        return AlertTriangle
+      default:
+        return Bell
+    }
+  }
+
+  const getPriorityColor = (type: string) => {
+    switch (type) {
+      case "alert":
         return "border-l-red-500"
-      case "medium":
-        return "border-l-yellow-500"
-      case "low":
+      case "medication":
+        return "border-l-orange-500"
+      case "appointment":
+        return "border-l-blue-500"
+      case "message":
         return "border-l-green-500"
+      case "achievement":
+        return "border-l-purple-500"
       default:
         return "border-l-gray-300"
     }
   }
 
-  const getPriorityBadge = (priority: string) => {
-    switch (priority) {
-      case "high":
-        return <Badge variant="destructive">High</Badge>
-      case "medium":
-        return <Badge variant="secondary">Medium</Badge>
-      case "low":
-        return <Badge variant="outline">Low</Badge>
+  const getPriorityBadge = (type: string) => {
+    switch (type) {
+      case "alert":
+        return <Badge variant="destructive">Alert</Badge>
+      case "medication":
+        return <Badge variant="secondary">Health</Badge>
+      case "appointment":
+        return <Badge variant="outline">Appointment</Badge>
+      case "message":
+        return <Badge variant="outline">Message</Badge>
+      case "achievement":
+        return <Badge variant="outline">Achievement</Badge>
       default:
         return null
     }
+  }
+
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case "appointment":
+        return "bg-blue-100 text-blue-600"
+      case "medication":
+        return "bg-red-100 text-red-600"
+      case "message":
+        return "bg-green-100 text-green-600"
+      case "achievement":
+        return "bg-purple-100 text-purple-600"
+      case "alert":
+        return "bg-orange-100 text-orange-600"
+      default:
+        return "bg-gray-100 text-gray-600"
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="container mx-auto p-6 max-w-4xl">
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <span className="ml-2 text-gray-600">Loading notifications...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto p-6 max-w-4xl">
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <AlertTriangle className="h-12 w-12 text-red-400 mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Error loading notifications</h3>
+            <p className="text-gray-600 text-center">{error}</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -125,7 +131,7 @@ export default function NotificationsPage() {
             <p className="text-gray-600 mt-2">Stay updated with your treatment progress and important reminders</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={markAllAsRead}>
+            <Button variant="outline" onClick={markAllAsRead} disabled={unreadCount === 0}>
               Mark All Read
             </Button>
             <Button variant="outline">
@@ -148,10 +154,10 @@ export default function NotificationsPage() {
         <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="all">All</TabsTrigger>
           <TabsTrigger value="unread">Unread ({unreadCount})</TabsTrigger>
-          <TabsTrigger value="appointments">Appointments</TabsTrigger>
-          <TabsTrigger value="messages">Messages</TabsTrigger>
-          <TabsTrigger value="health">Health</TabsTrigger>
-          <TabsTrigger value="achievements">Achievements</TabsTrigger>
+          <TabsTrigger value="appointment">Appointments</TabsTrigger>
+          <TabsTrigger value="message">Messages</TabsTrigger>
+          <TabsTrigger value="medication">Health</TabsTrigger>
+          <TabsTrigger value="achievement">Achievements</TabsTrigger>
         </TabsList>
 
         <TabsContent value="all">
@@ -166,29 +172,17 @@ export default function NotificationsPage() {
               </Card>
             ) : (
               notifications.map((notification) => {
-                const IconComponent = notification.icon
+                const IconComponent = getTypeIcon(notification.type)
                 return (
                   <Card
                     key={notification.id}
-                    className={`border-l-4 ${getPriorityColor(notification.priority)} ${
+                    className={`border-l-4 ${getPriorityColor(notification.type)} ${
                       !notification.read ? "bg-blue-50/50" : ""
                     }`}
                   >
                     <CardContent className="p-4">
                       <div className="flex items-start gap-4">
-                        <div
-                          className={`p-2 rounded-lg ${
-                            notification.type === "appointment"
-                              ? "bg-blue-100 text-blue-600"
-                              : notification.type === "medication"
-                                ? "bg-red-100 text-red-600"
-                                : notification.type === "message"
-                                  ? "bg-green-100 text-green-600"
-                                  : notification.type === "achievement"
-                                    ? "bg-purple-100 text-purple-600"
-                                    : "bg-orange-100 text-orange-600"
-                          }`}
-                        >
+                        <div className={`p-2 rounded-lg ${getTypeColor(notification.type)}`}>
                           <IconComponent className="h-5 w-5" />
                         </div>
 
@@ -198,12 +192,12 @@ export default function NotificationsPage() {
                               {notification.title}
                             </h3>
                             {!notification.read && <div className="w-2 h-2 bg-blue-500 rounded-full"></div>}
-                            {getPriorityBadge(notification.priority)}
+                            {getPriorityBadge(notification.type)}
                           </div>
                           <p className="text-gray-600 text-sm mb-2">{notification.message}</p>
                           <div className="flex items-center gap-2 text-xs text-gray-500">
                             <Clock className="h-3 w-3" />
-                            {notification.time}
+                            {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
                           </div>
                         </div>
 
@@ -235,27 +229,15 @@ export default function NotificationsPage() {
             {notifications
               .filter((n) => !n.read)
               .map((notification) => {
-                const IconComponent = notification.icon
+                const IconComponent = getTypeIcon(notification.type)
                 return (
                   <Card
                     key={notification.id}
-                    className={`border-l-4 ${getPriorityColor(notification.priority)} bg-blue-50/50`}
+                    className={`border-l-4 ${getPriorityColor(notification.type)} bg-blue-50/50`}
                   >
                     <CardContent className="p-4">
                       <div className="flex items-start gap-4">
-                        <div
-                          className={`p-2 rounded-lg ${
-                            notification.type === "appointment"
-                              ? "bg-blue-100 text-blue-600"
-                              : notification.type === "medication"
-                                ? "bg-red-100 text-red-600"
-                                : notification.type === "message"
-                                  ? "bg-green-100 text-green-600"
-                                  : notification.type === "achievement"
-                                    ? "bg-purple-100 text-purple-600"
-                                    : "bg-orange-100 text-orange-600"
-                          }`}
-                        >
+                        <div className={`p-2 rounded-lg ${getTypeColor(notification.type)}`}>
                           <IconComponent className="h-5 w-5" />
                         </div>
 
@@ -263,12 +245,12 @@ export default function NotificationsPage() {
                           <div className="flex items-center gap-2 mb-1">
                             <h3 className="font-medium text-gray-900">{notification.title}</h3>
                             <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                            {getPriorityBadge(notification.priority)}
+                            {getPriorityBadge(notification.type)}
                           </div>
                           <p className="text-gray-600 text-sm mb-2">{notification.message}</p>
                           <div className="flex items-center gap-2 text-xs text-gray-500">
                             <Clock className="h-3 w-3" />
-                            {notification.time}
+                            {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
                           </div>
                         </div>
 
@@ -288,115 +270,35 @@ export default function NotificationsPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="appointments">
-          <div className="space-y-4">
-            {notifications
-              .filter((n) => n.type === "appointment")
-              .map((notification) => {
-                const IconComponent = notification.icon
-                return (
-                  <Card key={notification.id} className={`border-l-4 ${getPriorityColor(notification.priority)}`}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-4">
-                        <div className="p-2 rounded-lg bg-blue-100 text-blue-600">
-                          <IconComponent className="h-5 w-5" />
+        {["appointment", "message", "medication", "achievement"].map((filterType) => (
+          <TabsContent key={filterType} value={filterType}>
+            <div className="space-y-4">
+              {notifications
+                .filter((n) => n.type === filterType || (filterType === "medication" && n.type === "alert"))
+                .map((notification) => {
+                  const IconComponent = getTypeIcon(notification.type)
+                  return (
+                    <Card key={notification.id} className={`border-l-4 ${getPriorityColor(notification.type)}`}>
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-4">
+                          <div className={`p-2 rounded-lg ${getTypeColor(notification.type)}`}>
+                            <IconComponent className="h-5 w-5" />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="font-medium">{notification.title}</h3>
+                            <p className="text-gray-600 text-sm">{notification.message}</p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
+                            </p>
+                          </div>
                         </div>
-                        <div className="flex-1">
-                          <h3 className="font-medium">{notification.title}</h3>
-                          <p className="text-gray-600 text-sm">{notification.message}</p>
-                          <p className="text-xs text-gray-500 mt-1">{notification.time}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="messages">
-          <div className="space-y-4">
-            {notifications
-              .filter((n) => n.type === "message")
-              .map((notification) => {
-                const IconComponent = notification.icon
-                return (
-                  <Card key={notification.id} className={`border-l-4 ${getPriorityColor(notification.priority)}`}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-4">
-                        <div className="p-2 rounded-lg bg-green-100 text-green-600">
-                          <IconComponent className="h-5 w-5" />
-                        </div>
-                        <div className="flex-1">
-                          <h3 className="font-medium">{notification.title}</h3>
-                          <p className="text-gray-600 text-sm">{notification.message}</p>
-                          <p className="text-xs text-gray-500 mt-1">{notification.time}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="health">
-          <div className="space-y-4">
-            {notifications
-              .filter((n) => n.type === "medication" || n.type === "alert")
-              .map((notification) => {
-                const IconComponent = notification.icon
-                return (
-                  <Card key={notification.id} className={`border-l-4 ${getPriorityColor(notification.priority)}`}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-4">
-                        <div
-                          className={`p-2 rounded-lg ${
-                            notification.type === "medication"
-                              ? "bg-red-100 text-red-600"
-                              : "bg-orange-100 text-orange-600"
-                          }`}
-                        >
-                          <IconComponent className="h-5 w-5" />
-                        </div>
-                        <div className="flex-1">
-                          <h3 className="font-medium">{notification.title}</h3>
-                          <p className="text-gray-600 text-sm">{notification.message}</p>
-                          <p className="text-xs text-gray-500 mt-1">{notification.time}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="achievements">
-          <div className="space-y-4">
-            {notifications
-              .filter((n) => n.type === "achievement")
-              .map((notification) => {
-                const IconComponent = notification.icon
-                return (
-                  <Card key={notification.id} className={`border-l-4 ${getPriorityColor(notification.priority)}`}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-4">
-                        <div className="p-2 rounded-lg bg-purple-100 text-purple-600">
-                          <IconComponent className="h-5 w-5" />
-                        </div>
-                        <div className="flex-1">
-                          <h3 className="font-medium">{notification.title}</h3>
-                          <p className="text-gray-600 text-sm">{notification.message}</p>
-                          <p className="text-xs text-gray-500 mt-1">{notification.time}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              })}
-          </div>
-        </TabsContent>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+            </div>
+          </TabsContent>
+        ))}
       </Tabs>
     </div>
   )
