@@ -1,10 +1,9 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from contextlib import asynccontextmanager
 import uvicorn
 from database import engine, Base
-from routers import auth, patients, appointments, messages, videos, groups
+from routers import auth, patients, appointments, messages, videos, groups, leads
 from config import settings
 
 # Create database tables
@@ -43,6 +42,7 @@ app.include_router(appointments.router, prefix="/api/appointments", tags=["Appoi
 app.include_router(messages.router, prefix="/api/messages", tags=["Messages"])
 app.include_router(videos.router, prefix="/api/videos", tags=["Videos"])
 app.include_router(groups.router, prefix="/api/groups", tags=["Groups"])
+app.include_router(leads.router, prefix="/api/leads", tags=["Leads"])
 
 @app.get("/")
 async def root():

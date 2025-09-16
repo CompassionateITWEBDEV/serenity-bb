@@ -1,43 +1,58 @@
-# syntax=docker/dockerfile:1
-
 # ---------- base ----------
 FROM node:20-alpine AS base
 WORKDIR /app
-RUN apk add --no-cache libc6-compat
 
-# ---------- deps ----------
+# Disable telemetry and tell npm to ignore peer-dep conflicts
+# (needed because you're on React 19 with some libs that declare React 18 peers)
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    npm_config_legacy_peer_deps=true
+
+# ---------- deps (install WITH devDependencies for build) ----------
 FROM base AS deps
-# Copy manifests (wildcard = always matches package.json; also matches lockfile if present)
-COPY package*.json ./
+# Only npm manifests — do NOT bring pnpm/yarn files into the image
+COPY package.json ./
+COPY package-lock.json* ./
 
-# Avoid peer-dep conflicts (React 19 vs vaul) during install
-RUN npm config set legacy-peer-deps true
+# Always use npm (never pnpm/yarn)
+RUN set -eux; \
+  if [ -f package-lock.json ]; then \
+    npm ci; \
+  else \
+    npm install; \
+  fi
 
-# If lockfile exists -> npm ci; otherwise -> npm install
-RUN if [ -f package-lock.json ]; then \
-      npm ci --omit=dev; \
-    else \
-      npm install --omit=dev; \
-    fi
-
-# ---------- runner ----------
-FROM node:20-alpine AS runner
-ENV NODE_ENV=production
-WORKDIR /app
-
-# Bring in node_modules from deps stage
-COPY --from=deps /app/node_modules /app/node_modules
-
-# Copy manifests and the rest of the app
-COPY package*.json ./
+# ---------- build ----------
+FROM base AS build
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# If your app has a build step (Next/Vite/CRA), this won't fail the build if absent
-RUN npm run build || echo "No build script detected; skipping build."
+# Safety net: if postcss.config.mjs exists but used CJS, overwrite with valid ESM
+# (prevents "module is not defined in ES module scope")
+RUN set -eux; \
+  if [ -f postcss.config.mjs ]; then \
+    echo 'export default { plugins: { "@tailwindcss/postcss": {} } };' > postcss.config.mjs; \
+  fi
 
-# EXPOSE 3000
-# If you have "start" script in package.json, use this:
-# CMD ["npm", "run", "start"]
+RUN npm run build
 
-# Otherwise, for a Node server entry:
-# CMD ["node", "server.js"]
+# ---------- runtime ----------
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000 \
+    npm_config_legacy_peer_deps=true
+
+# Minimal files needed to run
+COPY package.json ./
+COPY package-lock.json* ./
+COPY --from=build /app/.next ./.next
+COPY --from=build /app/public ./public
+COPY --from=deps  /app/node_modules ./node_modules
+
+# Trim devDependencies for smaller runtime
+RUN npm prune --omit=dev || true
+
+EXPOSE 3000
+CMD ["npm", "start"]

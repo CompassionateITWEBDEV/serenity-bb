@@ -1,3 +1,6 @@
+"use client"
+
+import { FormEvent } from "react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { Button } from "@/components/ui/button"
@@ -8,6 +11,45 @@ import { Label } from "@/components/ui/label"
 import { MapPin, Phone, Mail, Clock, AlertCircle } from "lucide-react"
 
 export default function ContactPage() {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const formData = new FormData(e.currentTarget)
+
+    // Determine preferred contact method based on provided fields
+    const contact_method = formData.get("phone") ? "phone" : "email"
+
+    const data = {
+      first_name: formData.get("firstName"),
+      last_name: formData.get("lastName"),
+      email: formData.get("email"),
+      phone: formData.get("phone"),
+      subject: formData.get("subject"),
+      message: formData.get("message"),
+    }
+
+    try {
+      const response = await fetch("/api/leads", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      })
+
+      if (response.ok) {
+        // @ts-ignore - gtag is injected by the layout when GA_ID is set
+        window.gtag?.("event", "generate_lead", {
+          form_type: "contact",
+          contact_method,
+        })
+
+        e.currentTarget.reset()
+      }
+    } catch (error) {
+      console.error("Failed to submit contact form", error)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
@@ -30,32 +72,32 @@ export default function ContactPage() {
                 <CardTitle className="text-2xl font-serif">Send Us a Message</CardTitle>
               </CardHeader>
               <CardContent>
-                <form className="space-y-6">
+                <form className="space-y-6" onSubmit={handleSubmit}>
                   <div className="grid md:grid-cols-2 gap-4">
                     <div>
                       <Label htmlFor="firstName">First Name *</Label>
-                      <Input id="firstName" placeholder="Enter your first name" />
+                      <Input id="firstName" name="firstName" placeholder="Enter your first name" />
                     </div>
                     <div>
                       <Label htmlFor="lastName">Last Name *</Label>
-                      <Input id="lastName" placeholder="Enter your last name" />
+                      <Input id="lastName" name="lastName" placeholder="Enter your last name" />
                     </div>
                   </div>
                   <div>
                     <Label htmlFor="email">Email Address *</Label>
-                    <Input id="email" type="email" placeholder="Enter your email" />
+                    <Input id="email" name="email" type="email" placeholder="Enter your email" />
                   </div>
                   <div>
                     <Label htmlFor="phone">Phone Number</Label>
-                    <Input id="phone" type="tel" placeholder="Enter your phone number" />
+                    <Input id="phone" name="phone" type="tel" placeholder="Enter your phone number" />
                   </div>
                   <div>
                     <Label htmlFor="subject">Subject</Label>
-                    <Input id="subject" placeholder="What can we help you with?" />
+                    <Input id="subject" name="subject" placeholder="What can we help you with?" />
                   </div>
                   <div>
                     <Label htmlFor="message">Message *</Label>
-                    <Textarea id="message" placeholder="Tell us how we can help you..." className="min-h-[120px]" />
+                    <Textarea id="message" name="message" placeholder="Tell us how we can help you..." className="min-h-[120px]" />
                   </div>
                   <Button className="w-full bg-cyan-600 hover:bg-indigo-500">Send Message</Button>
                 </form>

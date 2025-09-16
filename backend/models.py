@@ -66,7 +66,6 @@ class Patient(Base):
     medication_logs = relationship("MedicationLog", back_populates="patient")
     video_recordings = relationship("VideoRecording", back_populates="patient")
     activity_logs = relationship("ActivityLog", back_populates="patient")
-    reward_tokens = relationship("RewardToken", back_populates="patient", uselist=False)
 
 class Staff(Base):
     __tablename__ = "staff"
@@ -191,63 +190,47 @@ class ActivityLog(Base):
     # Relationships
     patient = relationship("Patient", back_populates="activity_logs")
 
-class RewardToken(Base):
-    __tablename__ = "reward_tokens"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    patient_id = Column(Integer, ForeignKey("patients.id"), unique=True)
-    tokens_earned = Column(Integer, default=0)
-    tokens_spent = Column(Integer, default=0)
-    total_tokens = Column(Integer, default=0)
-    level = Column(Integer, default=1)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
-    # Relationships
-    patient = relationship("Patient", back_populates="reward_tokens")
-    transactions = relationship("TokenTransaction", back_populates="reward_token")
 
-class TokenTransaction(Base):
-    __tablename__ = "token_transactions"
-    
+class Reminder(Base):
+    __tablename__ = "reminders"
+
     id = Column(Integer, primary_key=True, index=True)
-    patient_id = Column(Integer, ForeignKey("patients.id"))
-    transaction_type = Column(String, nullable=False)  # 'earned' or 'spent'
-    amount = Column(Integer, nullable=False)
-    reason = Column(String(100), nullable=False)
-    source_type = Column(String(50), nullable=False)  # 'appointment', 'video_upload', etc.
-    source_id = Column(Integer, nullable=True)  # ID of related record
-    description = Column(Text)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False)
+    appointment_id = Column(Integer, ForeignKey("appointments.id"), nullable=True)
+    reminder_type = Column(String, nullable=False)
+    message = Column(Text)
+    scheduled_time = Column(DateTime(timezone=True), nullable=False)
+    status = Column(String, default="scheduled")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     # Relationships
     patient = relationship("Patient")
-    reward_token = relationship("RewardToken", back_populates="transactions")
+    appointment = relationship("Appointment")
 
-class RewardsCatalog(Base):
-    __tablename__ = "rewards_catalog"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False)
-    description = Column(Text)
-    cost_tokens = Column(Integer, nullable=False)
-    category = Column(String(50), nullable=False)  # 'privilege', 'item', 'experience'
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    # Relationships
-    patient_rewards = relationship("PatientReward", back_populates="reward")
 
-class PatientReward(Base):
-    __tablename__ = "patient_rewards"
-    
+class ReminderSettings(Base):
+    __tablename__ = "reminder_settings"
+
     id = Column(Integer, primary_key=True, index=True)
-    patient_id = Column(Integer, ForeignKey("patients.id"))
-    reward_id = Column(Integer, ForeignKey("rewards_catalog.id"))
-    tokens_spent = Column(Integer, nullable=False)
-    redeemed_at = Column(DateTime(timezone=True), server_default=func.now())
-    status = Column(String(20), default='active')  # 'active', 'used', 'expired'
-    
+    patient_id = Column(Integer, ForeignKey("patients.id"), unique=True, nullable=False)
+    email_enabled = Column(Boolean, default=True)
+    sms_enabled = Column(Boolean, default=True)
+    push_enabled = Column(Boolean, default=True)
+    days_before = Column(JSON, default=list)
+    time_of_day = Column(String, default="09:00")
+
     # Relationships
     patient = relationship("Patient")
-    reward = relationship("RewardsCatalog", back_populates="patient_rewards")
+
+
+class Lead(Base):
+    __tablename__ = "leads"
+
+    id = Column(Integer, primary_key=True, index=True)
+    first_name = Column(String, nullable=False)
+    last_name = Column(String, nullable=False)
+    email = Column(String, nullable=False, index=True)
+    phone = Column(String)
+    subject = Column(String)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
