@@ -27,7 +27,7 @@ export function HeroSection() {
                   size="lg"
                   className="bg-cyan-600 hover:bg-indigo-500 text-white px-8 py-4 text-lg transition-all duration-300 transform hover:scale-105 w-full sm:w-auto"
                 >
-                 Communty health Worker
+                  Community Health Worker
                 </Button>
               </a>
               <Link href="/login">
@@ -42,8 +42,8 @@ export function HeroSection() {
           </div>
           <div className="relative">
             <img
-              src="/peaceful-rehabilitation-center.png"
-              alt="Serenity Rehabilitation Center - Peaceful healing environment"
+              src="/professional-nurse-caring-for-patient-in-modern-he.jpg"
+              alt="Professional nurse caring for patient in modern healthcare facility"
               className="rounded-2xl shadow-2xl"
             />
             <div className="absolute -bottom-6 -left-6 bg-white p-6 rounded-xl shadow-lg">

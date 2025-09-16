@@ -4,7 +4,11 @@ export function AboutSection() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid lg:grid-cols-2 gap-16 items-center">
           <div>
-            <img src="/placeholder-n7wjh.png" alt="Our dedicated medical team" className="rounded-2xl shadow-xl" />
+            <img
+              src="/caring-nurse-helping-patient-in-medical-setting.jpg"
+              alt="Caring nurse helping patient in medical setting"
+              className="rounded-2xl shadow-xl"
+            />
           </div>
           <div className="space-y-6">
             <h2 className="text-4xl font-serif font-bold text-gray-900">Join Our Community of Hope and Recovery</h2>
