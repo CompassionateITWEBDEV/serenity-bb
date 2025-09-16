@@ -1,12 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
-// ✅ Explicitly assert environment variables
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
+const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
+if (!url || !anon) throw new Error("Missing NEXT_PUBLIC_SUPABASE_* envs");
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("❌ Missing Supabase environment variables");
-}
-
-// ✅ Guaranteed non-null Supabase client
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(url, anon);
