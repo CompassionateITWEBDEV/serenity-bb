@@ -1,108 +1,91 @@
-// app/api/patients/signup/route.ts
-import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { NextResponse } from "next/server"
+import { z } from "zod"
+import { sbAdmin } from "@/lib/supabase/admin"
 
-type Body = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  password: string;
-  phone?: string;
-  dateOfBirth?: string; // yyyy-mm-dd
-  emergencyName?: string;
-  emergencyPhone?: string;
-  emergencyRelationship?: string;
-  treatmentProgram?: string;
-};
+const SignupSchema = z.object({
+  first_name: z.string().min(1),
+  last_name: z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(8),
+  phone: z.string().optional().nullable(),
+  date_of_birth: z.string().optional().nullable(), // "YYYY-MM-DD" or "MM/DD/YYYY"
+  address: z.string().optional().nullable(),
+  emergency_contact_name: z.string().optional().nullable(),
+  emergency_contact_phone: z.string().optional().nullable(),
+  emergency_contact_relationship: z.string().optional().nullable(),
+  treatment_type: z.string().optional().nullable(), // "Comprehensive Recovery Program" → store as text
+})
 
-const isDateYYYYMMDD = (v?: string) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
-const nil = (v?: string | null) => (v && v.trim() !== "" ? v : null);
+function toISODate(input?: string | null) {
+  if (!input) return null
+  // accepts "YYYY-MM-DD" or "MM/DD/YYYY"
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input
+  const m = input.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (m) {
+    const [_, mm, dd, yyyy] = m
+    const iso = new Date(Number(yyyy), Number(mm) - 1, Number(dd))
+    if (!isNaN(iso.getTime())) return iso.toISOString().slice(0, 10)
+  }
+  return null
+}
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as Body;
-
-    // ✅ Basic validation
-    if (!body?.firstName || !body?.lastName || !body?.email || !body?.password) {
-      return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
+    const body = await req.json()
+    const parsed = SignupSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid signup data", issues: parsed.error.flatten() }, { status: 400 })
     }
+    const data = parsed.data
 
-    // ✅ Initialize Supabase Admin client
-    const supabaseAdmin = getSupabaseAdmin();
-
-    // 1️⃣ Check if a patient with this email already exists
-    const { data: existingPatient, error: existingErr } = await supabaseAdmin
-      .from("patients")
-      .select("user_id")
-      .eq("email", body.email)
-      .maybeSingle();
-
-    if (existingErr) {
-      console.error("❌ Error checking existing patient:", existingErr.message);
-      return NextResponse.json({ error: "Database error." }, { status: 500 });
-    }
-
-    if (existingPatient) {
-      return NextResponse.json(
-        { error: "Patient already exists. Please log in instead." },
-        { status: 409 }
-      );
-    }
-
-    // 2️⃣ Create Supabase Auth user
-    const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-      email: body.email,
-      password: body.password,
-      email_confirm: true,
-      user_metadata: {
-        role: "patient",
-        firstName: body.firstName,
-        lastName: body.lastName,
-      },
-      app_metadata: { role: "patient" },
-    });
-
-    if (createErr || !created?.user) {
-      return NextResponse.json(
-        { error: createErr?.message || "Auth creation failed." },
-        { status: 400 }
-      );
-    }
-
-    const uid = created.user.id;
-
-    // 3️⃣ Insert or update patient profile (safe insert)
-    const { error: insertErr } = await supabaseAdmin.from("patients").upsert({
-      user_id: uid, // ✅ Use user_id instead of id
-      first_name: body.firstName,
-      last_name: body.lastName,
-      full_name: `${body.firstName} ${body.lastName}`,
-      email: body.email,
-      phone_number: nil(body.phone),
-      date_of_birth: isDateYYYYMMDD(body.dateOfBirth)
-        ? body.dateOfBirth
-        : null,
-      emergency_contact_name: nil(body.emergencyName),
-      emergency_contact_phone: nil(body.emergencyPhone),
-      emergency_contact_relationship: nil(body.emergencyRelationship),
-      treatment_program: nil(body.treatmentProgram),
-      created_at: new Date().toISOString(),
-    });
-
-    if (insertErr) {
-      // 🔄 Roll back auth user if patient insert fails
-      try {
-        await supabaseAdmin.auth.admin.deleteUser(uid);
-      } catch {
-        // ignore rollback errors
+    const dob = toISODate(data.date_of_birth)
+    // why: prevent future DOBs which commonly cause DB check failures
+    if (dob) {
+      const d = new Date(dob)
+      const today = new Date()
+      if (d > new Date(today.toISOString().slice(0, 10))) {
+        return NextResponse.json({ error: "Date of birth cannot be in the future" }, { status: 400 })
       }
-      return NextResponse.json({ error: insertErr.message }, { status: 400 });
     }
 
-    // ✅ Success response
-    return NextResponse.json({ ok: true, uid });
+    // 1) Create auth user
+    const { data: created, error: createErr } = await sbAdmin.auth.admin.createUser({
+      email: data.email,
+      password: data.password,
+      email_confirm: true, // set as needed
+      user_metadata: { first_name: data.first_name, last_name: data.last_name },
+    })
+    if (createErr || !created.user) {
+      return NextResponse.json({ error: createErr?.message ?? "Failed to create auth user" }, { status: 400 })
+    }
+    const uid = created.user.id
+
+    // 2) Insert profile
+    const payload = {
+      id: uid,
+      first_name: data.first_name,
+      last_name: data.last_name,
+      email: data.email,
+      phone: data.phone ?? null,
+      date_of_birth: dob,
+      address: data.address ?? null,
+      emergency_contact_name: data.emergency_contact_name ?? null,
+      emergency_contact_phone: data.emergency_contact_phone ?? null,
+      emergency_contact_relationship: data.emergency_contact_relationship ?? null,
+      treatment_type: data.treatment_type ?? null,
+      status: "Active",
+      sessions_target: 40,
+    }
+
+    const { data: prof, error: profErr } = await sbAdmin.from("profiles").insert(payload).select("*").single()
+    if (profErr) {
+      // cleanup auth user if profile insert fails
+      await sbAdmin.auth.admin.deleteUser(uid)
+      return NextResponse.json({ error: `Database error creating new user: ${profErr.message}` }, { status: 400 })
+    }
+
+    return NextResponse.json({ user_id: uid, profile: prof }, { status: 201 })
   } catch (e: any) {
-    console.error("❌ Unexpected error:", e.message);
-    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
+    return NextResponse.json({ error: e?.message ?? "Unexpected error" }, { status: 500 })
   }
 }
