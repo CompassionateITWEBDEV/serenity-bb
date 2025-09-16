@@ -3,15 +3,15 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSbAdmin } from '@/lib/supabase/admin';
 
-export const runtime = 'nodejs'; // Service role + process.env require Node.
+export const runtime = 'nodejs';
 
 const SignupSchema = z.object({
-  first_name: z.string().min(1),
-  last_name: z.string().min(1),
-  email: z.string().email(),
-  password: z.string().min(8),
+  first_name: z.string().min(1, "First name is required"),
+  last_name: z.string().min(1, "Last name is required"),
+  email: z.string().email("Valid email is required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
   phone: z.string().optional().nullable(),
-  date_of_birth: z.string().optional().nullable(), // "YYYY-MM-DD" or "MM/DD/YYYY"
+  date_of_birth: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
   emergency_contact_name: z.string().optional().nullable(),
   emergency_contact_phone: z.string().optional().nullable(),
@@ -19,12 +19,7 @@ const SignupSchema = z.object({
   treatment_type: z.string().optional().nullable(),
 });
 
-type Incoming =
-  | Record<string, unknown>
-  | FormData;
-
 function normalizePayload(input: Record<string, unknown>): Record<string, unknown> {
-  // Why: Many UIs use camelCase; normalize to schema’s snake_case.
   const map: Record<string, string> = {
     firstName: 'first_name',
     lastName: 'last_name',
@@ -57,21 +52,34 @@ function normalizePayload(input: Record<string, unknown>): Record<string, unknow
 
 function toISODate(input?: string | null) {
   if (!input) return null;
+  
+  // Already in ISO format (YYYY-MM-DD)
   if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input;
+  
+  // Handle MM/DD/YYYY format
   const m = input.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) {
     const [, mm, dd, yyyy] = m;
-    const iso = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
-    if (!isNaN(iso.getTime())) return iso.toISOString().slice(0, 10);
+    const month = mm.padStart(2, '0');
+    const day = dd.padStart(2, '0');
+    return `${yyyy}-${month}-${day}`;
   }
+  
+  // Try to parse as Date and convert
+  const parsed = new Date(input);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+  
   return null;
 }
 
 export async function POST(req: Request) {
   try {
-    // --- Parse body (supports JSON or FormData)
+    // Parse body
     const ct = req.headers.get('content-type') || '';
     let raw: Record<string, unknown> = {};
+    
     if (ct.includes('application/json')) {
       raw = (await req.json()) as Record<string, unknown>;
     } else if (ct.includes('multipart/form-data') || ct.includes('application/x-www-form-urlencoded')) {
@@ -86,54 +94,87 @@ export async function POST(req: Request) {
       );
     }
 
-    const normalized = normalizePayload(raw);
+    // Add debug logging
+    console.log('Raw payload received:', raw);
 
-    // --- Validate
+    const normalized = normalizePayload(raw);
+    console.log('Normalized payload:', normalized);
+
+    // Validate
     const parsed = SignupSchema.safeParse(normalized);
     if (!parsed.success) {
+      console.log('Validation failed:', parsed.error.flatten());
       return NextResponse.json(
-        { error: 'Invalid signup data', issues: parsed.error.flatten() },
+        { 
+          error: 'Invalid signup data', 
+          issues: parsed.error.flatten(),
+          details: parsed.error.issues
+        },
         { status: 400 },
       );
     }
     const data = parsed.data;
 
-    // --- DOB guard
+    // DOB validation with better error handling
     const dob = toISODate(data.date_of_birth);
+    console.log('Parsed DOB:', { original: data.date_of_birth, parsed: dob });
+    
     if (dob) {
-      const d = new Date(dob);
-      const today = new Date(new Date().toISOString().slice(0, 10));
-      if (d > today) {
-        return NextResponse.json({ error: 'Date of birth cannot be in the future' }, { status: 400 });
+      const dobDate = new Date(dob);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Reset time for accurate comparison
+      
+      if (dobDate > today) {
+        return NextResponse.json(
+          { 
+            error: 'Date of birth cannot be in the future',
+            details: { providedDate: dob, todayDate: today.toISOString().slice(0, 10) }
+          }, 
+          { status: 400 }
+        );
+      }
+      
+      // Check if person is too young (optional - adjust age limit as needed)
+      const ageDiff = today.getTime() - dobDate.getTime();
+      const age = Math.floor(ageDiff / (1000 * 60 * 60 * 24 * 365.25));
+      if (age < 0) {
+        return NextResponse.json(
+          { error: 'Invalid date of birth' },
+          { status: 400 }
+        );
       }
     }
 
-    // --- Supabase admin (lazy env read)
+    // Supabase admin
     let sbAdmin;
     try {
       sbAdmin = getSbAdmin();
     } catch (err: any) {
-      // Why: Surface misconfiguration clearly in non-prod.
       const msg = process.env.NODE_ENV === 'production' ? 'Server misconfiguration' : err?.message;
+      console.error('Supabase admin error:', err);
       return NextResponse.json({ error: msg }, { status: 500 });
     }
 
-    // --- 1) Create auth user
+    // Create auth user
     const { data: created, error: createErr } = await sbAdmin.auth.admin.createUser({
       email: data.email,
       password: data.password,
       email_confirm: true,
-      user_metadata: { first_name: data.first_name, last_name: data.last_name },
+      user_metadata: { 
+        first_name: data.first_name, 
+        last_name: data.last_name 
+      },
     });
 
     if (createErr || !created?.user) {
+      console.error('Auth user creation failed:', createErr);
       const msg = createErr?.message ?? 'Failed to create auth user';
       const status = /exist|taken|already/i.test(msg) ? 409 : 400;
       return NextResponse.json({ error: msg }, { status });
     }
     const uid = created.user.id;
 
-    // --- 2) Insert profile
+    // Insert profile
     const payload = {
       id: uid,
       first_name: data.first_name,
@@ -150,14 +191,32 @@ export async function POST(req: Request) {
       sessions_target: 40,
     };
 
-    const { data: prof, error: profErr } = await sbAdmin.from('profiles').insert(payload).select('*').single();
+    console.log('Profile payload:', payload);
+
+    const { data: prof, error: profErr } = await sbAdmin
+      .from('profiles')
+      .insert(payload)
+      .select('*')
+      .single();
+      
     if (profErr) {
+      console.error('Profile creation failed:', profErr);
+      // Cleanup auth user if profile creation fails
       await sbAdmin.auth.admin.deleteUser(uid);
-      return NextResponse.json({ error: `Database error creating new user: ${profErr.message}` }, { status: 400 });
+      return NextResponse.json(
+        { 
+          error: `Database error creating profile: ${profErr.message}`,
+          details: profErr
+        }, 
+        { status: 400 }
+      );
     }
 
+    console.log('User created successfully:', { uid, profile: prof });
     return NextResponse.json({ user_id: uid, profile: prof }, { status: 201 });
+    
   } catch (e: any) {
+    console.error('Unexpected error in signup:', e);
     const message = e?.message ?? 'Unexpected error';
     return NextResponse.json({ error: message }, { status: 500 });
   }
