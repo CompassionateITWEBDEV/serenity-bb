@@ -6,12 +6,12 @@ import { getSbAdmin } from '@/lib/supabase/admin';
 export const runtime = 'nodejs';
 
 const SignupSchema = z.object({
-  first_name: z.string().min(1, "First name is required"),
-  last_name: z.string().min(1, "Last name is required"),
-  email: z.string().email("Valid email is required"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  first_name: z.string().min(1),
+  last_name: z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(8),
   phone: z.string().optional().nullable(),
-  date_of_birth: z.string().optional().nullable(),
+  date_of_birth: z.string().optional().nullable(), // "YYYY-MM-DD" or "MM/DD/YYYY"
   address: z.string().optional().nullable(),
   emergency_contact_name: z.string().optional().nullable(),
   emergency_contact_phone: z.string().optional().nullable(),
@@ -19,7 +19,7 @@ const SignupSchema = z.object({
   treatment_type: z.string().optional().nullable(),
 });
 
-function normalizePayload(input: Record<string, unknown>): Record<string, unknown> {
+function normalize(input: Record<string, unknown>): Record<string, unknown> {
   const map: Record<string, string> = {
     firstName: 'first_name',
     lastName: 'last_name',
@@ -28,153 +28,86 @@ function normalizePayload(input: Record<string, unknown>): Record<string, unknow
     emergencyContactPhone: 'emergency_contact_phone',
     emergencyContactRelationship: 'emergency_contact_relationship',
     treatmentType: 'treatment_type',
-    // keep identical keys as-is
-    first_name: 'first_name',
-    last_name: 'last_name',
-    date_of_birth: 'date_of_birth',
-    emergency_contact_name: 'emergency_contact_name',
-    emergency_contact_phone: 'emergency_contact_phone',
-    emergency_contact_relationship: 'emergency_contact_relationship',
-    treatment_type: 'treatment_type',
-    email: 'email',
-    password: 'password',
-    phone: 'phone',
-    address: 'address',
   };
-
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(input)) {
-    const key = map[k] ?? k;
-    out[key] = v;
-  }
+  for (const [k, v] of Object.entries(input)) out[map[k] ?? k] = v;
   return out;
 }
 
 function toISODate(input?: string | null) {
   if (!input) return null;
-  
-  // Already in ISO format (YYYY-MM-DD)
   if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input;
-  
-  // Handle MM/DD/YYYY format
   const m = input.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) {
     const [, mm, dd, yyyy] = m;
-    const month = mm.padStart(2, '0');
-    const day = dd.padStart(2, '0');
-    return `${yyyy}-${month}-${day}`;
+    const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
   }
-  
-  // Try to parse as Date and convert
-  const parsed = new Date(input);
-  if (!isNaN(parsed.getTime())) {
-    return parsed.toISOString().slice(0, 10);
-  }
-  
   return null;
+}
+
+function problem(status: number, title: string, detail?: string, fields?: Record<string, string[]>) {
+  // Why: consistent, readable error bodies in the Network tab
+  return NextResponse.json(
+    { type: 'about:blank', title, status, detail, fields },
+    { status, headers: { 'Content-Type': 'application/problem+json' } },
+  );
 }
 
 export async function POST(req: Request) {
   try {
-    // Parse body
+    // 1) Parse body (JSON or FormData)
     const ct = req.headers.get('content-type') || '';
     let raw: Record<string, unknown> = {};
-    
     if (ct.includes('application/json')) {
       raw = (await req.json()) as Record<string, unknown>;
     } else if (ct.includes('multipart/form-data') || ct.includes('application/x-www-form-urlencoded')) {
       const fd = await req.formData();
-      fd.forEach((v, k) => {
-        raw[k] = typeof v === 'string' ? v : (v as File).name;
-      });
+      fd.forEach((v, k) => (raw[k] = typeof v === 'string' ? v : (v as File).name));
     } else {
-      return NextResponse.json(
-        { error: 'Unsupported content type', details: { contentType: ct } },
-        { status: 415 },
-      );
+      return problem(415, 'Unsupported Media Type', `content-type: ${ct}`);
     }
 
-    // Add debug logging
-    console.log('Raw payload received:', raw);
-
-    const normalized = normalizePayload(raw);
-    console.log('Normalized payload:', normalized);
-
-    // Validate
+    // 2) Normalize & validate
+    const normalized = normalize(raw);
     const parsed = SignupSchema.safeParse(normalized);
     if (!parsed.success) {
-      console.log('Validation failed:', parsed.error.flatten());
-      return NextResponse.json(
-        { 
-          error: 'Invalid signup data', 
-          issues: parsed.error.flatten(),
-          details: parsed.error.issues
-        },
-        { status: 400 },
-      );
+      const flat = parsed.error.flatten();
+      return problem(422, 'Invalid signup data', 'Fix the highlighted fields', flat.fieldErrors);
     }
     const data = parsed.data;
 
-    // DOB validation with better error handling
+    // 3) DOB guard
     const dob = toISODate(data.date_of_birth);
-    console.log('Parsed DOB:', { original: data.date_of_birth, parsed: dob });
-    
     if (dob) {
-      const dobDate = new Date(dob);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Reset time for accurate comparison
-      
-      if (dobDate > today) {
-        return NextResponse.json(
-          { 
-            error: 'Date of birth cannot be in the future',
-            details: { providedDate: dob, todayDate: today.toISOString().slice(0, 10) }
-          }, 
-          { status: 400 }
-        );
-      }
-      
-      // Check if person is too young (optional - adjust age limit as needed)
-      const ageDiff = today.getTime() - dobDate.getTime();
-      const age = Math.floor(ageDiff / (1000 * 60 * 60 * 24 * 365.25));
-      if (age < 0) {
-        return NextResponse.json(
-          { error: 'Invalid date of birth' },
-          { status: 400 }
-        );
-      }
+      const d = new Date(dob);
+      const today = new Date(new Date().toISOString().slice(0, 10));
+      if (d > today) return problem(422, 'Invalid date of birth', 'Date of birth cannot be in the future', { date_of_birth: ['Future date'] });
     }
 
-    // Supabase admin
+    // 4) Admin client (lazy)
     let sbAdmin;
     try {
       sbAdmin = getSbAdmin();
-    } catch (err: any) {
-      const msg = process.env.NODE_ENV === 'production' ? 'Server misconfiguration' : err?.message;
-      console.error('Supabase admin error:', err);
-      return NextResponse.json({ error: msg }, { status: 500 });
+    } catch (e: any) {
+      return problem(500, 'Server misconfiguration', e?.message);
     }
 
-    // Create auth user
+    // 5) Create auth user (map duplicate → 409)
     const { data: created, error: createErr } = await sbAdmin.auth.admin.createUser({
       email: data.email,
       password: data.password,
       email_confirm: true,
-      user_metadata: { 
-        first_name: data.first_name, 
-        last_name: data.last_name 
-      },
+      user_metadata: { first_name: data.first_name, last_name: data.last_name },
     });
-
     if (createErr || !created?.user) {
-      console.error('Auth user creation failed:', createErr);
-      const msg = createErr?.message ?? 'Failed to create auth user';
+      const msg = createErr?.message ?? 'Failed to create user';
       const status = /exist|taken|already/i.test(msg) ? 409 : 400;
-      return NextResponse.json({ error: msg }, { status });
+      return problem(status, 'Auth error', msg, { email: [msg] });
     }
     const uid = created.user.id;
 
-    // Insert profile
+    // 6) Insert profile (rollback on error)
     const payload = {
       id: uid,
       first_name: data.first_name,
@@ -191,33 +124,14 @@ export async function POST(req: Request) {
       sessions_target: 40,
     };
 
-    console.log('Profile payload:', payload);
-
-    const { data: prof, error: profErr } = await sbAdmin
-      .from('profiles')
-      .insert(payload)
-      .select('*')
-      .single();
-      
+    const { data: prof, error: profErr } = await sbAdmin.from('profiles').insert(payload).select('*').single();
     if (profErr) {
-      console.error('Profile creation failed:', profErr);
-      // Cleanup auth user if profile creation fails
       await sbAdmin.auth.admin.deleteUser(uid);
-      return NextResponse.json(
-        { 
-          error: `Database error creating profile: ${profErr.message}`,
-          details: profErr
-        }, 
-        { status: 400 }
-      );
+      return problem(400, 'Database error', profErr.message);
     }
 
-    console.log('User created successfully:', { uid, profile: prof });
     return NextResponse.json({ user_id: uid, profile: prof }, { status: 201 });
-    
   } catch (e: any) {
-    console.error('Unexpected error in signup:', e);
-    const message = e?.message ?? 'Unexpected error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return problem(500, 'Unexpected error', e?.message ?? 'Unknown error');
   }
 }
