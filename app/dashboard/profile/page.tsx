@@ -1,7 +1,8 @@
+// app/dashboard/profile/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { useEffect, useRef, useState } from 'react';
+import { supabase } from '@/lib/supabase/client'; // singleton client
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -12,7 +13,6 @@ import { Calendar, Phone, Mail, MapPin, Heart, Activity, Award, Clock, Target, T
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-// ---------- Types ----------
 type UUID = string;
 
 interface Profile {
@@ -34,7 +34,6 @@ interface Profile {
   sessions_completed?: number | null;
   sessions_target?: number | null;
 }
-
 interface HealthMetrics {
   user_id: UUID;
   overall_progress?: number | null;
@@ -42,7 +41,6 @@ interface HealthMetrics {
   wellness_score?: number | null;
   goal_completion?: number | null;
 }
-
 interface Achievement { id: number; user_id: UUID; title: string; description?: string | null; icon?: string | null; date?: string | null; }
 type ActivityType = 'wellness' | 'therapy' | 'medical' | 'assessment' | string;
 interface RecentActivity { id: number; user_id: UUID; activity: string; created_at: string; type: ActivityType; }
@@ -50,7 +48,6 @@ interface Appointment { id: number; user_id: UUID; title: string; date_time: str
 interface Medication { id: number; user_id: UUID; name: string; dosage?: string | null; schedule?: string | null; status?: 'Active' | 'Paused' | 'Discontinued' | string | null; }
 interface Goal { id: number; user_id: UUID; title: string; status: 'In Progress' | 'Active' | 'On Track' | 'Completed' | string; }
 
-// ---------- Utils ----------
 function formatShortDate(iso?: string | null) {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -74,16 +71,16 @@ function nextLabel(iso: string) {
     d.toDateString() === new Date().toDateString()
       ? 'Today'
       : d.toDateString() === new Date(Date.now() + 86400000).toDateString()
-      ? 'Tomorrow'
-      : d.toLocaleDateString(undefined, { weekday: 'long' });
+        ? 'Tomorrow'
+        : d.toLocaleDateString(undefined, { weekday: 'long' });
   const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   return `${sameDay}, ${time}`;
 }
 
 export default function ProfilePage() {
-  const supabase = useMemo(() => createClient(), []);
   const [loading, setLoading] = useState(true);
   const [authMissing, setAuthMissing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
 
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -96,87 +93,84 @@ export default function ProfilePage() {
   const [medications, setMedications] = useState<Medication[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
 
+  const uidRef = useRef<string | null>(null);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
+        setErrorMsg(null);
+
         const { data: auth } = await supabase.auth.getUser();
-        if (!auth?.user) {
+        const uid = auth?.user?.id || null;
+        uidRef.current = uid;
+
+        if (!uid) {
           if (mounted) {
             setAuthMissing(true);
             setLoading(false);
           }
           return;
         }
-        const uid = auth.user.id;
 
-        const [
-          profileRes,
-          metricsRes,
-          achievementsRes,
-          activitiesRes,
-          appointmentsRes,
-          medicationsRes,
-          goalsRes,
-        ] = await Promise.all([
-          supabase.from('profiles').select('*').eq('id', uid).single(),
-          supabase.from('health_metrics').select('*').eq('user_id', uid).maybeSingle(),
-          supabase.from('achievements').select('*').eq('user_id', uid).order('date', { ascending: false }),
-          supabase.from('activities').select('*').eq('user_id', uid).order('created_at', { ascending: false }).limit(20),
-          supabase.from('appointments').select('*').eq('user_id', uid).gte('date_time', new Date(Date.now() - 7 * 86400000).toISOString()).order('date_time', { ascending: true }).limit(5),
-          supabase.from('medications').select('*').eq('user_id', uid).order('name'),
-          supabase.from('goals').select('*').eq('user_id', uid).order('id'),
+        // 1) Profile – create minimal row if missing (requires RLS insert policy)
+        const prof = await ensureProfile(uid, auth.user?.email ?? '', auth.user?.user_metadata ?? {});
+        if (mounted) {
+          setProfile(prof);
+          setFormData(prof);
+        }
+
+        // 2) Safely load other tables (errors → defaults)
+        const [m, ach, act, appts, meds, gs] = await Promise.all([
+          selectMaybeSingle<HealthMetrics>('health_metrics', 'user_id', uid),
+          selectArray<Achievement>('achievements', 'user_id', uid, q => q.order('date', { ascending: false })),
+          selectArray<RecentActivity>('activities', 'user_id', uid, q => q.order('created_at', { ascending: false }).limit(20)),
+          selectArray<Appointment>('appointments', 'user_id', uid, q => q
+            .gte('date_time', new Date(Date.now() - 7 * 86400000).toISOString())
+            .order('date_time', { ascending: true })
+            .limit(5)),
+          selectArray<Medication>('medications', 'user_id', uid, q => q.order('name')),
+          selectArray<Goal>('goals', 'user_id', uid, q => q.order('id')),
         ]);
 
-        if (profileRes.error) throw profileRes.error;
         if (mounted) {
-          setProfile(profileRes.data);
-          setFormData(profileRes.data);
-          setMetrics(metricsRes.data ?? null);
-          setAchievements(achievementsRes.data ?? []);
-          setActivities(activitiesRes.data ?? []);
-          setAppointments(appointmentsRes.data ?? []);
-          setMedications(medicationsRes.data ?? []);
-          setGoals(goalsRes.data ?? []);
+          setMetrics(m);
+          setAchievements(ach);
+          setActivities(act);
+          setAppointments(appts);
+          setMedications(meds);
+          setGoals(gs);
         }
-      } catch (err) {
-        console.error(err);
+      } catch (err: any) {
+        if (mounted) setErrorMsg(err?.message ?? 'Failed to load your profile');
       } finally {
         if (mounted) setLoading(false);
       }
     })();
+
     return () => { mounted = false; };
-  }, [supabase]);
-
-  const healthMetrics = useMemo(() => {
-    const m = metrics ?? {};
-    return [
-      { label: 'Overall Progress', value: clampPct(m.overall_progress ?? estimateOverallProgress(goals)) },
-      { label: 'Treatment Adherence', value: clampPct(m.treatment_adherence ?? 90) },
-      { label: 'Wellness Score', value: clampPct(m.wellness_score ?? 80) },
-      { label: 'Goal Completion', value: clampPct(m.goal_completion ?? estimateGoalCompletion(goals)) },
-    ];
-  }, [metrics, goals]);
-
-  const daysInTreatment = useMemo(() => {
-    const start = profile?.admission_date ? new Date(profile.admission_date) : null;
-    if (!start) return 0;
-    return Math.max(0, Math.floor((Date.now() - start.getTime()) / 86400000));
-  }, [profile?.admission_date]);
+  }, []);
 
   const sessionsTarget = profile?.sessions_target ?? 40;
-  const sessionsCompleted = profile?.sessions_completed ?? activities.filter((a) => a.type === 'therapy').length;
+  const sessionsCompleted = profile?.sessions_completed ?? activities.filter(a => a.type === 'therapy').length;
 
   function clampPct(n: number) { if (Number.isNaN(n)) return 0; return Math.max(0, Math.min(100, Math.round(n))); }
-  function estimateGoalCompletion(gs: Goal[]) { if (!gs.length) return 0; const done = gs.filter((g) => g.status === 'Completed').length; return Math.round((done / gs.length) * 100); }
+  function estimateGoalCompletion(gs: Goal[]) { if (!gs.length) return 0; const done = gs.filter(g => g.status === 'Completed').length; return Math.round((done / gs.length) * 100); }
   function estimateOverallProgress(gs: Goal[]) {
     const gc = estimateGoalCompletion(gs);
     const sessionsPct = sessionsTarget ? Math.round(((sessionsCompleted || 0) / sessionsTarget) * 100) : 0;
     return Math.round(0.6 * gc + 0.4 * clampPct(sessionsPct || 50));
   }
 
+  const healthMetrics = [
+    { label: 'Overall Progress', value: clampPct(metrics?.overall_progress ?? estimateOverallProgress(goals)) },
+    { label: 'Treatment Adherence', value: clampPct(metrics?.treatment_adherence ?? 90) },
+    { label: 'Wellness Score', value: clampPct(metrics?.wellness_score ?? 80) },
+    { label: 'Goal Completion', value: clampPct(metrics?.goal_completion ?? estimateGoalCompletion(goals)) },
+  ];
+
   async function handleSave() {
-    if (!formData) return;
+    if (!formData || !uidRef.current) return;
     try {
       const payload: Partial<Profile> = {
         first_name: formData.first_name,
@@ -192,13 +186,19 @@ export default function ProfilePage() {
         avatar_url: formData.avatar_url ?? null,
         admission_date: formData.admission_date ?? null,
       };
-      const { data, error } = await supabase.from('profiles').update(payload).eq('id', formData.id).select('*').single();
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(payload)
+        .eq('id', uidRef.current)
+        .select('*')
+        .single();
       if (error) throw error;
       setProfile(data as Profile);
       setFormData(data as Profile);
       setIsEditing(false);
     } catch (err) {
       console.error('Failed to save profile', err);
+      setErrorMsg('Could not save profile changes.');
     }
   }
 
@@ -211,8 +211,9 @@ export default function ProfilePage() {
             <CardDescription>Please sign in to view your profile.</CardDescription>
           </CardHeader>
           <CardContent>
-            {/* Prefer redirect to /login; keep button for convenience */}
-            <Button onClick={() => supabase.auth.signInWithOAuth({ provider: 'google' })}>Sign in with Google</Button>
+            <Button onClick={() => supabase.auth.signInWithOAuth({ provider: 'google' })}>
+              Sign in with Google
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -233,6 +234,9 @@ export default function ProfilePage() {
 
   const name = `${profile.first_name} ${profile.last_name}`;
   const status = profile.status ?? 'Active';
+  const daysInTreatment = profile.admission_date
+    ? Math.max(0, Math.floor((Date.now() - new Date(profile.admission_date).getTime()) / 86400000))
+    : 0;
   const nextTwo = appointments.slice(0, 2);
 
   return (
@@ -241,6 +245,7 @@ export default function ProfilePage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
           <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
+          {errorMsg && <p className="mt-2 text-sm text-rose-600">{errorMsg}</p>}
         </div>
         <Button onClick={() => (isEditing ? handleSave() : setIsEditing(true))} variant={isEditing ? 'default' : 'outline'}>
           <Edit className="h-4 w-4 mr-2" />
@@ -488,6 +493,53 @@ export default function ProfilePage() {
       </div>
     </div>
   );
+}
+
+/* ---------- Helpers ---------- */
+// why: create profile if missing so dashboard always works after signup
+async function ensureProfile(uid: string, email: string, meta: any): Promise<Profile> {
+  const { data, error } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+  if (data) return data as Profile;
+
+  const insertRow: Profile = {
+    id: uid,
+    email,
+    first_name: String(meta?.first_name ?? ''),
+    last_name: String(meta?.last_name ?? ''),
+    phone: null,
+    date_of_birth: null,
+    address: null,
+    emergency_contact_name: null,
+    emergency_contact_phone: null,
+    admission_date: null,
+    treatment_type: null,
+    primary_physician: null,
+    counselor: null,
+    status: 'Active',
+    avatar_url: null,
+    sessions_completed: 0,
+    sessions_target: 40,
+  };
+  const { data: up, error: upErr } = await supabase.from('profiles').upsert(insertRow).select('*').single();
+  if (upErr) throw upErr;
+  return up as Profile;
+}
+
+// why: avoid breaking the page when optional tables are empty/missing
+async function selectMaybeSingle<T>(table: string, col: string, val: string) {
+  const { data, error } = await supabase.from(table).select('*').eq(col, val).maybeSingle();
+  return error ? null : (data as T | null);
+}
+async function selectArray<T>(
+  table: string,
+  col: string,
+  val: string,
+  mutate?: (q: ReturnType<typeof supabase.from> extends infer F ? any : never) => any
+) {
+  let q: any = supabase.from(table).select('*').eq(col, val);
+  if (mutate) q = mutate(q);
+  const { data, error } = await q;
+  return error ? ([] as T[]) : ((data ?? []) as T[]);
 }
 
 // ---------- Presentational bits ----------
