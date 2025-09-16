@@ -1,24 +1,18 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js"
+// lib/supabase/client.ts
+'use client';
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __SB__: SupabaseClient | undefined
+import { createBrowserClient } from '@supabase/ssr';
+
+/**
+ * Factory for browser-safe Supabase client.
+ * Throws early if public env is missing to avoid silent failures.
+ */
+export function createClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anon) {
+    // Why: Prevents hydration/build surprises when env is misconfigured.
+    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  }
+  return createBrowserClient(url, anon);
 }
-
-/** Why: prevent "Multiple GoTrueClient instances" + ensure stable auth storage key. */
-export const supabase: SupabaseClient =
-  globalThis.__SB__ ??
-  createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-        storageKey: "src-auth",
-      },
-    }
-  )
-
-if (process.env.NODE_ENV !== "production") globalThis.__SB__ = supabase
