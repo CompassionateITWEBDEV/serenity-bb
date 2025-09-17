@@ -1,16 +1,19 @@
 'use client'
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js'
+
 type Db = unknown
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-if (!url || !anon) {
-  throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY')
-}
+let sb: SupabaseClient<Db> | null = null
 
-// HMR-safe singleton; avoids “Multiple GoTrueClient instances” in dev.
-const g = globalThis as unknown as { __sb?: SupabaseClient<Db> }
-export const supabase: SupabaseClient<Db> =
-  g.__sb ??= createClient<Db>(url, anon, {
-    auth: { persistSession: true, autoRefreshToken: true }, // why: keep user logged in automatically
+/** Lazy singleton; created only in the browser when first needed. */
+export function getSupabase(): SupabaseClient<Db> {
+  if (sb) return sb
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !anon) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY')
+  sb = createClient<Db>(url, anon, {
+    auth: { persistSession: true, autoRefreshToken: true }, // why: keep session automatically
   })
+  return sb
+}
