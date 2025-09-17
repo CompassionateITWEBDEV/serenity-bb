@@ -1,9 +1,11 @@
+// app/api/patients/signup/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// ✅ Use the anon key for Auth signup (same as your login route)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -31,9 +33,10 @@ function problem(status: number, title: string, detail?: string) {
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as Body;
-    const email = (body.email || "").trim().toLowerCase();
-    const password = body.password || "";
+    const b = (await req.json()) as Body;
+
+    const email = (b.email || "").trim().toLowerCase();
+    const password = b.password || "";
 
     if (!email || !password) {
       return problem(400, "Signup failed", "Email and password are required");
@@ -42,21 +45,23 @@ export async function POST(req: Request) {
       return problem(400, "Signup failed", "Password must be at least 8 characters");
     }
 
+    // 🔐 Create the Auth user & store extras in user_metadata
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
-          first_name: body.first_name ?? null,
-          last_name: body.last_name ?? null,
-          phone: body.phone ?? null,
-          date_of_birth: body.date_of_birth ?? null,
-          emergency_contact_name: body.emergency_contact_name ?? null,
-          emergency_contact_phone: body.emergency_contact_phone ?? null,
-          emergency_contact_relationship: body.emergency_contact_relationship ?? null,
-          treatment_type: body.treatment_type ?? null,
+          first_name: b.first_name ?? null,
+          last_name: b.last_name ?? null,
+          phone: b.phone ?? null,
+          date_of_birth: b.date_of_birth ?? null,
+          emergency_contact_name: b.emergency_contact_name ?? null,
+          emergency_contact_phone: b.emergency_contact_phone ?? null,
+          emergency_contact_relationship: b.emergency_contact_relationship ?? null,
+          treatment_type: b.treatment_type ?? null,
           role: "patient",
         },
+        // If you have an auth callback page configured:
         emailRedirectTo: process.env.NEXT_PUBLIC_SITE_URL
           ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`
           : undefined,
@@ -64,17 +69,19 @@ export async function POST(req: Request) {
     });
 
     if (error) {
+      // Map duplicate/unique constraint to 409; otherwise 400 with real message
       const msg = error.message || "Signup failed";
-      const duplicate = /already|exists|taken|registered|duplicate|unique|23505/i.test(msg);
-      return problem(duplicate ? 409 : 400, "Signup failed",
-        duplicate ? "Email already registered." : msg);
+      const isDup = /already|exists|taken|registered|duplicate|unique|23505/i.test(msg);
+      return problem(isDup ? 409 : 400, "Signup failed", isDup ? "Email already registered." : msg);
     }
 
-    // If email confirmation is required, there is no session yet
+    // If email confirmation is required, there won't be a session yet
+    const requiresEmailConfirmation = !data.session;
+
     return NextResponse.json(
       {
         ok: true,
-        requiresEmailConfirmation: !data.session,
+        requiresEmailConfirmation,
         user: data.user ? { id: data.user.id, email: data.user.email } : null,
       },
       { status: 201 }
