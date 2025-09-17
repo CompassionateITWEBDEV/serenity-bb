@@ -12,7 +12,8 @@ const Body = z.object({
   email:      z.string().email('Valid email required'),
   password:   z.string().min(8, 'Password must be at least 8 characters'),
   phone:      z.string().trim().optional().nullable(),
-  date_of_birth: z.string().trim().optional().nullable(), // "YYYY-MM-DD" or "MM/DD/YYYY"
+  // Keep as string; we'll normalize. Make sure your DB column type matches if you later insert it.
+  date_of_birth: z.string().trim().optional().nullable(),
   emergency_contact_name: z.string().trim().optional().nullable(),
   emergency_contact_phone: z.string().trim().optional().nullable(),
   emergency_contact_relationship: z.string().trim().optional().nullable(),
@@ -29,44 +30,50 @@ function problem(status: number, title: string, detail?: string, fields?: Record
 function getAdmin(): SupabaseClient {
   const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !key) {
+    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+  }
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-// Normalize "MM/DD/YYYY" -> "YYYY-MM-DD"
-function normalizeDate(input?: string | null): string | null {
-  if (!input) return null;
-  const s = input.trim();
-  // Already ISO-like
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  // US style
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+function normalizeEmail(e: string) {
+  return e.trim().toLowerCase();
+}
+function normalizeDate(s?: string | null) {
+  if (!s) return null;
+  const v = s.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v; // already ISO
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
   if (m) {
-    const [_, mm, dd, yyyy] = m;
-    const mm2 = String(mm).padStart(2, '0');
-    const dd2 = String(dd).padStart(2, '0');
-    return `${yyyy}-${mm2}-${dd2}`;
+    const mm = m[1].padStart(2, '0');
+    const dd = m[2].padStart(2, '0');
+    return `${m[3]}-${mm}-${dd}`;
   }
-  return s; // fallback (DB may still accept if it's text)
+  return v;
 }
 
-// Check duplicates directly in auth.users (service role can read auth schema)
+/** Duplicate email check against auth.users (works with service role). */
 async function emailExists(admin: SupabaseClient, email: string): Promise<boolean> {
-  const { data, error } = await admin
-    .schema('auth')
-    .from('users')
-    .select('id')
-    .eq('email', email) // emails are stored lowercased in auth
-    .maybeSingle();
-
-  if (error && error.code !== 'PGRST116') {
-    console.warn('auth.users lookup error:', error);
+  try {
+    const { data, error } = await admin
+      .schema('auth')
+      .from('users')
+      .select('id')
+      .eq('email', email)     // auth stores lowercased emails
+      .maybeSingle();
+    if (error && error.code !== 'PGRST116') {
+      console.warn('auth.users lookup error:', error);
+    }
+    return !!data;
+  } catch (e) {
+    console.warn('auth.users lookup threw:', e);
+    return false; // don’t block signup; we’ll still handle duplicate below
   }
-  return !!data;
 }
 
 export async function POST(req: Request) {
   try {
+    // 1) Parse + validate
     const raw = await req.json().catch(() =>
       problem(400, 'Invalid JSON', 'Request body must be valid JSON.')
     );
@@ -82,61 +89,67 @@ export async function POST(req: Request) {
       return problem(400, 'Invalid input', 'One or more fields are invalid.', fields);
     }
 
-    const input = parsed.data;
+    // 2) Normalize
+    const email = normalizeEmail(parsed.data.email);
+    const dob = normalizeDate(parsed.data.date_of_birth);
+
+    // 3) Admin client
     const admin = getAdmin();
 
-    // Normalize email & DOB
-    const email = input.email.trim().toLowerCase();
-    const dob = normalizeDate(input.date_of_birth);
-
-    // Fast duplicate short-circuit (clear 409 instead of vague DB error)
+    // 4) Short-circuit duplicate (returns 409 clearly)
     if (await emailExists(admin, email)) {
       return problem(409, 'Signup failed', 'Email already registered.');
     }
 
-    // Create Auth user
+    // 5) Create Auth user
     const { data: created, error: authErr } = await admin.auth.admin.createUser({
       email,
-      password: input.password,
+      password: parsed.data.password,
       email_confirm: true,
       user_metadata: {
-        first_name: input.first_name,
-        last_name:  input.last_name,
-        phone:      input.phone,
+        first_name: parsed.data.first_name,
+        last_name:  parsed.data.last_name,
+        phone:      parsed.data.phone,
         date_of_birth: dob,
         role: 'patient',
       },
     });
 
     if (authErr) {
-      console.error('createUser error:', {
+      // Log full context so you can see the root cause in Vercel logs
+      console.error('auth.admin.createUser error:', {
         message: authErr.message,
+        name: authErr.name,
         status: (authErr as any)?.status,
         error: (authErr as any)?.error,
         error_description: (authErr as any)?.error_description,
       });
+
       const msg = authErr.message ?? 'Auth error';
-      const isDuplicate = /already|exists|taken|registered|duplicate|unique|23505/i.test(msg);
-      return problem(isDuplicate ? 409 : 400, 'Signup failed', isDuplicate ? 'Email already registered.' : msg);
+      const isDuplicate =
+        /already|exists|taken|registered|duplicate|unique|23505/i.test(msg);
+      return problem(isDuplicate ? 409 : 400, 'Signup failed',
+        isDuplicate ? 'Email already registered.' : msg);
     }
 
     const userId = created.user?.id;
 
-    // Minimal profile insert (non-fatal)
+    // 6) Minimal profile row in `patients` (non-fatal if it fails)
     try {
       await admin.from('patients').insert({
-        uid: userId,          // you said your PK is `uid` mirroring auth.users.id
+        uid: userId,                // your PK mirrors auth.users.id
         email,
-        first_name: input.first_name, // adjust to your columns (or use full_name)
-        last_name:  input.last_name,
-        // phone_number: input.phone ?? null,      // uncomment only if column exists
-        // date_of_birth: dob,                     // uncomment only if column exists (DATE or TEXT)
-        // is_active: true,                        // uncomment only if column exists
+        first_name: parsed.data.first_name,  // rename/remove to match your schema
+        last_name:  parsed.data.last_name,   // rename/remove to match your schema
+        // phone_number: parsed.data.phone ?? null, // uncomment only if column exists
+        // date_of_birth: dob,                      // uncomment only if column type matches
+        // is_active: true,                         // uncomment only if column exists
       });
     } catch (dbErr: any) {
       console.error('patients insert (non-fatal) error:', dbErr?.message ?? dbErr);
     }
 
+    // 7) Done
     return NextResponse.json({ ok: true, userId }, { status: 201 });
   } catch (e: any) {
     if (e instanceof NextResponse) return e;
