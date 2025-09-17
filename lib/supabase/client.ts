@@ -1,14 +1,16 @@
-'use client';
-import { createClient as createBrowserClient, SupabaseClient } from '@supabase/supabase-js';
-type Db = unknown;
+'use client'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+type Db = unknown
 
-let _sb: SupabaseClient<Db> | null = null;
-export function createClient(): SupabaseClient<Db> {
-  if (_sb) return _sb;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  if (!url || !anon) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY');
-  _sb = createBrowserClient<Db>(url, anon);
-  return _sb;
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+if (!url || !anon) {
+  throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY')
 }
-export const supabase = createClient();
+
+
+const g = globalThis as unknown as { __sb?: SupabaseClient<Db> }
+export const supabase: SupabaseClient<Db> =
+  g.__sb ??= createClient<Db>(url, anon, {
+    auth: { persistSession: true, autoRefreshToken: true }, // why: keep user logged in automatically
+  })
