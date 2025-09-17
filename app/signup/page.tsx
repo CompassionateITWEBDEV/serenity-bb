@@ -2,7 +2,7 @@
 'use client';
 
 import type React from 'react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Eye, EyeOff, UserPlus, AlertTriangle } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+// ✅ import the ONE browser singleton
+import { supabase } from '@/lib/supabase/client';
 
 type ProblemJson = {
   title?: string;
@@ -43,10 +44,11 @@ export default function SignupPage() {
   const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
 
-  const supabase = useMemo(() => createClient(), []);
+  // ❌ removed useMemo(() => createClient(), [])
+  // Always use the imported `supabase` singleton
 
   const handleInputChange = (field: keyof typeof formData, value: string) => {
-    setFieldErrors((p) => ({ ...p, [field]: [] })); // why: clear field error on edit
+    setFieldErrors((p) => ({ ...p, [field]: [] })); // clear field error on edit
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -130,7 +132,7 @@ export default function SignupPage() {
               <UserPlus className="h-8 w-8 text-cyan-600" />
             </div>
           </div>
-          <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">Join Serenity</h1>
+        <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">Join Serenity</h1>
           <p className="text-gray-600">Start your recovery journey with us today</p>
         </div>
 
