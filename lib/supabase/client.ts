@@ -1,23 +1,43 @@
 // lib/supabase/client.ts
 'use client';
-import { createClient as _sb, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js';
 
-declare global { var __srcHealthSupabase: SupabaseClient | undefined; }
+// Global singleton to prevent multiple instances
+let supabaseInstance: SupabaseClient | null = null;
 
-function make(): SupabaseClient {
-  const url  = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return _sb(url, anon, {
+function createClient(): SupabaseClient {
+  // Return existing instance if it exists
+  if (supabaseInstance) {
+    return supabaseInstance;
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Missing Supabase environment variables');
+  }
+
+  // Create new instance and store it
+  supabaseInstance = createSupabaseClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-      storageKey: 'src-health-auth',   // keep this unique for your app
+      storageKey: 'src-health-auth',
       persistSession: true,
       autoRefreshToken: true,
+      detectSessionInUrl: true
     },
+    global: {
+      headers: {
+        'X-Client-Info': 'src-health-app'
+      }
+    }
   });
+
+  return supabaseInstance;
 }
 
-export const supabase: SupabaseClient =
-  globalThis.__srcHealthSupabase ?? (globalThis.__srcHealthSupabase = make());
+// Export singleton instance
+export const supabase = createClient();
 
-// ✅ compatibility shim for legacy imports
-export function createClient(): SupabaseClient { return supabase; }
+// Export factory function for compatibility
+export { createClient };
