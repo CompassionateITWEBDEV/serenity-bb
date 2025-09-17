@@ -65,3 +65,11 @@ async function update(userId: string, partial: Partial<Settings>): Promise<Setti
   store.set(userId, validated)
   return validated
 }
+
+// Swap with Prisma/Drizzle easily:
+// export const settingsRepo = {
+//   async get(userId: string) { return prisma.settings.findUnique({ where: { userId } }) ?? DEFAULTS },
+//   async update(userId: string, partial: Partial<Settings>) { /* ... */ },
+// }
+
+export const settingsRepo = { get, update }
