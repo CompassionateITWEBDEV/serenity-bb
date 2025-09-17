@@ -1,18 +1,22 @@
-'use client';
+// lib/supabase-browser.ts
+import { createClient } from '@supabase/supabase-js';
 
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+let _client: ReturnType<typeof createClient> | null = null;
 
-let client: SupabaseClient | null = null;
-
-export function getSbBrowser(): SupabaseClient {
-  if (client) return client;
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anon) throw new Error('Supabase env not set');
-
-  client = createClient(url, anon, {
-    auth: { persistSession: true, autoRefreshToken: true }, // why: keep user logged in
-  });
-  return client;
+export function getSupabaseBrowserClient() {
+  if (!_client) {
+    _client = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        auth: {
+          // Give your app a stable, unique storage key.
+          storageKey: 'myapp-auth',
+          persistSession: true,
+          autoRefreshToken: true,
+        },
+      }
+    );
+  }
+  return _client;
 }
