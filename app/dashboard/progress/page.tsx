@@ -22,19 +22,19 @@ import {
 type Trend = "up" | "down";
 type ProgressPayload = {
   overallProgress: number;
-  weeklyGoals: { id: number | string; name: string; current: number; target: number }[];
-  milestones: { id: number | string; name: string; date: string; completed: boolean; type: "major" | "minor" }[];
+  weeklyGoals: { id?: number | string; name: string; current: number; target: number }[];
+  milestones: { id?: number | string; name: string; date: string; completed: boolean; type: "major" | "minor" }[];
   progressMetrics: {
-    id: number | string;
+    id?: number | string;
     title: string;
     value: string;
     change: string;
     trend: Trend;
-    icon?: string;
+    icon?: "Calendar" | "Heart" | "Target" | "CheckCircle";
     color?: string;
     bgColor?: string;
   }[];
-  weeklyData: { id: number | string; week: string; wellness: number; attendance: number; goals: number }[];
+  weeklyData: { id?: number | string; week: string; wellness: number; attendance: number; goals: number }[];
 };
 
 const iconMap: Record<string, React.ComponentType<any>> = {
@@ -45,41 +45,60 @@ const iconMap: Record<string, React.ComponentType<any>> = {
 };
 
 export default function ProgressPage() {
-  const { isAuthenticated, loading: authLoading, patient } = useAuth();
+  const { isAuthenticated, loading, patient } = useAuth();
   const router = useRouter();
 
-  const [loading, setLoading] = useState(true);
+  const [fetching, setFetching] = useState(true);
   const [data, setData] = useState<ProgressPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
+  // Redirect if not authed OR missing patient (was causing blank screen)
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) router.push("/login");
-  }, [isAuthenticated, authLoading, router]);
+    if (!loading && (!isAuthenticated || !patient)) {
+      router.replace("/login");
+    }
+  }, [isAuthenticated, loading, patient, router]);
 
+  // (Optional) Load real data; keep working if API not wired yet
   useEffect(() => {
-    if (!isAuthenticated) return;
     let alive = true;
-    (async () => {
+    async function run() {
+      if (!isAuthenticated || !patient) return;
       try {
         const res = await fetch("/api/progress", { cache: "no-store" });
         if (!res.ok) throw new Error(await res.text());
         const json: ProgressPayload = await res.json();
-        if (alive) {
-          setData(json);
-          setError(null);
-        }
+        if (alive) setData(json);
+        setErr(null);
       } catch (e: any) {
-        if (alive) setError(e?.message ?? "Failed to load progress");
+        // Show UI with static safe defaults instead of a white page
+        if (alive) {
+          setErr(e?.message ?? "Failed to load progress");
+          setData({
+            overallProgress: 0,
+            weeklyGoals: [
+              { name: "Medication Adherence", current: 0, target: 7 },
+              { name: "Therapy Sessions", current: 0, target: 2 },
+            ],
+            milestones: [],
+            progressMetrics: [
+              { title: "Treatment Days", value: "0", change: "0", trend: "up", icon: "Calendar" },
+            ],
+            weeklyData: [],
+          });
+        }
       } finally {
-        if (alive) setLoading(false);
+        if (alive) setFetching(false);
       }
-    })();
+    }
+    run();
     return () => {
       alive = false;
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, patient]);
 
-  if (authLoading || loading) {
+  // Global loading (auth or fetch)
+  if (loading || (isAuthenticated && fetching)) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -90,9 +109,21 @@ export default function ProgressPage() {
     );
   }
 
-  if (!isAuthenticated || !patient || !data) return null;
+  // If still not allowed, show a small non-null fallback while redirecting
+  if (!isAuthenticated || !patient) {
+    return (
+      <div className="min-h-screen bg-gray-50 grid place-items-center">
+        <p className="text-gray-600">Redirecting to login…</p>
+      </div>
+    );
+  }
 
-  const { overallProgress, weeklyGoals, milestones, progressMetrics, weeklyData } = data;
+  // Use API data when present, otherwise graceful defaults
+  const overallProgress = data?.overallProgress ?? 0;
+  const weeklyGoals = data?.weeklyGoals ?? [];
+  const milestones = data?.milestones ?? [];
+  const progressMetrics = data?.progressMetrics ?? [];
+  const weeklyData = data?.weeklyData ?? [];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -110,7 +141,7 @@ export default function ProgressPage() {
               <p className="text-gray-600">Monitor your recovery journey and celebrate achievements</p>
             </div>
           </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {err && <p className="text-sm text-red-600">Error: {err}</p>}
         </div>
 
         {/* Overall Progress */}
@@ -135,10 +166,10 @@ export default function ProgressPage() {
 
         {/* Progress Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {progressMetrics.map((metric) => {
+          {progressMetrics.map((metric, i) => {
             const Icon = (metric.icon && iconMap[metric.icon]) || Calendar;
             return (
-              <Card key={metric.id}>
+              <Card key={metric.id ?? `${metric.title}-${i}`}>
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div className={`p-2 rounded-lg ${metric.bgColor ?? "bg-gray-100"}`}>
@@ -178,10 +209,13 @@ export default function ProgressPage() {
                 <CardTitle>This Week&apos;s Goals</CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
-                {weeklyGoals.map((goal) => {
+                {weeklyGoals.length === 0 && (
+                  <p className="text-sm text-gray-500">No goals yet. They will appear here.</p>
+                )}
+                {weeklyGoals.map((goal, i) => {
                   const percentage = goal.target ? Math.round((goal.current / goal.target) * 100) : 0;
                   return (
-                    <div key={goal.id} className="space-y-2">
+                    <div key={(goal as any).id ?? `${goal.name}-${i}`} className="space-y-2">
                       <div className="flex justify-between items-center">
                         <span className="font-medium">{goal.name}</span>
                         <span className="text-sm text-gray-600">
@@ -207,9 +241,12 @@ export default function ProgressPage() {
                 <CardTitle>Recovery Milestones</CardTitle>
               </CardHeader>
               <CardContent>
+                {milestones.length === 0 && (
+                  <p className="text-sm text-gray-500">No milestones yet.</p>
+                )}
                 <div className="space-y-4">
-                  {milestones.map((milestone) => (
-                    <div key={milestone.id} className="flex items-center gap-4 p-4 rounded-lg border">
+                  {milestones.map((milestone, i) => (
+                    <div key={(milestone as any).id ?? `${milestone.name}-${i}`} className="flex items-center gap-4 p-4 rounded-lg border">
                       <div
                         className={`p-2 rounded-full ${
                           milestone.completed ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-400"
@@ -238,9 +275,12 @@ export default function ProgressPage() {
                 <CardTitle>Progress Trends</CardTitle>
               </CardHeader>
               <CardContent>
+                {weeklyData.length === 0 && (
+                  <p className="text-sm text-gray-500">No trend data yet.</p>
+                )}
                 <div className="space-y-6">
-                  {weeklyData.map((week) => (
-                    <div key={week.id} className="space-y-3">
+                  {weeklyData.map((week, i) => (
+                    <div key={(week as any).id ?? `${week.week}-${i}`} className="space-y-3">
                       <div className="flex justify-between items-center">
                         <span className="font-medium">{week.week}</span>
                         <div className="flex gap-4 text-sm">
@@ -250,9 +290,9 @@ export default function ProgressPage() {
                         </div>
                       </div>
                       <div className="grid grid-cols-3 gap-2">
-                        <Progress value={week.wellness * 10} className="h-2" />
-                        <Progress value={week.attendance} className="h-2" />
-                        <Progress value={week.goals} className="h-2" />
+                        <Progress value={Math.max(0, Math.min(100, week.wellness * 10))} className="h-2" />
+                        <Progress value={Math.max(0, Math.min(100, week.attendance))} className="h-2" />
+                        <Progress value={Math.max(0, Math.min(100, week.goals))} className="h-2" />
                       </div>
                     </div>
                   ))}
