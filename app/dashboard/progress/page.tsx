@@ -1,26 +1,132 @@
-"use client"
+"use client";
 
-import { useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { useAuth } from "@/hooks/use-auth"
-import { DashboardHeader } from "@/components/dashboard/dashboard-header"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { TrendingUp, Calendar, Target, Heart, Clock, CheckCircle, ArrowUp, ArrowDown } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/hooks/use-auth";
+import { DashboardHeader } from "@/components/dashboard/dashboard-header";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  TrendingUp,
+  Calendar,
+  Target,
+  Heart,
+  Clock,
+  CheckCircle,
+  ArrowUp,
+  ArrowDown,
+} from "lucide-react";
+import { supabase } from "@/lib/supabase/client";
+
+type ProgressResponse = {
+  overallProgress: number;
+  weeklyGoals: Array<{ id: string | number; name: string; current: number; target: number }>;
+  milestones: Array<{ id: string | number; name: string; date: string; completed: boolean; type: "major" | "minor" }>;
+  progressMetrics: Array<{
+    id: string | number;
+    title: string;
+    value: string;
+    change: string;
+    trend: "up" | "down";
+    icon?: string; // "Calendar" | "Heart" | "Target" | "CheckCircle"
+    color?: string; // Tailwind text-*
+    bgColor?: string; // Tailwind bg-*
+  }>;
+  weeklyData: Array<{ id: string | number; week: string; wellness: number; attendance: number; goals: number }>;
+};
+
+function useDebounced(fn: () => void, delay = 250) {
+  const t = useRef<ReturnType<typeof setTimeout> | null>(null);
+  return () => {
+    if (t.current) clearTimeout(t.current);
+    t.current = setTimeout(() => fn(), delay);
+  };
+}
+
+const iconMap: Record<string, React.ComponentType<any>> = {
+  Calendar,
+  Heart,
+  Target,
+  CheckCircle,
+} as unknown as Record<string, React.ComponentType<any>>;
 
 export default function ProgressPage() {
-  const { isAuthenticated, loading, patient } = useAuth()
-  const router = useRouter()
+  const { isAuthenticated, loading: authLoading, patient } = useAuth();
+  const router = useRouter();
+
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<ProgressResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = async () => {
+    try {
+      const res = await fetch("/api/progress", { cache: "no-store" });
+      if (!res.ok) throw new Error(await res.text());
+      const json: ProgressResponse = await res.json();
+      setData(json);
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to load progress");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const refreshDebounced = useDebounced(refresh, 200);
 
   useEffect(() => {
-    if (!loading && !isAuthenticated) {
-      router.push("/login")
+    if (!authLoading && !isAuthenticated) {
+      router.push("/login");
     }
-  }, [isAuthenticated, loading, router])
+  }, [isAuthenticated, authLoading, router]);
 
-  if (loading) {
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    setLoading(true);
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
+  // Realtime subscriptions per-table filtered by patient_id.
+  useEffect(() => {
+    if (!isAuthenticated || !patient?.id) return;
+
+    // Why: single multiplexed channel for all progress tables for this patient.
+    const channel = supabase.channel(`progress:${patient.id}`, {
+      config: { broadcast: { ack: false }, presence: { key: patient.id } },
+    });
+
+    const tables = [
+      "progress_overview",
+      "weekly_goals",
+      "milestones",
+      "progress_metrics",
+      "weekly_data",
+    ];
+
+    tables.forEach((table) => {
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table, filter: `patient_id=eq.${patient.id}` },
+        // Re-fetch everything; keeps code simple and consistent.
+        () => refreshDebounced()
+      );
+    });
+
+    channel.subscribe((status) => {
+      // Optional: could set a badge or toast on connected/disconnected.
+      // console.log("Realtime status:", status);
+    });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, patient?.id]);
+
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -28,75 +134,12 @@ export default function ProgressPage() {
           <p className="text-gray-600">Loading progress...</p>
         </div>
       </div>
-    )
+    );
   }
 
-  if (!isAuthenticated || !patient) {
-    return null
-  }
+  if (!isAuthenticated || !patient || !data) return null;
 
-  const overallProgress = 68
-  const weeklyGoals = [
-    { name: "Medication Adherence", current: 6, target: 7, percentage: 86 },
-    { name: "Therapy Sessions", current: 2, target: 2, percentage: 100 },
-    { name: "Group Activities", current: 3, target: 4, percentage: 75 },
-    { name: "Wellness Check-ins", current: 5, target: 7, percentage: 71 },
-  ]
-
-  const milestones = [
-    { name: "30 Days Clean", date: "2024-01-15", completed: true, type: "major" },
-    { name: "First Group Session", date: "2024-01-08", completed: true, type: "minor" },
-    { name: "60 Days Clean", date: "2024-02-14", completed: false, type: "major" },
-    { name: "Family Therapy Session", date: "2024-02-01", completed: false, type: "minor" },
-  ]
-
-  const progressMetrics = [
-    {
-      title: "Treatment Days",
-      value: "45",
-      change: "+5",
-      trend: "up",
-      icon: Calendar,
-      color: "text-blue-600",
-      bgColor: "bg-blue-100",
-    },
-    {
-      title: "Wellness Score",
-      value: "8.2",
-      change: "+0.8",
-      trend: "up",
-      icon: Heart,
-      color: "text-pink-600",
-      bgColor: "bg-pink-100",
-    },
-    {
-      title: "Session Attendance",
-      value: "94%",
-      change: "+2%",
-      trend: "up",
-      icon: CheckCircle,
-      color: "text-green-600",
-      bgColor: "bg-green-100",
-    },
-    {
-      title: "Goal Completion",
-      value: "78%",
-      change: "-3%",
-      trend: "down",
-      icon: Target,
-      color: "text-orange-600",
-      bgColor: "bg-orange-100",
-    },
-  ]
-
-  const weeklyData = [
-    { week: "Week 1", wellness: 6.2, attendance: 85, goals: 60 },
-    { week: "Week 2", wellness: 6.8, attendance: 90, goals: 70 },
-    { week: "Week 3", wellness: 7.1, attendance: 88, goals: 75 },
-    { week: "Week 4", wellness: 7.5, attendance: 92, goals: 80 },
-    { week: "Week 5", wellness: 7.8, attendance: 95, goals: 82 },
-    { week: "Week 6", wellness: 8.2, attendance: 94, goals: 78 },
-  ]
+  const { overallProgress, weeklyGoals, milestones, progressMetrics, weeklyData } = data;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -111,9 +154,12 @@ export default function ProgressPage() {
             </div>
             <div>
               <h1 className="text-3xl font-serif font-bold text-gray-900">Progress Tracking</h1>
-              <p className="text-gray-600">Monitor your recovery journey and celebrate achievements</p>
+              <p className="text-gray-600">
+                Monitor your recovery journey and celebrate achievements
+              </p>
             </div>
           </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
 
         {/* Overall Progress */}
@@ -138,31 +184,39 @@ export default function ProgressPage() {
 
         {/* Progress Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {progressMetrics.map((metric) => (
-            <Card key={metric.title}>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className={`p-2 rounded-lg ${metric.bgColor}`}>
-                    <metric.icon className={`h-6 w-6 ${metric.color}`} />
+          {progressMetrics.map((metric) => {
+            const Icon = iconMap[metric.icon ?? "Calendar"] ?? Calendar;
+            return (
+              <Card key={metric.id}>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div className={`p-2 rounded-lg ${metric.bgColor ?? "bg-gray-100"}`}>
+                      <Icon className={`h-6 w-6 ${metric.color ?? "text-gray-600"}`} />
+                    </div>
+                    <div
+                      className={`flex items-center gap-1 text-sm ${
+                        metric.trend === "up" ? "text-green-600" : "text-red-600"
+                      }`}
+                    >
+                      {metric.trend === "up" ? (
+                        <ArrowUp className="h-4 w-4" />
+                      ) : (
+                        <ArrowDown className="h-4 w-4" />
+                      )}
+                      {metric.change}
+                    </div>
                   </div>
-                  <div
-                    className={`flex items-center gap-1 text-sm ${
-                      metric.trend === "up" ? "text-green-600" : "text-red-600"
-                    }`}
-                  >
-                    {metric.trend === "up" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
-                    {metric.change}
+                  <div className="mt-4">
+                    <div className="text-2xl font-bold text-gray-900">{metric.value}</div>
+                    <div className="text-sm text-gray-600">{metric.title}</div>
                   </div>
-                </div>
-                <div className="mt-4">
-                  <div className="text-2xl font-bold text-gray-900">{metric.value}</div>
-                  <div className="text-sm text-gray-600">{metric.title}</div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
 
+        {/* Tabs */}
         <Tabs defaultValue="weekly" className="space-y-6">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="weekly">Weekly Goals</TabsTrigger>
@@ -170,31 +224,36 @@ export default function ProgressPage() {
             <TabsTrigger value="trends">Trends</TabsTrigger>
           </TabsList>
 
+          {/* Weekly Goals */}
           <TabsContent value="weekly" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>This Week's Goals</CardTitle>
+                <CardTitle>This Week&apos;s Goals</CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
-                {weeklyGoals.map((goal) => (
-                  <div key={goal.name} className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium">{goal.name}</span>
-                      <span className="text-sm text-gray-600">
-                        {goal.current}/{goal.target}
-                      </span>
+                {weeklyGoals.map((goal) => {
+                  const percentage = goal.target ? Math.round((goal.current / goal.target) * 100) : 0;
+                  return (
+                    <div key={goal.id} className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">{goal.name}</span>
+                        <span className="text-sm text-gray-600">
+                          {goal.current}/{goal.target}
+                        </span>
+                      </div>
+                      <Progress value={percentage} className="h-2" />
+                      <div className="flex justify-between text-sm text-gray-600">
+                        <span>{percentage}% complete</span>
+                        <span>{Math.max(goal.target - goal.current, 0)} remaining</span>
+                      </div>
                     </div>
-                    <Progress value={goal.percentage} className="h-2" />
-                    <div className="flex justify-between text-sm text-gray-600">
-                      <span>{goal.percentage}% complete</span>
-                      <span>{goal.target - goal.current} remaining</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
           </TabsContent>
 
+          {/* Milestones */}
           <TabsContent value="milestones" className="space-y-6">
             <Card>
               <CardHeader>
@@ -202,14 +261,18 @@ export default function ProgressPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {milestones.map((milestone, index) => (
-                    <div key={index} className="flex items-center gap-4 p-4 rounded-lg border">
+                  {milestones.map((milestone) => (
+                    <div key={milestone.id} className="flex items-center gap-4 p-4 rounded-lg border">
                       <div
                         className={`p-2 rounded-full ${
                           milestone.completed ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-400"
                         }`}
                       >
-                        {milestone.completed ? <CheckCircle className="h-5 w-5" /> : <Clock className="h-5 w-5" />}
+                        {milestone.completed ? (
+                          <CheckCircle className="h-5 w-5" />
+                        ) : (
+                          <Clock className="h-5 w-5" />
+                        )}
                       </div>
                       <div className="flex-1">
                         <div className="font-medium">{milestone.name}</div>
@@ -225,6 +288,7 @@ export default function ProgressPage() {
             </Card>
           </TabsContent>
 
+          {/* Weekly Trends */}
           <TabsContent value="trends" className="space-y-6">
             <Card>
               <CardHeader>
@@ -232,8 +296,8 @@ export default function ProgressPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
-                  {weeklyData.map((week, index) => (
-                    <div key={week.week} className="space-y-3">
+                  {weeklyData.map((week) => (
+                    <div key={week.id} className="space-y-3">
                       <div className="flex justify-between items-center">
                         <span className="font-medium">{week.week}</span>
                         <div className="flex gap-4 text-sm">
@@ -256,5 +320,5 @@ export default function ProgressPage() {
         </Tabs>
       </main>
     </div>
-  )
+  );
 }
