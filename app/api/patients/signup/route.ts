@@ -1,11 +1,9 @@
-// app/api/patients/signup/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// ✅ Use anon key for signup (same pattern as your login route)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -14,8 +12,6 @@ const supabase = createClient(
 type Body = {
   email: string;
   password: string;
-
-  // optional extras you’re sending from the form (stored as user_metadata)
   first_name?: string;
   last_name?: string;
   phone?: string | null;
@@ -26,25 +22,30 @@ type Body = {
   treatment_type?: string | null;
 };
 
+function problem(status: number, title: string, detail?: string) {
+  return new NextResponse(JSON.stringify({ title, detail, status }), {
+    status,
+    headers: { "content-type": "application/problem+json" },
+  });
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Body;
-
     const email = (body.email || "").trim().toLowerCase();
     const password = body.password || "";
 
     if (!email || !password) {
-      return NextResponse.json(
-        { error: "Email and password are required" },
-        { status: 400 }
-      );
+      return problem(400, "Signup failed", "Email and password are required");
+    }
+    if (password.length < 8) {
+      return problem(400, "Signup failed", "Password must be at least 8 characters");
     }
 
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        // store extra fields in user_metadata
         data: {
           first_name: body.first_name ?? null,
           last_name: body.last_name ?? null,
@@ -56,7 +57,6 @@ export async function POST(req: Request) {
           treatment_type: body.treatment_type ?? null,
           role: "patient",
         },
-        // optional redirect if you have an email-confirmation callback page
         emailRedirectTo: process.env.NEXT_PUBLIC_SITE_URL
           ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`
           : undefined,
@@ -65,27 +65,22 @@ export async function POST(req: Request) {
 
     if (error) {
       const msg = error.message || "Signup failed";
-      const isDuplicate =
-        /already|exists|taken|registered|duplicate|unique|23505/i.test(msg);
-      return NextResponse.json(
-        { error: isDuplicate ? "Email already registered" : msg },
-        { status: isDuplicate ? 409 : 400 }
-      );
+      const duplicate = /already|exists|taken|registered|duplicate|unique|23505/i.test(msg);
+      return problem(duplicate ? 409 : 400, "Signup failed",
+        duplicate ? "Email already registered." : msg);
     }
 
-    // If email confirmation is required, there will be no session yet.
-    const requiresEmailConfirmation = !data.session;
-
+    // If email confirmation is required, there is no session yet
     return NextResponse.json(
       {
         ok: true,
-        requiresEmailConfirmation,
+        requiresEmailConfirmation: !data.session,
         user: data.user ? { id: data.user.id, email: data.user.email } : null,
       },
       { status: 201 }
     );
   } catch (e: any) {
     console.error("❌ Signup failed:", e?.message ?? e);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return problem(500, "Internal Server Error", "Unexpected server error");
   }
 }
