@@ -5,38 +5,18 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Use anon key for regular signUp (matches your auth.ts approach)
-const supabase = createClient(
+// Auth (anon) – same pattern as your login route
+const sbAnon = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// Admin client for fallback operations
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+// Admin (service role) – server-only for DB writes
+const sbAdmin = createClient(
+  process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
+  { auth: { persistSession: false, autoRefreshToken: false } }
 );
-
-type SignupBody = {
-  email: string;
-  password: string;
-  firstName: string;
-  lastName: string;
-  phoneNumber?: string;
-  dateOfBirth?: string;
-  emergencyContact?: {
-    name?: string;
-    phone?: string;
-    relationship?: string;
-  };
-  treatmentPlan?: string;
-};
 
 function problem(status: number, title: string, detail?: string) {
   return new NextResponse(JSON.stringify({ title, detail, status }), {
@@ -45,192 +25,117 @@ function problem(status: number, title: string, detail?: string) {
   });
 }
 
+// mm/dd/yyyy -> yyyy-mm-dd (leave ISO as-is)
+function normalizeDate(s?: string | null) {
+  if (!s) return null;
+  const v = s.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
+  if (m) return `${m[3]}-${m[1].padStart(2,"0")}-${m[2].padStart(2,"0")}`;
+  return v; // fallback (if your column is text it will still store)
+}
+
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as SignupBody;
+    const raw = await req.json();
 
-    const email = (body.email || "").trim().toLowerCase();
-    const password = body.password || "";
+    // ✅ accept both camelCase and snake_case from the form
+    const email = ((raw.email ?? raw.Email) || "").trim().toLowerCase();
+    const password = raw.password ?? "";
+    const firstName = raw.firstName ?? raw.first_name ?? "";
+    const lastName  = raw.lastName  ?? raw.last_name  ?? "";
+    const phone     = raw.phoneNumber ?? raw.phone_number ?? raw.phone ?? null;
+    const dob       = normalizeDate(raw.dateOfBirth ?? raw.date_of_birth ?? null);
+    const ecName    = raw.emergencyContact?.name ?? raw.emergency_contact_name ?? null;
+    const ecPhone   = raw.emergencyContact?.phone ?? raw.emergency_contact_phone ?? null;
+    const ecRel     = raw.emergencyContact?.relationship ?? raw.emergency_contact_relationship ?? null;
+    const plan      = raw.treatmentPlan ?? raw.treatment_type ?? raw.treatment_program ?? "Standard Recovery Program";
 
-    // Validation
-    if (!email || !password) {
-      return problem(400, "Signup failed", "Email and password are required");
-    }
-    
-    if (password.length < 8) {
-      return problem(400, "Signup failed", "Password must be at least 8 characters");
-    }
+    // Basic validation
+    if (!email || !password) return problem(400, "Signup failed", "Email and password are required");
+    if (password.length < 8) return problem(400, "Signup failed", "Password must be at least 8 characters");
+    if (!firstName || !lastName) return problem(400, "Signup failed", "First name and last name are required");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return problem(400, "Signup failed", "Please enter a valid email address");
 
-    if (!body.firstName || !body.lastName) {
-      return problem(400, "Signup failed", "First name and last name are required");
-    }
-
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return problem(400, "Signup failed", "Please enter a valid email address");
-    }
-
-    console.log('Starting signup process for:', email);
-
-    // Step 1: Create the auth user with metadata matching your auth.ts expectations
-    const { data, error } = await supabase.auth.signUp({
+    // 1) Create Auth user with metadata
+    const { data, error } = await sbAnon.auth.signUp({
       email,
       password,
       options: {
         data: {
           role: "patient",
-          firstName: body.firstName,
-          lastName: body.lastName,
-          // Store additional fields for potential trigger use
-          phoneNumber: body.phoneNumber || null,
-          dateOfBirth: body.dateOfBirth || null,
-          emergencyContactName: body.emergencyContact?.name || null,
-          emergencyContactPhone: body.emergencyContact?.phone || null,
-          emergencyContactRelationship: body.emergencyContact?.relationship || null,
-          treatmentPlan: body.treatmentPlan || "Standard Recovery Program",
-        }
-      }
+          first_name: firstName, // store as snake_case in metadata
+          last_name:  lastName,
+          phone_number: phone,
+          date_of_birth: dob,
+          emergency_contact_name: ecName,
+          emergency_contact_phone: ecPhone,
+          emergency_contact_relationship: ecRel,
+          treatment_program: plan,
+        },
+        emailRedirectTo: process.env.NEXT_PUBLIC_SITE_URL
+          ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`
+          : undefined,
+      },
     });
 
     if (error) {
-      console.error("Supabase signup error:", error);
-      
-      if (error.message.includes('User already registered')) {
-        return problem(409, "Signup failed", "An account with this email already exists");
-      }
-      
-      // If it's the database trigger error, try fallback with admin client
-      if (error.message.includes('Database error saving new user')) {
-        console.log("Database trigger failed, trying admin approach...");
-        
-        try {
-          // Use admin client to create user
-          const { data: adminData, error: adminError } = await supabaseAdmin.auth.admin.createUser({
-            email,
-            password,
-            user_metadata: {
-              role: "patient",
-              firstName: body.firstName,
-              lastName: body.lastName,
-              phoneNumber: body.phoneNumber || null,
-              dateOfBirth: body.dateOfBirth || null,
-              emergencyContactName: body.emergencyContact?.name || null,
-              emergencyContactPhone: body.emergencyContact?.phone || null,
-              emergencyContactRelationship: body.emergencyContact?.relationship || null,
-              treatmentPlan: body.treatmentPlan || "Standard Recovery Program",
-            },
-            email_confirm: true
-          });
-
-          if (adminError) {
-            console.error("Admin create user error:", adminError);
-            return problem(500, "Signup failed", "Unable to create account. Please contact support.");
-          }
-
-          // Manually create the patient record
-          const fullName = `${body.firstName} ${body.lastName}`;
-          
-          const { error: patientError } = await supabaseAdmin
-            .from('patients')
-            .insert({
-              user_id: adminData.user!.id,
-              first_name: body.firstName,
-              last_name: body.lastName,
-              full_name: fullName,
-              email: email,
-              phone_number: body.phoneNumber || null,
-              date_of_birth: body.dateOfBirth || null,
-              emergency_contact_name: body.emergencyContact?.name || null,
-              emergency_contact_phone: body.emergencyContact?.phone || null,
-              emergency_contact_relationship: body.emergencyContact?.relationship || null,
-              treatment_program: body.treatmentPlan || "Standard Recovery Program",
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            });
-
-          if (patientError) {
-            console.error("Patient creation error:", patientError);
-            // Don't fail the signup, just log the error
-          }
-
-          return NextResponse.json({
-            success: true,
-            requiresEmailConfirmation: false,
-            user: {
-              id: adminData.user!.id,
-              email: adminData.user!.email,
-              user_metadata: adminData.user!.user_metadata
-            },
-            message: "Account created successfully"
-          }, { status: 201 });
-
-        } catch (fallbackError) {
-          console.error("Fallback signup error:", fallbackError);
-          return problem(500, "Signup failed", "Unable to create account. Please try again.");
-        }
-      }
-      
-      return problem(400, "Signup failed", error.message);
+      const msg = error.message || "Signup failed";
+      const dup = /already|exists|taken|registered|duplicate|unique|23505/i.test(msg);
+      return problem(dup ? 409 : 400, "Signup failed", dup ? "Email already registered." : msg);
     }
 
-    if (!data.user) {
-      return problem(500, "Signup failed", "User creation failed");
+    if (!data.user) return problem(500, "Signup failed", "User creation failed");
+    const userId = data.user.id;
+
+    // 2) Create patient profile with service-role (non-fatal if it fails)
+    // Try schema with `uid`, then fallback to `user_id`
+    const base = {
+      email,
+      first_name: firstName,
+      last_name: lastName,
+      phone_number: phone,
+      date_of_birth: dob,
+      emergency_contact_name: ecName,
+      emergency_contact_phone: ecPhone,
+      emergency_contact_relationship: ecRel,
+      treatment_program: plan,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } as Record<string, any>;
+
+    let insertErr: any = null;
+
+    // Try uid
+    let { error: e1 } = await sbAdmin.from("patients").insert({ uid: userId, ...base });
+    if (e1) {
+      // Fallback to user_id
+      const { error: e2 } = await sbAdmin.from("patients").insert({ user_id: userId, ...base });
+      insertErr = e2;
     }
 
-    console.log('User created successfully:', data.user.id);
-
-    // If we have a session, try to create the patient record
-    if (data.session) {
-      try {
-        const fullName = `${body.firstName} ${body.lastName}`;
-        
-        // This should work if your RLS policies allow it, or if triggers handle it
-        const { error: patientError } = await supabase
-          .from('patients')
-          .upsert({
-            user_id: data.user.id,
-            first_name: body.firstName,
-            last_name: body.lastName,
-            full_name: fullName,
-            email: email,
-            phone_number: body.phoneNumber || null,
-            date_of_birth: body.dateOfBirth || null,
-            emergency_contact_name: body.emergencyContact?.name || null,
-            emergency_contact_phone: body.emergencyContact?.phone || null,
-            emergency_contact_relationship: body.emergencyContact?.relationship || null,
-            treatment_program: body.treatmentPlan || "Standard Recovery Program",
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          });
-
-        if (patientError) {
-          console.error("Patient upsert error:", patientError);
-          // Don't fail the signup, the user was created successfully
-        }
-      } catch (upsertError) {
-        console.error("Patient upsert exception:", upsertError);
-        // Don't fail the signup
-      }
+    if (insertErr) {
+      console.error("patients insert (non-fatal) error:", insertErr.message ?? insertErr);
+      // do not block signup if profile fails
     }
 
+    // If your project requires email confirmation, there won't be a session yet
     const requiresEmailConfirmation = !data.session;
 
-    return NextResponse.json({
-      success: true,
-      requiresEmailConfirmation,
-      user: {
-        id: data.user.id,
-        email: data.user.email,
-        user_metadata: data.user.user_metadata
+    return NextResponse.json(
+      {
+        success: true,
+        requiresEmailConfirmation,
+        user: { id: data.user.id, email: data.user.email },
+        message: requiresEmailConfirmation
+          ? "Please check your email to confirm your account"
+          : "Account created successfully",
       },
-      message: requiresEmailConfirmation 
-        ? "Please check your email to confirm your account" 
-        : "Account created successfully"
-    }, { status: 201 });
-
-  } catch (error: any) {
-    console.error("Signup route error:", error);
+      { status: 201 }
+    );
+  } catch (err: any) {
+    console.error("Signup route error:", err);
     return problem(500, "Internal Server Error", "An unexpected error occurred");
   }
 }
