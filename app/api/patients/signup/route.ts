@@ -12,24 +12,17 @@ const Body = z.object({
   email:      z.string().email('Valid email required'),
   password:   z.string().min(8, 'Password must be at least 8 characters'),
   phone:      z.string().trim().optional().nullable(),
-  date_of_birth: z.string().trim().optional().nullable(), // "YYYY-MM-DD" (make sure it matches your column type)
+  date_of_birth: z.string().trim().optional().nullable(), // YYYY-MM-DD (ensure matches your column type if used)
   emergency_contact_name: z.string().trim().optional().nullable(),
   emergency_contact_phone: z.string().trim().optional().nullable(),
   emergency_contact_relationship: z.string().trim().optional().nullable(),
   treatment_type: z.string().trim().optional().nullable(),
 });
 
-type Problem = {
-  title?: string;
-  detail?: string;
-  status: number;
-  fields?: Record<string, string[]>;
-};
-
 function problem(status: number, title: string, detail?: string, fields?: Record<string, string[]>) {
   return new NextResponse(
-    JSON.stringify({ title, detail, status, fields } satisfies Problem),
-    { status, headers: { 'content-type': 'application/problem+json' } },
+    JSON.stringify({ title, detail, status, fields }),
+    { status, headers: { 'content-type': 'application/problem+json' } }
   );
 }
 
@@ -40,9 +33,24 @@ function getAdmin(): SupabaseClient {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
+/** Fast duplicate-email check against auth.users (service role can read the auth schema). */
+async function emailExists(admin: SupabaseClient, email: string): Promise<boolean> {
+  const { data, error } = await admin
+    .schema('auth')
+    .from('users')
+    .select('id')
+    .ilike('email', email)   // case-insensitive match
+    .maybeSingle();
+
+  if (error && error.code !== 'PGRST116') { // "Results contain 0 rows"
+    console.warn('auth.users lookup error:', error);
+  }
+  return !!data;
+}
+
 export async function POST(req: Request) {
   try {
-    // 1) Parse + validate input
+    // 1) Parse + validate
     const raw = await req.json().catch(() =>
       problem(400, 'Invalid JSON', 'Request body must be valid JSON.')
     );
@@ -62,7 +70,12 @@ export async function POST(req: Request) {
     // 2) Admin client (service role)
     const admin = getAdmin();
 
-    // 3) Create Auth user
+    // 3) Short-circuit if email already exists (clear 409 instead of vague DB error)
+    if (await emailExists(admin, input.email)) {
+      return problem(409, 'Signup failed', 'Email already registered.');
+    }
+
+    // 4) Create Auth user
     const { data: created, error: authErr } = await admin.auth.admin.createUser({
       email: input.email,
       password: input.password,
@@ -77,35 +90,47 @@ export async function POST(req: Request) {
     });
 
     if (authErr) {
+      console.error('auth.admin.createUser error:', {
+        message: authErr.message,
+        name: authErr.name,
+        status: (authErr as any)?.status,
+        error: (authErr as any)?.error,
+        error_description: (authErr as any)?.error_description,
+      });
+
       const msg = authErr.message ?? 'Auth error';
-      const status = /already|exists|taken|registered/i.test(msg) ? 409 : 400;
-      return problem(status, 'Signup failed', msg);
+      const isDuplicate =
+        /already|exists|taken|registered|duplicate|unique/i.test(msg) || /23505/.test(msg);
+      const status = isDuplicate ? 409 : 400;
+      const detail = isDuplicate ? 'Email already registered.' : msg;
+
+      return problem(status, 'Signup failed', detail);
     }
 
     const userId = created.user?.id;
 
-    // 4) Try to create a profile row in `patients` using uid (non-fatal if it fails)
-    //    Make sure these column names match your table. Adjust as needed.
+    // 5) Best-effort profile insert in `patients` with uid = auth.users.id
+    //    Keep this MINIMAL so it succeeds even if your schema is lean;
+    //    expand with more columns only if they exist in your table.
     try {
       await admin.from('patients').insert({
-        uid: userId,                                // <-- your PK mirrors auth.users.id
+        uid: userId,                 // PK mirrors auth.users.id (your choice)
         email: input.email,
-        first_name: input.first_name,               // or remove if your table uses full_name
-        last_name:  input.last_name,                // or remove if your table uses full_name
-        phone_number: input.phone ?? null,          // rename if your column differs
-        date_of_birth: input.date_of_birth ?? null, // ensure type matches (date/text)
-        is_active: true,                            // remove if your table doesn’t have this
-        // emergency_contact_* / treatment_type — add here only if such columns exist
+        first_name: input.first_name, // remove if your table uses full_name instead
+        last_name:  input.last_name,  // remove if your table uses full_name instead
+        // phone_number: input.phone ?? null,         // uncomment only if column exists
+        // date_of_birth: input.date_of_birth ?? null // uncomment only if column exists
+        // is_active: true,                            // uncomment only if column exists
       });
     } catch (dbErr: any) {
-      // Do NOT block signup if profile insert fails; log and continue.
       console.error('patients insert (non-fatal) error:', dbErr?.message ?? dbErr);
+      // Don’t block signup; you can backfill profile later.
     }
 
-    // 5) Done
+    // 6) Success
     return NextResponse.json({ ok: true, userId }, { status: 201 });
   } catch (e: any) {
-    if (e instanceof NextResponse) return e; // one of our `problem(...)` returns
+    if (e instanceof NextResponse) return e;
     console.error('signup route error:', e);
     return problem(500, 'Internal Server Error', e?.message);
   }
