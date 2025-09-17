@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase/client"; // <-- needed to get access token
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -52,38 +53,42 @@ export default function ProgressPage() {
   const [data, setData] = useState<ProgressPayload | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // Redirect if not authed OR missing patient (was causing blank screen)
+  // Redirect if not authed OR missing patient
   useEffect(() => {
     if (!loading && (!isAuthenticated || !patient)) {
       router.replace("/login");
     }
   }, [isAuthenticated, loading, patient, router]);
 
-  // (Optional) Load real data; keep working if API not wired yet
+  // Load real data (sends Bearer token to avoid cookie issues)
   useEffect(() => {
     let alive = true;
     async function run() {
       if (!isAuthenticated || !patient) return;
       try {
-        const res = await fetch("/api/progress", { cache: "no-store" });
+        const { data: sessionRes } = await supabase.auth.getSession();
+        const token = sessionRes.session?.access_token;
+        const res = await fetch("/api/progress", {
+          method: "GET",
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          credentials: "include", // keep cookies too if available
+          cache: "no-store",
+        });
         if (!res.ok) throw new Error(await res.text());
         const json: ProgressPayload = await res.json();
-        if (alive) setData(json);
-        setErr(null);
+        if (alive) {
+          setData(json);
+          setErr(null);
+        }
       } catch (e: any) {
-        // Show UI with static safe defaults instead of a white page
         if (alive) {
           setErr(e?.message ?? "Failed to load progress");
+          // Graceful defaults (UI stays usable)
           setData({
             overallProgress: 0,
-            weeklyGoals: [
-              { name: "Medication Adherence", current: 0, target: 7 },
-              { name: "Therapy Sessions", current: 0, target: 2 },
-            ],
+            weeklyGoals: [],
             milestones: [],
-            progressMetrics: [
-              { title: "Treatment Days", value: "0", change: "0", trend: "up", icon: "Calendar" },
-            ],
+            progressMetrics: [],
             weeklyData: [],
           });
         }
@@ -97,7 +102,6 @@ export default function ProgressPage() {
     };
   }, [isAuthenticated, patient]);
 
-  // Global loading (auth or fetch)
   if (loading || (isAuthenticated && fetching)) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -109,7 +113,6 @@ export default function ProgressPage() {
     );
   }
 
-  // If still not allowed, show a small non-null fallback while redirecting
   if (!isAuthenticated || !patient) {
     return (
       <div className="min-h-screen bg-gray-50 grid place-items-center">
@@ -118,7 +121,6 @@ export default function ProgressPage() {
     );
   }
 
-  // Use API data when present, otherwise graceful defaults
   const overallProgress = data?.overallProgress ?? 0;
   const weeklyGoals = data?.weeklyGoals ?? [];
   const milestones = data?.milestones ?? [];
