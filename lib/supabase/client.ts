@@ -8,7 +8,7 @@ if (!url || !anon) {
   throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY')
 }
 
-
+// HMR-safe singleton; avoids “Multiple GoTrueClient instances” in dev.
 const g = globalThis as unknown as { __sb?: SupabaseClient<Db> }
 export const supabase: SupabaseClient<Db> =
   g.__sb ??= createClient<Db>(url, anon, {
