@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,9 +27,21 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+const toISO = (v?: string | null) => {
+  if (!v) return "";
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  return m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : s;
+};
+
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const [avatarUrl, setAvatarUrl] = useState<string>("/patient-avatar.png");
   const [form, setForm] = useState<FormState>({
     firstName: "",
     lastName: "",
@@ -47,49 +59,89 @@ export default function SettingsPage() {
     return (a + b || "??").toUpperCase();
   }, [form.firstName, form.lastName]);
 
-  // Load patient profile for the logged-in user
+  // Load profile; if the patients row is missing/incomplete, seed/patch it from auth metadata
   useEffect(() => {
     (async () => {
       setLoading(true);
+
       const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
       if (sessErr || !sessionData?.session?.user) {
         setLoading(false);
         return;
       }
       const user = sessionData.session.user;
+      const uid = user.id;
+      const meta: any = user.user_metadata ?? {};
 
-      const { data: row } = await supabase
+      // Pull row (include avatar)
+      let { data: row } = await supabase
         .from("patients")
         .select(
-          "first_name,last_name,email,phone_number,date_of_birth,emergency_contact_name,emergency_contact_phone,bio"
+          "user_id,first_name,last_name,email,phone_number,date_of_birth,emergency_contact_name,emergency_contact_phone,bio,avatar"
         )
-        .eq("user_id", user.id)
+        .eq("user_id", uid)
         .maybeSingle();
 
-      const meta: any = user.user_metadata ?? {};
+      // Merge DB + auth metadata
       const first = row?.first_name ?? meta.firstName ?? meta.first_name ?? "";
-      const last = row?.last_name ?? meta.lastName ?? meta.last_name ?? "";
+      const last  = row?.last_name  ?? meta.lastName  ?? meta.last_name  ?? "";
+      const email = row?.email ?? user.email ?? "";
+      const phone = row?.phone_number ?? meta.phoneNumber ?? meta.phone_number ?? "";
+      const dob   = row?.date_of_birth ? toISO(row.date_of_birth) : toISO(meta.dateOfBirth ?? meta.date_of_birth);
+      const ecName  = row?.emergency_contact_name ?? meta.emergencyContactName ?? meta.emergency_contact_name ?? "";
+      const ecPhone = row?.emergency_contact_phone ?? meta.emergencyContactPhone ?? meta.emergency_contact_phone ?? "";
+      const bio     = row?.bio ?? "";
+      const avatar  = row?.avatar ?? meta.avatar_url ?? "/patient-avatar.png";
 
-      const dobISO =
-        row?.date_of_birth && /^\d{4}-\d{2}-\d{2}$/.test(row.date_of_birth)
-          ? row.date_of_birth
-          : row?.date_of_birth
-          ? new Date(row.date_of_birth).toISOString().slice(0, 10)
-          : "";
+      // Self-heal: create or patch row so Settings always shows what user supplied at signup
+      if (!row) {
+        const seed = {
+          user_id: uid,
+          first_name: first || null,
+          last_name: last || null,
+          email,
+          phone_number: phone || null,
+          date_of_birth: dob || null,
+          emergency_contact_name: ecName || null,
+          emergency_contact_phone: ecPhone || null,
+          bio: bio || null,
+          avatar: avatar || null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        const { data: inserted } = await supabase
+          .from("patients")
+          .upsert(seed, { onConflict: "user_id" })
+          .select()
+          .maybeSingle();
+        row = inserted ?? (seed as any);
+      } else {
+        const patch: any = {};
+        if (!row.phone_number && phone) patch.phone_number = phone;
+        if (!row.date_of_birth && dob) patch.date_of_birth = dob;
+        if (!row.emergency_contact_name && ecName) patch.emergency_contact_name = ecName;
+        if (!row.emergency_contact_phone && ecPhone) patch.emergency_contact_phone = ecPhone;
+        if (!row.avatar && avatar) patch.avatar = avatar;
+        if (Object.keys(patch).length) {
+          patch.updated_at = new Date().toISOString();
+          await supabase.from("patients").update(patch).eq("user_id", uid);
+        }
+      }
 
       setForm({
         firstName: first,
         lastName: last,
-        email: row?.email ?? user.email ?? "",
-        phoneNumber: row?.phone_number ?? "",
-        dateOfBirth: dobISO,
-        emergencyName: row?.emergency_contact_name ?? "",
-        emergencyPhone: row?.emergency_contact_phone ?? "",
-        bio: row?.bio ?? "",
+        email,
+        phoneNumber: phone,
+        dateOfBirth: dob || "",
+        emergencyName: ecName,
+        emergencyPhone: ecPhone,
+        bio,
       });
+      setAvatarUrl(avatar || "/patient-avatar.png");
       setLoading(false);
     })();
-  }, []); // <-- this was missing
+  }, []);
 
   const onChange =
     (k: keyof FormState) =>
@@ -103,6 +155,7 @@ export default function SettingsPage() {
       const uid = sess?.session?.user?.id;
       if (!uid) throw new Error("Not authenticated");
 
+      // Update patients
       const { error: upErr } = await supabase
         .from("patients")
         .update({
@@ -119,13 +172,67 @@ export default function SettingsPage() {
         .eq("user_id", uid);
       if (upErr) throw upErr;
 
+      // Keep auth metadata in sync so other screens pulling from metadata see the same info
       await supabase.auth.updateUser({
-        data: { first_name: form.firstName, last_name: form.lastName },
+        data: {
+          first_name: form.firstName,
+          last_name: form.lastName,
+          phone_number: form.phoneNumber || null,
+          date_of_birth: form.dateOfBirth || null,
+          emergency_contact_name: form.emergencyName || null,
+          emergency_contact_phone: form.emergencyPhone || null,
+        },
       });
     } catch (e) {
       console.error(e);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // === Avatar upload ===
+  const openFilePicker = () => fileRef.current?.click();
+
+  const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      alert("Image must be ≤ 1MB");
+      e.target.value = "";
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const uid = sess?.session?.user?.id;
+      if (!uid) throw new Error("Not authenticated");
+
+      // Upload to Storage (bucket: avatars)
+      const path = `avatars/${uid}/${Date.now()}-${file.name}`;
+      const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, {
+        cacheControl: "3600",
+        upsert: true,
+        contentType: file.type,
+      });
+      if (upErr) throw upErr;
+
+      // Get public URL
+      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+      const publicUrl = data.publicUrl;
+
+      // Save to DB + auth metadata
+      await supabase.from("patients").update({ avatar: publicUrl, updated_at: new Date().toISOString() }).eq("user_id", uid);
+      await supabase.auth.updateUser({ data: { avatar_url: publicUrl } });
+
+      // Update UI
+      setAvatarUrl(publicUrl);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to upload photo.");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
     }
   };
 
@@ -158,15 +265,16 @@ export default function SettingsPage() {
             <CardContent className="space-y-6">
               <div className="flex items-center gap-6">
                 <Avatar className="h-20 w-20">
-                  <AvatarImage src="/patient-avatar.png" />
+                  <AvatarImage src={avatarUrl || "/patient-avatar.png"} />
                   <AvatarFallback>{initials}</AvatarFallback>
                 </Avatar>
                 <div>
-                  <Button variant="outline" className="mb-2 bg-transparent" type="button" disabled>
+                  <Button variant="outline" className="mb-2 bg-transparent" type="button" onClick={openFilePicker} disabled={uploading}>
                     <Camera className="h-4 w-4 mr-2" />
-                    Change Photo
+                    {uploading ? "Uploading..." : "Change Photo"}
                   </Button>
                   <p className="text-sm text-gray-600">JPG, GIF or PNG. 1MB max.</p>
+                  <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickFile} />
                 </div>
               </div>
 
