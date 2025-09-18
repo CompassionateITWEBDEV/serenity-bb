@@ -524,3 +524,4 @@ export function GroupChat() {
     </div>
   )
 }
+export default GroupChat;          // ← add this
