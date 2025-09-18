@@ -1,110 +1,63 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
-import { Badge } from "@/components/ui/badge"
-import { CheckCircle, Circle, Clock } from "lucide-react"
+"use client";
+import React from "react";
+import { usePatientOverview } from "@/context/patient-overview-context";
 
 export function TreatmentProgress() {
-  const milestones = [
-    {
-      title: "Initial Assessment",
-      status: "completed",
-      date: "Jan 15, 2024",
-      description: "Comprehensive evaluation and treatment planning",
-    },
-    {
-      title: "Detoxification Phase",
-      status: "completed",
-      date: "Jan 22, 2024",
-      description: "Safe withdrawal management and stabilization",
-    },
-    {
-      title: "Individual Therapy",
-      status: "in-progress",
-      date: "Ongoing",
-      description: "Weekly one-on-one counseling sessions",
-      progress: 75,
-    },
-    {
-      title: "Group Therapy",
-      status: "in-progress",
-      date: "Ongoing",
-      description: "Peer support and group counseling",
-      progress: 60,
-    },
-    {
-      title: "Relapse Prevention",
-      status: "upcoming",
-      date: "Mar 15, 2024",
-      description: "Coping strategies and long-term planning",
-    },
-  ]
+  const { overview, loading, error } = usePatientOverview();
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "completed":
-        return <CheckCircle className="h-5 w-5 text-green-600" />
-      case "in-progress":
-        return <Clock className="h-5 w-5 text-yellow-600" />
-      default:
-        return <Circle className="h-5 w-5 text-gray-400" />
-    }
+  if (loading && !overview) {
+    return (
+      <div className="rounded-2xl shadow p-5">
+        <div className="h-5 w-56 bg-gray-200 rounded animate-pulse mb-4" />
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-16 w-full bg-gray-200 rounded animate-pulse" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (error && !overview) {
+    return <div className="rounded-2xl shadow p-5 text-sm text-red-600">{error}</div>;
   }
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "completed":
-        return (
-          <Badge variant="secondary" className="bg-green-100 text-green-800">
-            Completed
-          </Badge>
-        )
-      case "in-progress":
-        return (
-          <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-            In Progress
-          </Badge>
-        )
-      default:
-        return <Badge variant="outline">Upcoming</Badge>
-    }
+  const items = overview!.treatmentProgress || [];
+  if (items.length === 0) {
+    return <div className="rounded-2xl shadow p-5 text-sm text-gray-600">No progress yet.</div>;
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <div className="bg-cyan-100 p-2 rounded-lg">
-            <CheckCircle className="h-5 w-5 text-cyan-600" />
-          </div>
-          Treatment Progress
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-6">
-          {milestones.map((milestone, index) => (
-            <div key={index} className="flex items-start space-x-4">
-              <div className="flex-shrink-0 mt-1">{getStatusIcon(milestone.status)}</div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <h4 className="text-sm font-medium text-gray-900">{milestone.title}</h4>
-                  {getStatusBadge(milestone.status)}
+    <div className="rounded-2xl shadow p-5">
+      <h2 className="text-lg font-semibold mb-4">Treatment Progress</h2>
+      <ul className="space-y-4">
+        {items.map((it, i) => {
+          const pct = typeof it.percent === "number" ? Math.max(0, Math.min(100, it.percent)) : null;
+          return (
+            <li key={`${it.title}-${i}`} className="border rounded-xl p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">{it.title}</p>
+                  {it.subtitle && <p className="text-sm text-gray-500">{it.subtitle}</p>}
+                  {it.date && <p className="text-xs text-gray-400 mt-1">{it.date}</p>}
                 </div>
-                <p className="text-sm text-gray-600 mb-2">{milestone.description}</p>
-                <p className="text-xs text-gray-500">{milestone.date}</p>
-                {milestone.progress && (
-                  <div className="mt-2">
-                    <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
-                      <span>Progress</span>
-                      <span>{milestone.progress}%</span>
-                    </div>
-                    <Progress value={milestone.progress} className="h-2" />
-                  </div>
-                )}
+                <span
+                  className={`text-sm ${
+                    it.status === "Completed" ? "text-green-600" : it.status === "In Progress" ? "text-amber-600" : "text-gray-600"
+                  }`}
+                >
+                  {it.status}
+                </span>
               </div>
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  )
+              {pct !== null && (
+                <div className="w-full h-2 bg-gray-200 rounded mt-3">
+                  <div className="h-2 rounded" style={{ width: `${pct}%`, background: "linear-gradient(90deg,#111827,#4B5563)" }} />
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
+export default TreatmentProgress;
