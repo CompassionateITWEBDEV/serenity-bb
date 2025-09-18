@@ -1,4 +1,3 @@
-// File: lib/time.ts
 export type FormatTimeOptions = Intl.DateTimeFormatOptions & { locale?: string };
 
 export function formatTime(
