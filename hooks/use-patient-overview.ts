@@ -1,51 +1,29 @@
 "use client"
-import { useEffect, useRef, useState } from "react"
-export type { Overview } from "@/app/api/overview/store"
 
-type Ready = { status: "ready"; overview: import("@/app/api/overview/store").Overview; isNew: boolean }
-type State = { status: "idle" | "loading" } | Ready | { status: "error"; error: string }
+import { createContext, useContext, type ReactNode } from "react"
+import { usePatientOverview } from "@/hooks/use-patient-overview"
+import type { Overview } from "@/app/api/overview/store"
 
-export function usePatientOverview(patientId?: string) {
-  const [state, setState] = useState<State>({ status: "idle" })
-  const esRef = useRef<EventSource | null>(null)
+type Ctx = { overview?: Overview; isNew?: boolean; isLoading: boolean; error?: string }
+const PatientOverviewContext = createContext<Ctx | undefined>(undefined)
 
-  useEffect(() => {
-    if (!patientId) {
-      setState({ status: "error", error: "Missing patientId" })
-      return
-    }
-    let cancelled = false
-    setState({ status: "loading" })
+export function PatientOverviewProvider({
+  patientId,
+  children,
+}: {
+  patientId?: string
+  children: ReactNode
+}) {
+  // Why: tolerate missing/late patientId instead of crashing
+  const { overview, isNew, isLoading, error } = usePatientOverview(patientId)
+  return (
+    <PatientOverviewContext.Provider value={{ overview, isNew, isLoading, error }}>
+      {children}
+    </PatientOverviewContext.Provider>
+  )
+}
 
-    fetch(`/api/overview?patientId=${encodeURIComponent(patientId)}`, { cache: "no-store" })
-      .then(async (r) => (r.ok ? r.json() : Promise.reject(await r.text())))
-      .then((payload: { overview: any; isNew: boolean }) => {
-        if (cancelled) return
-        setState({ status: "ready", overview: payload.overview, isNew: payload.isNew })
-        const es = new EventSource(`/api/overview/stream?patientId=${encodeURIComponent(patientId)}`)
-        esRef.current = es
-        es.addEventListener("overview", (e: MessageEvent) => {
-          try {
-            const data = JSON.parse(e.data) as { overview: any; isNew?: boolean }
-            setState({ status: "ready", overview: data.overview, isNew: !!data.isNew })
-          } catch {}
-        })
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setState({ status: "error", error: String(err) })
-      })
-
-    return () => {
-      cancelled = true
-      esRef.current?.close()
-    }
-  }, [patientId])
-
-  return {
-    overview: state.status === "ready" ? state.overview : undefined,
-    isNew: state.status === "ready" ? state.isNew : undefined,
-    isLoading: state.status === "loading" || state.status === "idle",
-    error: state.status === "error" ? state.error : undefined,
-  }
+export function useOverview(): Ctx {
+  // Why: never throw; return a safe default to avoid client-side exception
+  return useContext(PatientOverviewContext) ?? { isLoading: true }
 }
