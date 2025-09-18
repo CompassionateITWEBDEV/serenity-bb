@@ -1,16 +1,14 @@
-// components/dashboard/wellness-tracker.tsx
-"use client"
+"use client";
 
-import { useOverview } from "@/context/patient-overview-context"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
-import { Button } from "@/components/ui/button"
+import { usePatientOverview } from "@/context/patient-overview-context";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 
-// Named export to satisfy: import { WellnessTracker } from "@/components/dashboard/wellness-tracker"
 export function WellnessTracker() {
-  const { overview, isLoading } = useOverview()
+  const { overview, loading } = usePatientOverview();
 
-  if (isLoading || !overview) {
+  if (loading || !overview) {
     return (
       <Card>
         <CardHeader>
@@ -25,7 +23,7 @@ export function WellnessTracker() {
           ))}
         </CardContent>
       </Card>
-    )
+    );
   }
 
   const items = [
@@ -33,7 +31,7 @@ export function WellnessTracker() {
     { label: "Sleep", value: overview.wellness.sleep, max: 10 },
     { label: "Hydration", value: overview.wellness.hydration, max: 10 },
     { label: "Stress Level", value: overview.wellness.stress, max: 10 },
-  ]
+  ];
 
   return (
     <Card>
@@ -45,16 +43,18 @@ export function WellnessTracker() {
           <div key={b.label} className="space-y-1">
             <div className="flex justify-between text-sm">
               <span>{b.label}</span>
-              <span>{b.value}/{b.max}</span>
+              <span>
+                {b.value}/{b.max}
+              </span>
             </div>
             <Progress value={(b.value / b.max) * 100} />
           </div>
         ))}
-        <Button className="mt-2" variant="outline" size="sm">Update Today’s Metrics</Button>
+        <Button className="mt-2" variant="outline" size="sm">
+          Update Today’s Metrics
+        </Button>
       </CardContent>
     </Card>
-  )
+  );
 }
-
-// Optional: keep a default export too, so either import style works
-export default WellnessTracker
+export default WellnessTracker;
