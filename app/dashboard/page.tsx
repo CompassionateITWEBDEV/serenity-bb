@@ -5,16 +5,16 @@ import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 
-import { DashboardStats } from "@/components/dashboard/dashboard-stats";
-import { TreatmentProgress } from "@/components/dashboard/treatment-progress";
-import { UpcomingAppointments } from "@/components/dashboard/upcoming-appointments";
-import { QuickActions } from "@/components/dashboard/quick-actions";
-import { RecentActivity } from "@/components/dashboard/recent-activity";
-import { WellnessTracker } from "@/components/dashboard/wellness-tracker";
-import { VideoRecording } from "@/components/dashboard/video-recording";
-import { SubmissionHistory } from "@/components/dashboard/submission-history";
-import { HealthcareMessaging } from "@/components/dashboard/healthcare-messaging";
-import { GroupChat } from "@/components/dashboard/group-chat";
+import DashboardStats from "@/components/dashboard/dashboard-stats";
+import TreatmentProgress from "@/components/dashboard/treatment-progress";
+import UpcomingAppointments from "@/components/dashboard/upcoming-appointments";
+import QuickActions from "@/components/dashboard/quick-actions";
+import RecentActivity from "@/components/dashboard/recent-activity";
+import WellnessTracker from "@/components/dashboard/wellness-tracker";
+import VideoRecording from "@/components/dashboard/video-recording";
+import SubmissionHistory from "@/components/dashboard/submission-history";
+import HealthcareMessaging from "@/components/dashboard/healthcare-messaging";
+import GroupChat from "@/components/dashboard/group-chat";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PatientOverviewProvider } from "@/context/patient-overview-context";
