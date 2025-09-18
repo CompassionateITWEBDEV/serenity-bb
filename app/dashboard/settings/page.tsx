@@ -1,4 +1,4 @@
-"use client";
+"use client"
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
@@ -14,8 +14,8 @@ import { Camera, Save, User } from "lucide-react";
 /** ──────────────────────────────────────────────────────────────
  *  QUICK CONFIG
  *  ────────────────────────────────────────────────────────────── */
-const UID_COL = "user_id";       // PK/FK in your `patients` table
-const USE_SIGNED_URL = false;    // true only if avatars bucket is PRIVATE
+const UID_COL = "user_id";        // the PK/foreign key on patients table
+const USE_SIGNED_URL = false;     // set true only if your avatars bucket is PRIVATE
 /** ────────────────────────────────────────────────────────────── */
 
 type FormState = {
@@ -96,7 +96,6 @@ export default function SettingsPage() {
         const bio     = row?.bio ?? "";
         const avatar  = row?.avatar ?? meta.avatar_url ?? "/patient-avatar.png";
 
-        // Seed missing row with upsert (safe if exists)
         if (!row) {
           const seed: Record<string, any> = {
             [UID_COL]: uid,
@@ -112,10 +111,25 @@ export default function SettingsPage() {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           };
-          const { error: upsertErr } = await supabase
+          const { data: inserted, error: upsertErr } = await supabase
             .from("patients")
-            .upsert(seed, { onConflict: UID_COL });
-          if (upsertErr) console.error("patients upsert seed error:", upsertErr);
+            .upsert(seed, { onConflict: UID_COL })
+            .select(selectCols)
+            .maybeSingle();
+          if (upsertErr) console.error("patients upsert error:", upsertErr);
+          row = inserted ?? (seed as any);
+        } else {
+          const patch: any = {};
+          if (!row.phone_number && phone) patch.phone_number = phone;
+          if (!row.date_of_birth && dob) patch.date_of_birth = dob;
+          if (!row.emergency_contact_name && ecName) patch.emergency_contact_name = ecName;
+          if (!row.emergency_contact_phone && ecPhone) patch.emergency_contact_phone = ecPhone;
+          if (!row.avatar && avatar) patch.avatar = avatar;
+          if (Object.keys(patch).length) {
+            patch.updated_at = new Date().toISOString();
+            const { error: patchErr } = await supabase.from("patients").update(patch).eq(UID_COL, uid);
+            if (patchErr) console.error("patients patch error:", patchErr);
+          }
         }
 
         setForm({
@@ -136,7 +150,6 @@ export default function SettingsPage() {
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  // SAVE — use UPSERT to avoid "single JSON object" error when row is missing
   const onSave = async () => {
     setSaving(true);
     try {
@@ -144,28 +157,26 @@ export default function SettingsPage() {
       const uid = sess?.session?.user?.id;
       if (!uid) throw new Error("Not authenticated");
 
-      const payload = {
-        [UID_COL]: uid,
-        first_name: form.firstName,
-        last_name: form.lastName,
-        email: form.email,
-        phone_number: form.phoneNumber,
-        date_of_birth: form.dateOfBirth || null,
-        emergency_contact_name: form.emergencyName || null,
-        emergency_contact_phone: form.emergencyPhone || null,
-        bio: form.bio || null,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("patients")
-        .upsert(payload, { onConflict: UID_COL })
-        .select("user_id")
-        .maybeSingle(); // don't crash if 0 rows
+        .update({
+          first_name: form.firstName,
+          last_name: form.lastName,
+          email: form.email,
+          phone_number: form.phoneNumber,
+          date_of_birth: form.dateOfBirth || null,
+          emergency_contact_name: form.emergencyName || null,
+          emergency_contact_phone: form.emergencyPhone || null,
+          bio: form.bio || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq(UID_COL, uid)
+        .select(`${UID_COL},bio`)
+        .single();
       if (error) throw error;
 
-      // optional: keep auth metadata loosely in sync
-      await supabase.auth.updateUser({
+      // keep auth metadata loosely in sync (optional)
+      const { error: authErr } = await supabase.auth.updateUser({
         data: {
           first_name: form.firstName,
           last_name: form.lastName,
@@ -175,6 +186,9 @@ export default function SettingsPage() {
           emergency_contact_phone: form.emergencyPhone || null,
         },
       });
+      if (authErr) throw authErr;
+
+      console.log("Saved bio:", data?.bio);
     } catch (e: any) {
       console.error("save error:", e);
       alert(`Could not save: ${e?.message ?? "Unknown error"}`);
@@ -183,8 +197,7 @@ export default function SettingsPage() {
     }
   };
 
-  // AVATAR UPLOAD — upload to {uid}/..., then UPSERT avatar URL
-  const fileRef = useRef<HTMLInputElement>(null);
+  // === Avatar upload ===
   const openFilePicker = () => fileRef.current?.click();
 
   const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -202,11 +215,12 @@ export default function SettingsPage() {
       const uid = sess?.session?.user?.id;
       if (!uid) throw new Error("Not authenticated");
 
-      // sanitize filename & build path per Storage RLS
+      // sanitize filename & build path that matches RLS (no "avatars/" prefix)
       const safe = file.name.replace(/[^\w.\-]+/g, "_");
       const path = `${uid}/${Date.now()}-${safe}`;
       console.log({ uid, path });
 
+      // upload
       const up = await supabase.storage.from("avatars").upload(path, file, {
         cacheControl: "3600",
         upsert: true,
@@ -218,11 +232,12 @@ export default function SettingsPage() {
         return;
       }
 
-      // get URL
+      // resolve URL (public vs signed)
       let publicUrl: string;
       if (USE_SIGNED_URL) {
-        const { data: signed, error: signErr } = await supabase
-          .storage.from("avatars").createSignedUrl(path, 60 * 60 * 24);
+        const { data: signed, error: signErr } = await supabase.storage
+          .from("avatars")
+          .createSignedUrl(path, 60 * 60 * 24);
         if (signErr) throw signErr;
         publicUrl = signed!.signedUrl;
       } else {
@@ -230,23 +245,20 @@ export default function SettingsPage() {
         publicUrl = data.publicUrl;
       }
 
-      // write URL to DB via upsert
-      const { error: dbErr } = await supabase
+      // update DB
+      const upd = await supabase
         .from("patients")
-        .upsert(
-          { [UID_COL]: uid, avatar: publicUrl, updated_at: new Date().toISOString() },
-          { onConflict: UID_COL }
-        )
-        .select("user_id")
-        .maybeSingle();
-      if (dbErr) {
-        console.error("DB UPDATE ERROR:", dbErr);
-        alert(`Saved file but failed to update profile: ${dbErr.message}`);
+        .update({ avatar: publicUrl, updated_at: new Date().toISOString() })
+        .eq(UID_COL, uid)
+        .select(`${UID_COL},avatar`)
+        .single();
+      if (upd.error) {
+        console.error("DB UPDATE ERROR:", upd.error);
+        alert(`Saved file but failed to update profile: ${upd.error.message}`);
         return;
       }
 
-      // force <img> to refresh
-      setAvatarUrl(`${publicUrl}?v=${Date.now()}`);
+      setAvatarUrl(publicUrl);
     } catch (err: any) {
       console.error("avatar upload flow error:", err);
       alert(`Failed to upload photo: ${err?.message ?? "Unknown error"}`);
@@ -343,13 +355,7 @@ export default function SettingsPage() {
 
               <div>
                 <Label htmlFor="bio">Bio</Label>
-                <Textarea
-                  id="bio"
-                  placeholder="Tell us a bit about yourself..."
-                  value={form.bio}
-                  onChange={onChange("bio")}
-                  disabled={loading}
-                />
+                <Textarea id="bio" placeholder="Tell us a bit about yourself..." value={form.bio} onChange={onChange("bio")} disabled={loading} />
               </div>
 
               <Button className="w-full md:w-auto" onClick={onSave} disabled={saving || loading}>
