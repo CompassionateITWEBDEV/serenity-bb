@@ -1,3 +1,9 @@
+// ============================================================================
+// File: app/api/overview/stream/route.ts  (FORCE NODE RUNTIME + DYNAMIC)
+// ============================================================================
+export const runtime = "nodejs"         // Why: SSE stability on Vercel/Node
+export const dynamic = "force-dynamic"  // Why: never pre-render/cache this route
+
 import { NextResponse } from "next/server"
 import { ensureOverview, subscribe, type Overview } from "../store"
 
@@ -30,7 +36,6 @@ export async function GET(req: Request) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
     },
   })
 }
