@@ -1,20 +1,21 @@
-// app/layout.tsx (fixed icons block)
-import type React from "react"
-import type { Metadata, Viewport } from "next"
-import { Suspense } from "react"
-import Script from "next/script"
-import { Playfair_Display, Source_Sans_3 as Source_Sans_Pro } from "next/font/google"
-import "./globals.css"
-import Analytics from "./analytics"
+// app/layout.tsx (revised to fix formatTime global)
+import type React from "react";
+import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
+import Script from "next/script";
+import { Playfair_Display, Source_Sans_3 as Source_Sans_Pro } from "next/font/google";
+import "./globals.css";
+import Analytics from "./analytics";
+import FormatTimeShim from "./_shims/format-time-shim"; // ensures window.formatTime exists
 
-const SITE_URL = "https://serenity-b9.onrender.com"
-const ORG_NAME = "Serenity Rehabilitation Center"
-const OG_IMAGE = "/og-image.jpg"
+const SITE_URL = "https://serenity-b9.onrender.com";
+const ORG_NAME = "Serenity Rehabilitation Center";
+const OG_IMAGE = "/og-image.jpg";
 
-const playfair = Playfair_Display({ subsets: ["latin"], display: "swap", variable: "--font-playfair" })
-const sourceSans = Source_Sans_Pro({ subsets: ["latin"], weight: ["400", "600"], display: "swap", variable: "--font-source-sans" })
+const playfair = Playfair_Display({ subsets: ["latin"], display: "swap", variable: "--font-playfair" });
+const sourceSans = Source_Sans_Pro({ subsets: ["latin"], weight: ["400", "600"], display: "swap", variable: "--font-source-sans" });
 
-export const viewport: Viewport = { themeColor: "#0ea5e9", width: "device-width", initialScale: 1 }
+export const viewport: Viewport = { themeColor: "#0ea5e9", width: "device-width", initialScale: 1 };
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -42,10 +43,9 @@ export const metadata: Metadata = {
     images: [OG_IMAGE],
   },
   icons: {
-    // Put files in /public then reference them from root (no "public/" prefix)
     icon: [
       { url: "/favicon.ico" },
-      { url: "/serenity.png", type: "image/png", sizes: "32x32" },   // optional custom small logo
+      { url: "/serenity.png", type: "image/png", sizes: "32x32" },
       { url: "/icon-192.png", type: "image/png", sizes: "192x192" },
       { url: "/icon-512.png", type: "image/png", sizes: "512x512" },
     ],
@@ -53,13 +53,15 @@ export const metadata: Metadata = {
   },
   category: "healthcare",
   referrer: "strict-origin-when-cross-origin",
-}
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const GA_ID = process.env.NEXT_PUBLIC_GA_ID
+  const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
   return (
     <html lang="en" className={`${playfair.variable} ${sourceSans.variable} antialiased`}>
       <body>
+        {/* why: define global formatTime for existing pages that call it */}
+        <FormatTimeShim />
         {GA_ID && (
           <>
             <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`} strategy="afterInteractive" />
@@ -72,7 +74,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {children}
       </body>
     </html>
-  )
+  );
 }
 
 /* Alternative (simplest): delete `icons` above and add one file:
