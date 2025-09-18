@@ -309,3 +309,4 @@ export function SubmissionHistory() {
     </div>
   )
 }
+export default SubmissionHistory;  // ← add this
