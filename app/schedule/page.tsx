@@ -1,5 +1,3 @@
-// Example: route "/schedule"
-// File: app/schedule/page.tsx
 "use client";
 
 import { formatTime } from "@/lib/time";
