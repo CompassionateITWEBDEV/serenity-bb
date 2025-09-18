@@ -1,73 +1,46 @@
-"use client"
+"use client";
+import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-import { Button } from "@/components/ui/button"
-import { useAuth } from "@/hooks/use-auth"
-import { Heart } from "lucide-react"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-export function Header() {
-  const { isAuthenticated, logout } = useAuth()
-  const router = useRouter()
+export default function HeaderAvatar() {
+  const [src, setSrc] = useState<string | null>(null);
+  const [initials, setInitials] = useState("??");
 
-  const handleLogout = () => {
-    logout()
-    router.push("/")
-  }
+  useEffect(() => {
+    (async () => {
+      const { data: session } = await supabase.auth.getSession();
+      const user = session?.session?.user;
+      if (!user) return;
+
+      const meta: any = user.user_metadata ?? {};
+      const first = meta.first_name ?? meta.firstName ?? "";
+      const last  = meta.last_name ?? meta.lastName ?? "";
+      setInitials((first.charAt(0) + last.charAt(0) || "??").toUpperCase());
+
+      // Prefer DB avatar; fall back to auth metadata
+      const { data: row } = await supabase
+        .from("patients")
+        .select("avatar")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const url = row?.avatar ?? meta.avatar_url ?? null;
+      setSrc(url ? `${url}?v=${Date.now()}` : null); // cache-buster
+    })();
+  }, []);
 
   return (
-    <header className="bg-white shadow-sm border-b">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          <div className="flex items-center">
-            <Link
-              href="/"
-              className="flex items-center space-x-2 text-2xl font-serif font-bold text-cyan-600 hover:text-indigo-500 transition-colors"
-            >
-              <Heart className="h-6 w-6" />
-              <span>Serenity Rehabilitation Center</span>
-            </Link>
-          </div>
-          <nav className="hidden md:flex items-center space-x-8">
-            <Link href="/services" className="text-gray-600 hover:text-cyan-600 transition-colors">
-              Services
-            </Link>
-            <Link href="/about" className="text-gray-600 hover:text-cyan-600 transition-colors">
-              About
-            </Link>
-            <Link href="/blog" className="text-gray-600 hover:text-cyan-600 transition-colors">
-              Blog
-            </Link>
-            <Link href="/contact" className="text-gray-600 hover:text-cyan-600 transition-colors">
-              Contact
-            </Link>
-
-            {isAuthenticated ? (
-              <div className="flex items-center space-x-4">
-                <Link href="/login">
-                  <Button variant="outline" className="border-cyan-600 text-cyan-600 hover:bg-cyan-50 bg-transparent">
-                    Patient Login
-                  </Button>
-                </Link>
-                <Button onClick={handleLogout} variant="ghost" className="text-gray-600 hover:text-cyan-600">
-                  Logout
-                </Button>
-              </div>
-            ) : (
-              <div className="flex items-center space-x-4">
-                <Link href="/login">
-                  <Button variant="outline" className="border-cyan-600 text-cyan-600 hover:bg-cyan-50 bg-transparent">
-                    Patient Login
-                  </Button>
-                </Link>
-                <Link href="/intake">
-                  <Button className="bg-cyan-600 hover:bg-indigo-500 text-white transition-colors">Get Help Now</Button>
-                </Link>
-              </div>
-            )}
-          </nav>
-        </div>
-      </div>
-    </header>
-  )
+    <img
+      src={src ?? "/patient-avatar.png"}
+      alt="avatar"
+      className="h-8 w-8 rounded-full object-cover"
+      onError={() => setSrc("/patient-avatar.png")}
+      title={initials}
+    />
+  );
 }
