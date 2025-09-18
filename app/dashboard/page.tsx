@@ -1,14 +1,15 @@
+// FILE: app/dashboard/page.tsx
 "use client";
 
+import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
+
 import { useAuth } from "@/hooks/use-auth";
+import { PatientOverviewProvider } from "@/context/patient-overview-context";
 
-import { DashboardHeader } from "@/components/dashboard/dashboard-header";
-
-// ⬇️ use the actual filenames that exist in your repo
+// Widgets (ensure these paths match your files)
 import { LiveDashboardStats as DashboardStats } from "@/components/dashboard/live-dashboard-stats";
 import { TreatmentProgress } from "@/components/dashboard/live-treatment-progress";
-
 import { UpcomingAppointments } from "@/components/dashboard/upcoming-appointments";
 import { QuickActions } from "@/components/dashboard/quick-actions";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
@@ -20,24 +21,24 @@ import { GroupChat } from "@/components/dashboard/group-chat";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-// WHY: provides live overview (existing → data, new → zero) to all widgets
-import { PatientOverviewProvider } from "@/context/patient-overview-context";
-
-// …rest of your file unchanged …
-
 export default function DashboardPage() {
-  const { isAuthenticated, loading, patient } = useAuth()
-  const router = useRouter()
+  const { isAuthenticated, loading, patient } = useAuth();
+  const router = useRouter();
+
+  // Why: client-side redirect avoids showing protected UI flashes.
+  useEffect(() => {
+    if (!loading && !isAuthenticated) router.replace("/login");
+  }, [loading, isAuthenticated, router]);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4" />
           <p className="text-gray-600">Loading your dashboard...</p>
         </div>
       </div>
-    )
+    );
   }
 
   if (!isAuthenticated || !patient) {
@@ -47,22 +48,22 @@ export default function DashboardPage() {
           <p className="text-gray-600">Redirecting to login...</p>
         </div>
       </div>
-    )
+    );
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <DashboardHeader patient={patient} />
+      {/* Header rendered by app/dashboard/layout.tsx to prevent duplicates */}
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
           <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">
-            Welcome back, {patient.firstName}!
+            Welcome back, {patient.firstName ?? patient.name ?? "there"}!
           </h1>
-          <p className="text-gray-600">Here's your recovery progress and upcoming activities.</p>
+          <p className="text-gray-600">Here&apos;s your recovery progress and upcoming activities.</p>
         </div>
 
-        {/* WHY: wrap the dashboard so children consume realtime overview via context */}
+        {/* Provide live overview to all widgets */}
         <PatientOverviewProvider patientId={patient.id}>
           <Tabs defaultValue="overview" className="space-y-6">
             <TabsList className="grid w-full grid-cols-5">
@@ -110,5 +111,5 @@ export default function DashboardPage() {
         </PatientOverviewProvider>
       </main>
     </div>
-  )
+  );
 }
