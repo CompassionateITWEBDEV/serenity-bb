@@ -8,7 +8,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-export default function HeaderAvatar() {
+/** Renders the user avatar, preferring patients.avatar then auth metadata. */
+function HeaderAvatarInner() {
   const [src, setSrc] = useState<string | null>(null);
   const [initials, setInitials] = useState("??");
 
@@ -20,9 +21,10 @@ export default function HeaderAvatar() {
     const meta: any = user.user_metadata ?? {};
     const first = meta.first_name ?? meta.firstName ?? "";
     const last  = meta.last_name ?? meta.lastName ?? "";
-    setInitials(((first.charAt(0) + last.charAt(0)) || "??").toUpperCase());
+    const inits = ((first.charAt(0) + last.charAt(0)) || "??").toUpperCase();
+    setInitials(inits);
 
-    // Prefer DB avatar; fall back to auth metadata
+    // Prefer DB avatar; fallback to auth metadata
     const { data: row } = await supabase
       .from("patients")
       .select("avatar")
@@ -30,19 +32,14 @@ export default function HeaderAvatar() {
       .maybeSingle();
 
     const url = row?.avatar ?? meta.avatar_url ?? null;
-
-    // add cache-buster so the image refreshes after upload
-    setSrc(url ? `${url}?v=${Date.now()}` : null);
+    setSrc(url ? `${url}?v=${Date.now()}` : null); // cache-buster so it updates immediately
   }, []);
 
   useEffect(() => {
     loadAvatar();
 
-    // When the Settings page finishes an upload it will dispatch this event.
-    const onChanged = (e: Event) => {
-      // If you want, you can read the new URL via (e as CustomEvent).detail.url
-      loadAvatar();
-    };
+    // Refresh header avatar when settings page broadcasts a change
+    const onChanged = () => loadAvatar();
     window.addEventListener("avatar-changed", onChanged);
     return () => window.removeEventListener("avatar-changed", onChanged);
   }, [loadAvatar]);
@@ -53,7 +50,6 @@ export default function HeaderAvatar() {
       title={initials}
     >
       {src ? (
-        // plain <img> avoids Next/Image caching; shows instantly
         <img
           src={src}
           alt="avatar"
@@ -66,3 +62,12 @@ export default function HeaderAvatar() {
     </div>
   );
 }
+
+/** Named export if you want to import { HeaderAvatar } */
+export function HeaderAvatar() {
+  return <HeaderAvatarInner />;
+}
+
+/** Back-compat exports so existing imports keep working */
+export const Header = HeaderAvatar;  // named export `Header`
+export default HeaderAvatar;         // default export
