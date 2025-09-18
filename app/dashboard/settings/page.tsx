@@ -1,4 +1,4 @@
-"use client";
+"use client"
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
@@ -11,6 +11,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Camera, Save, User } from "lucide-react";
 
+/** ──────────────────────────────────────────────────────────────
+ *  QUICK CONFIG — set these to match YOUR project
+ *  ────────────────────────────────────────────────────────────── */
+const UID_COL = "user_id";       // <-- change if your patients table uses a different uid column name
+const USE_SIGNED_URL = false;    // true if Storage bucket "avatars" is private; false if it's public
+/** ────────────────────────────────────────────────────────────── */
+
 type FormState = {
   firstName: string;
   lastName: string;
@@ -21,10 +28,6 @@ type FormState = {
   emergencyPhone: string;
   bio: string;
 };
-
-// If your `avatars` bucket is PRIVATE, set this to true to use signed URLs.
-// If your bucket is PUBLIC, leave as false (getPublicUrl is fine).
-const USE_SIGNED_URL = false;
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -79,12 +82,23 @@ export default function SettingsPage() {
         const meta: any = user.user_metadata ?? {};
 
         // Pull row (include avatar)
+        const selectCols = [
+          UID_COL,
+          "first_name",
+          "last_name",
+          "email",
+          "phone_number",
+          "date_of_birth",
+          "emergency_contact_name",
+          "emergency_contact_phone",
+          "bio",
+          "avatar",
+        ].join(",");
+
         let { data: row, error: rowErr } = await supabase
           .from("patients")
-          .select(
-            "user_id,first_name,last_name,email,phone_number,date_of_birth,emergency_contact_name,emergency_contact_phone,bio,avatar"
-          )
-          .eq("user_id", uid)
+          .select(selectCols)
+          .eq(UID_COL, uid)
           .maybeSingle();
 
         if (rowErr) console.error("patients select error:", rowErr);
@@ -102,8 +116,8 @@ export default function SettingsPage() {
 
         // Self-heal: create or patch row so Settings always shows what user supplied at signup
         if (!row) {
-          const seed = {
-            user_id: uid,
+          const seed: Record<string, any> = {
+            [UID_COL]: uid,
             first_name: first || null,
             last_name: last || null,
             email,
@@ -118,8 +132,8 @@ export default function SettingsPage() {
           };
           const { data: inserted, error: upsertErr } = await supabase
             .from("patients")
-            .upsert(seed, { onConflict: "user_id" })
-            .select()
+            .upsert(seed, { onConflict: UID_COL })
+            .select(selectCols)
             .maybeSingle();
           if (upsertErr) console.error("patients upsert error:", upsertErr);
           row = inserted ?? (seed as any);
@@ -132,7 +146,7 @@ export default function SettingsPage() {
           if (!row.avatar && avatar) patch.avatar = avatar;
           if (Object.keys(patch).length) {
             patch.updated_at = new Date().toISOString();
-            const { error: patchErr } = await supabase.from("patients").update(patch).eq("user_id", uid);
+            const { error: patchErr } = await supabase.from("patients").update(patch).eq(UID_COL, uid);
             if (patchErr) console.error("patients patch error:", patchErr);
           }
         }
@@ -161,6 +175,7 @@ export default function SettingsPage() {
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  /** Save button — forces a returning row so we catch RLS/mismatched filters immediately */
   const onSave = async () => {
     setSaving(true);
     try {
@@ -168,8 +183,7 @@ export default function SettingsPage() {
       const uid = sess?.session?.user?.id;
       if (!uid) throw new Error("Not authenticated");
 
-      // Update patients
-      const { error: upErr } = await supabase
+      const { data, error } = await supabase
         .from("patients")
         .update({
           first_name: form.firstName,
@@ -182,10 +196,13 @@ export default function SettingsPage() {
           bio: form.bio || null,
           updated_at: new Date().toISOString(),
         })
-        .eq("user_id", uid);
-      if (upErr) throw upErr;
+        .eq(UID_COL, uid)
+        .select(`${UID_COL},bio`)
+        .single();
 
-      // Keep auth metadata in sync so other screens pulling from metadata see the same info
+      if (error) throw error;
+
+      // Keep auth metadata in sync (optional)
       const { error: authErr } = await supabase.auth.updateUser({
         data: {
           first_name: form.firstName,
@@ -197,8 +214,12 @@ export default function SettingsPage() {
         },
       });
       if (authErr) throw authErr;
-    } catch (e) {
+
+      console.log("Saved bio:", data?.bio);
+      // Optionally show a toast/snackbar here
+    } catch (e: any) {
       console.error("save error:", e);
+      alert(`Could not save: ${e?.message ?? "Unknown error"}`);
     } finally {
       setSaving(false);
     }
@@ -222,50 +243,44 @@ export default function SettingsPage() {
       const uid = sess?.session?.user?.id;
       if (!uid) throw new Error("Not authenticated");
 
-      // Upload to Storage (bucket: avatars) — NOTE: object key has NO "avatars/" prefix
+      // Upload to Storage (bucket: avatars) — object key has NO "avatars/" prefix
       const path = `${uid}/${Date.now()}-${file.name}`;
-      console.log("upload path:", path);
-      const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, {
+      console.log("[upload] path:", path, "uid:", uid);
+
+      const up = await supabase.storage.from("avatars").upload(path, file, {
         cacheControl: "3600",
         upsert: true,
         contentType: file.type || "application/octet-stream",
       });
-      if (upErr) {
-        console.error("storage upload error:", upErr);
-        throw upErr;
+      if (up.error) {
+        console.error("storage upload error:", up.error);
+        throw up.error;
       }
 
-      // Resolve URL (public or signed)
+      // Resolve URL (public vs signed)
       let publicUrl: string;
       if (USE_SIGNED_URL) {
         const { data: signed, error: signErr } = await supabase.storage
           .from("avatars")
           .createSignedUrl(path, 60 * 60 * 24); // 24h
-        if (signErr) {
-          console.error("createSignedUrl error:", signErr);
-          throw signErr;
-        }
+        if (signErr) throw signErr;
         publicUrl = signed!.signedUrl;
       } else {
         const { data } = supabase.storage.from("avatars").getPublicUrl(path);
         publicUrl = data.publicUrl;
       }
 
-      // Save to DB + auth metadata
-      const { error: patientErr } = await supabase
+      // Update DB + auth metadata
+      const upd = await supabase
         .from("patients")
         .update({ avatar: publicUrl, updated_at: new Date().toISOString() })
-        .eq("user_id", uid);
-      if (patientErr) {
-        console.error("patients update avatar error:", patientErr);
-        throw patientErr;
-      }
+        .eq(UID_COL, uid)
+        .select(`${UID_COL},avatar`)
+        .single();
+      if (upd.error) throw upd.error;
 
-      const { error: authMetaErr } = await supabase.auth.updateUser({ data: { avatar_url: publicUrl } });
-      if (authMetaErr) {
-        console.error("auth updateUser avatar_url error:", authMetaErr);
-        throw authMetaErr;
-      }
+      const authUpd = await supabase.auth.updateUser({ data: { avatar_url: publicUrl } });
+      if (authUpd.error) throw authUpd.error;
 
       // Update UI
       setAvatarUrl(publicUrl);
