@@ -1,31 +1,29 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 
-// If page.tsx is in app/dashboard/, this goes up one level into app/components/...
-import { DashboardHeader } from "../components/dashboard/dashboard-header";
-import { DashboardStats } from "../components/dashboard/dashboard-stats";
-import { TreatmentProgress } from "../components/dashboard/treatment-progress";
-import { UpcomingAppointments } from "../components/dashboard/upcoming-appointments";
-import { QuickActions } from "../components/dashboard/quick-actions";
-import { RecentActivity } from "../components/dashboard/recent-activity";
-import { WellnessTracker } from "../components/dashboard/wellness-tracker";
-import { VideoRecording } from "../components/dashboard/video-recording";
-import { SubmissionHistory } from "../components/dashboard/submission-history";
-import { HealthcareMessaging } from "../components/dashboard/healthcare-messaging";
-import { GroupChat } from "../components/dashboard/group-chat";
+// ✅ use the alias "@/components/…" (these paths match your repo tree)
+import { LiveDashboardStats as DashboardStats } from "@/components/dashboard/live-dashboard-stats";
+import { TreatmentProgress } from "@/components/dashboard/treatment-progress";
+import { UpcomingAppointments } from "@/components/dashboard/upcoming-appointments";
+import { QuickActions } from "@/components/dashboard/quick-actions";
+import { RecentActivity } from "@/components/dashboard/recent-activity";
+import { WellnessTracker } from "@/components/dashboard/wellness-tracker";
+import { VideoRecording } from "@/components/dashboard/video-recording";
+import { SubmissionHistory } from "@/components/dashboard/submission-history";
+import { HealthcareMessaging } from "@/components/dashboard/healthcare-messaging";
+import { GroupChat } from "@/components/dashboard/group-chat";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PatientOverviewProvider } from "@/context/patient-overview-context";
-
-// …rest of your file unchanged …
 
 export default function DashboardPage() {
   const { isAuthenticated, loading, patient } = useAuth();
   const router = useRouter();
 
-  // Why: client-side redirect avoids showing protected UI flashes.
+  // Client-side redirect to avoid flashes
   useEffect(() => {
     if (!loading && !isAuthenticated) router.replace("/login");
   }, [loading, isAuthenticated, router]);
@@ -53,7 +51,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header rendered by app/dashboard/layout.tsx to prevent duplicates */}
+      {/* Header is rendered by app/dashboard/layout.tsx */}
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
