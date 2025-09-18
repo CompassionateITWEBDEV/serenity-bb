@@ -1,76 +1,109 @@
-// app/page.tsx
-import Script from "next/script"
-import { Header } from "@/components/header"
-import { HeroSection } from "@/components/hero-section"
-import { ServicesSection } from "@/components/services-section"
-import { AboutSection } from "@/components/about-section"
-import { LeadGenerationSection } from "@/components/lead-generation-section"
-import { ContactSection } from "@/components/contact-section"
-import { Footer } from "@/components/footer"
-import type { Metadata } from "next"
+"use client";
 
-const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
-  "https://serenity-b9.onrender.com"
+import React, { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Serenity Rehabilitation Center – Rehab & Recovery in Detroit, MI",
-  description:
-    "Evidence-based rehabilitation in Detroit. Confidential assessments, licensed clinicians, and personalized recovery plans.",
-  alternates: { canonical: SITE_URL },
-  openGraph: {
-    url: SITE_URL,
-    title: "Serenity Rehabilitation Center – Rehab & Recovery in Detroit, MI",
-    description:
-      "Compassionate, evidence-based rehabilitation with licensed clinicians.",
-    images: [{ url: `${SITE_URL}/og-image.jpg`, width: 1200, height: 630 }],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Serenity Rehabilitation Center – Rehab & Recovery in Detroit, MI",
-    description:
-      "Start your confidential assessment today.",
-    images: [`${SITE_URL}/og-image.jpg`],
-  },
-}
+import { useAuth } from "@/hooks/use-auth";
+import { PatientOverviewProvider } from "@/context/patient-overview-context";
 
+import { LiveDashboardStats as DashboardStats } from "@/components/dashboard/live-dashboard-stats";
+import { TreatmentProgress } from "@/components/dashboard/live-treatment-progress";
 
-export default function HomePage() {
-  // ✅ Only inject JSON-LD (safe, invisible to UI)
-  const orgLd = {
-    "@context": "https://schema.org",
-    "@type": "MedicalClinic",
-    name: "Serenity Rehabilitation Center",
-    url: SITE_URL,
-    image: `${SITE_URL}/og-image.jpg`,
-    telephone: "+1-555-555-1212", // replace with real phone
-    address: {
-      "@type": "PostalAddress",
-      streetAddress: "123 Serenity Way",
-      addressLocality: "Detroit",
-      addressRegion: "MI",
-      postalCode: "48201",
-      addressCountry: "US",
-    },
+import { UpcomingAppointments } from "@/components/dashboard/upcoming-appointments";
+import { QuickActions } from "@/components/dashboard/quick-actions";
+import { RecentActivity } from "@/components/dashboard/recent-activity";
+import { WellnessTracker } from "@/components/dashboard/wellness-tracker";
+import { VideoRecording } from "@/components/dashboard/video-recording";
+import { SubmissionHistory } from "@/components/dashboard/submission-history";
+import { HealthcareMessaging } from "@/components/dashboard/healthcare-messaging";
+import { GroupChat } from "@/components/dashboard/group-chat";
+
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+export default function DashboardPage() {
+  const { isAuthenticated, loading, patient } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !isAuthenticated) router.replace("/login");
+  }, [loading, isAuthenticated, router]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !patient) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600">Redirecting to login...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <main className="min-h-screen">
-      {/* 🔒 Safe: JSON-LD doesn’t affect layout */}
-      <Script
-        id="org-ld"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(orgLd) }}
-      />
+    <div className="min-h-screen bg-gray-50">
+      {/* Header should come from app/dashboard/layout.tsx to avoid duplicates */}
 
-      {/* Your exact sections — untouched */}
-      <Header />
-      <HeroSection />
-      <ServicesSection />
-      <AboutSection />
-      <LeadGenerationSection />
-      <ContactSection />
-      <Footer />
-    </main>
-  )
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">
+            Welcome back, {patient.firstName ?? patient.name ?? "there"}!
+          </h1>
+          <p className="text-gray-600">Here&apos;s your recovery progress and upcoming activities.</p>
+        </div>
+
+        <PatientOverviewProvider patientId={patient.id}>
+          <Tabs defaultValue="overview" className="space-y-6">
+            <TabsList className="grid w-full grid-cols-5">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="tracking">Tracking</TabsTrigger>
+              <TabsTrigger value="recording">Recording</TabsTrigger>
+              <TabsTrigger value="messages">Messages</TabsTrigger>
+              <TabsTrigger value="groups">Groups</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="overview" className="space-y-8">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2 space-y-8">
+                  <DashboardStats />
+                  <TreatmentProgress />
+                  <UpcomingAppointments />
+                </div>
+                <div className="space-y-8">
+                  <QuickActions />
+                  <WellnessTracker />
+                  <RecentActivity />
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="tracking" className="space-y-8">
+              <SubmissionHistory />
+            </TabsContent>
+
+            <TabsContent value="recording" className="space-y-8">
+              <VideoRecording />
+            </TabsContent>
+
+            <TabsContent value="messages" className="space-y-8">
+              <HealthcareMessaging />
+            </TabsContent>
+
+            <TabsContent value="groups" className="space-y-8">
+              <GroupChat />
+            </TabsContent>
+          </Tabs>
+        </PatientOverviewProvider>
+      </main>
+    </div>
+  );
 }
