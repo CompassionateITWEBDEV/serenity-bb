@@ -1,9 +1,10 @@
-import { Header } from "@/components/header"
-import { Footer } from "@/components/footer"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Calendar, User, ArrowRight } from "lucide-react"
+// FILE: app/blog/page.tsx
+import Header from "@/components/header";           // default import (fixes undefined component)
+import Footer from "@/components/footer";           // default import
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Calendar, User, ArrowRight } from "lucide-react";
 
 export default function BlogPage() {
   const blogPosts = [
@@ -67,7 +68,7 @@ export default function BlogPage() {
       category: "Wellness",
       readTime: "5 min read",
     },
-  ]
+  ];
 
   const categories = [
     "All",
@@ -77,7 +78,7 @@ export default function BlogPage() {
     "Family Support",
     "Mental Health",
     "Wellness",
-  ]
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -111,7 +112,7 @@ export default function BlogPage() {
           <Card className="mb-12 overflow-hidden">
             <div className="md:flex">
               <div className="md:w-1/3">
-                <div className="h-64 md:h-full bg-gradient-to-br from-cyan-500 to-indigo-600"></div>
+                <div className="h-64 md:h-full bg-gradient-to-br from-cyan-500 to-indigo-600" />
               </div>
               <div className="md:w-2/3 p-8">
                 <Badge className="mb-4 bg-cyan-100 text-cyan-800">Featured</Badge>
@@ -180,5 +181,5 @@ export default function BlogPage() {
 
       <Footer />
     </div>
-  )
+  );
 }
