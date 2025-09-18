@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useMemo } from "react";
 import { ProtectedRoute } from "@/components/protected-route";
 import { SmartAlertProvider } from "@/components/alerts/smart-alert-provider";
-import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PatientOverviewProvider } from "@/context/patient-overview-context";
 
