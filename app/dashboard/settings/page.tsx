@@ -12,10 +12,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Camera, Save, User } from "lucide-react";
 
 /** ──────────────────────────────────────────────────────────────
- *  QUICK CONFIG — set these to match YOUR project
+ *  QUICK CONFIG
  *  ────────────────────────────────────────────────────────────── */
-const UID_COL = "user_id";       // <-- change if your patients table uses a different uid column name
-const USE_SIGNED_URL = false;    // true if Storage bucket "avatars" is private; false if it's public
+const UID_COL = "user_id";        // the PK/foreign key on patients table
+const USE_SIGNED_URL = false;     // set true only if your avatars bucket is PRIVATE
 /** ────────────────────────────────────────────────────────────── */
 
 type FormState = {
@@ -46,19 +46,12 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-
   const [avatarUrl, setAvatarUrl] = useState<string>("/patient-avatar.png");
   const [form, setForm] = useState<FormState>({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phoneNumber: "",
-    dateOfBirth: "",
-    emergencyName: "",
-    emergencyPhone: "",
-    bio: "",
+    firstName: "", lastName: "", email: "", phoneNumber: "",
+    dateOfBirth: "", emergencyName: "", emergencyPhone: "", bio: "",
   });
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const initials = useMemo(() => {
     const a = (form.firstName || "").charAt(0);
@@ -66,7 +59,7 @@ export default function SettingsPage() {
     return (a + b || "??").toUpperCase();
   }, [form.firstName, form.lastName]);
 
-  // Load profile; if the patients row is missing/incomplete, seed/patch it from auth metadata
+  // Load or seed the patient record
   useEffect(() => {
     (async () => {
       try {
@@ -81,18 +74,9 @@ export default function SettingsPage() {
         const uid = user.id;
         const meta: any = user.user_metadata ?? {};
 
-        // Pull row (include avatar)
         const selectCols = [
-          UID_COL,
-          "first_name",
-          "last_name",
-          "email",
-          "phone_number",
-          "date_of_birth",
-          "emergency_contact_name",
-          "emergency_contact_phone",
-          "bio",
-          "avatar",
+          UID_COL, "first_name", "last_name", "email", "phone_number", "date_of_birth",
+          "emergency_contact_name", "emergency_contact_phone", "bio", "avatar",
         ].join(",");
 
         let { data: row, error: rowErr } = await supabase
@@ -100,10 +84,8 @@ export default function SettingsPage() {
           .select(selectCols)
           .eq(UID_COL, uid)
           .maybeSingle();
-
         if (rowErr) console.error("patients select error:", rowErr);
 
-        // Merge DB + auth metadata
         const first = row?.first_name ?? meta.firstName ?? meta.first_name ?? "";
         const last  = row?.last_name  ?? meta.lastName  ?? meta.last_name  ?? "";
         const email = row?.email ?? user.email ?? "";
@@ -114,7 +96,6 @@ export default function SettingsPage() {
         const bio     = row?.bio ?? "";
         const avatar  = row?.avatar ?? meta.avatar_url ?? "/patient-avatar.png";
 
-        // Self-heal: create or patch row so Settings always shows what user supplied at signup
         if (!row) {
           const seed: Record<string, any> = {
             [UID_COL]: uid,
@@ -152,14 +133,8 @@ export default function SettingsPage() {
         }
 
         setForm({
-          firstName: first,
-          lastName: last,
-          email,
-          phoneNumber: phone,
-          dateOfBirth: dob || "",
-          emergencyName: ecName,
-          emergencyPhone: ecPhone,
-          bio,
+          firstName: first, lastName: last, email, phoneNumber: phone,
+          dateOfBirth: dob || "", emergencyName: ecName, emergencyPhone: ecPhone, bio,
         });
         setAvatarUrl(avatar || "/patient-avatar.png");
       } catch (err) {
@@ -175,7 +150,6 @@ export default function SettingsPage() {
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  /** Save button — forces a returning row so we catch RLS/mismatched filters immediately */
   const onSave = async () => {
     setSaving(true);
     try {
@@ -199,10 +173,9 @@ export default function SettingsPage() {
         .eq(UID_COL, uid)
         .select(`${UID_COL},bio`)
         .single();
-
       if (error) throw error;
 
-      // Keep auth metadata in sync (optional)
+      // keep auth metadata loosely in sync (optional)
       const { error: authErr } = await supabase.auth.updateUser({
         data: {
           first_name: form.firstName,
@@ -216,7 +189,6 @@ export default function SettingsPage() {
       if (authErr) throw authErr;
 
       console.log("Saved bio:", data?.bio);
-      // Optionally show a toast/snackbar here
     } catch (e: any) {
       console.error("save error:", e);
       alert(`Could not save: ${e?.message ?? "Unknown error"}`);
@@ -243,28 +215,29 @@ export default function SettingsPage() {
       const uid = sess?.session?.user?.id;
       if (!uid) throw new Error("Not authenticated");
 
-      // Upload to Storage (bucket: avatars) — object key has NO "avatars/" prefix
-      const path = `${uid}/${Date.now()}-${file.name}`;
-      console.log("upload path:", path);
+      // sanitize filename & build path that matches RLS (no "avatars/" prefix)
+      const safe = file.name.replace(/[^\w.\-]+/g, "_");
+      const path = `${uid}/${Date.now()}-${safe}`;
+      console.log({ uid, path });
 
-      
-
+      // upload
       const up = await supabase.storage.from("avatars").upload(path, file, {
         cacheControl: "3600",
         upsert: true,
         contentType: file.type || "application/octet-stream",
       });
       if (up.error) {
-        console.error("storage upload error:", up.error);
-        throw up.error;
+        console.error("UPLOAD ERROR:", up.error);
+        alert(`Upload failed: ${up.error.message}`);
+        return;
       }
 
-      // Resolve URL (public vs signed)
+      // resolve URL (public vs signed)
       let publicUrl: string;
       if (USE_SIGNED_URL) {
         const { data: signed, error: signErr } = await supabase.storage
           .from("avatars")
-          .createSignedUrl(path, 60 * 60 * 24); // 24h
+          .createSignedUrl(path, 60 * 60 * 24);
         if (signErr) throw signErr;
         publicUrl = signed!.signedUrl;
       } else {
@@ -272,19 +245,19 @@ export default function SettingsPage() {
         publicUrl = data.publicUrl;
       }
 
-      // Update DB + auth metadata
+      // update DB
       const upd = await supabase
         .from("patients")
         .update({ avatar: publicUrl, updated_at: new Date().toISOString() })
         .eq(UID_COL, uid)
         .select(`${UID_COL},avatar`)
         .single();
-      if (upd.error) throw upd.error;
+      if (upd.error) {
+        console.error("DB UPDATE ERROR:", upd.error);
+        alert(`Saved file but failed to update profile: ${upd.error.message}`);
+        return;
+      }
 
-      const authUpd = await supabase.auth.updateUser({ data: { avatar_url: publicUrl } });
-      if (authUpd.error) throw authUpd.error;
-
-      // Update UI
       setAvatarUrl(publicUrl);
     } catch (err: any) {
       console.error("avatar upload flow error:", err);
@@ -362,13 +335,7 @@ export default function SettingsPage() {
                 </div>
                 <div>
                   <Label htmlFor="dateOfBirth">Date of Birth</Label>
-                  <Input
-                    id="dateOfBirth"
-                    type="date"
-                    value={form.dateOfBirth}
-                    onChange={onChange("dateOfBirth")}
-                    disabled={loading}
-                  />
+                  <Input id="dateOfBirth" type="date" value={form.dateOfBirth} onChange={onChange("dateOfBirth")} disabled={loading} />
                 </div>
                 <div>
                   <Label htmlFor="emergencyContact">Emergency Contact</Label>
@@ -388,13 +355,7 @@ export default function SettingsPage() {
 
               <div>
                 <Label htmlFor="bio">Bio</Label>
-                <Textarea
-                  id="bio"
-                  placeholder="Tell us a bit about yourself..."
-                  value={form.bio}
-                  onChange={onChange("bio")}
-                  disabled={loading}
-                />
+                <Textarea id="bio" placeholder="Tell us a bit about yourself..." value={form.bio} onChange={onChange("bio")} disabled={loading} />
               </div>
 
               <Button className="w-full md:w-auto" onClick={onSave} disabled={saving || loading}>
