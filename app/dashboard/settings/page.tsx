@@ -245,7 +245,7 @@ export default function SettingsPage() {
 
       // Upload to Storage (bucket: avatars) — object key has NO "avatars/" prefix
       const path = `${uid}/${Date.now()}-${file.name}`;
-await supabase.storage.from("avatars").upload(path, file, { upsert: true, ... });
+      console.log("upload path:", path);
 
       
 
