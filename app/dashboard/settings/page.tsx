@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
@@ -14,8 +14,8 @@ import { Camera, Save, User } from "lucide-react";
 /** ──────────────────────────────────────────────────────────────
  *  QUICK CONFIG
  *  ────────────────────────────────────────────────────────────── */
-const UID_COL = "user_id";        // the PK/foreign key on patients table
-const USE_SIGNED_URL = false;     // set true only if your avatars bucket is PRIVATE
+const UID_COL = "user_id";        // primary key / FK in public.patients
+const USE_SIGNED_URL = false;     // set true only if Storage bucket "avatars" is PRIVATE
 /** ────────────────────────────────────────────────────────────── */
 
 type FormState = {
@@ -46,10 +46,16 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [avatarUrl, setAvatarUrl] = useState<string>("/patient-avatar.png");
+  const [avatarUrl, setAvatarUrl] = useState<string>(""); // ← no fixed default
   const [form, setForm] = useState<FormState>({
-    firstName: "", lastName: "", email: "", phoneNumber: "",
-    dateOfBirth: "", emergencyName: "", emergencyPhone: "", bio: "",
+    firstName: "",
+    lastName: "",
+    email: "",
+    phoneNumber: "",
+    dateOfBirth: "",
+    emergencyName: "",
+    emergencyPhone: "",
+    bio: "",
   });
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -75,8 +81,16 @@ export default function SettingsPage() {
         const meta: any = user.user_metadata ?? {};
 
         const selectCols = [
-          UID_COL, "first_name", "last_name", "email", "phone_number", "date_of_birth",
-          "emergency_contact_name", "emergency_contact_phone", "bio", "avatar",
+          UID_COL,
+          "first_name",
+          "last_name",
+          "email",
+          "phone_number",
+          "date_of_birth",
+          "emergency_contact_name",
+          "emergency_contact_phone",
+          "bio",
+          "avatar",
         ].join(",");
 
         let { data: row, error: rowErr } = await supabase
@@ -87,14 +101,20 @@ export default function SettingsPage() {
         if (rowErr) console.error("patients select error:", rowErr);
 
         const first = row?.first_name ?? meta.firstName ?? meta.first_name ?? "";
-        const last  = row?.last_name  ?? meta.lastName  ?? meta.last_name  ?? "";
+        const last = row?.last_name ?? meta.lastName ?? meta.last_name ?? "";
         const email = row?.email ?? user.email ?? "";
         const phone = row?.phone_number ?? meta.phoneNumber ?? meta.phone_number ?? "";
-        const dob   = row?.date_of_birth ? toISO(row.date_of_birth) : toISO(meta.dateOfBirth ?? meta.date_of_birth);
-        const ecName  = row?.emergency_contact_name ?? meta.emergencyContactName ?? meta.emergency_contact_name ?? "";
-        const ecPhone = row?.emergency_contact_phone ?? meta.emergencyContactPhone ?? meta.emergency_contact_phone ?? "";
-        const bio     = row?.bio ?? "";
-        const avatar  = row?.avatar ?? meta.avatar_url ?? "/patient-avatar.png";
+        const dob =
+          row?.date_of_birth ? toISO(row.date_of_birth) : toISO(meta.dateOfBirth ?? meta.date_of_birth);
+        const ecName =
+          row?.emergency_contact_name ?? meta.emergencyContactName ?? meta.emergency_contact_name ?? "";
+        const ecPhone =
+          row?.emergency_contact_phone ??
+          meta.emergencyContactPhone ??
+          meta.emergency_contact_phone ??
+          "";
+        const bio = row?.bio ?? "";
+        const avatar = row?.avatar ?? meta.avatar_url ?? ""; // ← no default file
 
         if (!row) {
           const seed: Record<string, any> = {
@@ -133,10 +153,16 @@ export default function SettingsPage() {
         }
 
         setForm({
-          firstName: first, lastName: last, email, phoneNumber: phone,
-          dateOfBirth: dob || "", emergencyName: ecName, emergencyPhone: ecPhone, bio,
+          firstName: first,
+          lastName: last,
+          email,
+          phoneNumber: phone,
+          dateOfBirth: dob || "",
+          emergencyName: ecName,
+          emergencyPhone: ecPhone,
+          bio,
         });
-        setAvatarUrl(avatar || "/patient-avatar.png");
+        setAvatarUrl(avatar || ""); // ← only set if we actually have one
       } catch (err) {
         console.error("initial load error:", err);
       } finally {
@@ -157,7 +183,7 @@ export default function SettingsPage() {
       const uid = sess?.session?.user?.id;
       if (!uid) throw new Error("Not authenticated");
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from("patients")
         .update({
           first_name: form.firstName,
@@ -170,12 +196,10 @@ export default function SettingsPage() {
           bio: form.bio || null,
           updated_at: new Date().toISOString(),
         })
-        .eq(UID_COL, uid)
-        .select(`${UID_COL},bio`)
-        .single();
+        .eq(UID_COL, uid);
       if (error) throw error;
 
-      // keep auth metadata loosely in sync (optional)
+      // optional: keep auth metadata loosely in sync
       const { error: authErr } = await supabase.auth.updateUser({
         data: {
           first_name: form.firstName,
@@ -187,8 +211,6 @@ export default function SettingsPage() {
         },
       });
       if (authErr) throw authErr;
-
-      console.log("Saved bio:", data?.bio);
     } catch (e: any) {
       console.error("save error:", e);
       alert(`Could not save: ${e?.message ?? "Unknown error"}`);
@@ -249,16 +271,15 @@ export default function SettingsPage() {
       const upd = await supabase
         .from("patients")
         .update({ avatar: publicUrl, updated_at: new Date().toISOString() })
-        .eq(UID_COL, uid)
-        .select(`${UID_COL},avatar`)
-        .single();
+        .eq(UID_COL, uid);
       if (upd.error) {
         console.error("DB UPDATE ERROR:", upd.error);
         alert(`Saved file but failed to update profile: ${upd.error.message}`);
         return;
       }
 
-      setAvatarUrl(publicUrl);
+      // force the <img> to refresh via cache-buster
+      setAvatarUrl(`${publicUrl}?v=${Date.now()}`);
     } catch (err: any) {
       console.error("avatar upload flow error:", err);
       alert(`Failed to upload photo: ${err?.message ?? "Unknown error"}`);
@@ -297,7 +318,15 @@ export default function SettingsPage() {
             <CardContent className="space-y-6">
               <div className="flex items-center gap-6">
                 <Avatar className="h-20 w-20">
-                  <AvatarImage src={avatarUrl || "/patient-avatar.png"} />
+                  {/* Only render image when we actually have one */}
+                  {avatarUrl ? (
+                    <AvatarImage
+                      key={avatarUrl}
+                      src={avatarUrl}
+                      alt="Profile picture"
+                      onError={() => setAvatarUrl("")}
+                    />
+                  ) : null}
                   <AvatarFallback>{initials}</AvatarFallback>
                 </Avatar>
                 <div>
@@ -355,7 +384,13 @@ export default function SettingsPage() {
 
               <div>
                 <Label htmlFor="bio">Bio</Label>
-                <Textarea id="bio" placeholder="Tell us a bit about yourself..." value={form.bio} onChange={onChange("bio")} disabled={loading} />
+                <Textarea
+                  id="bio"
+                  placeholder="Tell us a bit about yourself..."
+                  value={form.bio}
+                  onChange={onChange("bio")}
+                  disabled={loading}
+                />
               </div>
 
               <Button className="w-full md:w-auto" onClick={onSave} disabled={saving || loading}>
