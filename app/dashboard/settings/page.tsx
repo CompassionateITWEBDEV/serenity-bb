@@ -9,13 +9,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Camera, Save, User, Bug } from "lucide-react";
+import { Camera, Save, User } from "lucide-react";
 
 /** ──────────────────────────────────────────────────────────────
  *  QUICK CONFIG
  *  ────────────────────────────────────────────────────────────── */
-const UID_COL = "user_id";        // the PK/foreign key on patients table
-const USE_SIGNED_URL = false;     // set true only if your avatars bucket is PRIVATE
+const UID_COL = "user_id";       // PK/FK in your `patients` table
+const USE_SIGNED_URL = false;    // true only if avatars bucket is PRIVATE
 /** ────────────────────────────────────────────────────────────── */
 
 type FormState = {
@@ -59,51 +59,6 @@ export default function SettingsPage() {
     return (a + b || "??").toUpperCase();
   }, [form.firstName, form.lastName]);
 
-  // Debug function to check database setup
-  const debugDatabaseSetup = async () => {
-    try {
-      const { data: sess } = await supabase.auth.getSession();
-      const uid = sess?.session?.user?.id;
-      
-      console.log("=== DATABASE DEBUG ===");
-      console.log("User ID:", uid);
-      console.log("UID_COL:", UID_COL);
-      
-      // Check if user can read from patients table
-      const { data: allPatients, error: readError } = await supabase
-        .from("patients")
-        .select("*")
-        .limit(5);
-      
-      console.log("Can read patients table:", !readError);
-      console.log("Read error (if any):", readError);
-      console.log("Sample patients data:", allPatients);
-      
-      // Check current user's patient record
-      const { data: userPatient, error: userError } = await supabase
-        .from("patients")
-        .select("*")
-        .eq(UID_COL, uid)
-        .maybeSingle();
-        
-      console.log("User's patient record:", userPatient);
-      console.log("User query error (if any):", userError);
-      
-      // Test update permission
-      const testUpdate = await supabase
-        .from("patients")
-        .update({ updated_at: new Date().toISOString() })
-        .eq(UID_COL, uid)
-        .select("*")
-        .maybeSingle();
-        
-      console.log("Update test result:", testUpdate);
-      
-    } catch (error) {
-      console.error("Debug error:", error);
-    }
-  };
-
   // Load or seed the patient record
   useEffect(() => {
     (async () => {
@@ -112,15 +67,12 @@ export default function SettingsPage() {
 
         const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
         if (sessErr || !sessionData?.session?.user) {
-          console.error("Session error:", sessErr);
           setLoading(false);
           return;
         }
         const user = sessionData.session.user;
         const uid = user.id;
         const meta: any = user.user_metadata ?? {};
-
-        console.log("Loading data for user:", uid);
 
         const selectCols = [
           UID_COL, "first_name", "last_name", "email", "phone_number", "date_of_birth",
@@ -132,8 +84,6 @@ export default function SettingsPage() {
           .select(selectCols)
           .eq(UID_COL, uid)
           .maybeSingle();
-        
-        console.log("Existing patient record:", row);
         if (rowErr) console.error("patients select error:", rowErr);
 
         const first = row?.first_name ?? meta.firstName ?? meta.first_name ?? "";
@@ -146,8 +96,8 @@ export default function SettingsPage() {
         const bio     = row?.bio ?? "";
         const avatar  = row?.avatar ?? meta.avatar_url ?? "/patient-avatar.png";
 
+        // Seed missing row with upsert (safe if exists)
         if (!row) {
-          console.log("Creating new patient record...");
           const seed: Record<string, any> = {
             [UID_COL]: uid,
             first_name: first || null,
@@ -158,46 +108,14 @@ export default function SettingsPage() {
             emergency_contact_name: ecName || null,
             emergency_contact_phone: ecPhone || null,
             bio: bio || null,
-            avatar: avatar || "/patient-avatar.png",
+            avatar: avatar || null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           };
-          
-          // Use INSERT instead of UPSERT for clearer error handling
-          const { data: inserted, error: insertError } = await supabase
+          const { error: upsertErr } = await supabase
             .from("patients")
-            .insert(seed)
-            .select(selectCols)
-            .single();
-            
-          if (insertError) {
-            console.error("patients insert error:", insertError);
-            // Fallback to upsert if insert fails (record might exist)
-            const { data: upserted, error: upsertErr } = await supabase
-              .from("patients")
-              .upsert(seed, { onConflict: UID_COL })
-              .select(selectCols)
-              .single();
-            if (upsertErr) {
-              console.error("patients upsert error:", upsertErr);
-            }
-            row = upserted ?? (seed as any);
-          } else {
-            row = inserted;
-          }
-        } else {
-          const patch: any = {};
-          if (!row.phone_number && phone) patch.phone_number = phone;
-          if (!row.date_of_birth && dob) patch.date_of_birth = dob;
-          if (!row.emergency_contact_name && ecName) patch.emergency_contact_name = ecName;
-          if (!row.emergency_contact_phone && ecPhone) patch.emergency_contact_phone = ecPhone;
-          if (!row.avatar && avatar) patch.avatar = avatar;
-          
-          if (Object.keys(patch).length) {
-            patch.updated_at = new Date().toISOString();
-            const { error: patchErr } = await supabase.from("patients").update(patch).eq(UID_COL, uid);
-            if (patchErr) console.error("patients patch error:", patchErr);
-          }
+            .upsert(seed, { onConflict: UID_COL });
+          if (upsertErr) console.error("patients upsert seed error:", upsertErr);
         }
 
         setForm({
@@ -205,7 +123,6 @@ export default function SettingsPage() {
           dateOfBirth: dob || "", emergencyName: ecName, emergencyPhone: ecPhone, bio,
         });
         setAvatarUrl(avatar || "/patient-avatar.png");
-        console.log("Data loaded successfully");
       } catch (err) {
         console.error("initial load error:", err);
       } finally {
@@ -219,6 +136,7 @@ export default function SettingsPage() {
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  // SAVE — use UPSERT to avoid "single JSON object" error when row is missing
   const onSave = async () => {
     setSaving(true);
     try {
@@ -226,26 +144,28 @@ export default function SettingsPage() {
       const uid = sess?.session?.user?.id;
       if (!uid) throw new Error("Not authenticated");
 
-      const { data, error } = await supabase
+      const payload = {
+        [UID_COL]: uid,
+        first_name: form.firstName,
+        last_name: form.lastName,
+        email: form.email,
+        phone_number: form.phoneNumber,
+        date_of_birth: form.dateOfBirth || null,
+        emergency_contact_name: form.emergencyName || null,
+        emergency_contact_phone: form.emergencyPhone || null,
+        bio: form.bio || null,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
         .from("patients")
-        .update({
-          first_name: form.firstName,
-          last_name: form.lastName,
-          email: form.email,
-          phone_number: form.phoneNumber,
-          date_of_birth: form.dateOfBirth || null,
-          emergency_contact_name: form.emergencyName || null,
-          emergency_contact_phone: form.emergencyPhone || null,
-          bio: form.bio || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq(UID_COL, uid)
-        .select(`${UID_COL},bio`)
-        .maybeSingle();
+        .upsert(payload, { onConflict: UID_COL })
+        .select("user_id")
+        .maybeSingle(); // don't crash if 0 rows
       if (error) throw error;
 
-      // keep auth metadata loosely in sync (optional)
-      const { error: authErr } = await supabase.auth.updateUser({
+      // optional: keep auth metadata loosely in sync
+      await supabase.auth.updateUser({
         data: {
           first_name: form.firstName,
           last_name: form.lastName,
@@ -255,10 +175,6 @@ export default function SettingsPage() {
           emergency_contact_phone: form.emergencyPhone || null,
         },
       });
-      if (authErr) throw authErr;
-
-      console.log("Saved bio:", data?.bio);
-      alert("Profile saved successfully!");
     } catch (e: any) {
       console.error("save error:", e);
       alert(`Could not save: ${e?.message ?? "Unknown error"}`);
@@ -267,7 +183,8 @@ export default function SettingsPage() {
     }
   };
 
-  // === Avatar upload ===
+  // AVATAR UPLOAD — upload to {uid}/..., then UPSERT avatar URL
+  const fileRef = useRef<HTMLInputElement>(null);
   const openFilePicker = () => fileRef.current?.click();
 
   const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -285,28 +202,11 @@ export default function SettingsPage() {
       const uid = sess?.session?.user?.id;
       if (!uid) throw new Error("Not authenticated");
 
-      console.log("🔍 Debug info:");
-      console.log("User ID:", uid);
-      console.log("UID_COL:", UID_COL);
-
-      // First, check if patient record exists
-      const { data: existingPatient, error: checkError } = await supabase
-        .from("patients")
-        .select("*")
-        .eq(UID_COL, uid)
-        .maybeSingle();
-
-      console.log("Existing patient record:", existingPatient);
-      if (checkError) {
-        console.error("Error checking patient record:", checkError);
-      }
-
-      // sanitize filename & build path that matches RLS (no "avatars/" prefix)
+      // sanitize filename & build path per Storage RLS
       const safe = file.name.replace(/[^\w.\-]+/g, "_");
       const path = `${uid}/${Date.now()}-${safe}`;
-      console.log("Upload path:", path);
+      console.log({ uid, path });
 
-      // upload
       const up = await supabase.storage.from("avatars").upload(path, file, {
         cacheControl: "3600",
         upsert: true,
@@ -317,76 +217,38 @@ export default function SettingsPage() {
         alert(`Upload failed: ${up.error.message}`);
         return;
       }
-      console.log("✅ Upload successful:", up.data);
 
-      // resolve URL (public vs signed)
+      // get URL
       let publicUrl: string;
       if (USE_SIGNED_URL) {
-        const { data: signed, error: signErr } = await supabase.storage
-          .from("avatars")
-          .createSignedUrl(path, 60 * 60 * 24);
+        const { data: signed, error: signErr } = await supabase
+          .storage.from("avatars").createSignedUrl(path, 60 * 60 * 24);
         if (signErr) throw signErr;
         publicUrl = signed!.signedUrl;
       } else {
         const { data } = supabase.storage.from("avatars").getPublicUrl(path);
         publicUrl = data.publicUrl;
       }
-      console.log("Generated URL:", publicUrl);
 
-      // Try different approaches based on whether record exists
-      let upd;
-      
-      if (!existingPatient) {
-        console.log("🔄 No patient record found, creating one...");
-        // Create the patient record first
-        upd = await supabase
-          .from("patients")
-          .insert({
-            [UID_COL]: uid,
-            avatar: publicUrl,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .select(`${UID_COL},avatar`)
-          .single();
-      } else {
-        console.log("🔄 Updating existing patient record...");
-        // Update existing record
-        upd = await supabase
-          .from("patients")
-          .update({ 
-            avatar: publicUrl, 
-            updated_at: new Date().toISOString() 
-          })
-          .eq(UID_COL, uid)
-          .select(`${UID_COL},avatar`)
-          .maybeSingle();
-      }
-
-      console.log("Database operation result:", upd);
-
-      if (upd.error) {
-        console.error("DB UPDATE/INSERT ERROR:", upd.error);
-        alert(`Saved file but failed to update profile: ${upd.error.message}`);
+      // write URL to DB via upsert
+      const { error: dbErr } = await supabase
+        .from("patients")
+        .upsert(
+          { [UID_COL]: uid, avatar: publicUrl, updated_at: new Date().toISOString() },
+          { onConflict: UID_COL }
+        )
+        .select("user_id")
+        .maybeSingle();
+      if (dbErr) {
+        console.error("DB UPDATE ERROR:", dbErr);
+        alert(`Saved file but failed to update profile: ${dbErr.message}`);
         return;
       }
 
-      if (!upd.data) {
-        console.error("No data returned from database operation");
-        alert("Failed to update profile. Please check console for details.");
-        return;
-      }
-
-      console.log("✅ Avatar updated successfully:", upd.data);
-      
-      // Force a refresh of the avatar in case of caching issues
-      const timestamp = new Date().getTime();
-      setAvatarUrl(`${publicUrl}?t=${timestamp}`);
-      
-      alert("Avatar updated successfully!");
-      
+      // force <img> to refresh
+      setAvatarUrl(`${publicUrl}?v=${Date.now()}`);
     } catch (err: any) {
-      console.error("❌ Avatar upload flow error:", err);
+      console.error("avatar upload flow error:", err);
       alert(`Failed to upload photo: ${err?.message ?? "Unknown error"}`);
     } finally {
       setUploading(false);
@@ -421,21 +283,6 @@ export default function SettingsPage() {
             </CardHeader>
 
             <CardContent className="space-y-6">
-              {/* Debug Button - Remove in production */}
-              <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
-                <Button
-                  variant="outline"
-                  onClick={debugDatabaseSetup}
-                  className="mb-2"
-                >
-                  <Bug className="h-4 w-4 mr-2" />
-                  Debug Database (Check Console)
-                </Button>
-                <p className="text-sm text-yellow-700">
-                  Click this button and check your browser console for debug information if avatar upload isn't working.
-                </p>
-              </div>
-
               <div className="flex items-center gap-6">
                 <Avatar className="h-20 w-20">
                   <AvatarImage src={avatarUrl || "/patient-avatar.png"} />
@@ -496,62 +343,19 @@ export default function SettingsPage() {
 
               <div>
                 <Label htmlFor="bio">Bio</Label>
-                <Textarea id="bio" placeholder="Tell us a bit about yourself..." value={form.bio} onChange={onChange("bio")} disabled={loading} />
+                <Textarea
+                  id="bio"
+                  placeholder="Tell us a bit about yourself..."
+                  value={form.bio}
+                  onChange={onChange("bio")}
+                  disabled={loading}
+                />
               </div>
 
               <Button className="w-full md:w-auto" onClick={onSave} disabled={saving || loading}>
                 <Save className="h-4 w-4 mr-2" />
                 {saving ? "Saving..." : "Save Changes"}
               </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        {/* Placeholder tabs - you can implement these later */}
-        <TabsContent value="notifications">
-          <Card>
-            <CardHeader>
-              <CardTitle>Notifications</CardTitle>
-              <CardDescription>Manage your notification preferences</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-600">Notification settings coming soon...</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="privacy">
-          <Card>
-            <CardHeader>
-              <CardTitle>Privacy</CardTitle>
-              <CardDescription>Manage your privacy settings</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-600">Privacy settings coming soon...</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="security">
-          <Card>
-            <CardHeader>
-              <CardTitle>Security</CardTitle>
-              <CardDescription>Manage your security preferences</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-600">Security settings coming soon...</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="preferences">
-          <Card>
-            <CardHeader>
-              <CardTitle>Preferences</CardTitle>
-              <CardDescription>Manage your application preferences</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-600">Preferences coming soon...</p>
             </CardContent>
           </Card>
         </TabsContent>
