@@ -1,22 +1,24 @@
-// FILE: app/dashboard/page.tsx
 "use client";
 
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 
-import { DashboardHeader } from "@/components/dashboard/dashboard-header";
-import { DashboardStats } from "@/components/dashboard/dashboard-stats";
-import { TreatmentProgress } from "@/components/dashboard/treatment-progress";
-import { UpcomingAppointments } from "@/components/dashboard/upcoming-appointments";
-import { QuickActions } from "@/components/dashboard/quick-actions";
-import { RecentActivity } from "@/components/dashboard/recent-activity";
-import { WellnessTracker } from "@/components/dashboard/wellness-tracker";
-import { VideoRecording } from "@/components/dashboard/video-recording";
-import { SubmissionHistory } from "@/components/dashboard/submission-history";
-import { HealthcareMessaging } from "@/components/dashboard/healthcare-messaging";
-import { GroupChat } from "@/components/dashboard/group-chat";
+// If page.tsx is in app/dashboard/, this goes up one level into app/components/...
+import { DashboardHeader } from "../components/dashboard/dashboard-header";
+import { DashboardStats } from "../components/dashboard/dashboard-stats";
+import { TreatmentProgress } from "../components/dashboard/treatment-progress";
+import { UpcomingAppointments } from "../components/dashboard/upcoming-appointments";
+import { QuickActions } from "../components/dashboard/quick-actions";
+import { RecentActivity } from "../components/dashboard/recent-activity";
+import { WellnessTracker } from "../components/dashboard/wellness-tracker";
+import { VideoRecording } from "../components/dashboard/video-recording";
+import { SubmissionHistory } from "../components/dashboard/submission-history";
+import { HealthcareMessaging } from "../components/dashboard/healthcare-messaging";
+import { GroupChat } from "../components/dashboard/group-chat";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PatientOverviewProvider } from "@/context/patient-overview-context";
+
 
 export default function DashboardPage() {
   const { isAuthenticated, loading, patient } = useAuth();
