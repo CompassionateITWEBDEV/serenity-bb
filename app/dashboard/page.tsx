@@ -1,6 +1,8 @@
 "use client"
+
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
+
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { DashboardStats } from "@/components/dashboard/dashboard-stats"
 import { TreatmentProgress } from "@/components/dashboard/treatment-progress"
@@ -13,6 +15,9 @@ import { SubmissionHistory } from "@/components/dashboard/submission-history"
 import { HealthcareMessaging } from "@/components/dashboard/healthcare-messaging"
 import { GroupChat } from "@/components/dashboard/group-chat"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+
+// WHY: provides live overview (existing → data, new → zero) to all widgets
+import { PatientOverviewProvider } from "@/context/patient-overview-context"
 
 export default function DashboardPage() {
   const { isAuthenticated, loading, patient } = useAuth()
@@ -44,56 +49,59 @@ export default function DashboardPage() {
       <DashboardHeader patient={patient} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Section */}
         <div className="mb-8">
-          <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">Welcome back, {patient.firstName}!</h1>
+          <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">
+            Welcome back, {patient.firstName}!
+          </h1>
           <p className="text-gray-600">Here's your recovery progress and upcoming activities.</p>
         </div>
 
-        <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="tracking">Tracking</TabsTrigger>
-            <TabsTrigger value="recording">Recording</TabsTrigger>
-            <TabsTrigger value="messages">Messages</TabsTrigger>
-            <TabsTrigger value="groups">Groups</TabsTrigger>
-          </TabsList>
+        {/* WHY: wrap the dashboard so children consume realtime overview via context */}
+        <PatientOverviewProvider patientId={patient.id}>
+          <Tabs defaultValue="overview" className="space-y-6">
+            <TabsList className="grid w-full grid-cols-5">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="tracking">Tracking</TabsTrigger>
+              <TabsTrigger value="recording">Recording</TabsTrigger>
+              <TabsTrigger value="messages">Messages</TabsTrigger>
+              <TabsTrigger value="groups">Groups</TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="overview" className="space-y-8">
-            {/* Dashboard Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Left Column */}
-              <div className="lg:col-span-2 space-y-8">
-                <DashboardStats />
-                <TreatmentProgress />
-                <UpcomingAppointments />
+            <TabsContent value="overview" className="space-y-8">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Left Column */}
+                <div className="lg:col-span-2 space-y-8">
+                  <DashboardStats />
+                  <TreatmentProgress />
+                  <UpcomingAppointments />
+                </div>
+
+                {/* Right Column */}
+                <div className="space-y-8">
+                  <QuickActions />
+                  <WellnessTracker />
+                  <RecentActivity />
+                </div>
               </div>
+            </TabsContent>
 
-              {/* Right Column */}
-              <div className="space-y-8">
-                <QuickActions />
-                <WellnessTracker />
-                <RecentActivity />
-              </div>
-            </div>
-          </TabsContent>
+            <TabsContent value="tracking" className="space-y-8">
+              <SubmissionHistory />
+            </TabsContent>
 
-          <TabsContent value="tracking" className="space-y-8">
-            <SubmissionHistory />
-          </TabsContent>
+            <TabsContent value="recording" className="space-y-8">
+              <VideoRecording />
+            </TabsContent>
 
-          <TabsContent value="recording" className="space-y-8">
-            <VideoRecording />
-          </TabsContent>
+            <TabsContent value="messages" className="space-y-8">
+              <HealthcareMessaging />
+            </TabsContent>
 
-          <TabsContent value="messages" className="space-y-8">
-            <HealthcareMessaging />
-          </TabsContent>
-
-          <TabsContent value="groups" className="space-y-8">
-            <GroupChat />
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="groups" className="space-y-8">
+              <GroupChat />
+            </TabsContent>
+          </Tabs>
+        </PatientOverviewProvider>
       </main>
     </div>
   )
