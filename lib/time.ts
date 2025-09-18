@@ -25,7 +25,7 @@ export function formatDateTime(
     month: "short",
     day: "2-digit",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
   }
 ): string {
   const d = toDate(input);
@@ -37,6 +37,8 @@ function toDate(v: Date | number | string): Date {
   if (v instanceof Date) return v;
   if (typeof v === "number") return new Date(v);
   const d = new Date(v);
-  if (Number.isNaN(d.getTime())) throw new Error(`Invalid date: ${v}`); // why: fail fast on bad data
+  if (Number.isNaN(d.getTime())) {
+    throw new Error(`Invalid date: ${v}`); // why: fail fast on bad input
+  }
   return d;
 }
