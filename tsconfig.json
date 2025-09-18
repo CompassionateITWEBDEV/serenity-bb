@@ -1,9 +1,9 @@
-// FILE: tsconfig.json
+// FILE: tsconfig.json  (explicit alias; otherwise unchanged)
 {
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "jsx": "preserve",
+    "jsx": "preserve",            // Next.js expects 'preserve'
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "resolveJsonModule": true,
@@ -16,9 +16,9 @@
     "incremental": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["*"]
+      "@/*": ["./*"]              // was "*" — make it explicit but functionally same
     },
-    "types": ["./types/global"],
+    "types": ["./types/global"],  // ensure file exists; otherwise remove this line
     "plugins": [{ "name": "next" }]
   },
   "include": [
