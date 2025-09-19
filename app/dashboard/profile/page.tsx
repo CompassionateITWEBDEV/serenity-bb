@@ -2,6 +2,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { z } from "zod";
+import { supabase } from "@/lib/supabase/client";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,9 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useAuth } from "@/hooks/use-auth";
-import { useRealtimeProfile } from "@/hooks/use-realtime-profile";
-import { RealtimeStatusIndicator } from "@/components/realtime-status-indicator";
+
 import {
   Calendar,
   Phone,
@@ -31,109 +32,217 @@ import {
   CheckCircle,
 } from "lucide-react";
 
-type UpdateStatus = { type: "success" | "error"; message: string } | null;
+/** ---- Types from API payload ---- */
+type PatientInfo = {
+  id?: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  dateOfBirth: string;
+  address: string;
+  emergencyContact?: { name?: string; phone?: string; relationship?: string } | null;
+  admissionDate: string;
+  treatmentType: string;
+  primaryPhysician: string;
+  counselor: string;
+  avatar?: string | null;
+  treatmentPlan?: string | null;
+  joinDate?: string | null;
+  phoneNumber?: string | null; // some projects use this name
+};
+
+type Achievement = { id: number | string; title: string; description: string; icon: string; date: string };
+type HealthMetric = { label: string; value: number; color?: string };
+type ActivityItem = { id: number | string; activity: string; time: string; type: "wellness" | "therapy" | "medical" | "assessment" };
+
+type ProfilePayload = {
+  patientInfo: PatientInfo;
+  achievements: Achievement[];
+  healthMetrics: HealthMetric[];
+  recentActivity: ActivityItem[];
+};
+
+/** ---- Validation for edits ---- */
+const EditSchema = z.object({
+  firstName: z.string().min(1),
+  lastName: z.string().min(1),
+  phoneNumber: z.string().min(3),
+  dateOfBirth: z.string().optional(),
+});
+
+async function getAccessToken(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  let token = data?.session?.access_token ?? null;
+  if (!token) {
+    const { data: refreshed } = await supabase.auth.refreshSession();
+    token = refreshed?.session?.access_token ?? null;
+  }
+  return token;
+}
 
 export default function ProfilePage() {
-  const { patient, isAuthenticated } = useAuth();
-  const { profileData, updateProfile, isOnline, isRealtimeEnabled } = useRealtimeProfile();
-
-  const [isEditing, setIsEditing] = useState(false);
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>(null);
+  // UI state
   const [activeTab, setActiveTab] = useState<"overview" | "medical" | "achievements" | "activity">("overview");
+  const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
-  const currentPatient = profileData || patient;
+  // Data
+  const [patient, setPatient] = useState<PatientInfo | null>(null);
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [healthMetrics, setHealthMetrics] = useState<HealthMetric[]>([]);
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
 
-  const [editForm, setEditForm] = useState({
-    firstName: "",
-    lastName: "",
-    phoneNumber: "",
-    dateOfBirth: "",
-  });
-
+  // Edit form
+  const [editForm, setEditForm] = useState({ firstName: "", lastName: "", phoneNumber: "", dateOfBirth: "" });
   const firstInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Derived flags
-  const isValid =
-    editForm.firstName.trim().length > 0 &&
-    editForm.lastName.trim().length > 0 &&
-    editForm.phoneNumber.trim().length >= 3;
+  useEffect(() => {
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        const res = await fetch("/api/profile", {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          credentials: "include",
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        if (res.status === 401) {
+          setStatus({ type: "error", message: "Session expired or not found. Please sign in again." });
+          return;
+        }
+        if (!res.ok) throw new Error((await res.text()) || res.statusText);
+        const json = (await res.json()) as ProfilePayload;
+        setPatient(json.patientInfo);
+        setAchievements(json.achievements);
+        setHealthMetrics(json.healthMetrics);
+        setRecentActivity(json.recentActivity);
+      } catch (e) {
+        setStatus({ type: "error", message: e instanceof Error ? e.message : "Failed to load profile." });
+        // keep page usable
+        setPatient({
+          firstName: "",
+          lastName: "",
+          email: "",
+          phone: "",
+          dateOfBirth: "",
+          address: "",
+          emergencyContact: null,
+          admissionDate: "",
+          treatmentType: "Outpatient",
+          primaryPhysician: "",
+          counselor: "",
+        });
+      } finally {
+        setLoading(false);
+      }
+    })();
+    return () => ac.abort();
+  }, []);
+
+  function beginEdit() {
+    if (!patient) return;
+    setEditForm({
+      firstName: patient.firstName || "",
+      lastName: patient.lastName || "",
+      phoneNumber: patient.phone || patient.phoneNumber || "",
+      dateOfBirth: patient.dateOfBirth || "",
+    });
+    setIsEditing(true);
+    setActiveTab("medical");
+    setStatus(null);
+    setTimeout(() => firstInputRef.current?.focus(), 0);
+  }
+
+  const isValid = useMemo(() => {
+    const r = EditSchema.safeParse(editForm);
+    return r.success;
+  }, [editForm]);
 
   const isDirty = useMemo(() => {
-    if (!currentPatient) return false;
+    if (!patient) return false;
     return (
-      editForm.firstName !== (currentPatient.firstName || "") ||
-      editForm.lastName !== (currentPatient.lastName || "") ||
-      editForm.phoneNumber !== (currentPatient.phoneNumber || "") ||
-      (editForm.dateOfBirth || "") !== (currentPatient.dateOfBirth || "")
+      editForm.firstName !== (patient.firstName || "") ||
+      editForm.lastName !== (patient.lastName || "") ||
+      editForm.phoneNumber !== (patient.phone || patient.phoneNumber || "") ||
+      (editForm.dateOfBirth || "") !== (patient.dateOfBirth || "")
     );
-  }, [editForm, currentPatient]);
+  }, [editForm, patient]);
 
-  if (!isAuthenticated || !currentPatient) {
+  async function save() {
+    if (!patient || !isValid || !isDirty) return;
+    try {
+      const token = await getAccessToken();
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          firstName: editForm.firstName,
+          lastName: editForm.lastName,
+          phone: editForm.phoneNumber,
+          dateOfBirth: editForm.dateOfBirth,
+        }),
+      });
+      if (res.status === 401) {
+        setStatus({ type: "error", message: "Session expired. Please sign in again." });
+        return;
+      }
+      if (!res.ok) throw new Error((await res.text()) || res.statusText);
+
+      setPatient({
+        ...patient,
+        firstName: editForm.firstName,
+        lastName: editForm.lastName,
+        phone: editForm.phoneNumber,
+        dateOfBirth: editForm.dateOfBirth,
+      });
+      setIsEditing(false);
+      setStatus({ type: "success", message: "Profile updated successfully!" });
+      setTimeout(() => setStatus(null), 2500);
+    } catch (e) {
+      setStatus({ type: "error", message: e instanceof Error ? e.message : "Failed to update profile." });
+    }
+  }
+
+  function cancel() {
+    setIsEditing(false);
+    setStatus(null);
+  }
+
+  if (loading) {
     return (
       <div className="container mx-auto p-6 max-w-6xl">
-        <div className="text-center">
-          <p className="text-gray-600">Please log in to view your profile.</p>
-        </div>
+        <p className="text-gray-600">Loading profile…</p>
       </div>
     );
   }
 
-  function handleEditStart() {
-    setEditForm({
-      firstName: currentPatient.firstName || "",
-      lastName: currentPatient.lastName || "",
-      phoneNumber: currentPatient.phoneNumber || "",
-      dateOfBirth: currentPatient.dateOfBirth || "",
-    });
-    setIsEditing(true);
-    setActiveTab("medical");
-    setUpdateStatus(null);
+  if (!patient) {
+    return (
+      <div className="container mx-auto p-6 max-w-6xl">
+        <p className="text-red-600">Unable to load profile.</p>
+      </div>
+    );
   }
 
-  useEffect(() => {
-    if (isEditing && firstInputRef.current) {
-      firstInputRef.current.focus();
-    }
-  }, [isEditing]);
-
-  async function handleSaveProfile() {
-    if (!isDirty || !isValid) return;
-    const res = await updateProfile(editForm);
-    if (res.success) {
-      setUpdateStatus({ type: "success", message: "Profile updated successfully!" });
-      setIsEditing(false);
-      const t = setTimeout(() => setUpdateStatus(null), 2500);
-      return () => clearTimeout(t);
-    } else {
-      setUpdateStatus({ type: "error", message: res.error || "Failed to update profile." });
-    }
-  }
-
-  function handleCancelEdit() {
-    setIsEditing(false);
-    setUpdateStatus(null);
-  }
-
-  const achievements = [
+  // demo data for static sections
+  const demoAchievements: Achievement[] = [
     { id: 1, title: "30 Days Clean", description: "Completed 30 consecutive days", icon: "🏆", date: "2024-04-01" },
     { id: 2, title: "Mindfulness Master", description: "Completed 50 meditation sessions", icon: "🧘", date: "2024-03-15" },
-    { id: 3, title: "Perfect Attendance", description: "Attended all scheduled appointments", icon: "📅", date: "2024-03-01" },
-    { id: 4, title: "Peer Support", description: "Helped 5 fellow patients", icon: "🤝", date: "2024-02-20" },
   ];
+  const demoMetrics: HealthMetric[] =
+    healthMetrics?.length ? healthMetrics : [{ label: "Overall Progress", value: 78 }];
 
-  const healthMetrics = [
-    { label: "Overall Progress", value: 78, color: "bg-green-500" },
-    { label: "Treatment Adherence", value: 92, color: "bg-blue-500" },
-    { label: "Wellness Score", value: 85, color: "bg-purple-500" },
-    { label: "Goal Completion", value: 67, color: "bg-orange-500" },
-  ];
-
-  const recentActivity = [
-    { id: 1, activity: "Completed mindfulness session", time: "2 hours ago", type: "wellness" },
-    { id: 2, activity: "Attended group therapy", time: "1 day ago", type: "therapy" },
-    { id: 3, activity: "Medication check-in", time: "2 days ago", type: "medical" },
-    { id: 4, activity: "Progress assessment", time: "3 days ago", type: "assessment" },
-  ];
+  const demoActivity: ActivityItem[] =
+    recentActivity?.length
+      ? recentActivity
+      : [{ id: 1, activity: "Completed mindfulness session", time: "2 hours ago", type: "wellness" }];
 
   return (
     <div className="container mx-auto p-6 max-w-6xl">
@@ -142,38 +251,37 @@ export default function ProfilePage() {
           <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
           <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
         </div>
-        <RealtimeStatusIndicator isOnline={isOnline} isRealtimeEnabled={isRealtimeEnabled} />
       </div>
 
-      {updateStatus && (
-        <Alert className={`mb-6 ${updateStatus.type === "success" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
-          {updateStatus.type === "success" && <CheckCircle className="h-4 w-4 text-green-600" />}
-          <AlertDescription className={updateStatus.type === "success" ? "text-green-800" : "text-red-800"}>
-            {updateStatus.message}
+      {status && (
+        <Alert className={`mb-6 ${status.type === "success" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
+          {status.type === "success" && <CheckCircle className="h-4 w-4 text-green-600" />}
+          <AlertDescription className={status.type === "success" ? "text-green-800" : "text-red-800"}>
+            {status.message}
           </AlertDescription>
         </Alert>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Profile Overview */}
+        {/* Left column */}
         <div className="lg:col-span-1">
           <Card>
             <CardHeader className="text-center">
               <div className="flex justify-center mb-4">
                 <Avatar className="h-24 w-24">
-                  <AvatarImage src={currentPatient.avatar || "/patient-avatar.png"} />
+                  <AvatarImage src={patient.avatar || "/patient-avatar.png"} />
                   <AvatarFallback className="text-2xl">
-                    {(currentPatient.firstName || "?")[0]}
-                    {(currentPatient.lastName || "?")[0]}
+                    {(patient.firstName || "?")[0]}
+                    {(patient.lastName || "?")[0]}
                   </AvatarFallback>
                 </Avatar>
               </div>
               <CardTitle className="text-2xl">
-                {currentPatient.firstName} {currentPatient.lastName}
+                {patient.firstName} {patient.lastName}
               </CardTitle>
-              <CardDescription>Patient ID: #{currentPatient.id}</CardDescription>
+              <CardDescription>Patient ID: #{patient.id || "—"}</CardDescription>
               <div className="flex justify-center gap-2 mt-4">
-                <Badge variant="secondary">{currentPatient.treatmentPlan || "Outpatient"}</Badge>
+                <Badge variant="secondary">{patient.treatmentType || patient.treatmentPlan || "Outpatient"}</Badge>
                 <Badge variant="outline">Active</Badge>
               </div>
             </CardHeader>
@@ -183,21 +291,19 @@ export default function ProfilePage() {
                 <>
                   <div className="flex items-center gap-3">
                     <Mail className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm">{currentPatient.email || "—"}</span>
+                    <span className="text-sm">{patient.email || "—"}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Phone className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm">{currentPatient.phoneNumber || "—"}</span>
+                    <span className="text-sm">{patient.phone || patient.phoneNumber || "—"}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <Calendar className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm">Born {currentPatient.dateOfBirth || "—"}</span>
+                    <span className="text-sm">Born {patient.dateOfBirth || "—"}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <MapPin className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm">
-                      Emergency: {currentPatient.emergencyContact?.name || "—"}
-                    </span>
+                    <span className="text-sm">Emergency: {patient.emergencyContact?.name || "—"}</span>
                   </div>
                 </>
               ) : (
@@ -213,11 +319,7 @@ export default function ProfilePage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="lastName">Last Name</Label>
-                    <Input
-                      id="lastName"
-                      value={editForm.lastName}
-                      onChange={(e) => setEditForm((p) => ({ ...p, lastName: e.target.value }))}
-                    />
+                    <Input id="lastName" value={editForm.lastName} onChange={(e) => setEditForm((p) => ({ ...p, lastName: e.target.value }))} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="phoneNumber">Phone Number</Label>
@@ -242,17 +344,17 @@ export default function ProfilePage() {
 
             <CardFooter className="flex gap-2">
               {!isEditing ? (
-                <Button className="w-full" onClick={handleEditStart}>
+                <Button className="w-full" onClick={beginEdit}>
                   <Edit className="h-4 w-4 mr-2" />
                   Edit Profile
                 </Button>
               ) : (
                 <>
-                  <Button className="flex-1" onClick={handleSaveProfile} disabled={!isValid || !isDirty}>
+                  <Button className="flex-1" onClick={save} disabled={!isValid || !isDirty}>
                     <Save className="h-4 w-4 mr-2" />
                     Save
                   </Button>
-                  <Button className="flex-1" variant="outline" onClick={handleCancelEdit}>
+                  <Button className="flex-1" variant="outline" onClick={cancel}>
                     <X className="h-4 w-4 mr-2" />
                     Cancel
                   </Button>
@@ -261,7 +363,6 @@ export default function ProfilePage() {
             </CardFooter>
           </Card>
 
-          {/* Health Metrics */}
           <Card className="mt-6">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -270,7 +371,7 @@ export default function ProfilePage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {healthMetrics.map((metric, index) => (
+              {demoMetrics.map((metric, index) => (
                 <div key={index}>
                   <div className="flex justify-between text-sm mb-1">
                     <span>{metric.label}</span>
@@ -283,7 +384,7 @@ export default function ProfilePage() {
           </Card>
         </div>
 
-        {/* Main Content */}
+        {/* Right column */}
         <div className="lg:col-span-2">
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="space-y-6">
             <TabsList className="grid w-full grid-cols-4">
@@ -331,75 +432,17 @@ export default function ProfilePage() {
                     <div className="space-y-3">
                       <div className="flex justify-between">
                         <span className="text-sm">Days in treatment</span>
-                        <span className="font-medium">45 days</span>
+                        <span className="font-medium">
+                          {patient.admissionDate ? `${Math.max(1, Math.ceil((Date.now() - new Date(patient.admissionDate).getTime()) / 86400000))} days` : "—"}
+                        </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-sm">Sessions completed</span>
-                        <span className="font-medium">32/40</span>
+                        <span className="font-medium">—</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-sm">Goals achieved</span>
-                        <span className="font-medium">8/12</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Heart className="h-5 w-5" />
-                      Care Team
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src="/caring-doctor.png" />
-                          <AvatarFallback>DS</AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="text-sm font-medium">Dr. Sarah Smith</p>
-                          <p className="text-xs text-gray-600">Primary Physician</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src="/counselor.png" />
-                          <AvatarFallback>MW</AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="text-sm font-medium">Mike Wilson</p>
-                          <p className="text-xs text-gray-600">Counselor</p>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Clock className="h-5 w-5" />
-                      Next Appointments
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="flex justify-between">
-                        <div>
-                          <p className="text-sm font-medium">Group Therapy</p>
-                          <p className="text-xs text-gray-600">Tomorrow, 2:00 PM</p>
-                        </div>
-                        <Badge variant="outline">Scheduled</Badge>
-                      </div>
-                      <div className="flex justify-between">
-                        <div>
-                          <p className="text-sm font-medium">Dr. Smith Check-in</p>
-                          <p className="text-xs text-gray-600">Friday, 10:00 AM</p>
-                        </div>
-                        <Badge variant="outline">Scheduled</Badge>
+                        <span className="font-medium">—</span>
                       </div>
                     </div>
                   </CardContent>
@@ -416,41 +459,75 @@ export default function ProfilePage() {
                 <CardContent className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <h4 className="font-medium mb-2">Treatment Information</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>Join Date:</span>
-                          <span>{currentPatient.joinDate || "—"}</span>
+                      <h4 className="font-medium mb-2">Basic Info</h4>
+                      <div className="space-y-3">
+                        <div>
+                          <Label htmlFor="fn">First Name</Label>
+                          <Input
+                            id="fn"
+                            value={isEditing ? editForm.firstName : patient.firstName}
+                            onChange={(e) => isEditing && setEditForm((p) => ({ ...p, firstName: e.target.value }))}
+                            disabled={!isEditing}
+                          />
                         </div>
-                        <div className="flex justify-between">
-                          <span>Treatment Plan:</span>
-                          <span>{currentPatient.treatmentPlan || "—"}</span>
+                        <div>
+                          <Label htmlFor="ln">Last Name</Label>
+                          <Input
+                            id="ln"
+                            value={isEditing ? editForm.lastName : patient.lastName}
+                            onChange={(e) => isEditing && setEditForm((p) => ({ ...p, lastName: e.target.value }))}
+                            disabled={!isEditing}
+                          />
                         </div>
-                        <div className="flex justify-between">
-                          <span>Program Duration:</span>
-                          <span>90 days</span>
+                        <div>
+                          <Label htmlFor="em">Email</Label>
+                          <Input id="em" type="email" value={patient.email} disabled />
+                        </div>
+                        <div>
+                          <Label htmlFor="ph">Phone</Label>
+                          <Input
+                            id="ph"
+                            value={isEditing ? editForm.phoneNumber : (patient.phone || patient.phoneNumber || "")}
+                            onChange={(e) => isEditing && setEditForm((p) => ({ ...p, phoneNumber: e.target.value }))}
+                            disabled={!isEditing}
+                          />
                         </div>
                       </div>
                     </div>
+
                     <div>
-                      <h4 className="font-medium mb-2">Emergency Contact</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>Contact:</span>
-                          <span>{currentPatient.emergencyContact?.name || "—"}</span>
+                      <h4 className="font-medium mb-2">Additional</h4>
+                      <div className="space-y-3">
+                        <div>
+                          <Label htmlFor="dob">Date of Birth</Label>
+                          <Input
+                            id="dob"
+                            type="date"
+                            value={isEditing ? editForm.dateOfBirth : (patient.dateOfBirth || "")}
+                            onChange={(e) => isEditing && setEditForm((p) => ({ ...p, dateOfBirth: e.target.value }))}
+                            disabled={!isEditing}
+                          />
                         </div>
-                        <div className="flex justify-between">
-                          <span>Phone:</span>
-                          <span>{currentPatient.emergencyContact?.phone || "—"}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Relationship:</span>
-                          <span>{currentPatient.emergencyContact?.relationship || "—"}</span>
+                        <div>
+                          <Label>Emergency Contact</Label>
+                          <Input value={patient.emergencyContact?.name || ""} disabled />
                         </div>
                       </div>
                     </div>
                   </div>
                 </CardContent>
+                {isEditing && (
+                  <CardFooter className="flex gap-2 justify-end">
+                    <Button variant="outline" onClick={cancel}>
+                      <X className="h-4 w-4 mr-2" />
+                      Cancel
+                    </Button>
+                    <Button onClick={save} disabled={!isValid || !isDirty}>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save
+                    </Button>
+                  </CardFooter>
+                )}
               </Card>
             </TabsContent>
 
@@ -461,17 +538,16 @@ export default function ProfilePage() {
                     <Award className="h-5 w-5" />
                     Achievements & Milestones
                   </CardTitle>
-                  <CardDescription>Celebrate your progress and accomplishments</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {achievements.map((achievement) => (
-                      <div key={achievement.id} className="flex items-center gap-4 p-4 border rounded-lg">
-                        <div className="text-2xl">{achievement.icon}</div>
+                    {(achievements.length ? achievements : demoAchievements).map((a) => (
+                      <div key={a.id} className="flex items-center gap-4 p-4 border rounded-lg">
+                        <div className="text-2xl">{a.icon}</div>
                         <div className="flex-1">
-                          <h4 className="font-medium">{achievement.title}</h4>
-                          <p className="text-sm text-gray-600">{achievement.description}</p>
-                          <p className="text-xs text-gray-500 mt-1">Earned on {achievement.date}</p>
+                          <h4 className="font-medium">{a.title}</h4>
+                          <p className="text-sm text-gray-600">{a.description}</p>
+                          <p className="text-xs text-gray-500 mt-1">Earned on {a.date}</p>
                         </div>
                       </div>
                     ))}
@@ -486,29 +562,29 @@ export default function ProfilePage() {
                   <CardTitle>Recent Activity</CardTitle>
                   <CardDescription>Your recent interactions and progress updates</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {recentActivity.map((item) => (
-                      <div key={item.id} className="flex items-center gap-4 p-3 border rounded-lg">
-                        <div
-                          className={`w-2 h-2 rounded-full ${
-                            item.type === "wellness"
-                              ? "bg-green-500"
-                              : item.type === "therapy"
-                              ? "bg-blue-500"
-                              : item.type === "medical"
-                              ? "bg-red-500"
-                              : "bg-purple-500"
-                          }`}
-                        ></div>
-                        <div className="flex-1">
-                          <p className="font-medium">{item.activity}</p>
-                          <p className="text-sm text-gray-600">{item.time}</p>
-                        </div>
+              <CardContent>
+                <div className="space-y-4">
+                  {(demoActivity).map((item) => (
+                    <div key={item.id} className="flex items-center gap-4 p-3 border rounded-lg">
+                      <div
+                        className={`w-2 h-2 rounded-full ${
+                          item.type === "wellness"
+                            ? "bg-green-500"
+                            : item.type === "therapy"
+                            ? "bg-blue-500"
+                            : item.type === "medical"
+                            ? "bg-red-500"
+                            : "bg-purple-500"
+                        }`}
+                      />
+                      <div className="flex-1">
+                        <p className="font-medium">{item.activity}</p>
+                        <p className="text-sm text-gray-600">{item.time}</p>
                       </div>
-                    ))}
-                  </div>
-                </CardContent>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
               </Card>
             </TabsContent>
           </Tabs>
