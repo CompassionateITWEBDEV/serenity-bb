@@ -1,69 +1,240 @@
-"use client"
+// /app/(dashboard)/profile/page.tsx
+"use client";
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Progress } from "@/components/ui/progress"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Calendar, Phone, Mail, MapPin, Heart, Activity, Award, Clock, Target, TrendingUp, Edit } from "lucide-react"
+import { useEffect, useMemo, useState } from "react";
+import { z } from "zod";
+import { supabase } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Calendar, Phone, Mail, MapPin, Heart, Activity, Award, Clock, Target, TrendingUp, Edit, Save, X
+} from "lucide-react";
+
+type Achievement = { id: number | string; title: string; description: string; icon: string; date: string };
+type HealthMetric = { label: string; value: number; color: string };
+type ActivityItem = { id: number | string; activity: string; time: string; type: "wellness" | "therapy" | "medical" | "assessment" };
+
+type PatientInfo = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  dateOfBirth: string; // keep as string to match UI
+  address: string;
+  emergencyContact: string;
+  admissionDate: string;
+  treatmentType: string;
+  primaryPhysician: string;
+  counselor: string;
+};
+
+type ProfilePayload = {
+  patientInfo: PatientInfo;
+  achievements: Achievement[];
+  healthMetrics: HealthMetric[];
+  recentActivity: ActivityItem[];
+};
+
+const EditSchema = z.object({
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  email: z.string().email("Invalid email"),
+  phone: z.string().min(3, "Phone is too short"),
+  dateOfBirth: z.string().optional(), // optional free-form for now
+  address: z.string().min(3, "Address is too short"),
+  emergencyContact: z.string().min(3, "Emergency contact is too short"),
+});
+
+function shallowEqual<T extends Record<string, any>>(a: T, b: T) {
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+  for (const k of ak) {
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
 
 export default function ProfilePage() {
-  const [isEditing, setIsEditing] = useState(false)
+  const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
 
-  const patientInfo = {
-    firstName: "John",
-    lastName: "Doe",
-    email: "john.doe@email.com",
-    phone: "+1 (555) 123-4567",
-    dateOfBirth: "January 15, 1990",
-    address: "123 Recovery Lane, Wellness City, WC 12345",
-    emergencyContact: "Jane Doe - (555) 987-6543",
-    admissionDate: "March 1, 2024",
-    treatmentType: "Outpatient",
-    primaryPhysician: "Dr. Sarah Smith",
-    counselor: "Mike Wilson",
+  const [patientInfo, setPatientInfo] = useState<PatientInfo | null>(null);
+  const [draft, setDraft] = useState<PatientInfo | null>(null);
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [healthMetrics, setHealthMetrics] = useState<HealthMetric[]>([]);
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof PatientInfo, string>>>({});
+
+  useEffect(() => {
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const { data: sessionRes } = await supabase.auth.getSession();
+        const token = sessionRes.session?.access_token;
+        const res = await fetch("/api/profile", {
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            Accept: "application/json",
+          },
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error((text || res.statusText).slice(0, 160));
+        }
+        const json = (await res.json()) as ProfilePayload;
+        setPatientInfo(json.patientInfo);
+        setDraft(json.patientInfo);
+        setAchievements(json.achievements);
+        setHealthMetrics(json.healthMetrics);
+        setRecentActivity(json.recentActivity);
+        setErr(null);
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Failed to load profile");
+      } finally {
+        setLoading(false);
+      }
+    })();
+    return () => ac.abort();
+  }, []);
+
+  const isDirty = useMemo(() => {
+    if (!patientInfo || !draft) return false;
+    return !shallowEqual(
+      {
+        firstName: patientInfo.firstName,
+        lastName: patientInfo.lastName,
+        email: patientInfo.email,
+        phone: patientInfo.phone,
+        dateOfBirth: patientInfo.dateOfBirth,
+        address: patientInfo.address,
+        emergencyContact: patientInfo.emergencyContact,
+      },
+      {
+        firstName: draft.firstName,
+        lastName: draft.lastName,
+        email: draft.email,
+        phone: draft.phone,
+        dateOfBirth: draft.dateOfBirth,
+        address: draft.address,
+        emergencyContact: draft.emergencyContact,
+      }
+    );
+  }, [patientInfo, draft]);
+
+  function setDraftField<K extends keyof PatientInfo>(key: K, value: PatientInfo[K]) {
+    if (!draft) return;
+    setDraft({ ...draft, [key]: value });
+    setFieldErrors((prev) => ({ ...prev, [key]: undefined }));
   }
 
-  const achievements = [
-    { id: 1, title: "30 Days Clean", description: "Completed 30 consecutive days", icon: "🏆", date: "2024-04-01" },
-    {
-      id: 2,
-      title: "Mindfulness Master",
-      description: "Completed 50 meditation sessions",
-      icon: "🧘",
-      date: "2024-03-15",
-    },
-    {
-      id: 3,
-      title: "Perfect Attendance",
-      description: "Attended all scheduled appointments",
-      icon: "📅",
-      date: "2024-03-01",
-    },
-    { id: 4, title: "Peer Support", description: "Helped 5 fellow patients", icon: "🤝", date: "2024-02-20" },
-  ]
+  async function saveProfile() {
+    if (!draft) return;
+    setMsg(null);
+    setErr(null);
 
-  const healthMetrics = [
-    { label: "Overall Progress", value: 78, color: "bg-green-500" },
-    { label: "Treatment Adherence", value: 92, color: "bg-blue-500" },
-    { label: "Wellness Score", value: 85, color: "bg-purple-500" },
-    { label: "Goal Completion", value: 67, color: "bg-orange-500" },
-  ]
+    const parsed = EditSchema.safeParse({
+      firstName: draft.firstName,
+      lastName: draft.lastName,
+      email: draft.email,
+      phone: draft.phone,
+      dateOfBirth: draft.dateOfBirth,
+      address: draft.address,
+      emergencyContact: draft.emergencyContact,
+    });
 
-  const recentActivity = [
-    { id: 1, activity: "Completed mindfulness session", time: "2 hours ago", type: "wellness" },
-    { id: 2, activity: "Attended group therapy", time: "1 day ago", type: "therapy" },
-    { id: 3, activity: "Medication check-in", time: "2 days ago", type: "medical" },
-    { id: 4, activity: "Progress assessment", time: "3 days ago", type: "assessment" },
-  ]
+    if (!parsed.success) {
+      const fe: Partial<Record<keyof PatientInfo, string>> = {};
+      for (const issue of parsed.error.issues) {
+        const k = issue.path[0] as keyof PatientInfo;
+        fe[k] = issue.message;
+      }
+      setFieldErrors(fe);
+      setErr("Please fix the highlighted fields.");
+      return;
+    }
+
+    // Optimistic update
+    const prev = patientInfo;
+    setSaving(true);
+    setPatientInfo(draft);
+
+    try {
+      const { data: sessionRes } = await supabase.auth.getSession();
+      const token = sessionRes.session?.access_token;
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          firstName: draft.firstName,
+          lastName: draft.lastName,
+          email: draft.email,
+          phone: draft.phone,
+          address: draft.address,
+          dateOfBirth: draft.dateOfBirth,
+          emergencyContact: draft.emergencyContact,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error((text || res.statusText).slice(0, 160));
+      }
+      setMsg("Profile saved.");
+      setIsEditing(false);
+    } catch (e) {
+      // Rollback
+      if (prev) setPatientInfo(prev);
+      setErr(e instanceof Error ? e.message : "Failed to save profile");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function cancelEdit() {
+    if (patientInfo) setDraft(patientInfo);
+    setFieldErrors({});
+    setIsEditing(false);
+    setMsg(null);
+    setErr(null);
+  }
+
+  if (loading) {
+    return (
+      <div className="container mx-auto p-6 max-w-6xl">
+        <p className="text-gray-600">Loading profile…</p>
+      </div>
+    );
+  }
+
+  if (!patientInfo || !draft) {
+    return (
+      <div className="container mx-auto p-6 max-w-6xl">
+        <p className="text-red-600">Unable to load profile{err ? `: ${err}` : ""}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-6 max-w-6xl">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
         <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
+        {err && <p className="text-sm text-red-600 mt-2">Error: {err}</p>}
+        {msg && <p className="text-sm text-green-600 mt-2">{msg}</p>}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -75,8 +246,8 @@ export default function ProfilePage() {
                 <Avatar className="h-24 w-24">
                   <AvatarImage src="/patient-avatar.png" />
                   <AvatarFallback className="text-2xl">
-                    {patientInfo.firstName[0]}
-                    {patientInfo.lastName[0]}
+                    {patientInfo.firstName?.[0]}
+                    {patientInfo.lastName?.[0]}
                   </AvatarFallback>
                 </Avatar>
               </div>
@@ -106,10 +277,26 @@ export default function ProfilePage() {
                 <MapPin className="h-4 w-4 text-gray-500" />
                 <span className="text-sm">{patientInfo.address}</span>
               </div>
-              <Button className="w-full mt-4" onClick={() => setIsEditing(!isEditing)}>
-                <Edit className="h-4 w-4 mr-2" />
-                Edit Profile
-              </Button>
+
+              <div className="flex gap-2 mt-4">
+                {!isEditing ? (
+                  <Button className="w-full" onClick={() => setIsEditing(true)}>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit Profile
+                  </Button>
+                ) : (
+                  <>
+                    <Button className="w-full" variant="secondary" onClick={cancelEdit} disabled={saving}>
+                      <X className="h-4 w-4 mr-2" />
+                      Cancel
+                    </Button>
+                    <Button className="w-full" onClick={saveProfile} disabled={!isDirty || saving}>
+                      <Save className="h-4 w-4 mr-2" />
+                      {saving ? "Saving…" : "Save"}
+                    </Button>
+                  </>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -233,7 +420,7 @@ export default function ProfilePage() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <Clock className="h-5 w-5" />
+                      <Calendar className="h-5 w-5" />
                       Next Appointments
                     </CardTitle>
                   </CardHeader>
@@ -266,55 +453,97 @@ export default function ProfilePage() {
                   <CardDescription>Your medical history and current treatment details</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                  {/* Editable Details */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <h4 className="font-medium mb-2">Treatment Information</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>Admission Date:</span>
-                          <span>{patientInfo.admissionDate}</span>
+                      <h4 className="font-medium mb-2">Basic Info</h4>
+                      <div className="space-y-3">
+                        <div>
+                          <Label htmlFor="firstName">First Name</Label>
+                          <Input
+                            id="firstName"
+                            value={draft.firstName}
+                            onChange={(e) => setDraftField("firstName", e.target.value)}
+                            disabled={!isEditing}
+                            aria-invalid={!!fieldErrors.firstName}
+                          />
+                          {fieldErrors.firstName && <p className="text-xs text-red-600">{fieldErrors.firstName}</p>}
                         </div>
-                        <div className="flex justify-between">
-                          <span>Treatment Type:</span>
-                          <span>{patientInfo.treatmentType}</span>
+                        <div>
+                          <Label htmlFor="lastName">Last Name</Label>
+                          <Input
+                            id="lastName"
+                            value={draft.lastName}
+                            onChange={(e) => setDraftField("lastName", e.target.value)}
+                            disabled={!isEditing}
+                            aria-invalid={!!fieldErrors.lastName}
+                          />
+                          {fieldErrors.lastName && <p className="text-xs text-red-600">{fieldErrors.lastName}</p>}
                         </div>
-                        <div className="flex justify-between">
-                          <span>Program Duration:</span>
-                          <span>90 days</span>
+                        <div>
+                          <Label htmlFor="email">Email</Label>
+                          <Input
+                            id="email"
+                            type="email"
+                            value={draft.email}
+                            onChange={(e) => setDraftField("email", e.target.value)}
+                            disabled={!isEditing}
+                            aria-invalid={!!fieldErrors.email}
+                          />
+                          {fieldErrors.email && <p className="text-xs text-red-600">{fieldErrors.email}</p>}
+                        </div>
+                        <div>
+                          <Label htmlFor="phone">Phone</Label>
+                          <Input
+                            id="phone"
+                            value={draft.phone}
+                            onChange={(e) => setDraftField("phone", e.target.value)}
+                            disabled={!isEditing}
+                            aria-invalid={!!fieldErrors.phone}
+                          />
+                          {fieldErrors.phone && <p className="text-xs text-red-600">{fieldErrors.phone}</p>}
                         </div>
                       </div>
                     </div>
-                    <div>
-                      <h4 className="font-medium mb-2">Emergency Contact</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span>Contact:</span>
-                          <span>{patientInfo.emergencyContact}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Relationship:</span>
-                          <span>Spouse</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
 
-                  <div>
-                    <h4 className="font-medium mb-2">Current Medications</h4>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <h4 className="font-medium mb-2">Additional</h4>
+                      <div className="space-y-3">
                         <div>
-                          <p className="font-medium">Methadone</p>
-                          <p className="text-sm text-gray-600">40mg daily - Morning</p>
+                          <Label htmlFor="dob">Date of Birth</Label>
+                          <Input
+                            id="dob"
+                            placeholder="January 15, 1990"
+                            value={draft.dateOfBirth}
+                            onChange={(e) => setDraftField("dateOfBirth", e.target.value)}
+                            disabled={!isEditing}
+                          />
                         </div>
-                        <Badge variant="secondary">Active</Badge>
-                      </div>
-                      <div className="flex items-center justify-between p-3 border rounded-lg">
                         <div>
-                          <p className="font-medium">Multivitamin</p>
-                          <p className="text-sm text-gray-600">1 tablet daily - Morning</p>
+                          <Label htmlFor="address">Address</Label>
+                          <Input
+                            id="address"
+                            value={draft.address}
+                            onChange={(e) => setDraftField("address", e.target.value)}
+                            disabled={!isEditing}
+                            aria-invalid={!!fieldErrors.address}
+                          />
+                          {fieldErrors.address && <p className="text-xs text-red-600">{fieldErrors.address}</p>}
                         </div>
-                        <Badge variant="secondary">Active</Badge>
+                        <div>
+                          <Label htmlFor="emergency">Emergency Contact</Label>
+                          <Input
+                            id="emergency"
+                            placeholder="Name - Phone"
+                            value={draft.emergencyContact}
+                            onChange={(e) => setDraftField("emergencyContact", e.target.value)}
+                            disabled={!isEditing}
+                            aria-invalid={!!fieldErrors.emergencyContact}
+                          />
+                          {fieldErrors.emergencyContact && (
+                            <p className="text-xs text-red-600">{fieldErrors.emergencyContact}</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -363,12 +592,12 @@ export default function ProfilePage() {
                             item.type === "wellness"
                               ? "bg-green-500"
                               : item.type === "therapy"
-                                ? "bg-blue-500"
-                                : item.type === "medical"
-                                  ? "bg-red-500"
-                                  : "bg-purple-500"
+                              ? "bg-blue-500"
+                              : item.type === "medical"
+                              ? "bg-red-500"
+                              : "bg-purple-500"
                           }`}
-                        ></div>
+                        />
                         <div className="flex-1">
                           <p className="font-medium">{item.activity}</p>
                           <p className="text-sm text-gray-600">{item.time}</p>
@@ -383,5 +612,5 @@ export default function ProfilePage() {
         </div>
       </div>
     </div>
-  )
+  );
 }
