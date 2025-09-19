@@ -3,52 +3,45 @@ import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { z } from "zod";
 
+/** TABLE NAMES (match your Supabase project) */
 const T = {
-  patients: "patients",
-  achievements: "patient_achievements",
-  activity: "patient_activity",
-  metrics: "patient_health_metrics",
+  profiles: "profiles",
+  weeklyGoals: "weekly_goals",
+  weeklyData: "weekly_data",
+  progressMetrics: "progress_metrics",
 } as const;
 
-function reqEnv(name: string) {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing env: ${name}`);
-  return v;
-}
+/** ENV */
+function reqEnv(n: string) { const v = process.env[n]; if (!v) throw new Error(`Missing env: ${n}`); return v; }
 const SB_URL = reqEnv("NEXT_PUBLIC_SUPABASE_URL");
 const SB_ANON = reqEnv("SUPABASE_ANON_KEY");
 
-async function getUserIdFromBearerOrCookie(req: Request): Promise<string | null> {
+/** Auth: Bearer first, then Supabase cookies */
+async function getUserId(req: Request): Promise<string | null> {
   const auth = req.headers.get("authorization") || "";
   const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : null;
-
-  // Prefer Bearer header
   if (token) {
     const sb = createClient(SB_URL, SB_ANON, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data, error } = await sb.auth.getUser(token);
-    if (!error && data?.user?.id) return data.user.id;
+    const { data } = await sb.auth.getUser(token);
+    if (data?.user?.id) return data.user.id;
   }
-
-  // Fallback: Supabase cookies
   try {
-    // @ts-expect-error Route handlers get a standard Request; cast for cookies access.
-    const nreq: NextRequest = req as any;
+    const nreq = req as unknown as NextRequest;
     const nres = NextResponse.next();
-    const sbSsr = createServerClient(SB_URL, SB_ANON, {
+    const ssr = createServerClient(SB_URL, SB_ANON, {
       cookies: {
         get: (k) => nreq.cookies.get(k)?.value,
         set: (k, v, o) => nres.cookies.set({ name: k, value: v, ...o }),
         remove: (k, o) => nres.cookies.set({ name: k, value: "", ...o }),
       },
     });
-    const { data, error } = await sbSsr.auth.getUser();
-    if (!error && data?.user?.id) return data.user.id;
-  } catch {
-    // ignore
-  }
+    const { data } = await ssr.auth.getUser();
+    if (data?.user?.id) return data.user.id;
+  } catch {}
   return null;
 }
 
+/** Payload + validation */
 const PatchSchema = z.object({
   firstName: z.string().min(1).max(120).optional(),
   lastName: z.string().min(1).max(120).optional(),
@@ -56,10 +49,10 @@ const PatchSchema = z.object({
   phone: z.string().min(3).max(40).optional(),
   address: z.string().min(3).max(200).optional(),
   dateOfBirth: z.string().optional(),
-  emergencyContact: z.string().min(3).max(120).optional(),
+  emergencyContact: z.string().min(3).max(200).optional(),
   treatmentType: z.string().min(1).max(80).optional(),
-  primaryPhysician: z.string().min(1).max(120).optional(),
-  counselor: z.string().min(1).max(120).optional(),
+  primaryPhysician: z.string().min(1).max(120).optional(),   // kept for UI; ignored if column absent
+  counselor: z.string().min(1).max(120).optional(),          // kept for UI; ignored if column absent
 });
 
 type ProfilePayload = {
@@ -78,103 +71,99 @@ type ProfilePayload = {
   };
   achievements: Array<{ id: string | number; title: string; description: string; icon: string; date: string }>;
   healthMetrics: Array<{ label: string; value: number; color: string }>;
-  recentActivity: Array<{ id: string | number; activity: string; time: string; type: "wellness" | "therapy" | "medical" | "assessment" }>;
+  recentActivity: Array<{ id: string | number; activity: string; time: string; type: "wellness"|"therapy"|"medical"|"assessment" }>;
 };
 
 function defaults(): ProfilePayload {
   return {
     patientInfo: {
-      firstName: "",
-      lastName: "",
-      email: "",
-      phone: "",
-      dateOfBirth: "",
-      address: "",
-      emergencyContact: "",
-      admissionDate: "",
-      treatmentType: "Outpatient",
-      primaryPhysician: "",
-      counselor: "",
+      firstName: "", lastName: "", email: "", phone: "",
+      dateOfBirth: "", address: "", emergencyContact: "",
+      admissionDate: "", treatmentType: "Outpatient",
+      primaryPhysician: "", counselor: "",
     },
-    achievements: [],
+    achievements: [],            // not modeled here; you can wire patient_rewards later
     healthMetrics: [],
     recentActivity: [],
   };
 }
 
+/** GET */
 export async function GET(req: Request) {
   try {
-    const userId = await getUserIdFromBearerOrCookie(req);
+    const userId = await getUserId(req);
     if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
     const sb = createClient(SB_URL, SB_ANON, { auth: { persistSession: false, autoRefreshToken: false } });
     const payload = defaults();
 
-    const { data: patient } = await sb
-      .from(T.patients)
-      .select(
-        "id, user_id, first_name, last_name, email, phone_number, dob, address, emergency_contact, admission_date, treatment_type, primary_physician, counselor"
-      )
+    // PROFILES (your screenshot’s columns)
+    const { data: profile, error: pErr } = await sb
+      .from(T.profiles)
+      .select("user_id,email,first_name,last_name,phone,date_of_birth,address,emergency_contact,treatment_type,created_at")
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (patient) {
+    if (pErr) return NextResponse.json({ error: pErr.message }, { status: 400 });
+
+    if (profile) {
       payload.patientInfo = {
-        firstName: patient.first_name ?? "",
-        lastName: patient.last_name ?? "",
-        email: patient.email ?? "",
-        phone: patient.phone_number ?? "",
-        dateOfBirth: patient.dob ?? "",
-        address: patient.address ?? "",
-        emergencyContact: patient.emergency_contact ?? "",
-        admissionDate: patient.admission_date ?? "",
-        treatmentType: patient.treatment_type ?? "Outpatient",
-        primaryPhysician: patient.primary_physician ?? "",
-        counselor: patient.counselor ?? "",
+        firstName: profile.first_name ?? "",
+        lastName: profile.last_name ?? "",
+        email: profile.email ?? "",
+        phone: profile.phone ?? "",
+        dateOfBirth: profile.date_of_birth ?? "",
+        address: profile.address ?? "",
+        emergencyContact: profile.emergency_contact ?? "",
+        admissionDate: profile.created_at ?? "",
+        treatmentType: profile.treatment_type ?? "Outpatient",
+        primaryPhysician: "", // not in table; leave blank for UI
+        counselor: "",        // not in table; leave blank for UI
       };
-
-      const { data: ach } = await sb
-        .from(T.achievements)
-        .select("id, title, description, icon, date")
-        .eq("patient_id", patient.id)
-        .order("date", { ascending: false });
-
-      payload.achievements =
-        ach?.map((a) => ({
-          id: a.id,
-          title: a.title,
-          description: a.description,
-          icon: a.icon || "🏆",
-          date: a.date,
-        })) ?? [];
-
-      const { data: metrics } = await sb
-        .from(T.metrics)
-        .select("label, value, color")
-        .eq("patient_id", patient.id);
-
-      payload.healthMetrics =
-        metrics?.map((m) => ({
-          label: m.label,
-          value: Math.max(0, Math.min(100, Number(m.value ?? 0))),
-          color: m.color || "bg-gray-500",
-        })) ?? [];
-
-      const { data: acts } = await sb
-        .from(T.activity)
-        .select("id, activity, time_text, type")
-        .eq("patient_id", patient.id)
-        .order("id", { ascending: false })
-        .limit(20);
-
-      payload.recentActivity =
-        acts?.map((r) => ({
-          id: r.id,
-          activity: r.activity,
-          time: r.time_text,
-          type: (["wellness", "therapy", "medical", "assessment"].includes(r.type) ? r.type : "assessment") as any,
-        })) ?? [];
     }
+
+    // PROGRESS METRICS
+    const { data: metrics } = await sb
+      .from(T.progressMetrics)
+      .select("label,value,color")
+      .eq("user_id", userId);
+    payload.healthMetrics = (metrics ?? []).map((m) => ({
+      label: m.label,
+      value: Math.max(0, Math.min(100, Number(m.value ?? 0))),
+      color: m.color || "bg-gray-500",
+    }));
+
+    // WEEKLY DATA (for “Recent Activity/Trends” appearance)
+    const { data: wdata } = await sb
+      .from(T.weeklyData)
+      .select("id,week,wellness,attendance,goals,created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(12);
+
+    payload.recentActivity = (wdata ?? []).map((w) => ({
+      id: w.id,
+      activity: `Week ${w.week}: wellness ${w.wellness}/10, attendance ${w.attendance}%`,
+      time: new Date(w.created_at ?? Date.now()).toLocaleDateString(),
+      type: "assessment",
+    }));
+
+    // ACHIEVEMENTS (optional: map weekly_goals completed as achievements)
+    const { data: goals } = await sb
+      .from(T.weeklyGoals)
+      .select("id,name,target,current,updated_at")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(6);
+    payload.achievements = (goals ?? [])
+      .filter((g) => Number(g.current ?? 0) >= Number(g.target ?? 0) && g.target != null)
+      .map((g) => ({
+        id: g.id,
+        title: g.name ?? "Goal",
+        description: `Completed ${g.current}/${g.target}`,
+        icon: "🏆",
+        date: new Date(g.updated_at ?? Date.now()).toISOString().slice(0, 10),
+      }));
 
     return NextResponse.json(payload);
   } catch (e) {
@@ -182,36 +171,35 @@ export async function GET(req: Request) {
   }
 }
 
+/** PATCH → updates `profiles` */
 export async function PATCH(req: Request) {
   try {
-    const userId = await getUserIdFromBearerOrCookie(req);
+    const userId = await getUserId(req);
     if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
     const updates = PatchSchema.parse(body);
     if (Object.keys(updates).length === 0) return NextResponse.json({ ok: true });
 
+    // map to your columns
     const db: Record<string, unknown> = {};
     if (updates.firstName !== undefined) db.first_name = updates.firstName;
     if (updates.lastName !== undefined) db.last_name = updates.lastName;
     if (updates.email !== undefined) db.email = updates.email.toLowerCase();
-    if (updates.phone !== undefined) db.phone_number = updates.phone;
+    if (updates.phone !== undefined) db.phone = updates.phone;
     if (updates.address !== undefined) db.address = updates.address;
-    if (updates.dateOfBirth !== undefined) db.dob = updates.dateOfBirth;
+    if (updates.dateOfBirth !== undefined) db.date_of_birth = updates.dateOfBirth;
     if (updates.emergencyContact !== undefined) db.emergency_contact = updates.emergencyContact;
     if (updates.treatmentType !== undefined) db.treatment_type = updates.treatmentType;
-    if (updates.primaryPhysician !== undefined) db.primary_physician = updates.primaryPhysician;
-    if (updates.counselor !== undefined) db.counselor = updates.counselor;
+    // primaryPhysician/counselor left out (not in profiles)
 
     const sb = createClient(SB_URL, SB_ANON, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { error } = await sb.from(T.patients).update(db).eq("user_id", userId);
+    const { error } = await sb.from(T.profiles).update(db).eq("user_id", userId);
     if (error) return NextResponse.json({ error: "db_error", message: error.message }, { status: 400 });
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    if (e instanceof z.ZodError) {
-      return NextResponse.json({ error: "invalid_payload", issues: e.issues }, { status: 422 });
-    }
+    if (e instanceof z.ZodError) return NextResponse.json({ error: "invalid_payload", issues: e.issues }, { status: 422 });
     return NextResponse.json({ error: e instanceof Error ? e.message : "internal_error" }, { status: 500 });
   }
 }
