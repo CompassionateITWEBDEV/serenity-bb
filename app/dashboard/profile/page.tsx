@@ -29,6 +29,8 @@ import {
   CheckCircle,
 } from "lucide-react";
 
+/* ------------------------------- Types ---------------------------------- */
+
 type PatientInfo = {
   id?: string;
   firstName: string;
@@ -59,12 +61,16 @@ type ProfilePayload = {
   recentActivity: ActivityItem[];
 };
 
+/* ------------------------------ Validation ------------------------------ */
+
 const EditSchema = z.object({
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
-  phoneNumber: z.string().min(3),
+  firstName: z.string().min(1, "Required"),
+  lastName: z.string().min(1, "Required"),
+  phoneNumber: z.string().min(3, "Too short"),
   dateOfBirth: z.string().optional(),
 });
+
+/* ------------------------------ Utilities ------------------------------- */
 
 async function getAccessToken(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
@@ -76,11 +82,14 @@ async function getAccessToken(): Promise<string | null> {
   return token;
 }
 
+/* -------------------------------- Page ---------------------------------- */
+
 export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<"overview" | "medical" | "achievements" | "activity">("overview");
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [authExpired, setAuthExpired] = useState(false);
 
   const [patient, setPatient] = useState<PatientInfo | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
@@ -101,14 +110,21 @@ export default function ProfilePage() {
           cache: "no-store",
           signal: ac.signal,
         });
+        if (res.status === 401) {
+          setAuthExpired(true);
+          return;
+        }
         if (!res.ok) throw new Error((await res.text()) || res.statusText);
         const json = (await res.json()) as ProfilePayload;
+
         setPatient(json.patientInfo);
         setAchievements(json.achievements);
         setHealthMetrics(json.healthMetrics);
         setRecentActivity(json.recentActivity);
+        setStatus(null);
       } catch (e) {
         setStatus({ type: "error", message: e instanceof Error ? e.message : "Failed to load profile." });
+        // Keep UI usable with safe defaults
         setPatient({
           firstName: "",
           lastName: "",
@@ -135,7 +151,7 @@ export default function ProfilePage() {
       dateOfBirth: patient.dateOfBirth || "",
     });
     setIsEditing(true);
-    setActiveTab("medical"); // focus the *single* edit area
+    setActiveTab("medical");
     setTimeout(() => firstInputRef.current?.focus(), 0);
   }
 
@@ -166,6 +182,10 @@ export default function ProfilePage() {
           dateOfBirth: editForm.dateOfBirth,
         }),
       });
+      if (res.status === 401) {
+        setAuthExpired(true);
+        return;
+      }
       if (!res.ok) throw new Error((await res.text()) || res.statusText);
 
       setPatient({
@@ -219,17 +239,34 @@ export default function ProfilePage() {
         <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
       </div>
 
-      {status && (
-        <Alert className={`mb-6 ${status.type === "success" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
-          {status.type === "success" && <CheckCircle className="h-4 w-4 text-green-600" />}
-          <AlertDescription className={status.type === "success" ? "text-green-800" : "text-red-800"}>
-            {status.message}
-          </AlertDescription>
+      {(status || authExpired) && (
+        <Alert className={`mb-6 ${authExpired ? "border-amber-200 bg-amber-50" : status?.type === "success" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
+          {status?.type === "success" && <CheckCircle className="h-4 w-4 text-green-600" />}
+          <div className="flex items-center gap-3">
+            <AlertDescription className={status?.type === "success" ? "text-green-800" : authExpired ? "text-amber-800" : "text-red-800"}>
+              {authExpired ? "Session expired or not found. Please sign in again." : status?.message}
+            </AlertDescription>
+            {authExpired && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    await supabase.auth.signOut();
+                  } catch {}
+                  const next = encodeURIComponent("/dashboard/profile");
+                  window.location.href = `/login?next=${next}`;
+                }}
+              >
+                Re-authenticate
+              </Button>
+            )}
+          </div>
         </Alert>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* LEFT: read-only profile overview (NO inputs, NO Save/Cancel) */}
+        {/* LEFT: read-only overview */}
         <div className="lg:col-span-1">
           <Card>
             <CardHeader className="text-center">
@@ -298,7 +335,7 @@ export default function ProfilePage() {
           </Card>
         </div>
 
-        {/* RIGHT: tabs (only Medical tab contains inputs + Save/Cancel) */}
+        {/* RIGHT: tabs; Medical tab is the only place with inputs + Save/Cancel */}
         <div className="lg:col-span-2">
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="space-y-6">
             <TabsList className="grid w-full grid-cols-4">
@@ -347,7 +384,9 @@ export default function ProfilePage() {
                       <div className="flex justify-between">
                         <span className="text-sm">Days in treatment</span>
                         <span className="font-medium">
-                          {patient.admissionDate ? `${Math.max(1, Math.ceil((Date.now() - new Date(patient.admissionDate).getTime()) / 86400000))} days` : "—"}
+                          {patient.admissionDate
+                            ? `${Math.max(1, Math.ceil((Date.now() - new Date(patient.admissionDate).getTime()) / 86400000))} days`
+                            : "—"}
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -432,7 +471,6 @@ export default function ProfilePage() {
                   </div>
                 </CardContent>
 
-                {/** Only place with Save/Cancel */}
                 {isEditing ? (
                   <CardFooter className="flex gap-2 justify-end">
                     <Button variant="outline" onClick={cancel}>
