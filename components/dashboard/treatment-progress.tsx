@@ -1,63 +1,79 @@
 "use client";
-import React from "react";
-import { usePatientOverview } from "@/context/patient-overview-context";
 
-export function TreatmentProgress() {
-  const { overview, loading, error } = usePatientOverview();
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
-  if (loading && !overview) {
-    return (
-      <div className="rounded-2xl shadow p-5">
-        <div className="h-5 w-56 bg-gray-200 rounded animate-pulse mb-4" />
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-16 w-full bg-gray-200 rounded animate-pulse" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-  if (error && !overview) {
-    return <div className="rounded-2xl shadow p-5 text-sm text-red-600">{error}</div>;
-  }
+// Why: clear public API; can be used as named or default to avoid future import confusion.
+export type TreatmentProgressProps = {
+  label?: string;
+  target?: number;       // 0..100
+  value?: number;        // 0..100; if omitted, component simulates live progress
+  intervalMs?: number;   // simulation tick
+};
 
-  const items = overview!.treatmentProgress || [];
-  if (items.length === 0) {
-    return <div className="rounded-2xl shadow p-5 text-sm text-gray-600">No progress yet.</div>;
-  }
+export const TreatmentProgress = ({
+  label = "Recovery Progress",
+  target = 100,
+  value,
+  intervalMs = 1200,
+}: TreatmentProgressProps) => {
+  const [internal, setInternal] = useState<number>(() => (typeof value === "number" ? value : 62));
+  const timerRef = useRef<number | null>(null);
+
+  // Simulate live updates only when value prop is not provided.
+  useEffect(() => {
+    if (typeof value === "number") {
+      setInternal(Math.max(0, Math.min(100, value)));
+      return;
+    }
+    timerRef.current = window.setInterval(() => {
+      setInternal((v) => {
+        const next = v + Math.max(1, Math.round((100 - v) * 0.05));
+        return Math.min(next, 100);
+      });
+    }, intervalMs);
+    return () => {
+      if (timerRef.current) window.clearInterval(timerRef.current);
+    };
+  }, [value, intervalMs]);
+
+  const pct = useMemo(() => Math.round(Math.max(0, Math.min(100, internal))), [internal]);
+  const meetsTarget = pct >= target;
 
   return (
-    <div className="rounded-2xl shadow p-5">
-      <h2 className="text-lg font-semibold mb-4">Treatment Progress</h2>
-      <ul className="space-y-4">
-        {items.map((it, i) => {
-          const pct = typeof it.percent === "number" ? Math.max(0, Math.min(100, it.percent)) : null;
-          return (
-            <li key={`${it.title}-${i}`} className="border rounded-xl p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">{it.title}</p>
-                  {it.subtitle && <p className="text-sm text-gray-500">{it.subtitle}</p>}
-                  {it.date && <p className="text-xs text-gray-400 mt-1">{it.date}</p>}
-                </div>
-                <span
-                  className={`text-sm ${
-                    it.status === "Completed" ? "text-green-600" : it.status === "In Progress" ? "text-amber-600" : "text-gray-600"
-                  }`}
-                >
-                  {it.status}
-                </span>
-              </div>
-              {pct !== null && (
-                <div className="w-full h-2 bg-gray-200 rounded mt-3">
-                  <div className="h-2 rounded" style={{ width: `${pct}%`, background: "linear-gradient(90deg,#111827,#4B5563)" }} />
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+    <Card>
+      <CardContent className="p-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold">{label}</h2>
+          <span className="text-sm text-gray-500">{pct}%</span>
+        </div>
+
+        <div className="w-full h-3 rounded-lg bg-gray-200 overflow-hidden mb-4">
+          <div
+            className="h-full rounded-lg transition-all"
+            // Why: width is dynamic and unstyled to respect app theme tokens
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-gray-600">
+            Target: <strong>{target}%</strong> {meetsTarget ? "(met)" : ""}
+          </span>
+          <Button
+            variant="secondary"
+            onClick={() => setInternal((v) => Math.min(v + 5, 100))}
+            aria-label="Nudge progress"
+          >
+            Nudge +5%
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
-}
+};
+
+// Optional default alias so BOTH `import X` and `import { X }` work.
+// Remove if you want to enforce one import style across the codebase.
 export default TreatmentProgress;
