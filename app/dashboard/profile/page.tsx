@@ -14,19 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
-  Calendar,
-  Phone,
-  Mail,
-  MapPin,
-  Activity,
-  Award,
-  Clock,
-  Target,
-  TrendingUp,
-  Edit,
-  Save,
-  X,
-  CheckCircle,
+  Calendar, Phone, Mail, MapPin, Activity, Award, Target, TrendingUp, Edit, Save, X, CheckCircle,
 } from "lucide-react";
 
 /* ------------------------------- Types ---------------------------------- */
@@ -82,6 +70,19 @@ async function getAccessToken(): Promise<string | null> {
   return token;
 }
 
+function makeEmptyPatient(): PatientInfo {
+  return {
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    dateOfBirth: "",
+    address: "",
+    emergencyContact: null,
+    treatmentType: "Outpatient",
+  };
+}
+
 /* -------------------------------- Page ---------------------------------- */
 
 export default function ProfilePage() {
@@ -91,7 +92,7 @@ export default function ProfilePage() {
   const [status, setStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [authExpired, setAuthExpired] = useState(false);
 
-  const [patient, setPatient] = useState<PatientInfo | null>(null);
+  const [patient, setPatient] = useState<PatientInfo>(makeEmptyPatient());
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [healthMetrics, setHealthMetrics] = useState<HealthMetric[]>([]);
   const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
@@ -110,31 +111,25 @@ export default function ProfilePage() {
           cache: "no-store",
           signal: ac.signal,
         });
+
         if (res.status === 401) {
           setAuthExpired(true);
+          setPatient(makeEmptyPatient()); // ensure non-null
           return;
         }
-        if (!res.ok) throw new Error((await res.text()) || res.statusText);
-        const json = (await res.json()) as ProfilePayload;
 
-        setPatient(json.patientInfo);
-        setAchievements(json.achievements);
-        setHealthMetrics(json.healthMetrics);
-        setRecentActivity(json.recentActivity);
+        if (!res.ok) throw new Error((await res.text()) || res.statusText);
+
+        const json = (await res.json()) as ProfilePayload;
+        setPatient(json.patientInfo || makeEmptyPatient());
+        setAchievements(json.achievements || []);
+        setHealthMetrics(json.healthMetrics || []);
+        setRecentActivity(json.recentActivity || []);
         setStatus(null);
       } catch (e) {
+        // Network/parse/etc. Still keep usable defaults.
+        setPatient((p) => p || makeEmptyPatient());
         setStatus({ type: "error", message: e instanceof Error ? e.message : "Failed to load profile." });
-        // Keep UI usable with safe defaults
-        setPatient({
-          firstName: "",
-          lastName: "",
-          email: "",
-          phone: "",
-          dateOfBirth: "",
-          address: "",
-          emergencyContact: null,
-          treatmentType: "Outpatient",
-        });
       } finally {
         setLoading(false);
       }
@@ -143,7 +138,6 @@ export default function ProfilePage() {
   }, []);
 
   function startEdit() {
-    if (!patient) return;
     setEditForm({
       firstName: patient.firstName || "",
       lastName: patient.lastName || "",
@@ -158,7 +152,6 @@ export default function ProfilePage() {
   const isValid = useMemo(() => EditSchema.safeParse(editForm).success, [editForm]);
 
   const isDirty = useMemo(() => {
-    if (!patient) return false;
     return (
       editForm.firstName !== (patient.firstName || "") ||
       editForm.lastName !== (patient.lastName || "") ||
@@ -168,7 +161,7 @@ export default function ProfilePage() {
   }, [editForm, patient]);
 
   async function save() {
-    if (!patient || !isValid || !isDirty) return;
+    if (!isValid || !isDirty) return;
     try {
       const token = await getAccessToken();
       const res = await fetch("/api/profile", {
@@ -182,19 +175,20 @@ export default function ProfilePage() {
           dateOfBirth: editForm.dateOfBirth,
         }),
       });
+
       if (res.status === 401) {
         setAuthExpired(true);
         return;
       }
       if (!res.ok) throw new Error((await res.text()) || res.statusText);
 
-      setPatient({
-        ...patient,
+      setPatient((prev) => ({
+        ...prev,
         firstName: editForm.firstName,
         lastName: editForm.lastName,
         phone: editForm.phoneNumber,
         dateOfBirth: editForm.dateOfBirth,
-      });
+      }));
       setIsEditing(false);
       setStatus({ type: "success", message: "Profile updated successfully!" });
       setTimeout(() => setStatus(null), 2500);
@@ -212,14 +206,6 @@ export default function ProfilePage() {
     return (
       <div className="container mx-auto p-6 max-w-6xl">
         <p className="text-gray-600">Loading profile…</p>
-      </div>
-    );
-  }
-
-  if (!patient) {
-    return (
-      <div className="container mx-auto p-6 max-w-6xl">
-        <p className="text-red-600">Unable to load profile.</p>
       </div>
     );
   }
@@ -251,9 +237,7 @@ export default function ProfilePage() {
                 size="sm"
                 variant="outline"
                 onClick={async () => {
-                  try {
-                    await supabase.auth.signOut();
-                  } catch {}
+                  try { await supabase.auth.signOut(); } catch {}
                   const next = encodeURIComponent("/dashboard/profile");
                   window.location.href = `/login?next=${next}`;
                 }}
@@ -356,18 +340,9 @@ export default function ProfilePage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm">Complete 90-day program</span>
-                        <Badge variant="secondary">In Progress</Badge>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm">Daily meditation practice</span>
-                        <Badge variant="secondary">Active</Badge>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm">Weekly therapy sessions</span>
-                        <Badge variant="secondary">On Track</Badge>
-                      </div>
+                      <div className="flex items-center justify-between"><span className="text-sm">Complete 90-day program</span><Badge variant="secondary">In Progress</Badge></div>
+                      <div className="flex items-center justify-between"><span className="text-sm">Daily meditation practice</span><Badge variant="secondary">Active</Badge></div>
+                      <div className="flex items-center justify-between"><span className="text-sm">Weekly therapy sessions</span><Badge variant="secondary">On Track</Badge></div>
                     </div>
                   </CardContent>
                 </Card>
@@ -389,14 +364,8 @@ export default function ProfilePage() {
                             : "—"}
                         </span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm">Sessions completed</span>
-                        <span className="font-medium">—</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm">Goals achieved</span>
-                        <span className="font-medium">—</span>
-                      </div>
+                      <div className="flex justify-between"><span className="text-sm">Sessions completed</span><span className="font-medium">—</span></div>
+                      <div className="flex justify-between"><span className="text-sm">Goals achieved</span><span className="font-medium">—</span></div>
                     </div>
                   </CardContent>
                 </Card>
@@ -473,21 +442,12 @@ export default function ProfilePage() {
 
                 {isEditing ? (
                   <CardFooter className="flex gap-2 justify-end">
-                    <Button variant="outline" onClick={cancel}>
-                      <X className="h-4 w-4 mr-2" />
-                      Cancel
-                    </Button>
-                    <Button onClick={save} disabled={!isValid || !isDirty}>
-                      <Save className="h-4 w-4 mr-2" />
-                      Save
-                    </Button>
+                    <Button variant="outline" onClick={cancel}><X className="h-4 w-4 mr-2" />Cancel</Button>
+                    <Button onClick={save} disabled={!isValid || !isDirty}><Save className="h-4 w-4 mr-2" />Save</Button>
                   </CardFooter>
                 ) : (
                   <CardFooter className="justify-end">
-                    <Button variant="secondary" onClick={startEdit}>
-                      <Edit className="h-4 w-4 mr-2" />
-                      Edit These Details
-                    </Button>
+                    <Button variant="secondary" onClick={startEdit}><Edit className="h-4 w-4 mr-2" />Edit These Details</Button>
                   </CardFooter>
                 )}
               </Card>
@@ -496,10 +456,7 @@ export default function ProfilePage() {
             <TabsContent value="achievements">
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Award className="h-5 w-5" />
-                    Achievements & Milestones
-                  </CardTitle>
+                  <CardTitle className="flex items-center gap-2"><Award className="h-5 w-5" />Achievements & Milestones</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -526,19 +483,13 @@ export default function ProfilePage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {(recentActivity.length ? recentActivity : demoActivity).map((item) => (
+                    {(recentActivity.length ? recentActivity : [{ id: 1, activity: "Completed mindfulness session", time: "2 hours ago", type: "wellness" as const }]).map((item) => (
                       <div key={item.id} className="flex items-center gap-4 p-3 border rounded-lg">
-                        <div
-                          className={`w-2 h-2 rounded-full ${
-                            item.type === "wellness"
-                              ? "bg-green-500"
-                              : item.type === "therapy"
-                              ? "bg-blue-500"
-                              : item.type === "medical"
-                              ? "bg-red-500"
-                              : "bg-purple-500"
-                          }`}
-                        />
+                        <div className={`w-2 h-2 rounded-full ${
+                          item.type === "wellness" ? "bg-green-500" :
+                          item.type === "therapy" ? "bg-blue-500" :
+                          item.type === "medical" ? "bg-red-500" : "bg-purple-500"
+                        }`} />
                         <div className="flex-1">
                           <p className="font-medium">{item.activity}</p>
                           <p className="text-sm text-gray-600">{item.time}</p>
