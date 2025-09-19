@@ -10,7 +10,7 @@ import {
 import "./globals.css";
 import Analytics from "./analytics";
 import FormatTimeShim from "./_shims/format-time-shim"; // ensures window.formatTime exists
-import Header from "@/components/ui/header";            // ✅ import directly from UI
+import Header from "@/components/header";            // ✅ import directly from UI
 
 const SITE_URL = "https://serenity-b9.onrender.com";
 const ORG_NAME = "Serenity Rehabilitation Center";
