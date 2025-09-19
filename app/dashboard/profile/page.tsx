@@ -1,4 +1,3 @@
-// /app/dashboard/profile/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -13,9 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Calendar, Phone, Mail, MapPin, Heart, Activity, Award, Target, TrendingUp, Edit, Save, X,
-} from "lucide-react";
+import { Calendar, Phone, Mail, MapPin, Activity, Award, Target, TrendingUp, Edit, Save, X } from "lucide-react";
 
 type Achievement = { id: number | string; title: string; description: string; icon: string; date: string };
 type HealthMetric = { label: string; value: number; color: string };
@@ -52,6 +49,7 @@ const EditSchema = z.object({
   emergencyContact: z.string().min(3, "Emergency contact is too short"),
 });
 
+// shallow object compare for dirty state
 function shallowEqual<T extends Record<string, any>>(a: T, b: T) {
   const ak = Object.keys(a), bk = Object.keys(b);
   if (ak.length !== bk.length) return false;
@@ -87,36 +85,39 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const ac = new AbortController();
+
+    const prime = (json: ProfilePayload) => {
+      setPatientInfo(json.patientInfo);
+      setDraft(json.patientInfo);
+      setAchievements(json.achievements);
+      setHealthMetrics(json.healthMetrics);
+      setRecentActivity(json.recentActivity);
+    };
+
     (async () => {
       try {
         const token = await getAccessToken();
-        if (!token) {
-          // Why: we require a Supabase session (or API fallback will try app cookies).
-          const res = await fetch("/api/profile", {
-            credentials: "include",
-            cache: "no-store",
-            signal: ac.signal,
-          });
-            if (res.status === 401) { router.replace("/login"); return; }
-            if (!res.ok) throw new Error(await res.text());
-            const json = (await res.json()) as ProfilePayload;
-            prime(json);
-        } else {
-          const res = await fetch("/api/profile", {
-            headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-            credentials: "include",
-            cache: "no-store",
-            signal: ac.signal,
-          });
-          if (res.status === 401) { router.replace("/login"); return; }
-          if (!res.ok) throw new Error(await res.text());
-          const json = (await res.json()) as ProfilePayload;
-          prime(json);
+        const res = await fetch("/api/profile", {
+          headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), Accept: "application/json" },
+          credentials: "include",
+          cache: "no-store",
+          signal: ac.signal,
+        });
+
+        if (res.status === 401) {
+          // Do NOT redirect. Show inline re-auth so middleware won’t bounce us.
+          setErr("Session expired or not found. Please sign in again.");
+          setLoading(false);
+          return;
         }
+
+        if (!res.ok) throw new Error((await res.text()) || res.statusText);
+        const json = (await res.json()) as ProfilePayload;
+        prime(json);
         setErr(null);
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Failed to load profile");
-        // Keep UI usable
+        // Keep UI usable with empty defaults
         const empty: PatientInfo = {
           firstName: "", lastName: "", email: "", phone: "", dateOfBirth: "",
           address: "", emergencyContact: "", admissionDate: "", treatmentType: "Outpatient",
@@ -132,16 +133,8 @@ export default function ProfilePage() {
       }
     })();
 
-    function prime(json: ProfilePayload) {
-      setPatientInfo(json.patientInfo);
-      setDraft(json.patientInfo);
-      setAchievements(json.achievements);
-      setHealthMetrics(json.healthMetrics);
-      setRecentActivity(json.recentActivity);
-    }
-
     return () => ac.abort();
-  }, [router]);
+  }, []);
 
   const isDirty = useMemo(() => {
     if (!patientInfo || !draft) return false;
@@ -167,7 +160,8 @@ export default function ProfilePage() {
 
   async function saveProfile() {
     if (!draft) return;
-    setMsg(null); setErr(null);
+    setMsg(null);
+    setErr(null);
 
     const parsed = EditSchema.safeParse({
       firstName: draft.firstName, lastName: draft.lastName, email: draft.email,
@@ -206,8 +200,13 @@ export default function ProfilePage() {
           treatmentType: draft.treatmentType,
         }),
       });
-      if (res.status === 401) { router.replace("/login"); return; }
-      if (!res.ok) throw new Error(await res.text());
+
+      if (res.status === 401) {
+        setErr("Session expired. Please sign in again.");
+        return;
+      }
+      if (!res.ok) throw new Error((await res.text()) || res.statusText);
+
       setMsg("Profile saved.");
       setIsEditing(false);
     } catch (e) {
@@ -237,7 +236,20 @@ export default function ProfilePage() {
   if (!patientInfo || !draft) {
     return (
       <div className="container mx-auto p-6 max-w-6xl">
-        <p className="text-red-600">Unable to load profile{err ? `: ${err}` : ""}</p>
+        <div className="flex items-center gap-3">
+          <p className="text-red-600">Unable to load profile{err ? `: ${err}` : ""}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              try { await supabase.auth.signOut(); } catch {}
+              const next = encodeURIComponent("/dashboard/profile");
+              window.location.href = `/login?next=${next}`;
+            }}
+          >
+            Re-authenticate
+          </Button>
+        </div>
       </div>
     );
   }
@@ -247,7 +259,22 @@ export default function ProfilePage() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
         <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
-        {err && <p className="text-sm text-red-600 mt-2">Error: {err}</p>}
+        {err && (
+          <div className="mt-2 flex items-center gap-3">
+            <p className="text-sm text-red-600">Error: {err}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                try { await supabase.auth.signOut(); } catch {}
+                const next = encodeURIComponent("/dashboard/profile");
+                window.location.href = `/login?next=${next}`;
+              }}
+            >
+              Re-authenticate
+            </Button>
+          </div>
+        )}
         {msg && <p className="text-sm text-green-600 mt-2">{msg}</p>}
       </div>
 
@@ -311,6 +338,7 @@ export default function ProfilePage() {
                   <Progress value={m.value} className="h-2" />
                 </div>
               ))}
+              {healthMetrics.length === 0 && <p className="text-sm text-gray-500">No metrics yet.</p>}
             </CardContent>
           </Card>
         </div>
@@ -452,9 +480,10 @@ export default function ProfilePage() {
                     {recentActivity.map((item) => (
                       <div key={item.id} className="flex items-center gap-4 p-3 border rounded-lg">
                         <div className={`w-2 h-2 rounded-full ${
-                          item.type === "wellness" ? "bg-green-500" :
-                          item.type === "therapy" ? "bg-blue-500" :
-                          item.type === "medical" ? "bg-red-500" : "bg-purple-500"
+                          item.type === "wellness" ? "bg-green-500"
+                            : item.type === "therapy" ? "bg-blue-500"
+                            : item.type === "medical" ? "bg-red-500"
+                            : "bg-purple-500"
                         }`} />
                         <div className="flex-1">
                           <p className="font-medium">{item.activity}</p>
