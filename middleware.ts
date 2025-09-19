@@ -1,48 +1,70 @@
-import { NextResponse } from "next/server"
-import type { NextRequest } from "next/server"
+// /middleware.ts
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
+const PROTECTED_PREFIXES = ["/dashboard"];            // add more as needed
+const PUBLIC_PATHS = new Set(["/login", "/signup"]);  // exact matches
+
+function isStaticAsset(pathname: string): boolean {
+  // Why: ensure assets never get redirected (defense-in-depth).
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon") ||
+    pathname.startsWith("/assets") ||
+    pathname.startsWith("/images") ||
+    pathname.startsWith("/fonts")
+  ) return true;
+  return /\.(?:png|jpg|jpeg|gif|webp|avif|svg|ico|css|js|map|txt|xml)$/.test(pathname);
+}
 
 export function middleware(request: NextRequest) {
-  // Get the pathname of the request (e.g. /, /dashboard, /login)
-  const path = request.nextUrl.pathname
+  const { nextUrl, method, headers } = request;
+  const pathname = nextUrl.pathname;
 
-  // Define paths that require authentication
-  const protectedPaths = ["/dashboard"]
-
-  // Define public paths that should redirect to dashboard if already authenticated
-  const publicPaths = ["/login", "/signup"]
-
-  // Check if the path is protected
-  const isProtectedPath = protectedPaths.some((protectedPath) => path.startsWith(protectedPath))
-
-  // Check if the path is public
-  const isPublicPath = publicPaths.includes(path)
-
-  const authToken = request.cookies.get("auth_token")?.value || request.cookies.get("patient_auth")?.value
-
-  // Redirect to login if trying to access protected route without token
-  if (isProtectedPath && !authToken) {
-    return NextResponse.redirect(new URL("/login", request.url))
+  // 0) Never touch API, assets, Next internals, or preflight
+  if (
+    method === "OPTIONS" ||
+    pathname.startsWith("/api") ||
+    isStaticAsset(pathname)
+  ) {
+    return NextResponse.next();
   }
 
-  // Redirect to dashboard if trying to access public route with token
-  if (isPublicPath && authToken) {
-    return NextResponse.redirect(new URL("/dashboard", request.url))
+  const wantsJson = (headers.get("accept") || "").includes("application/json");
+
+  const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
+  const isPublic = PUBLIC_PATHS.has(pathname);
+
+  const authToken =
+    request.cookies.get("auth_token")?.value ||
+    request.cookies.get("patient_auth")?.value ||
+    null;
+
+  // 1) Block unauthenticated access to protected pages
+  if (isProtected && !authToken) {
+    if (wantsJson) {
+      // Why: clients fetching expect JSON, not an HTML redirect.
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+    const url = nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("next", pathname); // optional: preserve return path
+    return NextResponse.redirect(url);
   }
 
-  return NextResponse.next()
+  // 2) Redirect authenticated users away from public pages
+  if (isPublic && authToken) {
+    const url = nextUrl.clone();
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
+  }
+
+  return NextResponse.next();
 }
 
-// Configure which paths the middleware should run on
+// Run on everything except api/static/etc. Matcher kept, but we also guard in code.
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - api (API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
-     */
-    "/((?!api|_next/static|_next/image|favicon.ico|public).*)",
+    "/((?!api|_next/static|_next/image|_next/data|favicon.ico|assets|images|fonts|.*\\.(?:png|jpg|jpeg|gif|webp|avif|svg|ico|css|js|map|txt|xml)).*)",
   ],
-}
+};
