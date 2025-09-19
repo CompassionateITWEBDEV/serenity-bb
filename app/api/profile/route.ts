@@ -1,99 +1,59 @@
 // /app/api/profile/route.ts
-import { NextResponse, type NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createServerClient } from "@supabase/ssr";
-import { z } from "zod";
 
-const T = {
-  profiles: "profiles",
-  weeklyGoals: "weekly_goals",
-  weeklyData: "weekly_data",
-  progressMetrics: "progress_metrics",
-} as const;
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-function envOrThrow(n: string) {
-  const v = process.env[n];
-  if (!v) throw new Error(`Missing env: ${n}`);
-  return v;
-}
-const SB_URL = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
-const SB_ANON = envOrThrow("SUPABASE_ANON_KEY");
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function tryParseJwtOrB64(jsonish: string) {
-  try {
-    const seg = jsonish.includes(".") ? jsonish.split(".")[1] : jsonish;
-    const s = Buffer.from(seg.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
-    return JSON.parse(s);
-  } catch {
-    return null;
-  }
-}
-
-/** Resolves user by (1) Supabase Bearer, (2) Supabase cookies, (3) legacy cookies containing uuid/email */
-async function resolveIdentity(req: Request): Promise<{ uid?: string; email?: string } | null> {
-  // 1) Bearer token
+function supabaseForRequest(req: NextRequest) {
   const auth = req.headers.get("authorization") || "";
-  const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : null;
-  if (token) {
-    const sb = createClient(SB_URL, SB_ANON, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data } = await sb.auth.getUser(token);
-    if (data?.user?.id) return { uid: data.user.id, email: data.user.email ?? undefined };
+  const global: any = {};
+  if (auth.toLowerCase().startsWith("bearer ")) {
+    global.headers = { Authorization: auth };
   }
-
-  // 2) Supabase cookies
-  try {
-    const nreq = req as unknown as NextRequest;
-    const nres = NextResponse.next();
-    const ssr = createServerClient(SB_URL, SB_ANON, {
-      cookies: {
-        get: (k) => nreq.cookies.get(k)?.value,
-        set: (k, v, o) => nres.cookies.set({ name: k, value: v, ...o }),
-        remove: (k, o) => nres.cookies.set({ name: k, value: "", ...o }),
-      },
-    });
-    const { data } = await ssr.auth.getUser();
-    if (data?.user?.id) return { uid: data.user.id, email: data.user.email ?? undefined };
-  } catch {}
-
-  // 3) Legacy cookie
-  try {
-    const nreq = req as unknown as NextRequest;
-    const raw = nreq.cookies.get("auth_token")?.value || nreq.cookies.get("patient_auth")?.value || "";
-    if (!raw) return null;
-
-    if (UUID_RE.test(raw)) return { uid: raw };
-    const j = tryParseJwtOrB64(raw) || tryParseJwtOrB64(raw.split(".")[1] || "");
-    if (j) {
-      const candUid = j.uid || j.userId || j.id || j.sub;
-      if (typeof candUid === "string" && UUID_RE.test(candUid)) return { uid: candUid };
-      const email = j.email || j.user?.email;
-      if (typeof email === "string" && email.includes("@")) return { email };
-    }
-  } catch {}
-
-  return null;
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global });
 }
 
-type ProfilePayload = {
-  patientInfo: {
-    firstName: string; lastName: string; email: string; phone: string; dateOfBirth: string;
-    address: string; emergencyContact: string; admissionDate: string; treatmentType: string;
-    primaryPhysician: string; counselor: string;
-  };
-  achievements: Array<{ id: number | string; title: string; description: string; icon: string; date: string }>;
-  healthMetrics: Array<{ label: string; value: number; color: string }>;
-  recentActivity: Array<{ id: number | string; activity: string; time: string; type: "wellness" | "therapy" | "medical" | "assessment" }>;
+type DbRow = {
+  id: string;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  phone: string | null;
+  address: string | null;
+  date_of_birth: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  treatment_type: string | null;
+  avatar_url: string | null;
+  admission_date: string | null;
+  primary_physician: string | null;
+  counselor: string | null;
 };
 
-function defaultPayload(): ProfilePayload {
+function toPayload(row: DbRow) {
   return {
     patientInfo: {
-      firstName: "", lastName: "", email: "", phone: "", dateOfBirth: "",
-      address: "", emergencyContact: "", admissionDate: "", treatmentType: "Outpatient",
-      primaryPhysician: "", counselor: "",
+      id: row.id,
+      email: row.email ?? "",
+      firstName: row.first_name ?? "",
+      lastName: row.last_name ?? "",
+      phone: row.phone ?? "",
+      phoneNumber: row.phone ?? "",
+      address: row.address ?? "",
+      dateOfBirth: row.date_of_birth ?? "",
+      emergencyContact: {
+        name: row.emergency_contact_name ?? "",
+        phone: row.emergency_contact_phone ?? "",
+        relationship: "",
+      },
+      treatmentType: row.treatment_type ?? "Outpatient",
+      treatmentPlan: row.treatment_type ?? "Outpatient",
+      admissionDate: row.admission_date ?? "",
+      joinDate: row.admission_date ?? "",
+      primaryPhysician: row.primary_physician ?? "",
+      counselor: row.counselor ?? "",
+      avatar: row.avatar_url ?? null,
     },
     achievements: [],
     healthMetrics: [],
@@ -101,163 +61,95 @@ function defaultPayload(): ProfilePayload {
   };
 }
 
-const PatchSchema = z.object({
-  firstName: z.string().min(1).max(120).optional(),
-  lastName: z.string().min(1).max(120).optional(),
-  email: z.string().email().optional(),
-  phone: z.string().min(3).max(40).optional(),
-  address: z.string().min(3).max(200).optional(),
-  dateOfBirth: z.string().optional(),
-  emergencyContact: z.string().min(3).max(200).optional(),
-  treatmentType: z.string().min(1).max(80).optional(),
-  primaryPhysician: z.string().optional(), // UI-only
-  counselor: z.string().optional(),        // UI-only
-});
+function emptyPayload(userId: string, email: string | null) {
+  return {
+    patientInfo: {
+      id: userId,
+      email: email ?? "",
+      firstName: "",
+      lastName: "",
+      phone: "",
+      phoneNumber: "",
+      address: "",
+      dateOfBirth: "",
+      emergencyContact: { name: "", phone: "", relationship: "" },
+      treatmentType: "Outpatient",
+      treatmentPlan: "Outpatient",
+      admissionDate: "",
+      joinDate: "",
+      primaryPhysician: "",
+      counselor: "",
+      avatar: null,
+    },
+    achievements: [],
+    healthMetrics: [],
+    recentActivity: [],
+  };
+}
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
-    const who = await resolveIdentity(req);
-    if (!who) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const supabase = supabaseForRequest(req);
+    const { data: userRes, error: uerr } = await supabase.auth.getUser();
+    if (uerr || !userRes.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const uid = userRes.user.id;
 
-    const sb = createClient(SB_URL, SB_ANON, { auth: { persistSession: false, autoRefreshToken: false } });
-    let payload = defaultPayload();
+    const { data, error } = await supabase
+      .from<DbRow>("profiles")
+      .select(
+        "id,email,first_name,last_name,phone,address,date_of_birth,emergency_contact_name,emergency_contact_phone,treatment_type,avatar_url,admission_date,primary_physician,counselor"
+      )
+      .eq("id", uid)
+      .single();
 
-    // Load or auto-provision profile
-    let profile:
-      | {
-          id: string; email: string | null; first_name: string | null; last_name: string | null; phone: string | null;
-          date_of_birth: string | null; address: string | null; emergency_contact: string | null;
-          treatment_type: string | null; created_at: string | null;
-        }
-      | null = null;
-
-    if (who.uid) {
-      const { data } = await sb
-        .from(T.profiles)
-        .select("id,email,first_name,last_name,phone,date_of_birth,address,emergency_contact,treatment_type,created_at")
-        .eq("id", who.uid)
-        .maybeSingle();
-      profile = data ?? null;
-
-      if (!profile) {
-        // Auto-provision minimal row (requires insert policy)
-        const email = who.email ?? null;
-        await sb.from(T.profiles).insert({ id: who.uid, email }).select().maybeSingle().catch(() => null);
-        const again = await sb
-          .from(T.profiles)
-          .select("id,email,first_name,last_name,phone,date_of_birth,address,emergency_contact,treatment_type,created_at")
-          .eq("id", who.uid)
-          .maybeSingle();
-        profile = again.data ?? null;
-      }
-    } else if (who.email) {
-      const { data } = await sb
-        .from(T.profiles)
-        .select("id,email,first_name,last_name,phone,date_of_birth,address,emergency_contact,treatment_type,created_at")
-        .eq("email", who.email.toLowerCase())
-        .maybeSingle();
-      profile = data ?? null;
+    if (error) {
+      // If no row, return defaults so the UI can create one on save
+      if (error.code === "PGRST116" || /no rows/i.test(error.message))
+        return NextResponse.json(emptyPayload(uid, userRes.user.email ?? null), { status: 200 });
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    if (profile) {
-      payload.patientInfo = {
-        firstName: profile.first_name ?? "",
-        lastName: profile.last_name ?? "",
-        email: profile.email ?? "",
-        phone: profile.phone ?? "",
-        dateOfBirth: profile.date_of_birth ?? "",
-        address: profile.address ?? "",
-        emergencyContact: profile.emergency_contact ?? "",
-        admissionDate: profile.created_at ?? "",
-        treatmentType: profile.treatment_type ?? "Outpatient",
-        primaryPhysician: "",
-        counselor: "",
-      };
-
-      const owner = profile.id;
-
-      // metrics
-      const { data: metrics } = await sb
-        .from(T.progressMetrics)
-        .select("label,value,color,user_id,profile_id")
-        .or(`user_id.eq.${owner},profile_id.eq.${owner}`);
-      payload.healthMetrics = (metrics ?? []).map((m) => ({
-        label: m.label,
-        value: Math.max(0, Math.min(100, Number(m.value ?? 0))),
-        color: m.color || "bg-gray-500",
-      }));
-
-      // weekly data → recent activity
-      const { data: wdata } = await sb
-        .from(T.weeklyData)
-        .select("id,week,wellness,attendance,goals,created_at,user_id,profile_id")
-        .or(`user_id.eq.${owner},profile_id.eq.${owner}`)
-        .order("created_at", { ascending: false })
-        .limit(12);
-      payload.recentActivity = (wdata ?? []).map((w) => ({
-        id: w.id,
-        activity: `Week ${w.week}: wellness ${w.wellness}/10, attendance ${w.attendance}%`,
-        time: new Date(w.created_at ?? Date.now()).toLocaleDateString(),
-        type: "assessment",
-      }));
-
-      // achievements (basic: completed goals)
-      const { data: goals } = await sb
-        .from(T.weeklyGoals)
-        .select("id,name,target,current,updated_at,user_id,profile_id")
-        .or(`user_id.eq.${owner},profile_id.eq.${owner}`)
-        .order("updated_at", { ascending: false })
-        .limit(6);
-      payload.achievements = (goals ?? [])
-        .filter((g) => Number(g.current ?? 0) >= Number(g.target ?? 0) && g.target != null)
-        .map((g) => ({
-          id: g.id,
-          title: g.name ?? "Goal",
-          description: `Completed ${g.current}/${g.target}`,
-          icon: "🏆",
-          date: new Date(g.updated_at ?? Date.now()).toISOString().slice(0, 10),
-        }));
-    }
-
-    return NextResponse.json(payload);
-  } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "internal_error" }, { status: 500 });
+    return NextResponse.json(toPayload(data), { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
   }
 }
 
-export async function PATCH(req: Request) {
+export async function PATCH(req: NextRequest) {
   try {
-    const who = await resolveIdentity(req);
-    if (!who) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const supabase = supabaseForRequest(req);
+    const { data: userRes, error: uerr } = await supabase.auth.getUser();
+    if (uerr || !userRes.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const uid = userRes.user.id;
 
-    const body = await req.json().catch(() => ({}));
-    const updates = PatchSchema.parse(body);
-    if (Object.keys(updates).length === 0) return NextResponse.json({ ok: true });
+    const body = await req.json();
+    const update: Partial<DbRow> = {
+      id: uid,
+      email: userRes.user.email ?? null,
+      first_name: body.firstName ?? null,
+      last_name: body.lastName ?? null,
+      phone: body.phone ?? body.phoneNumber ?? null,
+      address: body.address ?? null,
+      date_of_birth: body.dateOfBirth ?? null,
+      emergency_contact_name: body.emergencyContact?.name ?? null,
+      emergency_contact_phone: body.emergencyContact?.phone ?? null,
+      treatment_type: body.treatmentType ?? null,
+      avatar_url: body.avatar ?? null,
+      primary_physician: body.primaryPhysician ?? null,
+      counselor: body.counselor ?? null,
+    };
 
-    const sb = createClient(SB_URL, SB_ANON, { auth: { persistSession: false, autoRefreshToken: false } });
-    const db: Record<string, unknown> = {};
-    if (updates.firstName !== undefined) db.first_name = updates.firstName;
-    if (updates.lastName !== undefined) db.last_name = updates.lastName;
-    if (updates.email !== undefined) db.email = updates.email.toLowerCase();
-    if (updates.phone !== undefined) db.phone = updates.phone;
-    if (updates.address !== undefined) db.address = updates.address;
-    if (updates.dateOfBirth !== undefined) db.date_of_birth = updates.dateOfBirth;
-    if (updates.emergencyContact !== undefined) db.emergency_contact = updates.emergencyContact;
-    if (updates.treatmentType !== undefined) db.treatment_type = updates.treatmentType;
+    const { data, error } = await supabase
+      .from<DbRow>("profiles")
+      .upsert(update, { onConflict: "id", ignoreDuplicates: false })
+      .select(
+        "id,email,first_name,last_name,phone,address,date_of_birth,emergency_contact_name,emergency_contact_phone,treatment_type,avatar_url,admission_date,primary_physician,counselor"
+      )
+      .single();
 
-    if (who.uid) {
-      const { error } = await sb.from(T.profiles).update(db).eq("id", who.uid);
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    } else if (who.email) {
-      const { error } = await sb.from(T.profiles).update(db).eq("email", who.email.toLowerCase());
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    } else {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-
-    return NextResponse.json({ ok: true });
-  } catch (e) {
-    if (e instanceof z.ZodError) return NextResponse.json({ error: "invalid_payload", issues: e.issues }, { status: 422 });
-    return NextResponse.json({ error: e instanceof Error ? e.message : "internal_error" }, { status: 500 });
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json(toPayload(data), { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
   }
 }
