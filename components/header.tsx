@@ -1,96 +1,73 @@
-// B) FILE: components/ui/header.tsx  (ensure client + default export)
-"use client";
+"use client"
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { Session, User } from "@supabase/supabase-js";
+import { Button } from "@/components/ui/button"
+import { useAuth } from "@/hooks/use-auth"
+import { Heart } from "lucide-react"
+import { useRouter } from "next/navigation"
+import Link from "next/link"
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+export function Header() {
+  const { isAuthenticated, logout } = useAuth()
+  const router = useRouter()
 
-function getSupabase() {
-  if (!SUPABASE_URL || !SUPABASE_ANON) return null;
-  const { createClient } = require("@supabase/supabase-js") as typeof import("@supabase/supabase-js");
-  return createClient(SUPABASE_URL, SUPABASE_ANON);
-}
-
-function HeaderAvatar() {
-  const [src, setSrc] = useState<string | null>(null);
-  const [initials, setInitials] = useState("SC");
-  const mounted = useRef(true);
-
-  const loadAvatar = useCallback(async () => {
-    const supabase = getSupabase();
-    if (!supabase) { setSrc(null); setInitials("SC"); return; }
-
-    const { data } = (await supabase.auth.getSession()) as { data: { session: Session | null } };
-    const user: User | undefined = data?.session?.user ?? undefined;
-    if (!user) { setSrc(null); setInitials("SC"); return; }
-
-    const meta: Record<string, any> = user.user_metadata ?? {};
-    const first = String(meta.first_name ?? meta.firstName ?? "").trim();
-    const last = String(meta.last_name ?? meta.lastName ?? "").trim();
-    const init = ((first.charAt(0) + last.charAt(0)) || "SC").toUpperCase();
-    if (mounted.current) setInitials(init);
-
-    const { data: row } = await supabase
-      .from("patients")
-      .select("avatar")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    const url = row?.avatar ?? meta.avatar_url ?? null;
-    if (mounted.current) setSrc(url ? `${url}?v=${Date.now()}` : null);
-  }, []);
-
-  useEffect(() => {
-    mounted.current = true;
-    loadAvatar();
-    const onChanged = () => loadAvatar();
-    window.addEventListener("avatar-changed", onChanged);
-    return () => { mounted.current = false; window.removeEventListener("avatar-changed", onChanged); };
-  }, [loadAvatar]);
+  const handleLogout = () => {
+    logout()
+    router.push("/")
+  }
 
   return (
-    <div className="h-8 w-8 rounded-full bg-gray-200 overflow-hidden grid place-items-center" title={initials} aria-label="User avatar">
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt="User avatar" className="h-full w-full object-cover" onError={() => setSrc(null)} />
-      ) : (
-        <span className="text-xs font-semibold text-gray-700">{initials}</span>
-      )}
-    </div>
-  );
-}
+    <header className="bg-white shadow-sm border-b">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16">
+          <div className="flex items-center">
+            <Link
+              href="/"
+              className="flex items-center space-x-2 text-2xl font-serif font-bold text-cyan-600 hover:text-indigo-500 transition-colors"
+            >
+              <Heart className="h-6 w-6" />
+              <span>Serenity Rehabilitation Center</span>
+            </Link>
+          </div>
+          <nav className="hidden md:flex items-center space-x-8">
+            <Link href="/services" className="text-gray-600 hover:text-cyan-600 transition-colors">
+              Services
+            </Link>
+            <Link href="/about" className="text-gray-600 hover:text-cyan-600 transition-colors">
+              About
+            </Link>
+            <Link href="/blog" className="text-gray-600 hover:text-cyan-600 transition-colors">
+              Blog
+            </Link>
+            <Link href="/contact" className="text-gray-600 hover:text-cyan-600 transition-colors">
+              Contact
+            </Link>
 
-export default function Header() {
-  const nav = [
-    { href: "/", label: "Home" },
-    { href: "/about", label: "About" },
-    { href: "/services", label: "Services" },
-    { href: "/contact", label: "Contact" },
-  ];
-
-  return (
-    <header role="banner" className="w-full border-b bg-white">
-      <div className="mx-auto max-w-7xl h-14 px-4 flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <a href="/" className="font-semibold text-gray-900 hover:opacity-90" aria-label="Serenity Connect home">
-            Serenity Connect
-          </a>
-          <nav aria-label="Primary">
-            <ul className="hidden md:flex items-center gap-4 text-sm text-gray-700">
-              {nav.map((n) => (
-                <li key={n.href}>
-                  <a className="hover:text-gray-900" href={n.href}>{n.label}</a>
-                </li>
-              ))}
-            </ul>
+            {isAuthenticated ? (
+              <div className="flex items-center space-x-4">
+                <Link href="/login">
+                  <Button variant="outline" className="border-cyan-600 text-cyan-600 hover:bg-cyan-50 bg-transparent">
+                    Patient Login
+                  </Button>
+                </Link>
+                <Button onClick={handleLogout} variant="ghost" className="text-gray-600 hover:text-cyan-600">
+                  Logout
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-4">
+                <Link href="/login">
+                  <Button variant="outline" className="border-cyan-600 text-cyan-600 hover:bg-cyan-50 bg-transparent">
+                    Patient Login
+                  </Button>
+                </Link>
+                <Link href="/intake">
+                  <Button className="bg-cyan-600 hover:bg-indigo-500 text-white transition-colors">Get Help Now</Button>
+                </Link>
+              </div>
+            )}
           </nav>
-        </div>
-        <div className="flex items-center gap-3">
-          <HeaderAvatar />
         </div>
       </div>
     </header>
-  );
+  )
 }

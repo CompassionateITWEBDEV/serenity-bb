@@ -1,122 +1,104 @@
-// app/signup/page.tsx
-'use client';
+"use client";
 
-import type React from 'react';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Eye, EyeOff, UserPlus, AlertTriangle } from 'lucide-react';
-// ✅ import the ONE browser singleton
-import { supabase } from '@/lib/supabase/client';
-
-type ProblemJson = {
-  title?: string;
-  detail?: string;
-  status?: number;
-  fields?: Record<string, string[]>;
-};
+import type React from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Eye, EyeOff, UserPlus, AlertTriangle } from "lucide-react";
+import { supabase } from "@/lib/supabase-browser";
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
-    first_name: '',
-    last_name: '',
-    email: '',
-    password: '',
-    confirm_password: '',
-    date_of_birth: '', // yyyy-mm-dd
-    phone: '',
-    emergency_contact_name: '',
-    emergency_contact_phone: '',
-    emergency_contact_relationship: '',
-    treatment_type: '',
+    firstName: "",
+    lastName: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+    dateOfBirth: "",
+    phoneNumber: "",
+    emergencyContactName: "",
+    emergencyContactPhone: "",
+    emergencyContactRelationship: "",
+    treatmentPlan: "",
   });
-
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [generalError, setGeneralError] = useState('');
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+  const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
 
-  // ❌ removed useMemo(() => createClient(), [])
-  // Always use the imported `supabase` singleton
-
-  const handleInputChange = (field: keyof typeof formData, value: string) => {
-    setFieldErrors((p) => ({ ...p, [field]: [] })); // clear field error on edit
+  const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const backendMissing =
     !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  const passwordsMismatch = formData.password !== formData.confirm_password;
-  const disableSubmit =
-    submitting ||
-    !formData.email ||
-    !formData.password ||
-    passwordsMismatch ||
-    formData.password.length < 8;
-
-  const fe = (name: keyof typeof formData) => fieldErrors?.[name]?.[0];
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setGeneralError('');
-    setFieldErrors({});
+    setError("");
 
-    if (passwordsMismatch) {
-      setFieldErrors((p) => ({ ...p, confirm_password: ['Passwords do not match'] }));
+    if (formData.password !== formData.confirmPassword) {
+      setError("Passwords do not match");
       return;
     }
-    if (formData.password.length < 8) {
-      setFieldErrors((p) => ({ ...p, password: ['Password must be at least 8 characters'] }));
+    if (formData.password.length < 6) {
+      setError("Password must be at least 6 characters");
       return;
     }
 
     setSubmitting(true);
     try {
-      const {
-        confirm_password, // strip confirm field from payload
-        ...payload
-      } = formData;
+      // Shape payload to match our API route
+      const payload = {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        email: formData.email,
+        password: formData.password,
+        phone: formData.phoneNumber,
+        dateOfBirth: formData.dateOfBirth, // yyyy-mm-dd
+        emergencyName: formData.emergencyContactName,
+        emergencyPhone: formData.emergencyContactPhone,
+        emergencyRelationship: formData.emergencyContactRelationship,
+        treatmentProgram: formData.treatmentPlan,
+      };
 
-      const res = await fetch('/api/patients/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/patients/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
-        const body: ProblemJson = await res.json().catch(() => ({} as ProblemJson));
-        if (body?.fields) setFieldErrors(body.fields);
-        setGeneralError(body?.detail || body?.title || 'Signup failed');
-        return;
-      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Signup failed");
 
-      // Auto-login newly created user
+      // Auto-login the new user (creates client session)
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
       });
       if (signInError) throw signInError;
 
-      // Optional GTAG
-      if (typeof window !== 'undefined') {
+      if (typeof window !== "undefined") {
         const gtag = (window as any).gtag;
-        if (typeof gtag === 'function') {
-          gtag('event', 'sign_up', { method: 'email' });
+        if (typeof gtag === "function") {
+          gtag("set", {
+            user_id: data.uid,
+            user_properties: { role: "patient" },
+          });
+          gtag("event", "sign_up", { method: "email" });
         }
       }
 
-      router.push('/dashboard');
+      router.push("/dashboard");
     } catch (err: any) {
-      setGeneralError(err?.message ?? 'Something went wrong');
+      setError(err?.message ?? "Something went wrong");
     } finally {
       setSubmitting(false);
     }
@@ -132,7 +114,7 @@ export default function SignupPage() {
               <UserPlus className="h-8 w-8 text-cyan-600" />
             </div>
           </div>
-        <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">Join Serenity</h1>
+          <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">Join Serenity</h1>
           <p className="text-gray-600">Start your recovery journey with us today</p>
         </div>
 
@@ -141,7 +123,7 @@ export default function SignupPage() {
           <Alert variant="warning" className="mb-6">
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
-              <strong>Development Mode:</strong> Backend not detected. This form requires Supabase env vars.
+              <strong>Development Mode:</strong> Backend not detected. Your account will be created locally for demo purposes.
             </AlertDescription>
           </Alert>
         )}
@@ -153,9 +135,9 @@ export default function SignupPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
-              {generalError && (
+              {error && (
                 <Alert variant="destructive">
-                  <AlertDescription>{generalError}</AlertDescription>
+                  <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
 
@@ -165,28 +147,26 @@ export default function SignupPage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="first_name">First Name</Label>
+                    <Label htmlFor="firstName">First Name</Label>
                     <Input
-                      id="first_name"
+                      id="firstName"
                       placeholder="Enter your first name"
-                      value={formData.first_name}
-                      onChange={(e) => handleInputChange('first_name', e.target.value)}
+                      value={formData.firstName}
+                      onChange={(e) => handleInputChange("firstName", e.target.value)}
                       required
                       className="h-11"
                     />
-                    {fe('first_name') && <p className="text-xs text-rose-600">{fe('first_name')}</p>}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="last_name">Last Name</Label>
+                    <Label htmlFor="lastName">Last Name</Label>
                     <Input
-                      id="last_name"
+                      id="lastName"
                       placeholder="Enter your last name"
-                      value={formData.last_name}
-                      onChange={(e) => handleInputChange('last_name', e.target.value)}
+                      value={formData.lastName}
+                      onChange={(e) => handleInputChange("lastName", e.target.value)}
                       required
                       className="h-11"
                     />
-                    {fe('last_name') && <p className="text-xs text-rose-600">{fe('last_name')}</p>}
                   </div>
                 </div>
 
@@ -197,38 +177,35 @@ export default function SignupPage() {
                     type="email"
                     placeholder="Enter your email"
                     value={formData.email}
-                    onChange={(e) => handleInputChange('email', e.target.value)}
+                    onChange={(e) => handleInputChange("email", e.target.value)}
                     required
                     className="h-11"
                   />
-                  {fe('email') && <p className="text-xs text-rose-600">{fe('email')}</p>}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="date_of_birth">Date of Birth</Label>
+                    <Label htmlFor="dateOfBirth">Date of Birth</Label>
                     <Input
-                      id="date_of_birth"
+                      id="dateOfBirth"
                       type="date"
-                      value={formData.date_of_birth}
-                      onChange={(e) => handleInputChange('date_of_birth', e.target.value)}
+                      value={formData.dateOfBirth}
+                      onChange={(e) => handleInputChange("dateOfBirth", e.target.value)}
                       required
                       className="h-11"
                     />
-                    {fe('date_of_birth') && <p className="text-xs text-rose-600">{fe('date_of_birth')}</p>}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="phone">Phone Number</Label>
+                    <Label htmlFor="phoneNumber">Phone Number</Label>
                     <Input
-                      id="phone"
+                      id="phoneNumber"
                       type="tel"
                       placeholder="(555) 123-4567"
-                      value={formData.phone}
-                      onChange={(e) => handleInputChange('phone', e.target.value)}
+                      value={formData.phoneNumber}
+                      onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
                       required
                       className="h-11"
                     />
-                    {fe('phone') && <p className="text-xs text-rose-600">{fe('phone')}</p>}
                   </div>
                 </div>
               </div>
@@ -239,57 +216,48 @@ export default function SignupPage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="emergency_contact_name">Contact Name</Label>
+                    <Label htmlFor="emergencyContactName">Contact Name</Label>
                     <Input
-                      id="emergency_contact_name"
+                      id="emergencyContactName"
                       placeholder="Emergency contact name"
-                      value={formData.emergency_contact_name}
-                      onChange={(e) => handleInputChange('emergency_contact_name', e.target.value)}
+                      value={formData.emergencyContactName}
+                      onChange={(e) => handleInputChange("emergencyContactName", e.target.value)}
                       required
                       className="h-11"
                     />
-                    {fe('emergency_contact_name') && (
-                      <p className="text-xs text-rose-600">{fe('emergency_contact_name')}</p>
-                    )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="emergency_contact_phone">Contact Phone</Label>
+                    <Label htmlFor="emergencyContactPhone">Contact Phone</Label>
                     <Input
-                      id="emergency_contact_phone"
+                      id="emergencyContactPhone"
                       type="tel"
                       placeholder="(555) 123-4567"
-                      value={formData.emergency_contact_phone}
-                      onChange={(e) => handleInputChange('emergency_contact_phone', e.target.value)}
+                      value={formData.emergencyContactPhone}
+                      onChange={(e) => handleInputChange("emergencyContactPhone", e.target.value)}
                       required
                       className="h-11"
                     />
-                    {fe('emergency_contact_phone') && (
-                      <p className="text-xs text-rose-600">{fe('emergency_contact_phone')}</p>
-                    )}
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="emergency_contact_relationship">Relationship</Label>
+                  <Label htmlFor="emergencyContactRelationship">Relationship</Label>
                   <Select
-                    value={formData.emergency_contact_relationship}
-                    onValueChange={(value) => handleInputChange('emergency_contact_relationship', value)}
+                    value={formData.emergencyContactRelationship}
+                    onValueChange={(value) => handleInputChange("emergencyContactRelationship", value)}
                   >
                     <SelectTrigger className="h-11">
                       <SelectValue placeholder="Select relationship" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Spouse">Spouse</SelectItem>
-                      <SelectItem value="Parent">Parent</SelectItem>
-                      <SelectItem value="Child">Child</SelectItem>
-                      <SelectItem value="Sibling">Sibling</SelectItem>
-                      <SelectItem value="Friend">Friend</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
+                      <SelectItem value="spouse">Spouse</SelectItem>
+                      <SelectItem value="parent">Parent</SelectItem>
+                      <SelectItem value="child">Child</SelectItem>
+                      <SelectItem value="sibling">Sibling</SelectItem>
+                      <SelectItem value="friend">Friend</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>
-                  {fe('emergency_contact_relationship') && (
-                    <p className="text-xs text-rose-600">{fe('emergency_contact_relationship')}</p>
-                  )}
                 </div>
               </div>
 
@@ -298,10 +266,10 @@ export default function SignupPage() {
                 <h3 className="text-lg font-medium text-gray-900">Treatment Information</h3>
 
                 <div className="space-y-2">
-                  <Label htmlFor="treatment_type">Treatment Program</Label>
+                  <Label htmlFor="treatmentPlan">Treatment Program</Label>
                   <Select
-                    value={formData.treatment_type}
-                    onValueChange={(value) => handleInputChange('treatment_type', value)}
+                    value={formData.treatmentPlan}
+                    onValueChange={(value) => handleInputChange("treatmentPlan", value)}
                   >
                     <SelectTrigger className="h-11">
                       <SelectValue placeholder="Select treatment program" />
@@ -313,7 +281,6 @@ export default function SignupPage() {
                       <SelectItem value="Counseling Services">Counseling Services</SelectItem>
                     </SelectContent>
                   </Select>
-                  {fe('treatment_type') && <p className="text-xs text-rose-600">{fe('treatment_type')}</p>}
                 </div>
               </div>
 
@@ -323,14 +290,14 @@ export default function SignupPage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="password">Password (min 8)</Label>
+                    <Label htmlFor="password">Password</Label>
                     <div className="relative">
                       <Input
                         id="password"
-                        type={showPassword ? 'text' : 'password'}
+                        type={showPassword ? "text" : "password"}
                         placeholder="Create a password"
                         value={formData.password}
-                        onChange={(e) => handleInputChange('password', e.target.value)}
+                        onChange={(e) => handleInputChange("password", e.target.value)}
                         required
                         className="h-11 pr-10"
                       />
@@ -342,17 +309,16 @@ export default function SignupPage() {
                         {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
                     </div>
-                    {fe('password') && <p className="text-xs text-rose-600">{fe('password')}</p>}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="confirm_password">Confirm Password</Label>
+                    <Label htmlFor="confirmPassword">Confirm Password</Label>
                     <div className="relative">
                       <Input
-                        id="confirm_password"
-                        type={showConfirmPassword ? 'text' : 'password'}
+                        id="confirmPassword"
+                        type={showConfirmPassword ? "text" : "password"}
                         placeholder="Confirm your password"
-                        value={formData.confirm_password}
-                        onChange={(e) => handleInputChange('confirm_password', e.target.value)}
+                        value={formData.confirmPassword}
+                        onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
                         required
                         className="h-11 pr-10"
                       />
@@ -364,9 +330,6 @@ export default function SignupPage() {
                         {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
                     </div>
-                    {passwordsMismatch && (
-                      <p className="text-xs text-rose-600">Passwords do not match</p>
-                    )}
                   </div>
                 </div>
               </div>
@@ -374,22 +337,15 @@ export default function SignupPage() {
               <Button
                 type="submit"
                 className="w-full h-11 bg-cyan-600 hover:bg-cyan-700 text-white font-medium"
-                disabled={disableSubmit}
-                title={
-                  formData.password.length < 8
-                    ? 'Password must be at least 8 characters'
-                    : passwordsMismatch
-                    ? 'Passwords do not match'
-                    : undefined
-                }
+                disabled={submitting}
               >
-                {submitting ? 'Creating Account...' : 'Create Account'}
+                {submitting ? "Creating Account..." : "Create Account"}
               </Button>
             </form>
 
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-600">
-                Already have an account?{' '}
+                Already have an account?{" "}
                 <Link href="/login" className="text-cyan-600 hover:text-cyan-700 font-medium hover:underline">
                   Sign in
                 </Link>

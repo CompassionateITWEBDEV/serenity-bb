@@ -1,17 +1,19 @@
-import 'server-only';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import "server-only";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-let admin: SupabaseClient | null = null;
+let _client: SupabaseClient | null = null;
 
-export function getSbAdmin(): SupabaseClient {
-  if (admin) return admin;
+export function getSupabaseAdmin(): SupabaseClient {
+  if (_client) return _client;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !service) throw new Error('Admin env not set');
+  const key = process.env.SUPABASE_SERVICE_ROLE; // runtime secret ONLY
 
-  admin = createClient(url, service, {
-    auth: { persistSession: false, autoRefreshToken: false }, // why: no browser session on server
+  if (!url) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+  if (!key) throw new Error("Missing SUPABASE_SERVICE_ROLE");
+
+  _client = createClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
   });
-  return admin;
+  return _client;
 }

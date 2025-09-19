@@ -576,4 +576,3 @@ export function HealthcareMessaging() {
     </div>
   )
 }
-export default HealthcareMessaging; // ← add this

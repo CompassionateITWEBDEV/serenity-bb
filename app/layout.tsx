@@ -1,39 +1,33 @@
-// FILE: app/layout.tsx
-import type React from "react";
-import type { Metadata, Viewport } from "next";
-import { Suspense } from "react";
-import Script from "next/script";
-import {
-  Playfair_Display,
-  Source_Sans_3 as Source_Sans_Pro,
-} from "next/font/google";
-import "./globals.css";
-import Analytics from "./analytics";
-import FormatTimeShim from "./_shims/format-time-shim"; // ensures window.formatTime exists
-import Header from "@/components/header";            // ✅ import directly from UI
+import type React from "react"
+import type { Metadata, Viewport } from "next"
+import { Suspense } from "react"
+import Script from "next/script"
+import { Playfair_Display, Source_Sans_3 as Source_Sans_Pro } from "next/font/google"
+import "./globals.css"
+import Analytics from "./analytics"
 
-const SITE_URL = "https://serenity-b9.onrender.com";
-const ORG_NAME = "Serenity Rehabilitation Center";
-const OG_IMAGE = "/og-image.jpg"; // ensure this exists in /public
+const SITE_URL = "https://serenity-b9.onrender.com" // ← change this to your real domain
+const ORG_NAME = "Serenity Rehabilitation Center"
+const OG_IMAGE = "/og-image.jpg" // 1200x630 image in /public
 
 const playfair = Playfair_Display({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-playfair",
-});
+})
 
 const sourceSans = Source_Sans_Pro({
   subsets: ["latin"],
   weight: ["400", "600"],
   display: "swap",
   variable: "--font-source-sans",
-});
+})
 
 export const viewport: Viewport = {
   themeColor: "#0ea5e9",
   width: "device-width",
   initialScale: 1,
-};
+}
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -55,7 +49,13 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: ORG_NAME }],
   alternates: { canonical: SITE_URL },
-  verification: { google: "VrzkpR-U5IhfEdHyVKq7C0uqSyX3_Hp46XGQMOQYVjQ" },
+
+  /** ✅ ADD THIS BLOCK **/
+  verification: {
+    google: "VrzkpR-U5IhfEdHyVKq7C0uqSyX3_Hp46XGQMOQYVjQ"
+    // bing: "optional-bing-code"
+  },
+
   openGraph: {
     type: "website",
     url: SITE_URL,
@@ -70,35 +70,29 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: `${ORG_NAME} - Lead Recovery Treatment`,
     description:
-    "Confidential assessments, licensed clinicians, and patient-centered rehab care.",
+      "Confidential assessments, licensed clinicians, and patient-centered rehab care.",
     images: [OG_IMAGE],
   },
   icons: {
     icon: [
       { url: "/favicon.ico" },
-      { url: "/serenity.png", type: "image/png", sizes: "32x32" },
-      { url: "/icon-192.png", type: "image/png", sizes: "192x192" },
-      { url: "/icon-512.png", type: "image/png", sizes: "512x512" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
     ],
-    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    apple: [{ url: "/apple-touch-icon.png" }],
   },
   category: "healthcare",
   referrer: "strict-origin-when-cross-origin",
-};
+}
+
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
+  const GA_ID = process.env.NEXT_PUBLIC_GA_ID
 
   return (
     <html lang="en" className={`${playfair.variable} ${sourceSans.variable} antialiased`}>
       <body>
-        {/* Why: provide a consistent global time formatter for client components */}
-        <FormatTimeShim />
-
-        {/* Global header — appears on every page */}
-        <Header />
-
-        {/* Analytics (optional) */}
+        {/* Google Analytics (only inject if configured) */}
         {GA_ID && (
           <>
             <Script
@@ -106,21 +100,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               strategy="afterInteractive"
             />
             <Script id="ga-init" strategy="afterInteractive">
-              {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{ anonymize_ip: true });`}
+              {`
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+                gtag('config', '${GA_ID}', { anonymize_ip: true });
+              `}
             </Script>
           </>
         )}
+
+        {/* Wrap any client component that may use useSearchParams/usePathname in Suspense */}
         <Suspense fallback={null}>
           <Analytics />
         </Suspense>
 
-        {/* Page content */}
         {children}
       </body>
     </html>
-  );
+  )
 }
-
-/* Alternative: delete `icons` above and add:
-   - app/icon.png (512x512)
-   Next.js will auto-generate favicons. */

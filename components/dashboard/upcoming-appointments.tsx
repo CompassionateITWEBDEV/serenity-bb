@@ -1,86 +1,111 @@
-"use client";
-import React, { useMemo } from "react";
-import { usePatientOverview } from "@/context/patient-overview-context";
-
-type Appt = {
-  id: string | number;
-  title: string;
-  at: string;
-  provider?: string | null;
-  location?: string | null;
-  status: "Confirmed" | "Pending" | "Cancelled";
-};
-
-function ApptBadge({ status }: { status: Appt["status"] }) {
-  const map = {
-    Confirmed: "bg-emerald-100 text-emerald-700",
-    Pending: "bg-amber-100 text-amber-700",
-    Cancelled: "bg-rose-100 text-rose-700",
-  } as const;
-  return <span className={`px-2 py-1 rounded-full text-xs font-medium ${map[status]}`}>{status}</span>;
-}
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Calendar, Clock, MapPin, Video } from "lucide-react"
 
 export function UpcomingAppointments() {
-  const { overview, loading, error } = usePatientOverview();
+  const appointments = [
+    {
+      id: 1,
+      title: "Individual Therapy Session",
+      therapist: "Dr. Sarah Johnson",
+      date: "Tomorrow",
+      time: "2:00 PM - 3:00 PM",
+      type: "in-person",
+      location: "Room 205",
+      status: "confirmed",
+    },
+    {
+      id: 2,
+      title: "Group Therapy",
+      therapist: "Dr. Michael Chen",
+      date: "Friday, Feb 16",
+      time: "10:00 AM - 11:30 AM",
+      type: "in-person",
+      location: "Group Room A",
+      status: "confirmed",
+    },
+    {
+      id: 3,
+      title: "Psychiatrist Consultation",
+      therapist: "Dr. Emily Rodriguez",
+      date: "Monday, Feb 19",
+      time: "1:00 PM - 1:30 PM",
+      type: "virtual",
+      location: "Video Call",
+      status: "pending",
+    },
+  ]
 
-  if (loading && !overview) {
-    return (
-      <div className="rounded-2xl shadow p-5">
-        <div className="h-5 w-56 bg-gray-200 rounded animate-pulse mb-4" />
-        <div className="space-y-3">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="h-20 w-full bg-gray-200 rounded animate-pulse" />
-          ))}
-        </div>
-      </div>
-    );
+  const getTypeIcon = (type: string) => {
+    return type === "virtual" ? (
+      <Video className="h-4 w-4 text-blue-600" />
+    ) : (
+      <MapPin className="h-4 w-4 text-green-600" />
+    )
   }
-  if (error && !overview) {
-    return <div className="rounded-2xl shadow p-5 text-sm text-red-600">{error}</div>;
-  }
 
-  const appts: Appt[] = useMemo(() => {
-    const list = (overview as any)?.appointments as Appt[] | undefined;
-    if (!Array.isArray(list)) return [];
-    return list
-      .filter((a) => a && typeof a.at === "string")
-      .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
-      .slice(0, 3);
-  }, [overview]);
-
-  if (appts.length === 0) {
-    return <div className="rounded-2xl shadow p-5 text-sm text-gray-600">No upcoming appointments.</div>;
+  const getStatusBadge = (status: string) => {
+    return status === "confirmed" ? (
+      <Badge variant="secondary" className="bg-green-100 text-green-800">
+        Confirmed
+      </Badge>
+    ) : (
+      <Badge variant="outline">Pending</Badge>
+    )
   }
 
   return (
-    <div className="rounded-2xl shadow p-5">
-      <h2 className="text-lg font-semibold mb-4">Upcoming Appointments</h2>
-      <div className="space-y-4">
-        {appts.map((a) => {
-          const d = new Date(a.at);
-          const dateStr = Number.isFinite(d.getTime()) ? d.toLocaleDateString() : a.at;
-          const timeStr = Number.isFinite(d.getTime())
-            ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-            : "";
-          return (
-            <div key={a.id} className="rounded-lg border p-4">
-              <div className="flex items-center justify-between">
-                <div className="font-medium">
-                  {a.title}
-                  {a.provider ? ` with ${a.provider}` : ""}
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <div className="bg-indigo-100 p-2 rounded-lg">
+            <Calendar className="h-5 w-5 text-indigo-600" />
+          </div>
+          Upcoming Appointments
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          {appointments.map((appointment) => (
+            <div key={appointment.id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <h4 className="font-medium text-gray-900">{appointment.title}</h4>
+                  <p className="text-sm text-gray-600">with {appointment.therapist}</p>
                 </div>
-                <ApptBadge status={a.status} />
+                {getStatusBadge(appointment.status)}
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-gray-700">
-                <div className="flex items-center gap-1">📅 {dateStr}</div>
-                {timeStr && <div className="flex items-center gap-1">⏰ {timeStr}</div>}
-                {a.location && <div className="flex items-center gap-1">📍 {a.location}</div>}
+
+              <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
+                <div className="flex items-center gap-1">
+                  <Calendar className="h-4 w-4" />
+                  {appointment.date}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Clock className="h-4 w-4" />
+                  {appointment.time}
+                </div>
+                <div className="flex items-center gap-1">
+                  {getTypeIcon(appointment.type)}
+                  {appointment.location}
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline">
+                  Reschedule
+                </Button>
+                {appointment.type === "virtual" && (
+                  <Button size="sm" className="bg-blue-600 hover:bg-blue-700">
+                    Join Call
+                  </Button>
+                )}
               </div>
             </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
-export default UpcomingAppointments;

@@ -1,15 +1,12 @@
-// lib/supabase-browser.ts
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from "@supabase/supabase-js";
 
-let client: ReturnType<typeof createClient> | null = null
+// ✅ Explicitly assert environment variables
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
 
-export function getSupabaseBrowserClient() {
-  if (!client) {
-    client = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { auth: { storageKey: 'serenity-auth', persistSession: true, autoRefreshToken: true } }
-    )
-  }
-  return client
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error("❌ Missing Supabase environment variables");
 }
+
+// ✅ Guaranteed non-null Supabase client
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);

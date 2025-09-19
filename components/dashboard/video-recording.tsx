@@ -12,6 +12,5 @@ interface VideoRecording {
 }
 
 export function VideoRecording() {
-  return <RealTimeVideoSystem />;
+  return <RealTimeVideoSystem />
 }
-export default VideoRecording;   // ← add this
