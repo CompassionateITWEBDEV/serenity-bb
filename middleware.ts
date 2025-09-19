@@ -1,10 +1,11 @@
+// /middleware.ts
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(request: NextRequest) {
   const { pathname, origin } = request.nextUrl;
 
-  // skip assets/api/next internals early
+  // Skip assets/api
   if (
     pathname.startsWith("/api") ||
     pathname.startsWith("/_next") ||
@@ -15,27 +16,32 @@ export async function middleware(request: NextRequest) {
   }
 
   const response = NextResponse.next();
+
+  // Real Supabase session (cookies)
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get: (key) => request.cookies.get(key)?.value,
-        set: (key, value, options) => response.cookies.set(key, value, options),
-        remove: (key, options) => response.cookies.set(key, "", { ...options, maxAge: 0 }),
+        get: (k) => request.cookies.get(k)?.value,
+        set: (k, v, o) => response.cookies.set(k, v, o),
+        remove: (k, o) => response.cookies.set(k, "", { ...o, maxAge: 0 }),
       },
     }
   );
-
   const { data } = await supabase.auth.getUser();
-  const isAuthed = !!data?.user;
+  const hasSupabase = !!data?.user;
+
+  // Accept your legacy app cookie too, so dashboard loads right after login
+  const hasAppCookie =
+    !!(request.cookies.get("auth_token")?.value || request.cookies.get("patient_auth")?.value);
+
+  const isAuthed = hasSupabase || hasAppCookie;
 
   const isProtected = pathname.startsWith("/dashboard");
   const isPublic = pathname === "/login" || pathname === "/signup";
 
-  // protect dashboard routes
   if (isProtected && !isAuthed) {
-    // honor JSON clients (e.g., fetch) by returning 401 instead of HTML redirect
     const wantsJson = (request.headers.get("accept") || "").includes("application/json");
     if (wantsJson) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     const url = new URL("/login", origin);
@@ -43,7 +49,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // if already signed in, keep them out of login/signup
   if (isPublic && isAuthed) {
     return NextResponse.redirect(new URL("/dashboard", origin));
   }
