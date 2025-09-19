@@ -1,19 +1,27 @@
-// app/layout.tsx
+// FILE: app/layout.tsx
 import type React from "react";
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import Script from "next/script";
-import { Playfair_Display, Source_Sans_3 as Source_Sans_Pro } from "next/font/google";
+import {
+  Playfair_Display,
+  Source_Sans_3 as Source_Sans_Pro,
+} from "next/font/google";
 import "./globals.css";
 import Analytics from "./analytics";
 import FormatTimeShim from "./_shims/format-time-shim"; // ensures window.formatTime exists
-import Header from "@/components/header";               // ← global header (renders avatar)
+import Header from "@/components/ui/header";            // ✅ import directly from UI
 
 const SITE_URL = "https://serenity-b9.onrender.com";
 const ORG_NAME = "Serenity Rehabilitation Center";
-const OG_IMAGE = "/og-image.jpg";
+const OG_IMAGE = "/og-image.jpg"; // ensure this exists in /public
 
-const playfair = Playfair_Display({ subsets: ["latin"], display: "swap", variable: "--font-playfair" });
+const playfair = Playfair_Display({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-playfair",
+});
+
 const sourceSans = Source_Sans_Pro({
   subsets: ["latin"],
   weight: ["400", "600"],
@@ -62,7 +70,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: `${ORG_NAME} - Lead Recovery Treatment`,
     description:
-      "Confidential assessments, licensed clinicians, and patient-centered rehab care.",
+    "Confidential assessments, licensed clinicians, and patient-centered rehab care.",
     images: [OG_IMAGE],
   },
   icons: {
@@ -84,10 +92,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${playfair.variable} ${sourceSans.variable} antialiased`}>
       <body>
-        {/* Global helpers first */}
+        {/* Why: provide a consistent global time formatter for client components */}
         <FormatTimeShim />
 
-        {/* Global header — appears once on every page; avatar listens for "avatar-changed" */}
+        {/* Global header — appears on every page */}
         <Header />
 
         {/* Analytics (optional) */}
@@ -113,7 +121,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   );
 }
 
-/* Alternative (simplest): delete `icons` above and add one file:
-   - app/icon.png (512x512 square)
-   Next.js will auto-generate the favicon used at the left of the tab.
-*/
+/* Alternative: delete `icons` above and add:
+   - app/icon.png (512x512)
+   Next.js will auto-generate favicons. */
