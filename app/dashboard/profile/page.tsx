@@ -4,7 +4,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { supabase } from "@/lib/supabase/client";
-
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,13 +13,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-
 import {
   Calendar,
   Phone,
   Mail,
   MapPin,
-  Heart,
   Activity,
   Award,
   Clock,
@@ -32,28 +29,27 @@ import {
   CheckCircle,
 } from "lucide-react";
 
-/** ---- Types from API payload ---- */
 type PatientInfo = {
   id?: string;
   firstName: string;
   lastName: string;
   email: string;
-  phone: string;
-  dateOfBirth: string;
-  address: string;
+  phone?: string | null;
+  phoneNumber?: string | null;
+  dateOfBirth?: string | null;
+  address?: string | null;
   emergencyContact?: { name?: string; phone?: string; relationship?: string } | null;
-  admissionDate: string;
-  treatmentType: string;
-  primaryPhysician: string;
-  counselor: string;
-  avatar?: string | null;
+  admissionDate?: string | null;
+  treatmentType?: string | null;
   treatmentPlan?: string | null;
+  primaryPhysician?: string | null;
+  counselor?: string | null;
+  avatar?: string | null;
   joinDate?: string | null;
-  phoneNumber?: string | null; // some projects use this name
 };
 
 type Achievement = { id: number | string; title: string; description: string; icon: string; date: string };
-type HealthMetric = { label: string; value: number; color?: string };
+type HealthMetric = { label: string; value: number };
 type ActivityItem = { id: number | string; activity: string; time: string; type: "wellness" | "therapy" | "medical" | "assessment" };
 
 type ProfilePayload = {
@@ -63,7 +59,6 @@ type ProfilePayload = {
   recentActivity: ActivityItem[];
 };
 
-/** ---- Validation for edits ---- */
 const EditSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
@@ -82,19 +77,16 @@ async function getAccessToken(): Promise<string | null> {
 }
 
 export default function ProfilePage() {
-  // UI state
   const [activeTab, setActiveTab] = useState<"overview" | "medical" | "achievements" | "activity">("overview");
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
-  // Data
   const [patient, setPatient] = useState<PatientInfo | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [healthMetrics, setHealthMetrics] = useState<HealthMetric[]>([]);
   const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
 
-  // Edit form
   const [editForm, setEditForm] = useState({ firstName: "", lastName: "", phoneNumber: "", dateOfBirth: "" });
   const firstInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -109,10 +101,6 @@ export default function ProfilePage() {
           cache: "no-store",
           signal: ac.signal,
         });
-        if (res.status === 401) {
-          setStatus({ type: "error", message: "Session expired or not found. Please sign in again." });
-          return;
-        }
         if (!res.ok) throw new Error((await res.text()) || res.statusText);
         const json = (await res.json()) as ProfilePayload;
         setPatient(json.patientInfo);
@@ -121,7 +109,6 @@ export default function ProfilePage() {
         setRecentActivity(json.recentActivity);
       } catch (e) {
         setStatus({ type: "error", message: e instanceof Error ? e.message : "Failed to load profile." });
-        // keep page usable
         setPatient({
           firstName: "",
           lastName: "",
@@ -130,10 +117,7 @@ export default function ProfilePage() {
           dateOfBirth: "",
           address: "",
           emergencyContact: null,
-          admissionDate: "",
           treatmentType: "Outpatient",
-          primaryPhysician: "",
-          counselor: "",
         });
       } finally {
         setLoading(false);
@@ -142,7 +126,7 @@ export default function ProfilePage() {
     return () => ac.abort();
   }, []);
 
-  function beginEdit() {
+  function startEdit() {
     if (!patient) return;
     setEditForm({
       firstName: patient.firstName || "",
@@ -151,15 +135,11 @@ export default function ProfilePage() {
       dateOfBirth: patient.dateOfBirth || "",
     });
     setIsEditing(true);
-    setActiveTab("medical");
-    setStatus(null);
+    setActiveTab("medical"); // focus the *single* edit area
     setTimeout(() => firstInputRef.current?.focus(), 0);
   }
 
-  const isValid = useMemo(() => {
-    const r = EditSchema.safeParse(editForm);
-    return r.success;
-  }, [editForm]);
+  const isValid = useMemo(() => EditSchema.safeParse(editForm).success, [editForm]);
 
   const isDirty = useMemo(() => {
     if (!patient) return false;
@@ -177,10 +157,7 @@ export default function ProfilePage() {
       const token = await getAccessToken();
       const res = await fetch("/api/profile", {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         credentials: "include",
         body: JSON.stringify({
           firstName: editForm.firstName,
@@ -189,10 +166,6 @@ export default function ProfilePage() {
           dateOfBirth: editForm.dateOfBirth,
         }),
       });
-      if (res.status === 401) {
-        setStatus({ type: "error", message: "Session expired. Please sign in again." });
-        return;
-      }
       if (!res.ok) throw new Error((await res.text()) || res.statusText);
 
       setPatient({
@@ -231,26 +204,19 @@ export default function ProfilePage() {
     );
   }
 
-  // demo data for static sections
   const demoAchievements: Achievement[] = [
     { id: 1, title: "30 Days Clean", description: "Completed 30 consecutive days", icon: "🏆", date: "2024-04-01" },
     { id: 2, title: "Mindfulness Master", description: "Completed 50 meditation sessions", icon: "🧘", date: "2024-03-15" },
   ];
-  const demoMetrics: HealthMetric[] =
-    healthMetrics?.length ? healthMetrics : [{ label: "Overall Progress", value: 78 }];
-
+  const demoMetrics: HealthMetric[] = healthMetrics?.length ? healthMetrics : [{ label: "Overall Progress", value: 78 }];
   const demoActivity: ActivityItem[] =
-    recentActivity?.length
-      ? recentActivity
-      : [{ id: 1, activity: "Completed mindfulness session", time: "2 hours ago", type: "wellness" }];
+    recentActivity?.length ? recentActivity : [{ id: 1, activity: "Completed mindfulness session", time: "2 hours ago", type: "wellness" }];
 
   return (
     <div className="container mx-auto p-6 max-w-6xl">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
-          <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
+        <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
       </div>
 
       {status && (
@@ -263,7 +229,7 @@ export default function ProfilePage() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left column */}
+        {/* LEFT: read-only profile overview (NO inputs, NO Save/Cancel) */}
         <div className="lg:col-span-1">
           <Card>
             <CardHeader className="text-center">
@@ -285,81 +251,29 @@ export default function ProfilePage() {
                 <Badge variant="outline">Active</Badge>
               </div>
             </CardHeader>
-
             <CardContent className="space-y-4">
-              {!isEditing ? (
-                <>
-                  <div className="flex items-center gap-3">
-                    <Mail className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm">{patient.email || "—"}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Phone className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm">{patient.phone || patient.phoneNumber || "—"}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Calendar className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm">Born {patient.dateOfBirth || "—"}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <MapPin className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm">Emergency: {patient.emergencyContact?.name || "—"}</span>
-                  </div>
-                </>
-              ) : (
-                <div className="grid grid-cols-1 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="firstName">First Name</Label>
-                    <Input
-                      id="firstName"
-                      ref={firstInputRef}
-                      value={editForm.firstName}
-                      onChange={(e) => setEditForm((p) => ({ ...p, firstName: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lastName">Last Name</Label>
-                    <Input id="lastName" value={editForm.lastName} onChange={(e) => setEditForm((p) => ({ ...p, lastName: e.target.value }))} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="phoneNumber">Phone Number</Label>
-                    <Input
-                      id="phoneNumber"
-                      value={editForm.phoneNumber}
-                      onChange={(e) => setEditForm((p) => ({ ...p, phoneNumber: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="dateOfBirth">Date of Birth</Label>
-                    <Input
-                      id="dateOfBirth"
-                      type="date"
-                      value={editForm.dateOfBirth}
-                      onChange={(e) => setEditForm((p) => ({ ...p, dateOfBirth: e.target.value }))}
-                    />
-                  </div>
-                </div>
-              )}
+              <div className="flex items-center gap-3">
+                <Mail className="h-4 w-4 text-gray-500" />
+                <span className="text-sm">{patient.email || "—"}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Phone className="h-4 w-4 text-gray-500" />
+                <span className="text-sm">{patient.phone || patient.phoneNumber || "—"}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Calendar className="h-4 w-4 text-gray-500" />
+                <span className="text-sm">Born {patient.dateOfBirth || "—"}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <MapPin className="h-4 w-4 text-gray-500" />
+                <span className="text-sm">Emergency: {patient.emergencyContact?.name || "—"}</span>
+              </div>
             </CardContent>
-
-            <CardFooter className="flex gap-2">
-              {!isEditing ? (
-                <Button className="w-full" onClick={beginEdit}>
-                  <Edit className="h-4 w-4 mr-2" />
-                  Edit Profile
-                </Button>
-              ) : (
-                <>
-                  <Button className="flex-1" onClick={save} disabled={!isValid || !isDirty}>
-                    <Save className="h-4 w-4 mr-2" />
-                    Save
-                  </Button>
-                  <Button className="flex-1" variant="outline" onClick={cancel}>
-                    <X className="h-4 w-4 mr-2" />
-                    Cancel
-                  </Button>
-                </>
-              )}
+            <CardFooter>
+              <Button className="w-full" onClick={startEdit}>
+                <Edit className="h-4 w-4 mr-2" />
+                Edit Profile
+              </Button>
             </CardFooter>
           </Card>
 
@@ -371,20 +285,20 @@ export default function ProfilePage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {demoMetrics.map((metric, index) => (
-                <div key={index}>
+              {demoMetrics.map((m, i) => (
+                <div key={i}>
                   <div className="flex justify-between text-sm mb-1">
-                    <span>{metric.label}</span>
-                    <span>{metric.value}%</span>
+                    <span>{m.label}</span>
+                    <span>{m.value}%</span>
                   </div>
-                  <Progress value={metric.value} className="h-2" />
+                  <Progress value={m.value} className="h-2" />
                 </div>
               ))}
             </CardContent>
           </Card>
         </div>
 
-        {/* Right column */}
+        {/* RIGHT: tabs (only Medical tab contains inputs + Save/Cancel) */}
         <div className="lg:col-span-2">
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="space-y-6">
             <TabsList className="grid w-full grid-cols-4">
@@ -465,6 +379,7 @@ export default function ProfilePage() {
                           <Label htmlFor="fn">First Name</Label>
                           <Input
                             id="fn"
+                            ref={firstInputRef}
                             value={isEditing ? editForm.firstName : patient.firstName}
                             onChange={(e) => isEditing && setEditForm((p) => ({ ...p, firstName: e.target.value }))}
                             disabled={!isEditing}
@@ -516,7 +431,9 @@ export default function ProfilePage() {
                     </div>
                   </div>
                 </CardContent>
-                {isEditing && (
+
+                {/** Only place with Save/Cancel */}
+                {isEditing ? (
                   <CardFooter className="flex gap-2 justify-end">
                     <Button variant="outline" onClick={cancel}>
                       <X className="h-4 w-4 mr-2" />
@@ -525,6 +442,13 @@ export default function ProfilePage() {
                     <Button onClick={save} disabled={!isValid || !isDirty}>
                       <Save className="h-4 w-4 mr-2" />
                       Save
+                    </Button>
+                  </CardFooter>
+                ) : (
+                  <CardFooter className="justify-end">
+                    <Button variant="secondary" onClick={startEdit}>
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit These Details
                     </Button>
                   </CardFooter>
                 )}
@@ -562,29 +486,29 @@ export default function ProfilePage() {
                   <CardTitle>Recent Activity</CardTitle>
                   <CardDescription>Your recent interactions and progress updates</CardDescription>
                 </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {(demoActivity).map((item) => (
-                    <div key={item.id} className="flex items-center gap-4 p-3 border rounded-lg">
-                      <div
-                        className={`w-2 h-2 rounded-full ${
-                          item.type === "wellness"
-                            ? "bg-green-500"
-                            : item.type === "therapy"
-                            ? "bg-blue-500"
-                            : item.type === "medical"
-                            ? "bg-red-500"
-                            : "bg-purple-500"
-                        }`}
-                      />
-                      <div className="flex-1">
-                        <p className="font-medium">{item.activity}</p>
-                        <p className="text-sm text-gray-600">{item.time}</p>
+                <CardContent>
+                  <div className="space-y-4">
+                    {(recentActivity.length ? recentActivity : demoActivity).map((item) => (
+                      <div key={item.id} className="flex items-center gap-4 p-3 border rounded-lg">
+                        <div
+                          className={`w-2 h-2 rounded-full ${
+                            item.type === "wellness"
+                              ? "bg-green-500"
+                              : item.type === "therapy"
+                              ? "bg-blue-500"
+                              : item.type === "medical"
+                              ? "bg-red-500"
+                              : "bg-purple-500"
+                          }`}
+                        />
+                        <div className="flex-1">
+                          <p className="font-medium">{item.activity}</p>
+                          <p className="text-sm text-gray-600">{item.time}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
+                    ))}
+                  </div>
+                </CardContent>
               </Card>
             </TabsContent>
           </Tabs>
