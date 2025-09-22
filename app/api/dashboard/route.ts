@@ -1,4 +1,4 @@
-// app/api/dashboard/route.ts
+// app/api/dashboard/route.ts   (or src/app/... if you use src/)
 import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
@@ -24,23 +24,21 @@ export async function GET() {
     },
   });
 
-  // ✅ Accept Bearer or cookies
+  // ✅ Accept Bearer OR cookies
   const authHeader = headers().get("authorization") || "";
   const bearer = authHeader.toLowerCase().startsWith("bearer ")
     ? authHeader.slice(7).trim()
     : null;
 
-  // If a Bearer token is present, validate against it; otherwise use cookies
-  const {
-    data: { user },
-    error: authErr,
-  } = bearer ? await supabase.auth.getUser(bearer) : await supabase.auth.getUser();
+  const { data: ures, error: authErr } = bearer
+    ? await supabase.auth.getUser(bearer)
+    : await supabase.auth.getUser();
 
+  const user = ures?.user;
   if (authErr || !user) return json({ error: "Unauthorized" }, 401);
-
   const pid = user.id;
 
-  // --- fetch everything in parallel ---
+  // Fetch all pieces in parallel
   const [
     overview,
     goals,
@@ -82,6 +80,7 @@ export async function GET() {
       .limit(10),
   ]);
 
+  // Bubble DB errors
   for (const r of [overview, goals, milestones, appts, tokens, weekly, notices, txns]) {
     if ((r as any).error) return json({ error: (r as any).error.message }, 500);
   }
