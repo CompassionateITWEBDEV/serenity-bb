@@ -2,6 +2,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createBrowserClient } from "@supabase/ssr";
+
+const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export type DashboardData = {
   kpis: { sessions: number; goals: number; tokens: number; progressPercent: number; unreadMessages: number };
@@ -27,10 +33,20 @@ export function useDashboardData() {
       setLoading(true);
       setError(null);
       try {
+        // 🔑 include access token to authenticate the API route
+        const { data: sessionRes } = await supabase.auth.getSession();
+        const token = sessionRes.session?.access_token;
+
         const res = await fetch("/api/dashboard", {
-          headers: { Accept: "application/json" },
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           cache: "no-store",
+          credentials: "include",
         });
+
         const ct = res.headers.get("content-type") || "";
         if (!ct.includes("application/json")) {
           const txt = await res.text().catch(() => "");
@@ -48,5 +64,5 @@ export function useDashboardData() {
     })();
   }, []);
 
-  return { data, error, loading, refresh: async () => { fetchedRef.current = false; } };
+  return { data, error, loading };
 }
