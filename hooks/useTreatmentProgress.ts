@@ -1,10 +1,28 @@
-"use client"
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-// IMPORTANT: adjust this import path to wherever your file lives.
-// If your file is /supabase-browser.ts, use "@/supabase-browser".
-import { supabase } from "@/supabase-browser"
-import type { Milestone, PatientProfile } from "@/types/treatment"
+import { supabase } from "@/supabase-browser" // ✅ fixed path to the new file
+import type { PostgrestError } from "@supabase/supabase-js"
+
+type MilestoneStatus = "completed" | "in-progress" | "upcoming"
+
+interface Milestone {
+  id: string
+  patient_id: string
+  title: string
+  description: string | null
+  status: MilestoneStatus
+  date: string | null
+  progress: number | null
+  sort_order: number | null
+  created_at: string
+  updated_at: string | null
+}
+
+interface PatientProfile {
+  id: string
+  full_name: string | null
+  onboarded_at: string | null
+  is_active: boolean | null
+}
 
 interface UseTreatmentProgressResult {
   loading: boolean
@@ -16,8 +34,7 @@ interface UseTreatmentProgressResult {
 }
 
 function deriveIsNewPatient(profile: PatientProfile | null, milestones: Milestone[]) {
-  if (!profile) return milestones.length === 0
-  if (!profile.onboarded_at) return true
+  if (!profile?.onboarded_at) return true
   return milestones.length === 0
 }
 
@@ -39,7 +56,7 @@ export function useTreatmentProgress(patientId?: string): UseTreatmentProgressRe
         pid = data.user?.id ?? null
         pidRef.current = pid
       }
-      if (!pid) throw new Error("No authenticated patient.")
+      if (!pid) throw new Error("Not authenticated.")
 
       const [{ data: profile, error: pErr }, { data: ms, error: mErr }] = await Promise.all([
         supabase.from("patients").select("*").eq("id", pid).maybeSingle(),
@@ -51,8 +68,8 @@ export function useTreatmentProgress(patientId?: string): UseTreatmentProgressRe
           .order("created_at", { ascending: true }),
       ])
 
-      if (pErr) throw pErr
-      if (mErr) throw mErr
+      if (pErr as PostgrestError) throw pErr
+      if (mErr as PostgrestError) throw mErr
 
       setPatient((profile as PatientProfile) ?? null)
       setMilestones((ms as Milestone[]) ?? [])
@@ -78,12 +95,12 @@ export function useTreatmentProgress(patientId?: string): UseTreatmentProgressRe
         (payload) => {
           setMilestones((prev) => {
             let next = prev.slice()
-            if (payload.eventType === "INSERT") {
-              next.push(payload.new as Milestone)
-            } else if (payload.eventType === "UPDATE") {
+            if (payload.eventType === "INSERT") next.push(payload.new as Milestone)
+            if (payload.eventType === "UPDATE") {
               const idx = next.findIndex((m) => m.id === (payload.new as any).id)
               if (idx >= 0) next[idx] = payload.new as Milestone
-            } else if (payload.eventType === "DELETE") {
+            }
+            if (payload.eventType === "DELETE") {
               next = next.filter((m) => m.id !== (payload.old as any).id)
             }
             next.sort((a, b) => {
