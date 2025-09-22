@@ -1,10 +1,10 @@
-// path: app/dashboard/page.tsx
+// app/dashboard/page.tsx
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
-import { useDashboardData } from "./useDashboardData";
+import { useDashboardData } from "@/hooks/use-dashboard-data"; // ✅ fixed import
 
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { DashboardStats } from "@/components/dashboard/dashboard-stats";
@@ -18,13 +18,13 @@ import { SubmissionHistory } from "@/components/dashboard/submission-history";
 import { HealthcareMessaging } from "@/components/dashboard/healthcare-messaging";
 import { GroupChat } from "@/components/dashboard/group-chat";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
 
 export default function DashboardPage() {
   const { isAuthenticated, loading, patient } = useAuth();
   const router = useRouter();
-  const { data, error, loading: dataLoading } = useDashboardData();
+  const { data, error, loading: dataLoading } = useDashboardData({ refreshOnFocus: true });
 
-  // Redirect unauthenticated users once (no flicker)
   useEffect(() => {
     if (!loading && !isAuthenticated) router.replace("/login");
   }, [loading, isAuthenticated, router]);
@@ -55,7 +55,6 @@ export default function DashboardPage() {
       <DashboardHeader patient={patient} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome */}
         <div className="mb-8">
           <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">Welcome back, {firstName}!</h1>
           <p className="text-gray-600">Here’s your recovery progress and upcoming activities.</p>
@@ -77,7 +76,6 @@ export default function DashboardPage() {
 
           <TabsContent value="overview" className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Left column */}
               <div className="lg:col-span-2 space-y-8">
                 <DashboardStats
                   sessions={data?.kpis.sessions ?? 0}
@@ -90,7 +88,6 @@ export default function DashboardPage() {
                 <UpcomingAppointments items={data?.upcomingAppointments ?? []} />
               </div>
 
-              {/* Right column */}
               <div className="space-y-8">
                 <QuickActions
                   tokenTotal={data?.tokenStats.total ?? 0}
