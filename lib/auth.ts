@@ -1,8 +1,9 @@
-// lib/auth.ts
+// path: lib/auth.ts
 "use client";
 
-import { createClient, type Session, type User } from "@supabase/supabase-js";
+import type { Session, User } from "@supabase/supabase-js";
 import { apiClient, ApiError, type UserProfile as ServerUserProfile } from "./api-client";
+import { getSupabaseClient } from "@/lib/supabase/client"; // ✅ singleton
 
 /* ===================== Types ===================== */
 
@@ -43,18 +44,16 @@ type ServerUserExtras = {
   avatar?: string | null;
 };
 
-/* ===================== Supabase Client ===================== */
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
-const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string | undefined;
-
-// We run in the browser (client component). Only create client if envs exist.
-const supabase = SUPABASE_URL && SUPABASE_ANON
-  ? createClient(SUPABASE_URL, SUPABASE_ANON)
-  : null;
+/* ===================== Supabase Client (singleton) ===================== */
 
 function supabaseAvailable(): boolean {
-  return !!supabase;
+  try {
+    // Throws if envs are missing; prevents accidental multi-client creation
+    getSupabaseClient();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /* ===================== Mappers ===================== */
@@ -132,17 +131,19 @@ function toPatientFromSupabase(row: PatientRow | null, user: User): Patient {
 }
 
 /* ===================== Storage helpers ===================== */
-
+// Why: keep legacy app behavior without touching Supabase's own cookies
 function saveAuth(patient: Patient, token?: string | null) {
   try {
     const serialized = JSON.stringify(patient);
     localStorage.setItem("patient_auth", serialized);
-    document.cookie = `patient_auth=${serialized}; path=/; max-age=${60 * 60 * 24 * 7}`;
+    document.cookie = `patient_auth=${encodeURIComponent(serialized)}; path=/; max-age=${60 * 60 * 24 * 7}`;
     if (token) {
       localStorage.setItem("auth_token", token);
-      document.cookie = `auth_token=${token}; path=/; max-age=${60 * 60 * 24 * 7}`;
+      document.cookie = `auth_token=${encodeURIComponent(token)}; path=/; max-age=${60 * 60 * 24 * 7}`;
     }
-  } catch {}
+  } catch {
+    // ignore storage errors
+  }
 }
 
 function clearAuth() {
@@ -184,27 +185,19 @@ export class AuthService {
   }
 
   /* ---------- LOGIN ---------- */
-  async login(
-    email: string,
-    password: string
-  ): Promise<{ success: boolean; error?: string }> {
+  async login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
     this.authState.loading = true;
     this.notify();
 
-    /* Prefer Supabase if configured */
+    // Prefer Supabase if configured (singleton)
     if (supabaseAvailable()) {
       try {
-        const { data, error } = await supabase!.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error || !data?.user) {
-          // Fall back to API below
-          throw new Error(error?.message || "Invalid credentials");
-        }
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error || !data?.user) throw new Error(error?.message || "Invalid credentials");
 
-        // Fetch patient row
-        const { data: row } = await supabase!
+        // Fetch patient row (RLS: user must see own row)
+        const { data: row } = await supabase
           .from("patients")
           .select(
             "user_id, first_name, last_name, full_name, email, phone_number, date_of_birth, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, treatment_program, created_at, avatar"
@@ -214,7 +207,7 @@ export class AuthService {
 
         const patient = toPatientFromSupabase(row as PatientRow | null, data.user);
 
-        // Persist (what dashboard expects)
+        // Persist legacy tokens (navbar, etc.)
         const token = data.session?.access_token ?? null;
         saveAuth(patient, token);
 
@@ -222,11 +215,11 @@ export class AuthService {
         this.notify();
         return { success: true };
       } catch (e) {
-        // Continue to API fallback
+        // fall through to API fallback
       }
     }
 
-    /* Fallback to your existing backend API */
+    // Fallback to your existing backend API
     try {
       const auth = await apiClient.login(email, password);
       if (typeof window !== "undefined") {
@@ -235,9 +228,7 @@ export class AuthService {
         } catch {}
       }
 
-      // For API mode, fetch current user and map
-      const userProfile = (await apiClient.getCurrentUser()) as ServerUserProfile &
-        Partial<ServerUserExtras>;
+      const userProfile = (await apiClient.getCurrentUser()) as ServerUserProfile & Partial<ServerUserExtras>;
       const patient = toPatientFromApi(userProfile);
 
       saveAuth(patient, auth.access_token);
@@ -249,15 +240,10 @@ export class AuthService {
       this.notify();
 
       if (error instanceof ApiError && error.status === 0) {
-        // Network/offline fallback (demo)
         return this.fallbackLogin(email, password);
       }
 
-      return {
-        success: false,
-        error:
-          error instanceof ApiError ? error.message : "Invalid email or password",
-      };
+      return { success: false, error: error instanceof ApiError ? error.message : "Invalid email or password" };
     }
   }
 
@@ -268,15 +254,15 @@ export class AuthService {
     this.authState.loading = true;
     this.notify();
 
-    // Prefer Supabase sign-up on client (no service role required)
     if (supabaseAvailable()) {
       try {
+        const supabase = getSupabaseClient();
         const { email, password } = {
           email: patientData.email,
           password: patientData.password || "password123",
         };
 
-        const { data, error } = await supabase!.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
@@ -287,20 +273,16 @@ export class AuthService {
             },
           },
         });
-
         if (error) throw error;
 
-        // If confirmation is enabled and session is null, stop here.
+        // If email confirm is ON, session may be null; stop here.
         if (!data.session || !data.user) {
           this.authState.loading = false;
           this.notify();
-          return {
-            success: true,
-          };
+          return { success: true };
         }
 
-        // RLS policy should allow insert with auth.uid() = user_id
-        await supabase!
+        await supabase
           .from("patients")
           .upsert({
             user_id: data.user.id,
@@ -312,25 +294,22 @@ export class AuthService {
             date_of_birth: patientData.dateOfBirth,
             emergency_contact_name: patientData.emergencyContact?.name ?? null,
             emergency_contact_phone: patientData.emergencyContact?.phone ?? null,
-            emergency_contact_relationship:
-              patientData.emergencyContact?.relationship ?? null,
+            emergency_contact_relationship: patientData.emergencyContact?.relationship ?? null,
             treatment_program: patientData.treatmentPlan,
           })
           .throwOnError();
 
-        // Build Patient and persist
         const patient = toPatientFromSupabase(null, data.user);
         saveAuth(patient, data.session.access_token);
 
         this.authState = { isAuthenticated: true, patient, loading: false };
         this.notify();
         return { success: true };
-      } catch (e: any) {
-        // Fall through to API signup if Supabase path fails
+      } catch {
+        // fall through to API signup
       }
     }
 
-    // Fallback: your backend API
     try {
       await apiClient.register({
         email: patientData.email,
@@ -338,14 +317,12 @@ export class AuthService {
         full_name: `${patientData.firstName} ${patientData.lastName}`,
       });
 
-      // Auto-login
       return this.login(patientData.email, patientData.password || "password123");
     } catch (error) {
       this.authState.loading = false;
       this.notify();
 
       if (error instanceof ApiError && error.status === 0) {
-        // Offline/demo account
         const patient: Patient = {
           id: `demo-${Date.now()}`,
           email: patientData.email,
@@ -364,10 +341,7 @@ export class AuthService {
         return { success: true };
       }
 
-      return {
-        success: false,
-        error: error instanceof ApiError ? error.message : "Registration failed",
-      };
+      return { success: false, error: error instanceof ApiError ? error.message : "Registration failed" };
     }
   }
 
@@ -375,8 +349,11 @@ export class AuthService {
   async logout() {
     if (supabaseAvailable()) {
       try {
-        await supabase!.auth.signOut();
-      } catch {}
+        const supabase = getSupabaseClient();
+        await supabase.auth.signOut();
+      } catch {
+        // ignore
+      }
     }
     clearAuth();
     this.authState = { isAuthenticated: false, patient: null, loading: false };
@@ -390,15 +367,15 @@ export class AuthService {
     this.authState.loading = true;
     this.notify();
 
-    // Prefer Supabase session if available
+    // Prefer Supabase session (singleton client)
     if (supabaseAvailable()) {
       try {
-        const { data } = await supabase!.auth.getSession();
+        const supabase = getSupabaseClient();
+        const { data } = await supabase.auth.getSession();
         const session: Session | null = data.session;
 
         if (session?.user) {
-          // Try to fetch patient row; if none, still map from user meta
-          const { data: row } = await supabase!
+          const { data: row } = await supabase
             .from("patients")
             .select(
               "user_id, first_name, last_name, full_name, email, phone_number, date_of_birth, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, treatment_program, created_at, avatar"
@@ -413,11 +390,11 @@ export class AuthService {
           return;
         }
       } catch {
-        // ignore, try API/local below
+        // continue to legacy fallback
       }
     }
 
-    // API token path (legacy) or local fallback
+    // Legacy/API token path
     const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
     const stored = typeof window !== "undefined" ? localStorage.getItem("patient_auth") : null;
 
@@ -450,10 +427,7 @@ export class AuthService {
   }
 
   /* ---------- DEMO FALLBACK ---------- */
-  private async fallbackLogin(
-    email: string,
-    password: string
-  ): Promise<{ success: boolean; error?: string }> {
+  private async fallbackLogin(email: string, password: string): Promise<{ success: boolean; error?: string }> {
     if (email === "john.doe@email.com" && password === "password123") {
       const patient: Patient = {
         id: "demo-patient-1",
