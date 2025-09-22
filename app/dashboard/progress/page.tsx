@@ -1,7 +1,7 @@
 // path: app/dashboard/progress/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase/client";
@@ -22,7 +22,7 @@ import {
   type Icon as LucideIcon,
 } from "lucide-react";
 
-/* ───────── helpers ───────── */
+/* ===== types & helpers ===== */
 type Trend = "up" | "down";
 type IconName = "Calendar" | "Heart" | "Target" | "CheckCircle";
 
@@ -46,7 +46,7 @@ type ProgressPayload = {
 const iconMap: Record<IconName, LucideIcon> = { Calendar, Heart, Target, CheckCircle };
 const clamp = (n: number, min = 0, max = 100) => Math.max(min, Math.min(max, n));
 
-/** Why: Guard against HTML/redirects; only accept JSON. */
+/** Why: reject HTML/redirects (prevents <!DOCTYPE ...> text). */
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -60,49 +60,32 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(`Non-JSON response ${res.status}: ${text.slice(0, 140)}…`);
   }
   const body = await res.json();
-  if (!res.ok) throw new Error((body && (body.error || body.message)) || `HTTP ${res.status}`);
+  if (!res.ok) throw new Error(body?.error || body?.message || `HTTP ${res.status}`);
   return body as T;
 }
 
-/** Why: Accept either camelCase (your current) or snake_case (direct DB API) */
+/** Why: tolerate snake_case or camelCase payloads. */
 function normalizeProgress(input: any): ProgressPayload {
-  if (!input || typeof input !== "object") {
+  if (!input || typeof input !== "object")
     return { overallProgress: 0, weeklyGoals: [], milestones: [], progressMetrics: [], weeklyData: [] };
-  }
 
-  const overallProgress =
+  const overall =
     input.overallProgress ??
     input.overall_progress ??
     input?.overview?.overall_progress ??
     input?.overview?.overallProgress ??
     0;
 
-  const weeklyGoals =
-    input.weeklyGoals ??
-    input.weekly_goals ??
-    [];
-
-  const milestones =
-    input.milestones ??
-    input.milestones_list ??
-    [];
-
-  const progressMetrics =
-    input.progressMetrics ??
-    input.progress_metrics ??
-    [];
-
-  const weeklyData =
-    input.weeklyData ??
-    input.weekly_data ??
-    [];
-
   return {
-    overallProgress: Number.isFinite(overallProgress) ? Number(overallProgress) : 0,
-    weeklyGoals: Array.isArray(weeklyGoals) ? weeklyGoals : [],
-    milestones: Array.isArray(milestones) ? milestones : [],
-    progressMetrics: Array.isArray(progressMetrics) ? progressMetrics : [],
-    weeklyData: Array.isArray(weeklyData) ? weeklyData : [],
+    overallProgress: Number(overall) || 0,
+    weeklyGoals: Array.isArray(input.weeklyGoals ?? input.weekly_goals) ? (input.weeklyGoals ?? input.weekly_goals) : [],
+    milestones: Array.isArray(input.milestones) ? input.milestones : [],
+    progressMetrics: Array.isArray(input.progressMetrics ?? input.progress_metrics)
+      ? (input.progressMetrics ?? input.progress_metrics)
+      : [],
+    weeklyData: Array.isArray(input.weeklyData ?? input.weekly_data)
+      ? (input.weeklyData ?? input.weekly_data)
+      : [],
   };
 }
 
@@ -110,7 +93,10 @@ export default function ProgressPage() {
   const { isAuthenticated, loading, patient } = useAuth();
   const router = useRouter();
 
-  const [fetching, setFetching] = useState(true);
+  // Stable key: only the id, not the whole object (prevents effect loops).
+  const userId = useMemo(() => (patient?.user_id || patient?.id || null) as string | null, [patient?.user_id, patient?.id]);
+
+  const [initializing, setInitializing] = useState(true); // only for first load
   const [data, setData] = useState<ProgressPayload>({
     overallProgress: 0,
     weeklyGoals: [],
@@ -120,23 +106,25 @@ export default function ProgressPage() {
   });
   const [err, setErr] = useState<string | null>(null);
 
-  // Redirect if not authed OR missing patient
+  // Redirect once when unauthenticated
+  const redirectedRef = useRef(false);
   useEffect(() => {
-    if (!loading && (!isAuthenticated || !patient)) {
+    if (!loading && !isAuthenticated && !redirectedRef.current) {
+      redirectedRef.current = true;
       router.replace("/login");
     }
-  }, [isAuthenticated, loading, patient, router]);
+  }, [loading, isAuthenticated, router]);
 
-  // Load data with strict JSON handling
+  // Fetch once per userId (avoid depending on changing patient object)
+  const fetchedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!isAuthenticated || !patient) return;
+    if (!isAuthenticated || !userId) return;
+    if (fetchedRef.current === userId) return; // already fetched for this user
 
+    fetchedRef.current = userId; // mark before starting to avoid double runs
     const ac = new AbortController();
-    let alive = true;
 
     (async () => {
-      setFetching(true);
-      setErr(null);
       try {
         const { data: sessionRes } = await supabase.auth.getSession();
         const token = sessionRes.session?.access_token;
@@ -147,24 +135,22 @@ export default function ProgressPage() {
           signal: ac.signal,
         });
 
-        if (!alive) return;
         setData(normalizeProgress(payload));
+        setErr(null);
       } catch (e: any) {
-        if (!alive || (e?.name === "AbortError")) return;
+        if (e?.name === "AbortError") return;
         setErr(e?.message || "Failed to load progress");
-        setData({ overallProgress: 0, weeklyGoals: [], milestones: [], progressMetrics: [], weeklyData: [] });
+        // keep whatever we already had; do NOT flip back to global spinner
       } finally {
-        if (alive) setFetching(false);
+        setInitializing(false);
       }
     })();
 
-    return () => {
-      alive = false;
-      ac.abort();
-    };
-  }, [isAuthenticated, patient]);
+    return () => ac.abort();
+  }, [isAuthenticated, userId]);
 
-  if (loading || (isAuthenticated && fetching)) {
+  // First paint: only show spinner once
+  if (loading || (isAuthenticated && initializing)) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center" aria-live="polite" aria-busy="true">
@@ -175,7 +161,7 @@ export default function ProgressPage() {
     );
   }
 
-  if (!isAuthenticated || !patient) {
+  if (!isAuthenticated || !userId) {
     return (
       <div className="min-h-screen bg-gray-50 grid place-items-center">
         <p className="text-gray-600">Redirecting to login…</p>
