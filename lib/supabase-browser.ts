@@ -2,7 +2,7 @@
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js"
 
-// Why: Avoid multiple clients during HMR and across re-renders.
+// Avoid multiple clients during HMR
 declare global {
   // eslint-disable-next-line no-var
   var __SUPABASE_BROWSER__: SupabaseClient | undefined
@@ -11,14 +11,11 @@ declare global {
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL
 const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-// Fail fast in dev; be explicit in prod logs.
 if (!url || !key) {
   const msg = "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY"
   if (process.env.NODE_ENV !== "production") {
     throw new Error(`❌ ${msg}. Check your .env.local and Vercel Project Settings.`)
   } else {
-    // Surface a readable error in prod runtime logs.
-    // Components importing this will still throw when used, which is fine.
     // eslint-disable-next-line no-console
     console.error(`❌ ${msg}.`)
   }
