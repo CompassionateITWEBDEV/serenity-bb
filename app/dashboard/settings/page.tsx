@@ -1,4 +1,5 @@
-"use client"
+// path: app/dashboard/settings/page.tsx
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
@@ -12,10 +13,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Camera, Save, User } from "lucide-react";
 
 /** ──────────────────────────────────────────────────────────────
- *  QUICK CONFIG
- *  ────────────────────────────────────────────────────────────── */
-const UID_COL = "user_id";        // primary key / FK in public.patients
-const USE_SIGNED_URL = false;     // set true only if Storage bucket "avatars" is PRIVATE
+ * QUICK CONFIG
+ * ────────────────────────────────────────────────────────────── */
+const UID_COL = "user_id";
+const USE_SIGNED_URL = false; // set true only if Storage bucket "avatars" is PRIVATE
+const SIGNED_TTL_SECONDS = 60 * 60 * 24; // 24h when using signed URLs
 /** ────────────────────────────────────────────────────────────── */
 
 type FormState = {
@@ -23,10 +25,24 @@ type FormState = {
   lastName: string;
   email: string;
   phoneNumber: string;
-  dateOfBirth: string; // YYYY-MM-DD
+  dateOfBirth: string;
   emergencyName: string;
   emergencyPhone: string;
   bio: string;
+};
+
+type PatientRow = {
+  [UID_COL]: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  phone_number: string | null;
+  date_of_birth: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  bio: string | null;
+  avatar_path: string | null; // ← store path, not URL
+  updated_at?: string | null;
 };
 
 const supabase = createClient(
@@ -34,19 +50,24 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const toISO = (v?: string | null) => {
-  if (!v) return "";
-  const s = String(v).trim();
+const phoneDigitsOnly = (s: string) => s.replace(/\D/g, "");
+const toISO = (s?: string | null) => {
+  if (!s) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
   return m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : s;
 };
+const cacheBust = (url: string) => `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`;
 
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [avatarUrl, setAvatarUrl] = useState<string>(""); // ← no fixed default
+
+  // Persisted path in DB; displayUrl is resolved (public or signed)
+  const [avatarPath, setAvatarPath] = useState<string | null>(null);
+  const [displayUrl, setDisplayUrl] = useState<string>("");
+
   const [form, setForm] = useState<FormState>({
     firstName: "",
     lastName: "",
@@ -57,6 +78,7 @@ export default function SettingsPage() {
     emergencyPhone: "",
     bio: "",
   });
+
   const fileRef = useRef<HTMLInputElement>(null);
 
   const initials = useMemo(() => {
@@ -65,59 +87,65 @@ export default function SettingsPage() {
     return (a + b || "??").toUpperCase();
   }, [form.firstName, form.lastName]);
 
+  // Why: Resolve a fresh URL every time we mount or path changes (fixes “photo gone”).
+  async function resolveAvatarUrl(path: string | null) {
+    if (!path) {
+      setDisplayUrl("");
+      return;
+    }
+    try {
+      if (USE_SIGNED_URL) {
+        const { data, error } = await supabase.storage
+          .from("avatars")
+          .createSignedUrl(path, SIGNED_TTL_SECONDS);
+        if (error) throw error;
+        setDisplayUrl(cacheBust(data!.signedUrl));
+      } else {
+        const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+        setDisplayUrl(cacheBust(data.publicUrl));
+      }
+      if (typeof window !== "undefined") {
+        localStorage.setItem("avatarPath", path);
+      }
+    } catch (e) {
+      console.error("resolveAvatarUrl error:", e);
+      setDisplayUrl("");
+    }
+  }
+
   // Load or seed the patient record
   useEffect(() => {
     (async () => {
+      setLoading(true);
       try {
-        setLoading(true);
-
-        const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
-        if (sessErr || !sessionData?.session?.user) {
-          setLoading(false);
-          return;
-        }
-        const user = sessionData.session.user;
+        const { data: sess } = await supabase.auth.getSession();
+        const user = sess?.session?.user;
+        if (!user) throw new Error("Not authenticated");
         const uid = user.id;
-        const meta: any = user.user_metadata ?? {};
 
-        const selectCols = [
-          UID_COL,
-          "first_name",
-          "last_name",
-          "email",
-          "phone_number",
-          "date_of_birth",
-          "emergency_contact_name",
-          "emergency_contact_phone",
-          "bio",
-          "avatar",
-        ].join(",");
-
-        let { data: row, error: rowErr } = await supabase
-          .from("patients")
-          .select(selectCols)
+        const { data: row, error: rowErr } = await supabase
+          .from<PatientRow>("patients")
+          .select(
+            `${UID_COL},first_name,last_name,email,phone_number,date_of_birth,emergency_contact_name,emergency_contact_phone,bio,avatar_path,updated_at`
+          )
           .eq(UID_COL, uid)
           .maybeSingle();
         if (rowErr) console.error("patients select error:", rowErr);
 
+        const meta = user.user_metadata ?? {};
         const first = row?.first_name ?? meta.firstName ?? meta.first_name ?? "";
         const last = row?.last_name ?? meta.lastName ?? meta.last_name ?? "";
         const email = row?.email ?? user.email ?? "";
         const phone = row?.phone_number ?? meta.phoneNumber ?? meta.phone_number ?? "";
-        const dob =
-          row?.date_of_birth ? toISO(row.date_of_birth) : toISO(meta.dateOfBirth ?? meta.date_of_birth);
-        const ecName =
-          row?.emergency_contact_name ?? meta.emergencyContactName ?? meta.emergency_contact_name ?? "";
+        const dob = row?.date_of_birth ? toISO(row.date_of_birth) : toISO(meta.dateOfBirth ?? meta.date_of_birth);
+        const ecName = row?.emergency_contact_name ?? meta.emergencyContactName ?? meta.emergency_contact_name ?? "";
         const ecPhone =
-          row?.emergency_contact_phone ??
-          meta.emergencyContactPhone ??
-          meta.emergency_contact_phone ??
-          "";
+          row?.emergency_contact_phone ?? meta.emergencyContactPhone ?? meta.emergency_contact_phone ?? "";
         const bio = row?.bio ?? "";
-        const avatar = row?.avatar ?? meta.avatar_url ?? ""; // ← no default file
+        const path = row?.avatar_path ?? null;
 
         if (!row) {
-          const seed: Record<string, any> = {
+          const seed: Partial<PatientRow> = {
             [UID_COL]: uid,
             first_name: first || null,
             last_name: last || null,
@@ -127,29 +155,11 @@ export default function SettingsPage() {
             emergency_contact_name: ecName || null,
             emergency_contact_phone: ecPhone || null,
             bio: bio || null,
-            avatar: avatar || null,
-            created_at: new Date().toISOString(),
+            avatar_path: null, // no photo yet
             updated_at: new Date().toISOString(),
           };
-          const { data: inserted, error: upsertErr } = await supabase
-            .from("patients")
-            .upsert(seed, { onConflict: UID_COL })
-            .select(selectCols)
-            .maybeSingle();
-          if (upsertErr) console.error("patients upsert error:", upsertErr);
-          row = inserted ?? (seed as any);
-        } else {
-          const patch: any = {};
-          if (!row.phone_number && phone) patch.phone_number = phone;
-          if (!row.date_of_birth && dob) patch.date_of_birth = dob;
-          if (!row.emergency_contact_name && ecName) patch.emergency_contact_name = ecName;
-          if (!row.emergency_contact_phone && ecPhone) patch.emergency_contact_phone = ecPhone;
-          if (!row.avatar && avatar) patch.avatar = avatar;
-          if (Object.keys(patch).length) {
-            patch.updated_at = new Date().toISOString();
-            const { error: patchErr } = await supabase.from("patients").update(patch).eq(UID_COL, uid);
-            if (patchErr) console.error("patients patch error:", patchErr);
-          }
+          const ins = await supabase.from("patients").insert(seed).select().single();
+          if (ins.error) console.error("seed insert error:", ins.error);
         }
 
         setForm({
@@ -162,7 +172,14 @@ export default function SettingsPage() {
           emergencyPhone: ecPhone,
           bio,
         });
-        setAvatarUrl(avatar || ""); // ← only set if we actually have one
+
+        // Set and resolve avatar from path
+        const persistedPath =
+          path ??
+          (typeof window !== "undefined" ? localStorage.getItem("avatarPath") || null : null);
+
+        setAvatarPath(persistedPath);
+        await resolveAvatarUrl(persistedPath);
       } catch (err) {
         console.error("initial load error:", err);
       } finally {
@@ -171,10 +188,10 @@ export default function SettingsPage() {
     })();
   }, []);
 
-  const onChange =
-    (k: keyof FormState) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-      setForm((f) => ({ ...f, [k]: e.target.value }));
+  const onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { id, value } = e.target;
+    setForm((f) => ({ ...f, [id]: value }));
+  };
 
   const onSave = async () => {
     setSaving(true);
@@ -183,34 +200,23 @@ export default function SettingsPage() {
       const uid = sess?.session?.user?.id;
       if (!uid) throw new Error("Not authenticated");
 
-      const { error } = await supabase
-        .from("patients")
-        .update({
-          first_name: form.firstName,
-          last_name: form.lastName,
-          email: form.email,
-          phone_number: form.phoneNumber,
-          date_of_birth: form.dateOfBirth || null,
-          emergency_contact_name: form.emergencyName || null,
-          emergency_contact_phone: form.emergencyPhone || null,
-          bio: form.bio || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq(UID_COL, uid);
-      if (error) throw error;
+      const payload: Partial<PatientRow> = {
+        first_name: form.firstName || null,
+        last_name: form.lastName || null,
+        email: form.email || null,
+        phone_number: phoneDigitsOnly(form.phoneNumber) || null,
+        date_of_birth: form.dateOfBirth || null,
+        emergency_contact_name: form.emergencyName || null,
+        emergency_contact_phone: phoneDigitsOnly(form.emergencyPhone) || null,
+        bio: form.bio || null,
+        updated_at: new Date().toISOString(),
+        // avatar_path is updated only on upload/remove
+      };
 
-      // optional: keep auth metadata loosely in sync
-      const { error: authErr } = await supabase.auth.updateUser({
-        data: {
-          first_name: form.firstName,
-          last_name: form.lastName,
-          phone_number: form.phoneNumber || null,
-          date_of_birth: form.dateOfBirth || null,
-          emergency_contact_name: form.emergencyName || null,
-          emergency_contact_phone: form.emergencyPhone || null,
-        },
-      });
-      if (authErr) throw authErr;
+      const upd = await supabase.from("patients").update(payload).eq(UID_COL, uid);
+      if (upd.error) throw upd.error;
+
+      alert("Profile saved.");
     } catch (e: any) {
       console.error("save error:", e);
       alert(`Could not save: ${e?.message ?? "Unknown error"}`);
@@ -237,12 +243,10 @@ export default function SettingsPage() {
       const uid = sess?.session?.user?.id;
       if (!uid) throw new Error("Not authenticated");
 
-      // sanitize filename & build path that matches RLS (no "avatars/" prefix)
+      // Why: Store *path* so we can re-sign or get public URL on demand.
       const safe = file.name.replace(/[^\w.\-]+/g, "_");
       const path = `${uid}/${Date.now()}-${safe}`;
-      console.log({ uid, path });
 
-      // upload
       const up = await supabase.storage.from("avatars").upload(path, file, {
         cacheControl: "3600",
         upsert: true,
@@ -254,23 +258,10 @@ export default function SettingsPage() {
         return;
       }
 
-      // resolve URL (public vs signed)
-      let publicUrl: string;
-      if (USE_SIGNED_URL) {
-        const { data: signed, error: signErr } = await supabase.storage
-          .from("avatars")
-          .createSignedUrl(path, 60 * 60 * 24);
-        if (signErr) throw signErr;
-        publicUrl = signed!.signedUrl;
-      } else {
-        const { data } = supabase.storage.from("avatars").getPublicUrl(path);
-        publicUrl = data.publicUrl;
-      }
-
-      // update DB
+      // Update DB with path only
       const upd = await supabase
-        .from("patients")
-        .update({ avatar: publicUrl, updated_at: new Date().toISOString() })
+        .from<PatientRow>("patients")
+        .update({ avatar_path: path, updated_at: new Date().toISOString() })
         .eq(UID_COL, uid);
       if (upd.error) {
         console.error("DB UPDATE ERROR:", upd.error);
@@ -278,8 +269,9 @@ export default function SettingsPage() {
         return;
       }
 
-      // force the <img> to refresh via cache-buster
-      setAvatarUrl(`${publicUrl}?v=${Date.now()}`);
+      setAvatarPath(path);
+      await resolveAvatarUrl(path); // resolves to public or signed URL
+      alert("Photo updated.");
     } catch (err: any) {
       console.error("avatar upload flow error:", err);
       alert(`Failed to upload photo: ${err?.message ?? "Unknown error"}`);
@@ -289,8 +281,44 @@ export default function SettingsPage() {
     }
   };
 
+  const onRemovePhoto = async () => {
+    if (!avatarPath) return;
+    setUploading(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const uid = sess?.session?.user?.id;
+      if (!uid) throw new Error("Not authenticated");
+
+      // Optional: delete the file (ignore errors to avoid blocking UI)
+      await supabase.storage.from("avatars").remove([avatarPath]);
+
+      // Clear DB path
+      const upd = await supabase
+        .from<PatientRow>("patients")
+        .update({ avatar_path: null, updated_at: new Date().toISOString() })
+        .eq(UID_COL, uid);
+      if (upd.error) throw upd.error;
+
+      setAvatarPath(null);
+      setDisplayUrl("");
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("avatarPath");
+      }
+      alert("Photo removed.");
+    } catch (e: any) {
+      console.error("remove photo error:", e);
+      alert(`Failed to remove photo: ${e?.message ?? "Unknown error"}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="p-6">Loading…</div>;
+  }
+
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
+    <div className="container mx-auto p-6">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
         <p className="text-gray-600 mt-2">Manage your account preferences and privacy settings</p>
@@ -308,97 +336,121 @@ export default function SettingsPage() {
         <TabsContent value="profile">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="h-5 w-5" />
-                Profile Information
-              </CardTitle>
+              <CardTitle>Profile Information</CardTitle>
               <CardDescription>Update your personal information and profile picture</CardDescription>
             </CardHeader>
 
             <CardContent className="space-y-6">
               <div className="flex items-center gap-6">
                 <Avatar className="h-20 w-20">
-                  {/* Only render image when we actually have one */}
-                  {avatarUrl ? (
+                  {/* Why: Do not clear on error; keep path so we can re-resolve next time. */}
+                  {displayUrl ? (
                     <AvatarImage
-                      key={avatarUrl}
-                      src={avatarUrl}
+                      key={displayUrl}
+                      src={displayUrl}
                       alt="Profile picture"
-                      onError={() => setAvatarUrl("")}
+                      onError={() => {
+                        console.warn("Avatar image failed to load; keeping path for future re-resolve.");
+                        setDisplayUrl(""); // just hide image, keep avatarPath untouched
+                      }}
                     />
                   ) : null}
                   <AvatarFallback>{initials}</AvatarFallback>
                 </Avatar>
-                <div>
-                  <Button
-                    variant="outline"
-                    className="mb-2 bg-transparent"
-                    type="button"
-                    onClick={openFilePicker}
-                    disabled={uploading}
-                  >
-                    <Camera className="h-4 w-4 mr-2" />
-                    {uploading ? "Uploading..." : "Change Photo"}
+
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={onPickFile}
+                  />
+                  <Button variant="outline" onClick={openFilePicker} disabled={uploading}>
+                    <Camera className="mr-2 h-4 w-4" />
+                    {uploading ? "Uploading…" : "Change Photo"}
                   </Button>
-                  <p className="text-sm text-gray-600">JPG, GIF or PNG. 1MB max.</p>
-                  <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickFile} />
+                  {avatarPath ? (
+                    <Button variant="ghost" onClick={onRemovePhoto} disabled={uploading}>
+                      Remove
+                    </Button>
+                  ) : null}
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="firstName">First Name</Label>
-                  <Input id="firstName" value={form.firstName} onChange={onChange("firstName")} disabled={loading} />
+                  <Input id="firstName" value={form.firstName} onChange={onChange} />
                 </div>
                 <div>
                   <Label htmlFor="lastName">Last Name</Label>
-                  <Input id="lastName" value={form.lastName} onChange={onChange("lastName")} disabled={loading} />
+                  <Input id="lastName" value={form.lastName} onChange={onChange} />
                 </div>
                 <div>
                   <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" value={form.email} onChange={onChange("email")} disabled />
+                  <Input id="email" type="email" value={form.email} onChange={onChange} />
                 </div>
                 <div>
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input id="phone" value={form.phoneNumber} onChange={onChange("phoneNumber")} disabled={loading} />
+                  <Label htmlFor="phoneNumber">Phone Number</Label>
+                  <Input
+                    id="phoneNumber"
+                    inputMode="tel"
+                    value={form.phoneNumber}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, phoneNumber: phoneDigitsOnly(e.target.value) }))
+                    }
+                    placeholder="5551234567"
+                  />
                 </div>
                 <div>
                   <Label htmlFor="dateOfBirth">Date of Birth</Label>
-                  <Input id="dateOfBirth" type="date" value={form.dateOfBirth} onChange={onChange("dateOfBirth")} disabled={loading} />
+                  <Input id="dateOfBirth" type="date" value={form.dateOfBirth} onChange={onChange} />
                 </div>
                 <div>
-                  <Label htmlFor="emergencyContact">Emergency Contact</Label>
+                  <Label htmlFor="emergencyName">Emergency Contact</Label>
+                  <Input id="emergencyName" value={form.emergencyName} onChange={onChange} />
+                </div>
+                <div>
+                  <Label htmlFor="emergencyPhone">Emergency Phone</Label>
                   <Input
-                    id="emergencyContact"
-                    value={form.emergencyName ? `${form.emergencyName} - ${form.emergencyPhone}` : ""}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const [name, phone] = val.split(" - ");
-                      setForm((f) => ({ ...f, emergencyName: name ?? "", emergencyPhone: phone ?? "" }));
-                    }}
-                    placeholder="Name - Phone"
-                    disabled={loading}
+                    id="emergencyPhone"
+                    inputMode="tel"
+                    value={form.emergencyPhone}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, emergencyPhone: phoneDigitsOnly(e.target.value) }))
+                    }
+                    placeholder="5551234567"
                   />
+                </div>
+                <div className="md:col-span-2">
+                  <Label htmlFor="bio">Bio</Label>
+                  <Textarea id="bio" rows={4} value={form.bio} onChange={onChange} />
                 </div>
               </div>
 
-              <div>
-                <Label htmlFor="bio">Bio</Label>
-                <Textarea
-                  id="bio"
-                  placeholder="Tell us a bit about yourself..."
-                  value={form.bio}
-                  onChange={onChange("bio")}
-                  disabled={loading}
-                />
+              <div className="flex items-center gap-3 pt-2">
+                <Button onClick={onSave} disabled={saving}>
+                  <Save className="mr-2 h-4 w-4" />
+                  {saving ? "Saving…" : "Save Changes"}
+                </Button>
               </div>
-
-              <Button className="w-full md:w-auto" onClick={onSave} disabled={saving || loading}>
-                <Save className="h-4 w-4 mr-2" />
-                {saving ? "Saving..." : "Save Changes"}
-              </Button>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* other tabs omitted for brevity */}
+        <TabsContent value="notifications">
+          <Card><CardHeader><CardTitle>Notifications</CardTitle></CardHeader><CardContent>Coming soon…</CardContent></Card>
+        </TabsContent>
+        <TabsContent value="privacy">
+          <Card><CardHeader><CardTitle>Privacy</CardTitle></CardHeader><CardContent>Coming soon…</CardContent></Card>
+        </TabsContent>
+        <TabsContent value="security">
+          <Card><CardHeader><CardTitle>Security</CardTitle></CardHeader><CardContent>Coming soon…</CardContent></Card>
+        </TabsContent>
+        <TabsContent value="preferences">
+          <Card><CardHeader><CardTitle>Preferences</CardTitle></CardHeader><CardContent>Coming soon…</CardContent></Card>
         </TabsContent>
       </Tabs>
     </div>
