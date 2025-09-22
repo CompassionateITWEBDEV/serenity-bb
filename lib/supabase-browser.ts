@@ -1,5 +1,4 @@
 "use client"
-
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 
 declare global {
@@ -13,10 +12,10 @@ const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 if (!url || !anon) {
   const msg = "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY"
   if (process.env.NODE_ENV !== "production") {
-    throw new Error(`❌ ${msg}. Configure .env.local and Vercel Project Settings.`)
+    throw new Error(`❌ ${msg}. Configure .env.local & Vercel envs.`)
   } else {
     // eslint-disable-next-line no-console
-    console.error(`❌ ${msg}. Supabase client will not work at runtime.`)
+    console.error(`❌ ${msg}.`)
   }
 }
 
@@ -28,5 +27,4 @@ function getClient(): SupabaseClient {
   }
   return globalThis.__SUPABASE_BROWSER__
 }
-
 export const supabase = getClient()
