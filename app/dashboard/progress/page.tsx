@@ -1,3 +1,4 @@
+// path: app/dashboard/progress/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -21,19 +22,14 @@ import {
   type Icon as LucideIcon,
 } from "lucide-react";
 
+/* ───────── helpers ───────── */
 type Trend = "up" | "down";
 type IconName = "Calendar" | "Heart" | "Target" | "CheckCircle";
 
 type ProgressPayload = {
   overallProgress: number;
   weeklyGoals: Array<{ id?: string | number; name: string; current: number; target: number }>;
-  milestones: Array<{
-    id?: string | number;
-    name: string;
-    date: string;
-    completed: boolean;
-    type: "major" | "minor";
-  }>;
+  milestones: Array<{ id?: string | number; name: string; date: string; completed: boolean; type: "major" | "minor" }>;
   progressMetrics: Array<{
     id?: string | number;
     title: string;
@@ -47,15 +43,67 @@ type ProgressPayload = {
   weeklyData: Array<{ id?: string | number; week: string; wellness: number; attendance: number; goals: number }>;
 };
 
-const iconMap: Record<IconName, LucideIcon> = {
-  Calendar,
-  Heart,
-  Target,
-  CheckCircle,
-};
+const iconMap: Record<IconName, LucideIcon> = { Calendar, Heart, Target, CheckCircle };
+const clamp = (n: number, min = 0, max = 100) => Math.max(min, Math.min(max, n));
 
-function clamp(n: number, min = 0, max = 100) {
-  return Math.max(min, Math.min(max, n));
+/** Why: Guard against HTML/redirects; only accept JSON. */
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, {
+    ...init,
+    headers: { Accept: "application/json", ...(init?.headers || {}) },
+    credentials: "include",
+    cache: "no-store",
+  });
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Non-JSON response ${res.status}: ${text.slice(0, 140)}…`);
+  }
+  const body = await res.json();
+  if (!res.ok) throw new Error((body && (body.error || body.message)) || `HTTP ${res.status}`);
+  return body as T;
+}
+
+/** Why: Accept either camelCase (your current) or snake_case (direct DB API) */
+function normalizeProgress(input: any): ProgressPayload {
+  if (!input || typeof input !== "object") {
+    return { overallProgress: 0, weeklyGoals: [], milestones: [], progressMetrics: [], weeklyData: [] };
+  }
+
+  const overallProgress =
+    input.overallProgress ??
+    input.overall_progress ??
+    input?.overview?.overall_progress ??
+    input?.overview?.overallProgress ??
+    0;
+
+  const weeklyGoals =
+    input.weeklyGoals ??
+    input.weekly_goals ??
+    [];
+
+  const milestones =
+    input.milestones ??
+    input.milestones_list ??
+    [];
+
+  const progressMetrics =
+    input.progressMetrics ??
+    input.progress_metrics ??
+    [];
+
+  const weeklyData =
+    input.weeklyData ??
+    input.weekly_data ??
+    [];
+
+  return {
+    overallProgress: Number.isFinite(overallProgress) ? Number(overallProgress) : 0,
+    weeklyGoals: Array.isArray(weeklyGoals) ? weeklyGoals : [],
+    milestones: Array.isArray(milestones) ? milestones : [],
+    progressMetrics: Array.isArray(progressMetrics) ? progressMetrics : [],
+    weeklyData: Array.isArray(weeklyData) ? weeklyData : [],
+  };
 }
 
 export default function ProgressPage() {
@@ -63,7 +111,13 @@ export default function ProgressPage() {
   const router = useRouter();
 
   const [fetching, setFetching] = useState(true);
-  const [data, setData] = useState<ProgressPayload | null>(null);
+  const [data, setData] = useState<ProgressPayload>({
+    overallProgress: 0,
+    weeklyGoals: [],
+    milestones: [],
+    progressMetrics: [],
+    weeklyData: [],
+  });
   const [err, setErr] = useState<string | null>(null);
 
   // Redirect if not authed OR missing patient
@@ -73,7 +127,7 @@ export default function ProgressPage() {
     }
   }, [isAuthenticated, loading, patient, router]);
 
-  // Load data
+  // Load data with strict JSON handling
   useEffect(() => {
     if (!isAuthenticated || !patient) return;
 
@@ -81,42 +135,24 @@ export default function ProgressPage() {
     let alive = true;
 
     (async () => {
+      setFetching(true);
+      setErr(null);
       try {
         const { data: sessionRes } = await supabase.auth.getSession();
         const token = sessionRes.session?.access_token;
 
-        const res = await fetch("/api/progress", {
+        const payload = await fetchJson<any>("/api/progress", {
           method: "GET",
           headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          credentials: "include",
-          cache: "no-store",
           signal: ac.signal,
         });
 
-        if (!res.ok) {
-          // Why: avoid dumping entire JSON blobs to UI
-          const text = await res.text().catch(() => "");
-          const concise = text?.slice(0, 200) || res.statusText || "Request failed";
-          throw new Error(concise);
-        }
-
-        const json = (await res.json()) as ProgressPayload;
-
-        if (alive) {
-          setData(json);
-          setErr(null);
-        }
-      } catch (e) {
-        if (alive && !(e instanceof DOMException && e.name === "AbortError")) {
-          setErr(e instanceof Error ? e.message : "Failed to load progress");
-          setData({
-            overallProgress: 0,
-            weeklyGoals: [],
-            milestones: [],
-            progressMetrics: [],
-            weeklyData: [],
-          });
-        }
+        if (!alive) return;
+        setData(normalizeProgress(payload));
+      } catch (e: any) {
+        if (!alive || (e?.name === "AbortError")) return;
+        setErr(e?.message || "Failed to load progress");
+        setData({ overallProgress: 0, weeklyGoals: [], milestones: [], progressMetrics: [], weeklyData: [] });
       } finally {
         if (alive) setFetching(false);
       }
@@ -147,11 +183,11 @@ export default function ProgressPage() {
     );
   }
 
-  const overallProgress = clamp(data?.overallProgress ?? 0);
-  const weeklyGoals = data?.weeklyGoals ?? [];
-  const milestones = data?.milestones ?? [];
-  const progressMetrics = data?.progressMetrics ?? [];
-  const weeklyData = data?.weeklyData ?? [];
+  const overallProgress = clamp(data.overallProgress ?? 0);
+  const weeklyGoals = data.weeklyGoals ?? [];
+  const milestones = data.milestones ?? [];
+  const progressMetrics = data.progressMetrics ?? [];
+  const weeklyData = data.weeklyData ?? [];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -282,7 +318,9 @@ export default function ProgressPage() {
                           <div className="font-medium">{m.name}</div>
                           <div className="text-sm text-gray-600">{m.date}</div>
                         </div>
-                        <Badge variant={m.type === "major" ? "default" : "outline"}>{m.type === "major" ? "Major" : "Minor"}</Badge>
+                        <Badge variant={m.type === "major" ? "default" : "outline"}>
+                          {m.type === "major" ? "Major" : "Minor"}
+                        </Badge>
                       </div>
                     );
                   })}
