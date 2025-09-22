@@ -1,6 +1,7 @@
+"use client"
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { supabase } from "@/supabase-browser" // ✅ fixed path to the new file
-import type { PostgrestError } from "@supabase/supabase-js"
+import { supabase } from "@/supabase-browser"
 
 type MilestoneStatus = "completed" | "in-progress" | "upcoming"
 
@@ -68,8 +69,8 @@ export function useTreatmentProgress(patientId?: string): UseTreatmentProgressRe
           .order("created_at", { ascending: true }),
       ])
 
-      if (pErr as PostgrestError) throw pErr
-      if (mErr as PostgrestError) throw mErr
+      if (pErr) throw pErr
+      if (mErr) throw mErr
 
       setPatient((profile as PatientProfile) ?? null)
       setMilestones((ms as Milestone[]) ?? [])
