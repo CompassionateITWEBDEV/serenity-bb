@@ -1,61 +1,38 @@
-// path: hooks/use-dashboard-data.ts
+// hooks/use-dashboard-data.ts
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getSupabaseClient } from "@/lib/supabase/client"; // singleton as shown earlier
+import { createBrowserClient } from "@supabase/ssr";
 
-// ---- Public types your components use ----
-export type Appointment = {
-  id: string | number;
-  at: string;                   // ISO
-  staff: string | null;
-  status: string;
-  notes: string;
-};
+// singleton to avoid multiple clients
+let _supabase: ReturnType<typeof createBrowserClient> | null = null;
+function supabaseClient() {
+  if (_supabase) return _supabase;
+  _supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+  return _supabase;
+}
 
-export type Message = {
-  id: string | number;
-  ts: string;                   // ISO
-  summary: string;
-  meta?: string;
-};
-
-export type Progress = {
-  overallProgress: number;
-  weeklyGoals: Array<{ id: string | number; name: string; current: number; target: number }>;
-  wellness: { week: string; wellness: number; attendance: number; goals: number } | null;
-};
-
-type DashboardData = {
-  appointments: Appointment[];
-  messages: Message[];
-  progress: Progress | null;
-  loading: boolean;
-  error: string | null;
-  lastUpdated: number | null;
-  refetch: () => Promise<void>;
-};
-
-// ---- API response shape (camelCase) ----
+// API response (from /api/dashboard)
 type DashboardApi = {
-  kpis: { progressPercent: number };
-  upcomingAppointments: Appointment[];
-  weeklyGoals: Progress["weeklyGoals"];
-  wellness: Progress["wellness"];
+  kpis: { sessions: number; goals: number; tokens: number; progressPercent: number; unreadMessages: number };
+  treatmentProgress: Array<{ id: string | number; name: string; status: string; type: "major" | "minor"; date: string | null }>;
+  upcomingAppointments: Array<{ id: string | number; at: string; staff: string | null; status: string; notes: string }>;
+  weeklyGoals: Array<{ id: string | number; name: string; current: number; target: number }>;
+  tokenStats: { total: number; earned: number; spent: number; level: number };
+  wellness: { week: string; wellness: number; attendance: number; goals: number } | null;
   activity: Array<{ id: string | number; ts: string; kind: string; summary: string; meta?: string }>;
-  // ...other fields are ignored here
+  error?: string;
 };
 
-export function useDashboardData(opts?: { refreshOnFocus?: boolean }): DashboardData {
-  const supabase = getSupabaseClient();
+export function useDashboardData(opts?: { refreshOnFocus?: boolean }) {
+  const supabase = supabaseClient();
 
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [progress, setProgress] = useState<Progress | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [data, setData] = useState<DashboardApi | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-
+  const [loading, setLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
   const fetchOnce = useCallback(async () => {
@@ -71,7 +48,6 @@ export function useDashboardData(opts?: { refreshOnFocus?: boolean }): Dashboard
       const token = sessionRes.session?.access_token;
 
       const res = await fetch("/api/dashboard", {
-        method: "GET",
         headers: {
           Accept: "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -87,31 +63,14 @@ export function useDashboardData(opts?: { refreshOnFocus?: boolean }): Dashboard
         throw new Error(`Non-JSON ${res.status}: ${txt.slice(0, 140)}…`);
       }
 
-      const json = (await res.json()) as DashboardApi | { error?: string };
-      if (!res.ok) throw new Error((json as any)?.error || `HTTP ${res.status}`);
+      const json = (await res.json()) as DashboardApi;
+      if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
 
-      const data = json as DashboardApi;
-
-      // Normalize to consumers of this hook
-      const normalizedProgress: Progress = {
-        overallProgress: Number(data.kpis?.progressPercent ?? 0),
-        weeklyGoals: Array.isArray(data.weeklyGoals) ? data.weeklyGoals : [],
-        wellness: data.wellness ?? null,
-      };
-
-      const msgs: Message[] = Array.isArray(data.activity)
-        ? data.activity
-            .filter((a) => a.kind === "notification")
-            .map((a) => ({ id: a.id, ts: a.ts, summary: a.summary, meta: a.meta }))
-        : [];
-
-      setAppointments(Array.isArray(data.upcomingAppointments) ? data.upcomingAppointments : []);
-      setMessages(msgs);
-      setProgress(normalizedProgress);
-      setLastUpdated(Date.now());
+      setData(json);
     } catch (e: any) {
       if (e?.name === "AbortError") return;
       setError(e?.message || "Failed to load dashboard");
+      setData(null);
     } finally {
       setLoading(false);
     }
@@ -125,13 +84,13 @@ export function useDashboardData(opts?: { refreshOnFocus?: boolean }): Dashboard
   useEffect(() => {
     if (!opts?.refreshOnFocus) return;
     const onFocus = () => fetchOnce();
-    window.addEventListener("visibilitychange", onFocus);
     window.addEventListener("focus", onFocus);
+    window.addEventListener("visibilitychange", onFocus);
     return () => {
-      window.removeEventListener("visibilitychange", onFocus);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("visibilitychange", onFocus);
     };
   }, [opts?.refreshOnFocus, fetchOnce]);
 
-  return { appointments, messages, progress, loading, error, lastUpdated, refetch: fetchOnce };
+  return { data, error, loading };
 }
