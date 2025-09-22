@@ -1,36 +1,38 @@
-// /app/api/progress/route.ts
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const anon = process.env.SUPABASE_ANON_KEY!;
+export async function GET() {
+  const cookieStore = cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { cookies: { get: (k) => cookieStore.get(k)?.value } }
+  );
 
-export async function GET(req: Request) {
-  try {
-    const auth = req.headers.get("authorization") || "";
-    const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7) : null;
-
-    if (!token) {
-      return NextResponse.json({ error: "missing_token" }, { status: 401 });
-    }
-
-    // Validate token (no redirect; server-side check)
-    const supabase = createClient(url, anon);
-    const { data: userRes, error: userErr } = await supabase.auth.getUser(token);
-    if (userErr || !userRes.user) {
-      return NextResponse.json({ error: "invalid_token" }, { status: 401 });
-    }
-
-    // TODO: fetch real data for userRes.user.id
-    const payload = {
-      overallProgress: 0,
-      weeklyGoals: [],
-      milestones: [],
-      progressMetrics: [],
-      weeklyData: [],
-    };
-    return NextResponse.json(payload, { status: 200 });
-  } catch (e) {
-    return NextResponse.json({ error: "internal_error" }, { status: 500 });
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // patient_id == auth user id in your schema
+  const pid = user.id;
+
+  // Fetch all three in parallel
+  const [ovr, goals, mls] = await Promise.all([
+    supabase.from("progress_overview").select("*").eq("patient_id", pid).maybeSingle(),
+    supabase.from("weekly_goals").select("*").eq("patient_id", pid).order("updated_at", { ascending: false }),
+    supabase.from("milestones").select("*").eq("patient_id", pid).order("date", { ascending: false }),
+  ]);
+
+  // Normalize errors to JSON
+  if (ovr.error) return NextResponse.json({ error: ovr.error.message }, { status: 500 });
+  if (goals.error) return NextResponse.json({ error: goals.error.message }, { status: 500 });
+  if (mls.error) return NextResponse.json({ error: mls.error.message }, { status: 500 });
+
+  return NextResponse.json({
+    overview: ovr.data ?? { patient_id: pid, overall_progress: 0, updated_at: null },
+    goals: goals.data ?? [],
+    milestones: mls.data ?? [],
+  });
 }
