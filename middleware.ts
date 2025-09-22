@@ -1,11 +1,11 @@
-// /middleware.ts
+// path: middleware.ts
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(request: NextRequest) {
   const { pathname, origin } = request.nextUrl;
 
-  // Skip assets/api
+  // Hard skip for API and static
   if (
     pathname.startsWith("/api") ||
     pathname.startsWith("/_next") ||
@@ -17,10 +17,10 @@ export async function middleware(request: NextRequest) {
 
   const response = NextResponse.next();
 
-  // Real Supabase session (cookies)
+  // Why: keep env names consistent across app (route.ts uses NEXT_PUBLIC_*)
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, // <- unify, or define both envs with same value
     {
       cookies: {
         get: (k) => request.cookies.get(k)?.value,
@@ -29,10 +29,11 @@ export async function middleware(request: NextRequest) {
       },
     }
   );
+
   const { data } = await supabase.auth.getUser();
   const hasSupabase = !!data?.user;
 
-  // Accept your legacy app cookie too, so dashboard loads right after login
+  // Accept legacy cookie if present
   const hasAppCookie =
     !!(request.cookies.get("auth_token")?.value || request.cookies.get("patient_auth")?.value);
 
@@ -56,6 +57,7 @@ export async function middleware(request: NextRequest) {
   return response;
 }
 
+// Why: exclude /api entirely to prevent middleware from ever running on API routes
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|_next/data|favicon.ico|assets|images|fonts|api/proxy).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|_next/data|favicon.ico|assets|images|fonts).*)"],
 };
