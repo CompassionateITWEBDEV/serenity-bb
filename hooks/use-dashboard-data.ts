@@ -1,21 +1,8 @@
 // hooks/use-dashboard-data.ts
 "use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createBrowserClient } from "@supabase/ssr";
+import { getSupabaseClient } from "@/lib/supabase/client";
 
-// singleton to avoid multiple clients
-let _supabase: ReturnType<typeof createBrowserClient> | null = null;
-function supabaseClient() {
-  if (_supabase) return _supabase;
-  _supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-  return _supabase;
-}
-
-// API response (from /api/dashboard)
 type DashboardApi = {
   kpis: { sessions: number; goals: number; tokens: number; progressPercent: number; unreadMessages: number };
   treatmentProgress: Array<{ id: string | number; name: string; status: string; type: "major" | "minor"; date: string | null }>;
@@ -28,8 +15,7 @@ type DashboardApi = {
 };
 
 export function useDashboardData(opts?: { refreshOnFocus?: boolean }) {
-  const supabase = supabaseClient();
-
+  const supabase = getSupabaseClient();
   const [data, setData] = useState<DashboardApi | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,7 +33,9 @@ export function useDashboardData(opts?: { refreshOnFocus?: boolean }) {
       const { data: sessionRes } = await supabase.auth.getSession();
       const token = sessionRes.session?.access_token;
 
+      // IMPORTANT: relative path to avoid host drift (www vs non-www)
       const res = await fetch("/api/dashboard", {
+        method: "GET",
         headers: {
           Accept: "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -60,12 +48,11 @@ export function useDashboardData(opts?: { refreshOnFocus?: boolean }) {
       const ct = res.headers.get("content-type") || "";
       if (!ct.includes("application/json")) {
         const txt = await res.text().catch(() => "");
-        throw new Error(`Non-JSON ${res.status}: ${txt.slice(0, 140)}…`);
+        throw new Error(`Non-JSON ${res.status}: ${txt.slice(0, 120)}…`);
       }
 
       const json = (await res.json()) as DashboardApi;
       if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
-
       setData(json);
     } catch (e: any) {
       if (e?.name === "AbortError") return;
