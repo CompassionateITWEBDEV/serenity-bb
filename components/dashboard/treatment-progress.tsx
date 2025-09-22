@@ -1,5 +1,4 @@
 "use client"
-
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
@@ -23,17 +22,9 @@ function StatusIcon({ status }: { status: MilestoneStatus }) {
 function StatusBadge({ status }: { status: MilestoneStatus }) {
   switch (status) {
     case "completed":
-      return (
-        <Badge variant="secondary" className="bg-green-100 text-green-800">
-          Completed
-        </Badge>
-      )
+      return <Badge variant="secondary" className="bg-green-100 text-green-800">Completed</Badge>
     case "in-progress":
-      return (
-        <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-          In Progress
-        </Badge>
-      )
+      return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">In Progress</Badge>
     default:
       return <Badge variant="outline">Upcoming</Badge>
   }
@@ -88,9 +79,7 @@ export function TreatmentProgress({ patientId }: Props) {
           <div className="text-sm text-red-600">{error}</div>
         ) : milestones.length === 0 ? (
           <div className="text-sm text-gray-600">
-            {isNewPatient
-              ? "No milestones yet. Add the initial assessment to get started."
-              : "No milestones found for this patient."}
+            {isNewPatient ? "No milestones yet. Add the initial assessment to get started." : "No milestones found."}
           </div>
         ) : (
           <div className="space-y-6">
