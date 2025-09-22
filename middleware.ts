@@ -1,26 +1,23 @@
-// path: middleware.ts
+// middleware.ts  (ensure API is excluded completely)
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(request: NextRequest) {
   const { pathname, origin } = request.nextUrl;
 
-  // Hard skip for API and static
+  // 🚫 Never touch API/static
   if (
     pathname.startsWith("/api") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     /\.(?:png|jpg|jpeg|gif|webp|avif|svg|ico|css|js|map|txt|xml)$/.test(pathname)
-  ) {
-    return NextResponse.next();
-  }
+  ) return NextResponse.next();
 
   const response = NextResponse.next();
 
-  // Why: keep env names consistent across app (route.ts uses NEXT_PUBLIC_*)
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, // <- unify, or define both envs with same value
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         get: (k) => request.cookies.get(k)?.value,
@@ -31,13 +28,7 @@ export async function middleware(request: NextRequest) {
   );
 
   const { data } = await supabase.auth.getUser();
-  const hasSupabase = !!data?.user;
-
-  // Accept legacy cookie if present
-  const hasAppCookie =
-    !!(request.cookies.get("auth_token")?.value || request.cookies.get("patient_auth")?.value);
-
-  const isAuthed = hasSupabase || hasAppCookie;
+  const isAuthed = !!data?.user;
 
   const isProtected = pathname.startsWith("/dashboard");
   const isPublic = pathname === "/login" || pathname === "/signup";
@@ -50,14 +41,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (isPublic && isAuthed) {
-    return NextResponse.redirect(new URL("/dashboard", origin));
-  }
-
+  if (isPublic && isAuthed) return NextResponse.redirect(new URL("/dashboard", origin));
   return response;
 }
 
-// Why: exclude /api entirely to prevent middleware from ever running on API routes
 export const config = {
   matcher: ["/((?!api|_next/static|_next/image|_next/data|favicon.ico|assets|images|fonts).*)"],
 };
