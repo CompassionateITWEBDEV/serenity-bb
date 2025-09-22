@@ -1,21 +1,19 @@
-// tsconfig.json
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "target": "ES2022",
     "module": "ESNext",
-    "skipLibCheck": true,
+    "lib": ["DOM", "ES2022"],
+    "jsx": "preserve",
     "moduleResolution": "Bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "preserve",
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]            // ✅ alias without /src
+      "@/*": ["./*"]
     }
   },
-  "include": ["**/*.ts", "**/*.tsx"],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules"]
 }
