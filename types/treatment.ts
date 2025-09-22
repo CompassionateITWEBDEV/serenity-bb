@@ -6,15 +6,15 @@ export interface Milestone {
   title: string
   description: string | null
   status: MilestoneStatus
-  date: string | null // store ISO or human text
-  progress: number | null // 0..100
+  date: string | null
+  progress: number | null
   sort_order: number | null
   created_at: string
   updated_at: string | null
 }
 
 export interface PatientProfile {
-  id: string // references auth.users.id
+  id: string
   full_name: string | null
   onboarded_at: string | null
   is_active: boolean | null
