@@ -10,7 +10,6 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Video as VideoIcon,
   Upload,
@@ -22,8 +21,9 @@ import {
   Trash2,
   PlusCircle,
   Edit2,
-  Info,
   X,
+  Copy,
+  Info,
 } from "lucide-react";
 
 /* ---------------- Types ---------------- */
@@ -79,11 +79,7 @@ function ToastHost({ items, onClose }: { items: ToastItem[]; onClose: (id: strin
           }`}
         >
           <div className="flex items-start gap-2">
-            <div
-              className={`mt-0.5 h-2 w-2 rounded-full ${
-                t.variant === "destructive" ? "bg-red-500" : "bg-green-500"
-              }`}
-            />
+            <div className={`mt-0.5 h-2 w-2 rounded-full ${t.variant === "destructive" ? "bg-red-500" : "bg-green-500"}`} />
             <div className="flex-1">
               <div className="text-sm font-medium">{t.title}</div>
               {t.description && <div className="text-xs text-muted-foreground">{t.description}</div>}
@@ -98,11 +94,39 @@ function ToastHost({ items, onClose }: { items: ToastItem[]; onClose: (id: strin
   );
 }
 
+/* ---------------- Inline banner (no external UI deps) ---------------- */
+function InlineBanner({
+  kind,
+  title,
+  desc,
+  action,
+}: {
+  kind: "success" | "error";
+  title: string;
+  desc?: string;
+  action?: React.ReactNode;
+}) {
+  const tone =
+    kind === "success"
+      ? "border-green-300 bg-green-50 text-green-900"
+      : "border-red-300 bg-red-50 text-red-900";
+  return (
+    <div className={`flex items-start gap-3 rounded-md border p-3 ${tone}`}>
+      <Info className="h-4 w-4 mt-0.5" />
+      <div className="flex-1">
+        <div className="text-sm font-medium">{title}</div>
+        {desc && <div className="text-xs opacity-80">{desc}</div>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
 /* ---------------- Component ---------------- */
 export default function RealTimeVideoSystem() {
   const { toasts, pushToast, dismiss } = useLocalToast();
 
-  const [inlineNotice, setInlineNotice] = useState<{
+  const [banner, setBanner] = useState<{
     kind: "success" | "error" | null;
     title?: string;
     desc?: string;
@@ -193,13 +217,13 @@ export default function RealTimeVideoSystem() {
   // start recording (live camera in big box)
   async function startRecording() {
     setErr(null);
-    setInlineNotice({ kind: null, title: "", desc: "", anchorId: null });
+    setBanner({ kind: null, title: "", desc: "", anchorId: null });
 
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     const el = videoRef.current;
     if (el) {
       el.pause();
-      el.removeAttribute("src"); // clear any previous file URL
+      el.removeAttribute("src");
       el.srcObject = stream;
       el.controls = false;
       el.muted = true;
@@ -221,10 +245,22 @@ export default function RealTimeVideoSystem() {
     setIsRecording(true);
   }
 
+  function waitForRecorderStop(mr: MediaRecorder) {
+    return new Promise<void>((resolve) => {
+      const onStop = () => {
+        mr.removeEventListener("stop", onStop);
+        resolve();
+      };
+      mr.addEventListener("stop", onStop);
+    });
+  }
+
   // stop recording (swap big box to recorded file w/ controls)
-  function stopRecording() {
+  async function stopRecording() {
     if (!mrRef.current || !isRecording) return;
-    mrRef.current.stop();
+    const mr = mrRef.current;
+    mr.stop();
+    await waitForRecorderStop(mr);
     setIsRecording(false);
 
     const liveStream = videoRef.current?.srcObject as MediaStream | null;
@@ -238,10 +274,11 @@ export default function RealTimeVideoSystem() {
 
       const el = videoRef.current;
       if (el) {
-        el.srcObject = null; // stop live
-        el.src = url;        // show recorded file
+        el.srcObject = null;
+        el.src = url;
         el.muted = false;
         el.controls = true;
+        el.load();
         el.play().catch(() => {});
       }
     } else {
@@ -325,6 +362,9 @@ export default function RealTimeVideoSystem() {
         .single();
       if (error) throw error;
       row = data as Row;
+
+      // optimistic: show immediately
+      setRows((prev) => [row, ...prev]);
     } else {
       const { data, error } = await supabase
         .from("video_submissions")
@@ -341,6 +381,7 @@ export default function RealTimeVideoSystem() {
       row = data as Row;
 
       if (row.storage_path) await supabase.storage.from(BUCKET).remove([row.storage_path]).catch(() => {});
+      setRows((prev) => [row, ...prev.filter((r) => r.id !== row.id)]);
     }
 
     setLastSubmittedId(row.id);
@@ -359,6 +400,11 @@ export default function RealTimeVideoSystem() {
       .update({ storage_path: path, video_url: pub?.publicUrl ?? null, status: "processing" })
       .eq("id", row.id);
 
+    // reflect path/url right away
+    setRows((prev) =>
+      prev.map((r) => (r.id === row.id ? { ...r, storage_path: path, video_url: pub?.publicUrl ?? null, status: "processing" } : r)),
+    );
+
     // mock processing → completed
     setTimeout(async () => {
       await supabase
@@ -366,17 +412,15 @@ export default function RealTimeVideoSystem() {
         .update({ status: "completed", processed_at: new Date().toISOString() })
         .eq("id", row.id);
       setProg((m) => ({ ...m, [row.id]: 100 }));
+      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, status: "completed", processed_at: new Date().toISOString() } : r)));
     }, 1000);
 
     // smart alerts
-    pushToast({
-      title: "Video submitted",
-      description: `${meta.title || "Untitled"} • ${formatClock(duration)} • ${sizeMb} MB`,
-    });
-    setInlineNotice({
+    pushToast({ title: "Video submitted", description: `${meta.title || "Untitled"} • ${formatClock(duration)} • ${sizeMb} MB` });
+    setBanner({
       kind: "success",
       title: "Submission received",
-      desc: "We’re processing your video. It will appear below. Click to jump to it.",
+      desc: "We're processing your video. It appears below now.",
       anchorId: row.id,
     });
 
@@ -397,11 +441,11 @@ export default function RealTimeVideoSystem() {
       setRecordedBlob(null);
       setForm({ title: "", description: "", type: "daily-checkin" });
       setRecSecs(0);
-      setInlineNotice((n) => ({ ...n, anchorId: id }));
+      setBanner((n) => ({ ...n, anchorId: id }));
     } catch (e: any) {
       setErr(e?.message ?? "Upload failed");
       pushToast({ title: "Upload failed", description: "Please try again.", variant: "destructive" });
-      setInlineNotice({ kind: "error", title: "Upload failed", desc: "Please try again.", anchorId: null });
+      setBanner({ kind: "error", title: "Upload failed", desc: "Please try again.", anchorId: null });
     }
   }
 
@@ -415,11 +459,11 @@ export default function RealTimeVideoSystem() {
       });
       clearPendingFile();
       setForm({ title: "", description: "", type: "daily-checkin" });
-      setInlineNotice((n) => ({ ...n, anchorId: id }));
+      setBanner((n) => ({ ...n, anchorId: id }));
     } catch (e: any) {
       setErr(e?.message ?? "Upload failed");
       pushToast({ title: "Upload failed", description: "Please try again.", variant: "destructive" });
-      setInlineNotice({ kind: "error", title: "Upload failed", desc: "Please try again.", anchorId: null });
+      setBanner({ kind: "error", title: "Upload failed", desc: "Please try again.", anchorId: null });
     }
   }
 
@@ -427,6 +471,7 @@ export default function RealTimeVideoSystem() {
     const row = rows.find((r) => r.id === id);
     if (row?.storage_path) await supabase.storage.from(BUCKET).remove([row.storage_path]).catch(() => {});
     await supabase.from("video_submissions").delete().eq("id", id).eq(ownerCol, ownerVal);
+    setRows((prev) => prev.filter((r) => r.id !== id));
   }
 
   const grouped = useMemo(() => {
@@ -456,23 +501,22 @@ export default function RealTimeVideoSystem() {
         </div>
       </div>
 
-      {/* Smart Inline Alert */}
-      {inlineNotice.kind && (
-        <Alert variant={inlineNotice.kind === "error" ? "destructive" : "default"} className="border">
-          <Info className="h-4 w-4" />
-          <AlertTitle>{inlineNotice.title}</AlertTitle>
-          <AlertDescription>
-            {inlineNotice.desc}{" "}
-            {inlineNotice.anchorId && (
-              <button
-                className="underline underline-offset-2"
-                onClick={() => setLastSubmittedId(inlineNotice.anchorId!)}
-              >
-                View in history
-              </button>
-            )}
-          </AlertDescription>
-        </Alert>
+      {/* Inline banner */}
+      {banner.kind && (
+        <InlineBanner
+          kind={banner.kind}
+          title={banner.title || ""}
+          desc={
+            <>
+              {banner.desc}{" "}
+              {banner.anchorId && (
+                <button className="underline underline-offset-2" onClick={() => setLastSubmittedId(banner.anchorId!)}>
+                  View in history
+                </button>
+              )}
+            </>
+          as unknown as string}
+        />
       )}
 
       {/* Recorder */}
@@ -584,9 +628,7 @@ export default function RealTimeVideoSystem() {
                       <div
                         id={`row-${s.id}`}
                         key={s.id}
-                        className={`border rounded-lg p-4 space-y-3 transition ${
-                          highlight ? "ring-2 ring-green-500 animate-pulse" : ""
-                        }`}
+                        className={`border rounded-lg p-4 space-y-3 transition ${highlight ? "ring-2 ring-green-500 animate-pulse" : ""}`}
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
@@ -609,7 +651,26 @@ export default function RealTimeVideoSystem() {
                               <span>{s.size_mb ? `${s.size_mb} MB` : "-"}</span>
                               <span>{new Date(s.submitted_at).toLocaleString()}</span>
                             </div>
+
+                            {/* Path + URL */}
+                            <div className="mt-2 text-xs">
+                              {s.storage_path && (
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">path:</span>
+                                  <code className="rounded bg-gray-100 px-1">{truncate(s.storage_path, 64)}</code>
+                                  <IconCopy text={s.storage_path} onCopy={() => pushToast({ title: "Path copied" })} />
+                                </div>
+                              )}
+                              {s.video_url && (
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">url:</span>
+                                  <code className="rounded bg-gray-100 px-1">{truncate(s.video_url, 64)}</code>
+                                  <IconCopy text={s.video_url} onCopy={() => pushToast({ title: "URL copied" })} />
+                                </div>
+                              )}
+                            </div>
                           </div>
+
                           <div className="flex items-center gap-2">
                             <Badge className={typeBadge(s.type)}>{s.type.replace("-", " ")}</Badge>
                             <Badge className={statusBadge(s.status)}>{s.status}</Badge>
@@ -764,6 +825,23 @@ function getGuestId(): string {
   }
 }
 function openEditInline(s: Row, setForm: (updater: any) => void) {
-  // why: quick meta editing without opening another screen
   setForm({ title: s.title, description: s.description ?? "", type: s.type });
+}
+function truncate(s: string, n = 64) {
+  if (s.length <= n) return s;
+  const half = Math.floor((n - 3) / 2);
+  return `${s.slice(0, half)}...${s.slice(-half)}`;
+}
+function IconCopy({ text, onCopy }: { text: string; onCopy?: () => void }) {
+  return (
+    <button
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px]"
+      onClick={() => {
+        navigator.clipboard.writeText(text).then(() => onCopy && onCopy());
+      }}
+    >
+      <Copy className="h-3 w-3" />
+      Copy
+    </button>
+  );
 }
