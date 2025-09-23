@@ -1,4 +1,4 @@
-// /components/dashboard/real-time-video-system.tsx
+// ./components/dashboard/real-time-video-system.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { useToast } from "@/components/ui/use-toast";
 import {
   Video as VideoIcon,
   Upload,
@@ -24,6 +23,7 @@ import {
   PlusCircle,
   Edit2,
   Info,
+  X,
 } from "lucide-react";
 
 type VideoStatus = "uploading" | "processing" | "completed" | "failed";
@@ -47,8 +47,59 @@ interface Row {
 
 const BUCKET = "videos";
 
+/* ---------------------- local toast (no external deps) ---------------------- */
+type ToastItem = {
+  id: string;
+  title: string;
+  description?: string;
+  variant?: "default" | "destructive";
+  timeout?: number;
+};
+function useLocalToast() {
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  function pushToast(t: Omit<ToastItem, "id">) {
+    const item: ToastItem = { id: crypto.randomUUID(), timeout: 3500, variant: "default", ...t };
+    setToasts((prev) => [...prev, item]);
+    window.setTimeout(() => dismiss(item.id), item.timeout);
+  }
+  function dismiss(id: string) {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }
+  return { toasts, pushToast, dismiss };
+}
+function ToastHost({ items, onClose }: { items: ToastItem[]; onClose: (id: string) => void }) {
+  return (
+    <div className="pointer-events-none fixed top-3 right-3 z-[60] flex flex-col gap-2">
+      {items.map((t) => (
+        <div
+          key={t.id}
+          className={`pointer-events-auto w-80 rounded-lg border p-3 shadow-lg bg-white ${
+            t.variant === "destructive" ? "border-red-300" : "border-gray-200"
+          }`}
+        >
+          <div className="flex items-start gap-2">
+            <div
+              className={`mt-0.5 h-2 w-2 rounded-full ${
+                t.variant === "destructive" ? "bg-red-500" : "bg-green-500"
+              }`}
+            />
+            <div className="flex-1">
+              <div className="text-sm font-medium">{t.title}</div>
+              {t.description && <div className="text-xs text-muted-foreground">{t.description}</div>}
+            </div>
+            <button aria-label="Close" onClick={() => onClose(t.id)} className="opacity-60 hover:opacity-100">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+/* --------------------------------------------------------------------------- */
+
 export default function RealTimeVideoSystem() {
-  const { toast } = useToast(); // why: surface “smart alert” to user
+  const { toasts, pushToast, dismiss } = useLocalToast(); // local toast
   const [inlineNotice, setInlineNotice] = useState<{
     kind: "success" | "error" | null;
     title?: string;
@@ -113,6 +164,12 @@ export default function RealTimeVideoSystem() {
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedPreviewUrl, setRecordedPreviewUrl] = useState<string | null>(null);
 
+  // manual file preview
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
+
+  // cleanup URLs
   useEffect(() => {
     return () => {
       if (recordedPreviewUrl) URL.revokeObjectURL(recordedPreviewUrl);
@@ -164,15 +221,10 @@ export default function RealTimeVideoSystem() {
     if (chunksRef.current.length > 0) {
       const blob = new Blob(chunksRef.current, { type: "video/webm" });
       setRecordedBlob(blob);
-      const url = URL.createObjectURL(blob); // keep until submit/cancel/unmount
-      setRecordedPreviewUrl(url);
+      const url = URL.createObjectURL(blob);
+      setRecordedPreviewUrl(url); // immediate preview after recording
     }
   }
-
-  // ------- manual file upload with preview -------
-  const uploadInputRef = useRef<HTMLInputElement>(null);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
 
   function openUploadPicker() {
     uploadInputRef.current?.click();
@@ -263,9 +315,7 @@ export default function RealTimeVideoSystem() {
       if (row.storage_path) await supabase.storage.from(BUCKET).remove([row.storage_path]).catch(() => {});
     }
 
-    // user feedback: created
-    setLastSubmittedId(row.id);
-
+    setLastSubmittedId(row.id); // for scroll/highlight
     smoothProgress(row.id, 10, 85);
 
     const path = `${ownerVal}/${row.id}.${ext}`;
@@ -290,8 +340,8 @@ export default function RealTimeVideoSystem() {
       setProg((m) => ({ ...m, [row.id]: 100 }));
     }, 1000);
 
-    // Smart alerts
-    toast({
+    // Smart alerts (local toast + inline)
+    pushToast({
       title: "Video submitted",
       description: `${meta.title || "Untitled"} • ${formatClock(duration)} • ${sizeMb} MB`,
     });
@@ -319,11 +369,10 @@ export default function RealTimeVideoSystem() {
       setRecordedBlob(null);
       setForm({ title: "", description: "", type: "daily-checkin" });
       setRecSecs(0);
-      // inline anchor
       setInlineNotice((n) => ({ ...n, anchorId: id }));
     } catch (e: any) {
       setErr(e?.message ?? "Upload failed");
-      toast({ title: "Upload failed", description: "Please try again.", variant: "destructive" as any });
+      pushToast({ title: "Upload failed", description: "Please try again.", variant: "destructive" });
       setInlineNotice({ kind: "error", title: "Upload failed", desc: "Please try again.", anchorId: null });
     }
   }
@@ -341,7 +390,7 @@ export default function RealTimeVideoSystem() {
       setInlineNotice((n) => ({ ...n, anchorId: id }));
     } catch (e: any) {
       setErr(e?.message ?? "Upload failed");
-      toast({ title: "Upload failed", description: "Please try again.", variant: "destructive" as any });
+      pushToast({ title: "Upload failed", description: "Please try again.", variant: "destructive" });
       setInlineNotice({ kind: "error", title: "Upload failed", desc: "Please try again.", anchorId: null });
     }
   }
@@ -363,6 +412,9 @@ export default function RealTimeVideoSystem() {
 
   return (
     <div className="space-y-6">
+      {/* Toasts */}
+      <ToastHost items={toasts} onClose={dismiss} />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
@@ -384,10 +436,7 @@ export default function RealTimeVideoSystem() {
           <AlertDescription>
             {inlineNotice.desc}{" "}
             {inlineNotice.anchorId && (
-              <button
-                className="underline underline-offset-2"
-                onClick={() => setLastSubmittedId(inlineNotice.anchorId!)}
-              >
+              <button className="underline underline-offset-2" onClick={() => setLastSubmittedId(inlineNotice.anchorId!)}>
                 View in history
               </button>
             )}
@@ -504,8 +553,9 @@ export default function RealTimeVideoSystem() {
                       <div
                         id={`row-${s.id}`}
                         key={s.id}
-                        className={`border rounded-lg p-4 space-y-3 transition
-                          ${highlight ? "ring-2 ring-green-500 animate-pulse" : ""}`}
+                        className={`border rounded-lg p-4 space-y-3 transition ${
+                          highlight ? "ring-2 ring-green-500 animate-pulse" : ""
+                        }`}
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
