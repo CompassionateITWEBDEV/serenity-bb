@@ -1,37 +1,65 @@
-"use client"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
-import { Badge } from "@/components/ui/badge"
-import { CheckCircle, Circle, Clock, User, RotateCw } from "lucide-react"
-import { useTreatmentProgress } from "@/hooks/useTreatmentProgress"
-import type { MilestoneStatus } from "@/types/treatment"
+// ./components/dashboard/treatment-progress.tsx
+"use client";
 
-type Props = { patientId?: string }
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { CheckCircle, Circle, Clock, User, RotateCw } from "lucide-react";
+import { useTreatmentProgress } from "@/hooks/useTreatmentProgress";
+import type { MilestoneStatus } from "@/types/treatment";
+
+type Props = {
+  patientId?: string;
+  hideAuthError?: boolean;     // suppress "Auth session missing!" in UI
+  hideErrorsInProd?: boolean;  // suppress any error text in production
+};
 
 function StatusIcon({ status }: { status: MilestoneStatus }) {
   switch (status) {
     case "completed":
-      return <CheckCircle className="h-5 w-5 text-green-600" />
+      return <CheckCircle className="h-5 w-5 text-green-600" />;
     case "in-progress":
-      return <Clock className="h-5 w-5 text-yellow-600" />
+      return <Clock className="h-5 w-5 text-yellow-600" />;
     default:
-      return <Circle className="h-5 w-5 text-gray-400" />
+      return <Circle className="h-5 w-5 text-gray-400" />;
   }
 }
 
 function StatusBadge({ status }: { status: MilestoneStatus }) {
   switch (status) {
     case "completed":
-      return <Badge variant="secondary" className="bg-green-100 text-green-800">Completed</Badge>
+      return <Badge variant="secondary" className="bg-green-100 text-green-800">Completed</Badge>;
     case "in-progress":
-      return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">In Progress</Badge>
+      return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">In Progress</Badge>;
     default:
-      return <Badge variant="outline">Upcoming</Badge>
+      return <Badge variant="outline">Upcoming</Badge>;
   }
 }
 
-export function TreatmentProgress({ patientId }: Props) {
-  const { loading, error, milestones, patient, isNewPatient, refetch } = useTreatmentProgress(patientId)
+function isAuthError(msg?: string | null): boolean {
+  if (!msg) return false;
+  const s = msg.toLowerCase();
+  return (
+    s.includes("auth") ||
+    s.includes("authentication") ||
+    s.includes("no session") ||
+    s.includes("session missing") ||
+    s.includes("not logged")
+  );
+}
+
+export function TreatmentProgress({
+  patientId,
+  hideAuthError = true,
+  hideErrorsInProd = true,
+}: Props) {
+  const { loading, error, milestones, patient, isNewPatient, refetch } = useTreatmentProgress(patientId);
+
+  const isProd = typeof process !== "undefined" && process.env.NODE_ENV === "production";
+  const shouldHideThisError =
+    (!!error && hideAuthError && isAuthError(error)) || (!!error && hideErrorsInProd && isProd);
+
+  const items = Array.isArray(milestones) ? milestones : [];
 
   return (
     <Card>
@@ -61,6 +89,7 @@ export function TreatmentProgress({ patientId }: Props) {
           </button>
         </div>
       </CardHeader>
+
       <CardContent>
         {loading ? (
           <div className="space-y-6">
@@ -75,15 +104,15 @@ export function TreatmentProgress({ patientId }: Props) {
               </div>
             ))}
           </div>
-        ) : error ? (
+        ) : error && !shouldHideThisError ? (
           <div className="text-sm text-red-600">{error}</div>
-        ) : milestones.length === 0 ? (
+        ) : items.length === 0 ? (
           <div className="text-sm text-gray-600">
             {isNewPatient ? "No milestones yet. Add the initial assessment to get started." : "No milestones found."}
           </div>
         ) : (
           <div className="space-y-6">
-            {milestones.map((m) => (
+            {items.map((m) => (
               <div key={m.id} className="flex items-start space-x-4">
                 <div className="flex-shrink-0 mt-1">
                   <StatusIcon status={m.status} />
@@ -111,5 +140,5 @@ export function TreatmentProgress({ patientId }: Props) {
         )}
       </CardContent>
     </Card>
-  )
+  );
 }
