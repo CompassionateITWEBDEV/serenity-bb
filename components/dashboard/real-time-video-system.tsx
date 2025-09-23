@@ -29,8 +29,8 @@ type VideoType = "daily-checkin" | "medication" | "therapy-session" | "progress-
 
 interface Row {
   id: string;
-  patient_id: string | null;   // can be null for guests
-  visitor_id: string | null;   // guest identity
+  patient_id: string | null;
+  visitor_id: string | null;
   title: string;
   description: string | null;
   type: VideoType;
@@ -46,131 +46,126 @@ interface Row {
 const BUCKET = "videos";
 
 export default function RealTimeVideoSystem() {
-  const [uid, setUid] = useState<string | null>(null); // real auth (optional)
+  // identity: optional auth, else guest
+  const [uid, setUid] = useState<string | null>(null);
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUid(data.user?.id ?? null));
+    const { data } = supabase.auth.onAuthStateChange((_e, s) => setUid(s?.user?.id ?? null));
+    return () => data.subscription.unsubscribe();
+  }, []);
+  const guestId = getGuestId();
+  const identity = uid ?? guestId;
+  const ownerCol = uid ? "patient_id" : "visitor_id";
+  const ownerVal = uid ?? guestId;
+
+  // list + realtime
   const [rows, setRows] = useState<Row[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    const load = async () => {
+      const { data, error } = await supabase
+        .from("video_submissions")
+        .select("*")
+        .eq(ownerCol, ownerVal)
+        .order("submitted_at", { ascending: false });
+      if (error) setErr(error.message);
+      else setRows(data as Row[]);
+    };
+    load();
+    const ch = supabase
+      .channel(`video_subs_${ownerVal}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "video_submissions", filter: `${ownerCol}=eq.${ownerVal}` },
+        load,
+      )
+      .subscribe();
+    return () => ch.unsubscribe();
+  }, [ownerCol, ownerVal]);
 
+  // form meta
   const [form, setForm] = useState<{ title: string; description: string; type: VideoType }>({
     title: "",
     description: "",
     type: "daily-checkin",
   });
 
+  // recording
   const [isRecording, setIsRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
-  const [prog, setProg] = useState<Record<string, number>>({});
+  const timerRef = useRef<any>(null);
+  useEffect(() => {
+    if (isRecording) timerRef.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
+    return () => timerRef.current && clearInterval(timerRef.current);
+  }, [isRecording]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const mrRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const lastBlobRef = useRef<Blob | null>(null);
-  const timerRef = useRef<any>(null);
-  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const recordedBlobRef = useRef<Blob | null>(null);
 
-  // Edit dialog
-  const [editOpen, setEditOpen] = useState(false);
-  const [editRow, setEditRow] = useState<Row | null>(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editDesc, setEditDesc] = useState("");
-  const [editType, setEditType] = useState<VideoType>("daily-checkin");
-  const [editFile, setEditFile] = useState<File | null>(null);
-  const [savingEdit, setSavingEdit] = useState(false);
-
-  // ---------- Identity (auth OR guest) ----------
-  const guestId = getGuestId();                    // stable per-device anon id
-  const identity = uid ?? guestId;                 // used in storage paths
-  const subscribeColumn = uid ? "patient_id" : "visitor_id";
-  const subscribeValue = uid ?? guestId;
-
-  // optional auth (but UI never blocks)
-  useEffect(() => {
-    const init = async () => {
-      const { data } = await supabase.auth.getUser();
-      setUid(data.user?.id ?? null);
-    };
-    init();
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      setUid(session?.user?.id ?? null);
-    });
-    return () => sub.subscription.unsubscribe();
-  }, []);
-
-  // Load + realtime
-  useEffect(() => {
-    const load = async () => {
-      const { data, error } = await supabase
-        .from("video_submissions")
-        .select("*")
-        .eq(subscribeColumn, subscribeValue)
-        .order("submitted_at", { ascending: false });
-      if (error) setErr(error.message);
-      else setRows(data as Row[]);
-    };
-    load();
-
-    const ch = supabase
-      .channel(`video_subs_${subscribeValue}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "video_submissions", filter: `${subscribeColumn}=eq.${subscribeValue}` },
-        load,
-      )
-      .subscribe();
-
-    return () => ch.unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subscribeColumn, subscribeValue]);
-
-  // Recording timer
-  useEffect(() => {
-    if (isRecording) timerRef.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [isRecording]);
-
-  // ----- Recording -----
   async function startRecording() {
     setErr(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      if (videoRef.current) videoRef.current.srcObject = stream;
-      const mr = new MediaRecorder(stream);
-      mrRef.current = mr; chunksRef.current = []; lastBlobRef.current = null;
-      mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      mr.start();
-      setRecSecs(0); setIsRecording(true);
-    } catch (e: any) {
-      setErr(e?.message ?? "Camera/mic access failed");
-    }
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    if (videoRef.current) videoRef.current.srcObject = stream;
+    const mr = new MediaRecorder(stream);
+    mrRef.current = mr;
+    chunksRef.current = [];
+    recordedBlobRef.current = null;
+    mr.ondataavailable = (e) => e.data.size > 0 && chunksRef.current.push(e.data);
+    mr.start();
+    setRecSecs(0);
+    setIsRecording(true);
   }
   function stopRecording() {
     if (!mrRef.current || !isRecording) return;
-    mrRef.current.stop(); setIsRecording(false);
+    mrRef.current.stop();
+    setIsRecording(false);
     const stream = videoRef.current?.srcObject as MediaStream | null;
-    stream?.getTracks().forEach((t) => t.stop()); if (videoRef.current) videoRef.current.srcObject = null;
-    if (chunksRef.current.length > 0) lastBlobRef.current = new Blob(chunksRef.current, { type: "video/webm" });
+    stream?.getTracks().forEach((t) => t.stop());
+    if (videoRef.current) videoRef.current.srcObject = null;
+    if (chunksRef.current.length > 0) recordedBlobRef.current = new Blob(chunksRef.current, { type: "video/webm" });
   }
 
-  // ----- Upload recorded blob -----
-  async function submitRecorded() {
-    if (!lastBlobRef.current) return setErr("No recording. Click Stop first.");
-    await createOrReplaceVideo({ fileBlob: lastBlobRef.current, filenameHint: "recording.webm", meta: form });
-    lastBlobRef.current = null; chunksRef.current = []; setForm({ title: "", description: "", type: "daily-checkin" }); setRecSecs(0);
+  // upload progress
+  const [prog, setProg] = useState<Record<string, number>>({});
+  function smoothProgress(id: string, from: number, to: number) {
+    let v = from;
+    setProg((m) => ({ ...m, [id]: v }));
+    const h = setInterval(() => {
+      v += 5;
+      if (v >= to) {
+        v = to;
+        clearInterval(h);
+      }
+      setProg((m) => ({ ...m, [id]: v }));
+    }, 160);
   }
 
-  // ----- Upload file -----
-  function openUploadPicker() { uploadInputRef.current?.click(); }
-  async function onUploadFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  // file picker -> pending preview
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
+
+  function openUploadPicker() {
+    uploadInputRef.current?.click();
+  }
+  function onUploadFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    await createOrReplaceVideo({
-      fileBlob: file,
-      filenameHint: file.name,
-      meta: { title: file.name.replace(/\.[^/.]+$/, ""), description: "", type: "daily-checkin" },
-    });
+    setPendingFile(file);
+    const url = URL.createObjectURL(file);
+    setPendingPreviewUrl(url);
+    setForm((f) => ({ ...f, title: file.name.replace(/\.[^/.]+$/, "") }));
     e.currentTarget.value = "";
   }
+  function clearPendingFile() {
+    if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+    setPendingPreviewUrl(null);
+    setPendingFile(null);
+  }
 
-  // ----- Core create/replace (DB + Storage) -----
+  // core create/replace
   async function createOrReplaceVideo(args: {
     fileBlob: Blob;
     filenameHint: string;
@@ -182,8 +177,8 @@ export default function RealTimeVideoSystem() {
     const sizeMb = +(fileBlob.size / (1024 * 1024)).toFixed(2);
     const ext = filenameHint.includes(".") ? filenameHint.split(".").pop()! : "webm";
 
-    let row: Row | null;
-
+    // create/update DB row first
+    let row: Row;
     if (!rowToReplaceId) {
       const { data, error } = await supabase
         .from("video_submissions")
@@ -200,7 +195,7 @@ export default function RealTimeVideoSystem() {
         })
         .select("*")
         .single();
-      if (error) return setErr(error.message);
+      if (error) throw error;
       row = data as Row;
     } else {
       const { data, error } = await supabase
@@ -214,65 +209,73 @@ export default function RealTimeVideoSystem() {
           duration_seconds: duration,
         })
         .eq("id", rowToReplaceId)
-        .eq(subscribeColumn, subscribeValue)
         .select("*")
         .single();
-      if (error) return setErr(error.message);
+      if (error) throw error;
       row = data as Row;
 
+      // remove existing file when replacing
       if (row.storage_path) await supabase.storage.from(BUCKET).remove([row.storage_path]).catch(() => {});
     }
 
     smoothProgress(row.id, 10, 85);
 
+    // upload the file
     const path = `${identity}/${row.id}.${ext}`;
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, fileBlob, {
+      contentType: fileBlob.type || "video/webm",
+      upsert: true,
+    });
+    if (upErr) throw upErr;
+
+    // set URL + mark processing -> completed (demo)
+    const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    await supabase.from("video_submissions").update({ storage_path: path, video_url: pub?.publicUrl ?? null, status: "processing" }).eq("id", row.id);
+    setTimeout(async () => {
+      await supabase.from("video_submissions").update({ status: "completed", processed_at: new Date().toISOString() }).eq("id", row.id);
+      setProg((m) => ({ ...m, [row.id]: 100 }));
+    }, 1200);
+  }
+
+  // submit flows
+  async function submitRecorded() {
     try {
-      const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, fileBlob, {
-        contentType: fileBlob.type || "video/webm",
-        upsert: true,
+      if (!recordedBlobRef.current) return setErr("No recording. Click Stop first.");
+      await createOrReplaceVideo({
+        fileBlob: recordedBlobRef.current,
+        filenameHint: "recording.webm",
+        meta: form,
       });
-      if (upErr) throw upErr;
-
-      const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
-
-      const { error: updErr } = await supabase
-        .from("video_submissions")
-        .update({ storage_path: path, video_url: pub?.publicUrl ?? null, status: "processing" })
-        .eq("id", row.id);
-      if (updErr) throw updErr;
-
-      // TEMP complete (replace with webhook/worker when you add processing)
-      setTimeout(async () => {
-        await supabase
-          .from("video_submissions")
-          .update({ status: "completed", processed_at: new Date().toISOString() })
-          .eq("id", row!.id);
-        setProg((m) => ({ ...m, [row!.id]: 100 }));
-      }, 1200);
+      recordedBlobRef.current = null;
+      setForm({ title: "", description: "", type: "daily-checkin" });
+      setRecSecs(0);
     } catch (e: any) {
-      await supabase.from("video_submissions").update({ status: "failed" }).eq("id", row.id);
+      setErr(e?.message ?? "Upload failed");
+    }
+  }
+  async function submitPendingFile() {
+    if (!pendingFile) return;
+    try {
+      await createOrReplaceVideo({
+        fileBlob: pendingFile,
+        filenameHint: pendingFile.name,
+        meta: form,
+      });
+      clearPendingFile();
+      setForm({ title: "", description: "", type: "daily-checkin" });
+    } catch (e: any) {
       setErr(e?.message ?? "Upload failed");
     }
   }
 
-  async function handleDelete(id: string) {
-    const row = rows.find((r) => r.id === id);
-    if (row?.storage_path) await supabase.storage.from(BUCKET).remove([row.storage_path]).catch(() => {});
-    await supabase.from("video_submissions").delete().eq("id", id).eq(subscribeColumn, subscribeValue);
-  }
-
-  function smoothProgress(id: string, from: number, to: number) {
-    let v = from; setProg((m) => ({ ...m, [id]: v }));
-    const h = setInterval(() => { v += 5; if (v >= to) { v = to; clearInterval(h); } setProg((m) => ({ ...m, [id]: v })); }, 180);
-  }
-
-  const grouped = useMemo(() => {
-    const g = rows.reduce<Record<string, Row[]>>((acc, r) => {
-      const key = new Date(r.submitted_at).toLocaleDateString();
-      (acc[key] ||= []).push(r); return acc;
-    }, {});
-    return Object.entries(g).sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime());
-  }, [rows]);
+  // edit dialog
+  const [editOpen, setEditOpen] = useState(false);
+  const [editRow, setEditRow] = useState<Row | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editType, setEditType] = useState<VideoType>("daily-checkin");
+  const [editFile, setEditFile] = useState<File | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   function openEdit(row: Row) {
     setEditRow(row);
@@ -297,8 +300,7 @@ export default function RealTimeVideoSystem() {
         const { error } = await supabase
           .from("video_submissions")
           .update({ title: editTitle.trim() || "Untitled Recording", description: editDesc || null, type: editType })
-          .eq("id", editRow.id)
-          .eq(subscribeColumn, subscribeValue);
+          .eq("id", editRow.id);
         if (error) throw error;
       }
       setEditOpen(false);
@@ -309,9 +311,19 @@ export default function RealTimeVideoSystem() {
     }
   }
 
+  // grouped history
+  const grouped = useMemo(() => {
+    const g = rows.reduce<Record<string, Row[]>>((acc, r) => {
+      const key = new Date(r.submitted_at).toLocaleDateString();
+      (acc[key] ||= []).push(r);
+      return acc;
+    }, {});
+    return Object.entries(g).sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime());
+  }, [rows]);
+
   return (
     <div className="space-y-6">
-      {/* Header actions (always available) */}
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
           Mode: {uid ? "account" : "guest"} · <code className="bg-gray-100 px-1 rounded">{identity}</code>
@@ -330,13 +342,14 @@ export default function RealTimeVideoSystem() {
           <CardTitle className="flex items-center gap-2">
             <VideoIcon className="h-5 w-5 text-red-600" /> Real-time Video Submission
           </CardTitle>
-          <CardDescription>Stored in Supabase (Storage + DB)</CardDescription>
+          <CardDescription>Record, preview, then upload to Supabase</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {err && <div className="text-sm text-red-600">{err}</div>}
+
           <div className="relative bg-gray-900 rounded-lg overflow-hidden aspect-video">
             <video ref={videoRef} autoPlay muted className="w-full h-full object-cover" />
-            {!isRecording && !lastBlobRef.current && (
+            {!isRecording && !recordedBlobRef.current && (
               <div className="absolute inset-0 grid place-items-center text-white/80">
                 <div className="text-center">
                   <VideoIcon className="h-12 w-12 mx-auto mb-2 opacity-50" />
@@ -364,47 +377,49 @@ export default function RealTimeVideoSystem() {
             )}
           </div>
 
-          {lastBlobRef.current && !isRecording && (
+          {/* Recorded preview before upload */}
+          {recordedBlobRef.current && !isRecording && (
             <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
-              <h4 className="font-medium">Submit Your Recording</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-sm">Title</Label>
-                  <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Enter video title" />
-                </div>
-                <div>
-                  <Label className="text-sm">Type</Label>
-                  <select
-                    value={form.type}
-                    onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as VideoType }))}
-                    className="w-full p-2 border rounded-md"
-                  >
-                    <option value="daily-checkin">Daily Check-in</option>
-                    <option value="medication">Medication</option>
-                    <option value="therapy-session">Therapy Session</option>
-                    <option value="progress-update">Progress Update</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <Label className="text-sm">Description</Label>
-                <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
-              </div>
+              <h4 className="font-medium">Preview & Submit</h4>
+              <video
+                controls
+                src={URL.createObjectURL(recordedBlobRef.current)}
+                className="w-full rounded-md"
+                onLoadedMetadata={(e) => URL.revokeObjectURL((e.target as HTMLVideoElement).src)} // free blob URL
+              />
+              <MetaForm form={form} setForm={setForm} />
               <Button onClick={submitRecorded} className="w-full">
-                <Upload className="h-4 w-4 mr-2" /> Submit Video
+                <Upload className="h-4 w-4 mr-2" /> Upload Recording
               </Button>
+            </div>
+          )}
+
+          {/* Picked file preview before upload */}
+          {pendingFile && pendingPreviewUrl && (
+            <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
+              <h4 className="font-medium">File Preview & Submit</h4>
+              <video controls src={pendingPreviewUrl} className="w-full rounded-md" />
+              <MetaForm form={form} setForm={setForm} />
+              <div className="flex gap-2">
+                <Button className="flex-1" onClick={submitPendingFile}>
+                  <Upload className="h-4 w-4 mr-2" /> Upload File
+                </Button>
+                <Button variant="outline" className="flex-1" onClick={clearPendingFile}>
+                  Cancel
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Live list */}
+      {/* History with inline playable video */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5 text-blue-600" /> Submission Status
           </CardTitle>
-          <CardDescription>Live from Supabase</CardDescription>
+          <CardDescription>Uploaded videos are playable below</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -427,6 +442,12 @@ export default function RealTimeVideoSystem() {
                                <Clock className="h-4 w-4 text-yellow-500 animate-spin" />}
                             </div>
                             <p className="text-sm text-muted-foreground mb-2">{s.description}</p>
+
+                            {/* Inline video player once uploaded */}
+                            {s.video_url && (
+                              <video controls src={s.video_url} className="w-full max-w-2xl rounded-md mb-2" />
+                            )}
+
                             <div className="flex items-center gap-4 text-xs text-muted-foreground">
                               <span>{formatClock(s.duration_seconds ?? 0)}</span>
                               <span>{s.size_mb ? `${s.size_mb} MB` : "-"}</span>
@@ -453,13 +474,13 @@ export default function RealTimeVideoSystem() {
                           <Button size="sm" variant="outline" onClick={() => openEdit(s)}>
                             <Edit2 className="h-3 w-3 mr-1" /> Edit
                           </Button>
-                          {s.status === "completed" && s.video_url && (
+                          {s.video_url && (
                             <>
                               <a href={s.video_url} target="_blank" rel="noreferrer">
-                                <Button size="sm" variant="outline"><Play className="h-3 w-3 mr-1" /> Play</Button>
+                                <Button size="sm" variant="outline"><Play className="h-3 w-3 mr-1" /> Open</Button>
                               </a>
-                              <a href={s.video_url} target="_blank" rel="noreferrer">
-                                <Button size="sm" variant="outline"><Eye className="h-3 w-3 mr-1" /> View</Button>
+                              <a href={s.video_url} download>
+                                <Button size="sm" variant="outline"><Eye className="h-3 w-3 mr-1" /> Download</Button>
                               </a>
                             </>
                           )}
@@ -477,12 +498,10 @@ export default function RealTimeVideoSystem() {
         </CardContent>
       </Card>
 
-      {/* Edit Dialog */}
+      {/* Edit dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Submission</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Edit Submission</DialogTitle></DialogHeader>
           <div className="space-y-3 py-2">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
@@ -516,6 +535,43 @@ export default function RealTimeVideoSystem() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/* Small components */
+function MetaForm({
+  form,
+  setForm,
+}: {
+  form: { title: string; description: string; type: VideoType };
+  setForm: React.Dispatch<React.SetStateAction<{ title: string; description: string; type: VideoType }>>;
+}) {
+  return (
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <Label className="text-sm">Title</Label>
+          <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Enter video title" />
+        </div>
+        <div>
+          <Label className="text-sm">Type</Label>
+          <select
+            value={form.type}
+            onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as VideoType }))}
+            className="w-full p-2 border rounded-md"
+          >
+            <option value="daily-checkin">Daily Check-in</option>
+            <option value="medication">Medication</option>
+            <option value="therapy-session">Therapy Session</option>
+            <option value="progress-update">Progress Update</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <Label className="text-sm">Description</Label>
+        <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
+      </div>
+    </>
   );
 }
 
@@ -553,14 +609,13 @@ function getBlobDuration(blob: Blob): Promise<number> {
 }
 function getGuestId(): string {
   try {
-    const k = "src-guest-id";
-    const v = localStorage.getItem(k);
+    const key = "src-guest-id";
+    const v = localStorage.getItem(key);
     if (v) return v;
     const id = crypto.randomUUID();
-    localStorage.setItem(k, id);
+    localStorage.setItem(key, id);
     return id;
   } catch {
-    // SSR or locked storage — generate non-persistent id
     return `guest-${Math.random().toString(36).slice(2, 10)}`;
   }
 }
