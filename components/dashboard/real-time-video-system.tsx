@@ -3,7 +3,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
-import SignInCard from "@/components/auth/sign-in-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +11,20 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Video as VideoIcon, Upload, Clock, CheckCircle, AlertCircle, Play, Eye, Trash2, LogOut, Edit2, PlusCircle } from "lucide-react";
+import {
+  Video as VideoIcon,
+  Upload,
+  Clock,
+  CheckCircle,
+  AlertCircle,
+  Play,
+  Eye,
+  Trash2,
+  LogOut,
+  Edit2,
+  PlusCircle,
+  AlertTriangle,
+} from "lucide-react";
 
 type VideoStatus = "uploading" | "processing" | "completed" | "failed";
 type VideoType = "daily-checkin" | "medication" | "therapy-session" | "progress-update";
@@ -40,7 +52,9 @@ export default function RealTimeVideoSystem() {
   const [err, setErr] = useState<string | null>(null);
 
   const [form, setForm] = useState<{ title: string; description: string; type: VideoType }>({
-    title: "", description: "", type: "daily-checkin",
+    title: "",
+    description: "",
+    type: "daily-checkin",
   });
 
   const [isRecording, setIsRecording] = useState(false);
@@ -55,7 +69,7 @@ export default function RealTimeVideoSystem() {
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  // Edit dialog state
+  // Edit dialog
   const [editOpen, setEditOpen] = useState(false);
   const [editRow, setEditRow] = useState<Row | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -64,19 +78,22 @@ export default function RealTimeVideoSystem() {
   const [editFile, setEditFile] = useState<File | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
 
-  // Session
+  // Session (non-intrusive)
   useEffect(() => {
     let mounted = true;
     supabase.auth.getUser().then(({ data }) => {
       if (!mounted) return;
       setUid(data.user?.id ?? null);
-      setErr(data.user ? null : "Auth session missing. Sign in to upload.");
+      if (!data.user) setErr("Auth session missing. Sign in to enable uploads.");
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
       setUid(session?.user?.id ?? null);
-      setErr(session?.user ? null : "Auth session missing. Sign in to upload.");
+      setErr(session?.user ? null : "Auth session missing. Sign in to enable uploads.");
     });
-    return () => { mounted = false; sub.subscription.unsubscribe(); };
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   // Load + subscribe
@@ -92,6 +109,7 @@ export default function RealTimeVideoSystem() {
       else setRows(data as Row[]);
     };
     load();
+
     channelRef.current?.unsubscribe();
     const ch = supabase
       .channel(`video_subs_${uid}`)
@@ -107,8 +125,9 @@ export default function RealTimeVideoSystem() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [isRecording]);
 
-  // ---- Recording flow ----
+  // Recording
   async function startRecording() {
+    if (!uid) return;
     setErr(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -131,19 +150,17 @@ export default function RealTimeVideoSystem() {
   }
 
   async function submitRecorded() {
-    if (!uid) return setErr("Please sign in first.");
+    if (!uid) return;
     if (!lastBlobRef.current) return setErr("No recording. Click Stop first.");
     await createOrReplaceVideo({ fileBlob: lastBlobRef.current, filenameHint: "recording.webm", meta: form });
     lastBlobRef.current = null; chunksRef.current = []; setForm({ title: "", description: "", type: "daily-checkin" }); setRecSecs(0);
   }
 
-  // ---- Upload file flow ----
-  function openUploadPicker() {
-    uploadInputRef.current?.click();
-  }
+  // Upload file
+  function openUploadPicker() { if (uid) uploadInputRef.current?.click(); }
   async function onUploadFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !uid) return;
     await createOrReplaceVideo({
       fileBlob: file,
       filenameHint: file.name,
@@ -152,15 +169,15 @@ export default function RealTimeVideoSystem() {
     e.currentTarget.value = "";
   }
 
-  // ---- Core create/replace operation (Storage + DB) ----
+  // Core create/replace
   async function createOrReplaceVideo(args: {
     fileBlob: Blob;
     filenameHint: string;
     meta: { title: string; description?: string | null; type: VideoType };
-    rowToReplaceId?: string; // optional replace
+    rowToReplaceId?: string;
   }) {
     const { fileBlob, filenameHint, meta, rowToReplaceId } = args;
-    if (!uid) return setErr("No session");
+    if (!uid) return;
 
     const duration = await getBlobDuration(fileBlob).catch(() => Math.round(recSecs));
     const sizeMb = +(fileBlob.size / (1024 * 1024)).toFixed(2);
@@ -168,7 +185,6 @@ export default function RealTimeVideoSystem() {
 
     let row: Row | null = null;
 
-    // Create or update initial row to show progress
     if (!rowToReplaceId) {
       const { data, error } = await supabase
         .from("video_submissions")
@@ -203,7 +219,6 @@ export default function RealTimeVideoSystem() {
       if (error) return setErr(error.message);
       row = data as Row;
 
-      // Why: keep bucket clean when replacing file
       if (row.storage_path) await supabase.storage.from(BUCKET).remove([row.storage_path]).catch(() => {});
     }
 
@@ -213,7 +228,7 @@ export default function RealTimeVideoSystem() {
     try {
       const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, fileBlob, {
         contentType: fileBlob.type || "video/webm",
-        upsert: true, // allow replace path for edit
+        upsert: true,
       });
       if (upErr) throw upErr;
 
@@ -225,9 +240,11 @@ export default function RealTimeVideoSystem() {
         .eq("id", row.id);
       if (updErr) throw updErr;
 
-      // TEMP complete
       setTimeout(async () => {
-        await supabase.from("video_submissions").update({ status: "completed", processed_at: new Date().toISOString() }).eq("id", row!.id);
+        await supabase
+          .from("video_submissions")
+          .update({ status: "completed", processed_at: new Date().toISOString() })
+          .eq("id", row!.id);
         setProg((m) => ({ ...m, [row!.id]: 100 }));
       }, 1200);
     } catch (e: any) {
@@ -237,6 +254,7 @@ export default function RealTimeVideoSystem() {
   }
 
   async function handleDelete(id: string) {
+    if (!uid) return;
     const row = rows.find((r) => r.id === id);
     if (row?.storage_path) await supabase.storage.from(BUCKET).remove([row.storage_path]).catch(() => {});
     await supabase.from("video_submissions").delete().eq("id", id);
@@ -257,7 +275,6 @@ export default function RealTimeVideoSystem() {
     return Object.entries(g).sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime());
   }, [rows]);
 
-  // ---- Edit dialog helpers ----
   function openEdit(row: Row) {
     setEditRow(row);
     setEditTitle(row.title);
@@ -267,11 +284,10 @@ export default function RealTimeVideoSystem() {
     setEditOpen(true);
   }
   async function saveEdit() {
-    if (!editRow) return;
+    if (!editRow || !uid) return;
     setSavingEdit(true);
     try {
       if (editFile) {
-        // Replace file + update meta
         await createOrReplaceVideo({
           fileBlob: editFile,
           filenameHint: editFile.name,
@@ -279,7 +295,6 @@ export default function RealTimeVideoSystem() {
           rowToReplaceId: editRow.id,
         });
       } else {
-        // Just metadata update
         const { error } = await supabase
           .from("video_submissions")
           .update({ title: editTitle.trim() || "Untitled Recording", description: editDesc || null, type: editType })
@@ -294,28 +309,29 @@ export default function RealTimeVideoSystem() {
     }
   }
 
-  if (!uid) {
-    return (
-      <div className="space-y-4">
-        <SignInCard />
-        {err && <div className="text-sm text-red-600 text-center">{err}</div>}
-      </div>
-    );
-  }
+  const disabled = !uid;
 
   return (
     <div className="space-y-6">
-      {/* Session + quick actions */}
+      {/* Tiny inline banner only if missing session */}
+      {!uid && (
+        <div className="flex items-center gap-2 text-yellow-800 bg-yellow-50 border border-yellow-200 rounded-md px-3 py-2 text-sm">
+          <AlertTriangle className="w-4 h-4" />
+          <span>Auth session missing. Sign in to enable recording, uploads, edit & delete.</span>
+        </div>
+      )}
+
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          Signed in as <code className="bg-gray-100 px-1 rounded">{uid}</code>
+          {uid ? <>Signed in as <code className="bg-gray-100 px-1 rounded">{uid}</code></> : "Not signed in"}
         </div>
         <div className="flex items-center gap-2">
           <input ref={uploadInputRef} type="file" accept="video/*" className="hidden" onChange={onUploadFileChange} />
-          <Button variant="outline" size="sm" onClick={openUploadPicker}>
+          <Button variant="outline" size="sm" onClick={openUploadPicker} disabled={disabled}>
             <PlusCircle className="w-4 h-4 mr-1" /> Upload File
           </Button>
-          <Button variant="outline" size="sm" onClick={signOut}>
+          <Button variant="outline" size="sm" onClick={signOut} disabled={disabled}>
             <LogOut className="w-4 h-4 mr-1" /> Sign out
           </Button>
         </div>
@@ -337,7 +353,7 @@ export default function RealTimeVideoSystem() {
               <div className="absolute inset-0 grid place-items-center text-white/80">
                 <div className="text-center">
                   <VideoIcon className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">Click start to begin recording</p>
+                  <p className="text-sm">{disabled ? "Sign in to start recording" : "Click start to begin recording"}</p>
                 </div>
               </div>
             )}
@@ -351,7 +367,7 @@ export default function RealTimeVideoSystem() {
 
           <div className="flex justify-center gap-4">
             {!isRecording ? (
-              <Button onClick={startRecording} className="bg-red-600 hover:bg-red-700">
+              <Button onClick={startRecording} className="bg-red-600 hover:bg-red-700" disabled={disabled}>
                 <VideoIcon className="h-4 w-4 mr-2" /> Start Recording
               </Button>
             ) : (
@@ -387,7 +403,7 @@ export default function RealTimeVideoSystem() {
                 <Label className="text-sm">Description</Label>
                 <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
               </div>
-              <Button onClick={submitRecorded} className="w-full">
+              <Button onClick={submitRecorded} className="w-full" disabled={disabled}>
                 <Upload className="h-4 w-4 mr-2" /> Submit Video
               </Button>
             </div>
@@ -447,7 +463,7 @@ export default function RealTimeVideoSystem() {
                         )}
 
                         <div className="flex justify-end gap-2">
-                          <Button size="sm" variant="outline" onClick={() => openEdit(s)}>
+                          <Button size="sm" variant="outline" onClick={() => openEdit(s)} disabled={disabled}>
                             <Edit2 className="h-3 w-3 mr-1" /> Edit
                           </Button>
                           {s.status === "completed" && s.video_url && (
@@ -460,7 +476,7 @@ export default function RealTimeVideoSystem() {
                               </a>
                             </>
                           )}
-                          <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700 bg-transparent" onClick={() => handleDelete(s.id)}>
+                          <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700 bg-transparent" onClick={() => handleDelete(s.id)} disabled={disabled}>
                             <Trash2 className="h-3 w-3" />
                           </Button>
                         </div>
@@ -484,11 +500,11 @@ export default function RealTimeVideoSystem() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <Label className="text-sm">Title</Label>
-                <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+                <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} disabled={disabled} />
               </div>
               <div>
                 <Label className="text-sm">Type</Label>
-                <select value={editType} onChange={(e) => setEditType(e.target.value as VideoType)} className="w-full p-2 border rounded-md">
+                <select value={editType} onChange={(e) => setEditType(e.target.value as VideoType)} className="w-full p-2 border rounded-md" disabled={disabled}>
                   <option value="daily-checkin">Daily Check-in</option>
                   <option value="medication">Medication</option>
                   <option value="therapy-session">Therapy Session</option>
@@ -498,19 +514,17 @@ export default function RealTimeVideoSystem() {
             </div>
             <div>
               <Label className="text-sm">Description</Label>
-              <Textarea rows={3} value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
+              <Textarea rows={3} value={editDesc} onChange={(e) => setEditDesc(e.target.value)} disabled={disabled} />
             </div>
             <div>
               <Label className="text-sm block mb-1">Replace video file (optional)</Label>
-              <Input type="file" accept="video/*" onChange={(e) => setEditFile(e.target.files?.[0] ?? null)} />
+              <Input type="file" accept="video/*" onChange={(e) => setEditFile(e.target.files?.[0] ?? null)} disabled={disabled} />
               <p className="text-xs text-muted-foreground mt-1">Choosing a file will replace the stored video.</p>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button onClick={saveEdit} disabled={savingEdit}>
-              {savingEdit ? "Saving..." : "Save changes"}
-            </Button>
+            <Button onClick={saveEdit} disabled={savingEdit || disabled}>{savingEdit ? "Saving..." : "Save changes"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -518,7 +532,7 @@ export default function RealTimeVideoSystem() {
   );
 }
 
-/* helpers (only the 'why' matters: consistent formatting & UX) */
+/* helpers */
 function statusBadge(s: VideoStatus) {
   return s === "completed" ? "bg-green-100 text-green-800"
     : s === "failed" ? "bg-red-100 text-red-800"
@@ -534,7 +548,7 @@ function typeBadge(t: VideoType) {
   }
 }
 function formatClock(sec: number) {
-  const m = Math.floor(sec / 60); const s = Math.max(0, sec % 60);
+  const m = Math.floor(sec / 60), s = Math.max(0, sec % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 function getBlobDuration(blob: Blob): Promise<number> {
