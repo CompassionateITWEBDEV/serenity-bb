@@ -24,6 +24,7 @@ import {
   X,
   Copy,
   Info,
+  RotateCcw,
 } from "lucide-react";
 
 /* ---------------- Types ---------------- */
@@ -99,12 +100,10 @@ function InlineBanner({
   kind,
   title,
   desc,
-  action,
 }: {
   kind: "success" | "error";
   title: string;
   desc?: React.ReactNode;
-  action?: React.ReactNode;
 }) {
   const tone =
     kind === "success"
@@ -117,7 +116,6 @@ function InlineBanner({
         <div className="text-sm font-medium">{title}</div>
         {desc && <div className="text-xs opacity-80">{desc}</div>}
       </div>
-      {action}
     </div>
   );
 }
@@ -188,6 +186,7 @@ export default function RealTimeVideoSystem() {
 
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedPreviewUrl, setRecordedPreviewUrl] = useState<string | null>(null);
+  const [showPreviewOverlay, setShowPreviewOverlay] = useState(false); // overlay cues on big player
 
   // manual upload
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -218,6 +217,7 @@ export default function RealTimeVideoSystem() {
   async function startRecording() {
     setErr(null);
     setBanner({ kind: null, title: "", desc: "", anchorId: null });
+    setShowPreviewOverlay(false);
 
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     const el = videoRef.current;
@@ -227,6 +227,7 @@ export default function RealTimeVideoSystem() {
       el.srcObject = stream;
       el.controls = false;
       el.muted = true;
+      el.playsInline = true;
       await el.play().catch(() => {});
     }
 
@@ -245,7 +246,8 @@ export default function RealTimeVideoSystem() {
     setIsRecording(true);
   }
 
-  function waitForRecorderStop(mr: MediaRecorder) {
+  function recorderDone(mr: MediaRecorder) {
+    // why: make sure the final dataavailable arrived before we read chunks
     return new Promise<void>((resolve) => {
       const onStop = () => {
         mr.removeEventListener("stop", onStop);
@@ -255,12 +257,12 @@ export default function RealTimeVideoSystem() {
     });
   }
 
-  // stop recording (swap big box to recorded file w/ controls)
+  // stop recording (swap big box to recorded file w/ controls + overlay)
   async function stopRecording() {
     if (!mrRef.current || !isRecording) return;
     const mr = mrRef.current;
     mr.stop();
-    await waitForRecorderStop(mr);
+    await recorderDone(mr);
     setIsRecording(false);
 
     const liveStream = videoRef.current?.srcObject as MediaStream | null;
@@ -278,9 +280,11 @@ export default function RealTimeVideoSystem() {
         el.src = url;
         el.muted = false;
         el.controls = true;
+        el.playsInline = true;
         el.load();
-        el.play().catch(() => {});
+        // do not auto-play on all browsers; user will click Play in overlay
       }
+      setShowPreviewOverlay(true);
     } else {
       if (videoRef.current) {
         videoRef.current.srcObject = null;
@@ -420,7 +424,14 @@ export default function RealTimeVideoSystem() {
     setBanner({
       kind: "success",
       title: "Submission received",
-      desc: "We're processing your video. It appears below now.",
+      desc: (
+        <>
+          We’re processing your video. It appears below now.{" "}
+          <button className="underline underline-offset-2" onClick={() => setLastSubmittedId(row.id)}>
+            View in history
+          </button>
+        </>
+      ) as any,
       anchorId: row.id,
     });
 
@@ -439,6 +450,7 @@ export default function RealTimeVideoSystem() {
       if (recordedPreviewUrl) URL.revokeObjectURL(recordedPreviewUrl);
       setRecordedPreviewUrl(null);
       setRecordedBlob(null);
+      setShowPreviewOverlay(false);
       setForm({ title: "", description: "", type: "daily-checkin" });
       setRecSecs(0);
       setBanner((n) => ({ ...n, anchorId: id }));
@@ -502,22 +514,7 @@ export default function RealTimeVideoSystem() {
       </div>
 
       {/* Inline banner */}
-      {banner.kind && (
-        <InlineBanner
-          kind={banner.kind}
-          title={banner.title || ""}
-          desc={
-            <>
-              {banner.desc}{" "}
-              {banner.anchorId && (
-                <button className="underline underline-offset-2" onClick={() => setLastSubmittedId(banner.anchorId!)}>
-                  View in history
-                </button>
-              )}
-            </>
-          }
-        />
-      )}
+      {banner.kind && <InlineBanner kind={banner.kind} title={banner.title || ""} desc={banner.desc} />}
 
       {/* Recorder */}
       <Card>
@@ -532,6 +529,7 @@ export default function RealTimeVideoSystem() {
 
           <div className="relative bg-gray-900 rounded-lg overflow-hidden aspect-video">
             <video ref={videoRef} autoPlay muted className="w-full h-full object-cover" />
+            {/* start hint */}
             {!isRecording && !recordedPreviewUrl && (
               <div className="absolute inset-0 grid place-items-center text-white/80">
                 <div className="text-center">
@@ -540,10 +538,59 @@ export default function RealTimeVideoSystem() {
                 </div>
               </div>
             )}
+            {/* rec badge */}
             {isRecording && (
               <div className="absolute top-4 left-4 bg-red-600 text-white px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2">
                 <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
                 REC {formatClock(recSecs)}
+              </div>
+            )}
+            {/* preview overlay */}
+            {recordedPreviewUrl && !isRecording && showPreviewOverlay && (
+              <div className="absolute inset-0 bg-black/50 grid place-items-center">
+                <div className="bg-white rounded-xl p-4 shadow-md w-[92%] max-w-md text-center space-y-3">
+                  <div className="text-sm font-medium">Preview ready</div>
+                  <div className="text-xs text-muted-foreground">
+                    Your recording has been captured. You can play it, retake, or open details to upload.
+                  </div>
+                  <div className="flex flex-wrap gap-2 justify-center">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const el = videoRef.current;
+                        if (el) el.play().catch(() => {});
+                        setShowPreviewOverlay(false);
+                      }}
+                    >
+                      <Play className="h-3 w-3 mr-1" /> Play
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        // retake: clear preview url & blob, go back to idle
+                        if (recordedPreviewUrl) URL.revokeObjectURL(recordedPreviewUrl);
+                        setRecordedPreviewUrl(null);
+                        setRecordedBlob(null);
+                        setShowPreviewOverlay(false);
+                      }}
+                    >
+                      <RotateCcw className="h-3 w-3 mr-1" /> Retake
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setShowPreviewOverlay(false);
+                        // scroll to preview card
+                        const el = document.getElementById("preview-card-anchor");
+                        el?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}
+                    >
+                      Open details
+                    </Button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -562,7 +609,7 @@ export default function RealTimeVideoSystem() {
 
           {/* Recorded preview card */}
           {recordedPreviewUrl && !isRecording && (
-            <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
+            <div id="preview-card-anchor" className="space-y-4 p-4 border rounded-lg bg-gray-50">
               <h4 className="font-medium">Preview & Submit</h4>
               <video key={recordedPreviewUrl} controls src={recordedPreviewUrl} className="w-full rounded-md" />
               <Meta form={form} setForm={setForm} />
@@ -577,6 +624,7 @@ export default function RealTimeVideoSystem() {
                     if (recordedPreviewUrl) URL.revokeObjectURL(recordedPreviewUrl);
                     setRecordedPreviewUrl(null);
                     setRecordedBlob(null);
+                    setShowPreviewOverlay(false);
                   }}
                 >
                   Cancel
