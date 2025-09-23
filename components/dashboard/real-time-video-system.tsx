@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 
+/* ---------------- Types ---------------- */
 type VideoStatus = "uploading" | "processing" | "completed" | "failed";
 type VideoType = "daily-checkin" | "medication" | "therapy-session" | "progress-update";
 
@@ -47,7 +48,7 @@ interface Row {
 
 const BUCKET = "videos";
 
-/* ---------------------- local toast (no external deps) ---------------------- */
+/* ---------------- Local toast (self-contained) ---------------- */
 type ToastItem = {
   id: string;
   title: string;
@@ -96,10 +97,11 @@ function ToastHost({ items, onClose }: { items: ToastItem[]; onClose: (id: strin
     </div>
   );
 }
-/* --------------------------------------------------------------------------- */
 
+/* ---------------- Component ---------------- */
 export default function RealTimeVideoSystem() {
-  const { toasts, pushToast, dismiss } = useLocalToast(); // local toast
+  const { toasts, pushToast, dismiss } = useLocalToast();
+
   const [inlineNotice, setInlineNotice] = useState<{
     kind: "success" | "error" | null;
     title?: string;
@@ -107,12 +109,12 @@ export default function RealTimeVideoSystem() {
     anchorId?: string | null;
   }>({ kind: null, title: "", desc: "", anchorId: null });
 
-  // ------- identity (guest, no sign-in) -------
+  // identity (guest)
   const guestId = getGuestId();
   const ownerCol = "visitor_id";
   const ownerVal = guestId;
 
-  // ------- list + realtime -------
+  // list + realtime
   const [rows, setRows] = useState<Row[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [lastSubmittedId, setLastSubmittedId] = useState<string | null>(null);
@@ -140,7 +142,7 @@ export default function RealTimeVideoSystem() {
     return () => ch.unsubscribe();
   }, [ownerVal]);
 
-  // auto-scroll + highlight to last submitted
+  // auto-scroll + highlight
   useEffect(() => {
     if (!lastSubmittedId) return;
     const el = document.getElementById(`row-${lastSubmittedId}`);
@@ -152,7 +154,7 @@ export default function RealTimeVideoSystem() {
     }
   }, [lastSubmittedId, rows.length]);
 
-  // ------- recording -------
+  // recording
   const [isRecording, setIsRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
   const timerRef = useRef<number | null>(null);
@@ -160,11 +162,10 @@ export default function RealTimeVideoSystem() {
   const mrRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  // recorded preview
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedPreviewUrl, setRecordedPreviewUrl] = useState<string | null>(null);
 
-  // manual file preview
+  // manual upload
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null);
@@ -178,6 +179,7 @@ export default function RealTimeVideoSystem() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // rec timer
   useEffect(() => {
     if (isRecording) {
       const h = window.setInterval(() => setRecSecs((s) => s + 1), 1000);
@@ -188,11 +190,21 @@ export default function RealTimeVideoSystem() {
     };
   }, [isRecording]);
 
+  // start recording (live camera in big box)
   async function startRecording() {
     setErr(null);
     setInlineNotice({ kind: null, title: "", desc: "", anchorId: null });
+
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    if (videoRef.current) videoRef.current.srcObject = stream;
+    const el = videoRef.current;
+    if (el) {
+      el.pause();
+      el.removeAttribute("src"); // clear any previous file URL
+      el.srcObject = stream;
+      el.controls = false;
+      el.muted = true;
+      await el.play().catch(() => {});
+    }
 
     const mr = new MediaRecorder(stream);
     mrRef.current = mr;
@@ -209,23 +221,39 @@ export default function RealTimeVideoSystem() {
     setIsRecording(true);
   }
 
+  // stop recording (swap big box to recorded file w/ controls)
   function stopRecording() {
     if (!mrRef.current || !isRecording) return;
     mrRef.current.stop();
     setIsRecording(false);
 
-    const stream = videoRef.current?.srcObject as MediaStream | null;
-    stream?.getTracks().forEach((t) => t.stop());
-    if (videoRef.current) videoRef.current.srcObject = null;
+    const liveStream = videoRef.current?.srcObject as MediaStream | null;
+    liveStream?.getTracks().forEach((t) => t.stop());
 
     if (chunksRef.current.length > 0) {
       const blob = new Blob(chunksRef.current, { type: "video/webm" });
       setRecordedBlob(blob);
       const url = URL.createObjectURL(blob);
-      setRecordedPreviewUrl(url); // immediate preview after recording
+      setRecordedPreviewUrl(url);
+
+      const el = videoRef.current;
+      if (el) {
+        el.srcObject = null; // stop live
+        el.src = url;        // show recorded file
+        el.muted = false;
+        el.controls = true;
+        el.play().catch(() => {});
+      }
+    } else {
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+        videoRef.current.removeAttribute("src");
+        videoRef.current.controls = false;
+      }
     }
   }
 
+  // manual upload helpers
   function openUploadPicker() {
     uploadInputRef.current?.click();
   }
@@ -244,14 +272,14 @@ export default function RealTimeVideoSystem() {
     setPendingFile(null);
   }
 
-  // ------- meta form -------
+  // meta form
   const [form, setForm] = useState<{ title: string; description: string; type: VideoType }>({
     title: "",
     description: "",
     type: "daily-checkin",
   });
 
-  // ------- progress -------
+  // progress
   const [prog, setProg] = useState<Record<string, number>>({});
   function smoothProgress(id: string, from: number, to: number) {
     let v = from;
@@ -266,7 +294,7 @@ export default function RealTimeVideoSystem() {
     }, 150);
   }
 
-  // ------- core create/replace -------
+  // create/replace
   async function createOrReplaceVideo(args: {
     fileBlob: Blob;
     filenameHint: string;
@@ -315,7 +343,7 @@ export default function RealTimeVideoSystem() {
       if (row.storage_path) await supabase.storage.from(BUCKET).remove([row.storage_path]).catch(() => {});
     }
 
-    setLastSubmittedId(row.id); // for scroll/highlight
+    setLastSubmittedId(row.id);
     smoothProgress(row.id, 10, 85);
 
     const path = `${ownerVal}/${row.id}.${ext}`;
@@ -340,7 +368,7 @@ export default function RealTimeVideoSystem() {
       setProg((m) => ({ ...m, [row.id]: 100 }));
     }, 1000);
 
-    // Smart alerts (local toast + inline)
+    // smart alerts
     pushToast({
       title: "Video submitted",
       description: `${meta.title || "Untitled"} • ${formatClock(duration)} • ${sizeMb} MB`,
@@ -355,7 +383,7 @@ export default function RealTimeVideoSystem() {
     return { id: row.id, duration, sizeMb };
   }
 
-  // ------- submit flows -------
+  // submit flows
   async function submitRecorded() {
     if (!recordedBlob) return setErr("No recording. Click Stop first.");
     try {
@@ -436,7 +464,10 @@ export default function RealTimeVideoSystem() {
           <AlertDescription>
             {inlineNotice.desc}{" "}
             {inlineNotice.anchorId && (
-              <button className="underline underline-offset-2" onClick={() => setLastSubmittedId(inlineNotice.anchorId!)}>
+              <button
+                className="underline underline-offset-2"
+                onClick={() => setLastSubmittedId(inlineNotice.anchorId!)}
+              >
                 View in history
               </button>
             )}
@@ -485,7 +516,7 @@ export default function RealTimeVideoSystem() {
             )}
           </div>
 
-          {/* Recorded preview */}
+          {/* Recorded preview card */}
           {recordedPreviewUrl && !isRecording && (
             <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
               <h4 className="font-medium">Preview & Submit</h4>
@@ -510,7 +541,7 @@ export default function RealTimeVideoSystem() {
             </div>
           )}
 
-          {/* Picked file preview */}
+          {/* Picked file preview card */}
           {pendingFile && pendingPreviewUrl && (
             <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
               <h4 className="font-medium">File Preview & Submit</h4>
@@ -529,7 +560,7 @@ export default function RealTimeVideoSystem() {
         </CardContent>
       </Card>
 
-      {/* History with inline players */}
+      {/* History */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -635,7 +666,7 @@ export default function RealTimeVideoSystem() {
   );
 }
 
-/* ---- small pieces ---- */
+/* ---------------- Small pieces ---------------- */
 function Meta({
   form,
   setForm,
@@ -703,8 +734,8 @@ function statusBadge(s: VideoStatus) {
     : "bg-blue-100 text-blue-800";
 }
 function formatClock(sec: number) {
-  const m = Math.floor(sec / 60),
-    s = Math.max(0, sec % 60);
+  const m = Math.floor(sec / 60);
+  const s = Math.max(0, sec % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 function getBlobDuration(blob: Blob): Promise<number> {
