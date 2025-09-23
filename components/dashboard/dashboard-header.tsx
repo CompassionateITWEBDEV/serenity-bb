@@ -1,10 +1,11 @@
-"use client"
+// components/dashboard/dashboard-header.tsx
+"use client";
 
-import { useState } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,24 +13,27 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { useAuth } from "@/hooks/use-auth"
-import { Bell, Settings, LogOut, User, Heart, Menu, X } from "lucide-react"
-import type { Patient } from "@/lib/auth"
+} from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/hooks/use-auth";
+import { usePatientStatus } from "@/hooks/use-patient-status";
+import { Bell, Settings, LogOut, User, Heart, Menu, X } from "lucide-react";
+import type { Patient } from "@/lib/auth";
 
 interface DashboardHeaderProps {
-  patient: Patient
+  patient: Patient;
 }
 
 export function DashboardHeader({ patient }: DashboardHeaderProps) {
-  const { logout } = useAuth()
-  const router = useRouter()
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const { logout } = useAuth();
+  const router = useRouter();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { isNew } = usePatientStatus(); // <- real-time new/existing flag
 
   const handleLogout = () => {
-    logout()
-    router.push("/")
-  }
+    logout();
+    router.push("/");
+  };
 
   const navigation = [
     { name: "Dashboard", href: "/dashboard" },
@@ -40,7 +44,7 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
     { name: "Messages", href: "/dashboard/messages" },
     { name: "Settings", href: "/dashboard/settings" },
     { name: "Automation", href: "/dashboard/automation" },
-  ]
+  ];
 
   return (
     <header className="bg-white shadow-sm border-b">
@@ -74,6 +78,7 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
             {/* Notifications */}
             <Button variant="ghost" size="sm" className="relative">
               <Bell className="h-5 w-5" />
+              {/* Example static count; replace with real unread later */}
               <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
                 2
               </span>
@@ -89,18 +94,30 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
                       alt={`${patient.firstName} ${patient.lastName}`}
                     />
                     <AvatarFallback>
-                      {patient.firstName[0]}
-                      {patient.lastName[0]}
+                      {patient.firstName?.[0] ?? "U"}
+                      {patient.lastName?.[0] ?? ""}
                     </AvatarFallback>
                   </Avatar>
+                  {/* New/Existing dot on avatar */}
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${
+                      isNew ? "bg-blue-500" : "bg-emerald-500"
+                    }`}
+                    aria-hidden
+                  />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56" align="end" forceMount>
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">
-                      {patient.firstName} {patient.lastName}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium leading-none">
+                        {patient.firstName} {patient.lastName}
+                      </p>
+                      <Badge className={isNew ? "bg-blue-100 text-blue-800" : "bg-emerald-100 text-emerald-800"}>
+                        {isNew ? "New" : "Existing"}
+                      </Badge>
+                    </div>
                     <p className="text-xs leading-none text-muted-foreground">{patient.email}</p>
                   </div>
                 </DropdownMenuLabel>
@@ -157,5 +174,5 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
         )}
       </div>
     </header>
-  )
+  );
 }
