@@ -1,80 +1,25 @@
-// /components/dashboard/real-time-video-system.tsx
 "use client";
 
 /**
- * ONE-TIME SQL (run once in Supabase SQL editor)
+ * Real, non-mock recorder wired to your Supabase client.
+ * Requires:
+ * - env: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
+ * - Storage bucket 'videos' + RLS policies
+ * - Table public.video_submissions (patient_id references public.patients(user_id))
  *
- * -- 1) Enum + table
- * do $$
- * begin
- *   if not exists (
- *     select 1 from pg_type t join pg_namespace n on n.oid=t.typnamespace
- *     where t.typname='video_status' and n.nspname='public'
- *   ) then
- *     execute 'create type public.video_status as enum (''uploading'',''processing'',''completed'',''failed'')';
- *   end if;
- * end $$;
- *
- * create table if not exists public.video_submissions (
- *   id uuid primary key default gen_random_uuid(),
- *   patient_id uuid not null references public.patients(user_id) on delete cascade,
- *   title text not null,
- *   description text,
- *   type text not null check (type in ('daily-checkin','medication','therapy-session','progress-update')),
- *   status public.video_status not null default 'uploading',
- *   storage_path text,
- *   video_url text,
- *   thumbnail_url text,
- *   size_mb numeric,
- *   duration_seconds int,
- *   submitted_at timestamptz not null default now(),
- *   processed_at timestamptz
- * );
- *
- * -- 2) RLS (open; lock later to patient_id=auth.uid())
- * alter table public.video_submissions enable row level security;
- * do $$
- * begin
- *   if not exists (select 1 from pg_policies where tablename='video_submissions' and policyname='r:videos') then
- *     create policy "r:videos" on public.video_submissions for select using (true);
- *   end if;
- *   if not exists (select 1 from pg_policies where tablename='video_submissions' and policyname='w:videos') then
- *     create policy "w:videos" on public.video_submissions for insert with check (true);
- *   end if;
- *   if not exists (select 1 from pg_policies where tablename='video_submissions' and policyname='u:videos') then
- *     create policy "u:videos" on public.video_submissions for update using (true);
- *   end if;
- *   if not exists (select 1 from pg_policies where tablename='video_submissions' and policyname='d:videos') then
- *     create policy "d:videos" on public.video_submissions for delete using (true);
- *   end if;
- * end $$;
- * grant usage on schema public to anon, authenticated;
- * grant select, insert, update, delete on public.video_submissions to anon, authenticated;
- *
- * -- 3) Storage bucket + policies (public bucket for simplicity)
- * do $$
- * begin
- *   if not exists (select 1 from storage.buckets where id='videos') then
- *     perform storage.create_bucket('videos', public => true, file_size_limit => 104857600);
- *   end if;
- * end $$;
- * create policy if not exists "r:videos" on storage.objects for select using (bucket_id='videos');
- * create policy if not exists "w:videos" on storage.objects for insert to authenticated with check (bucket_id='videos');
- * create policy if not exists "u:videos" on storage.objects for update to authenticated using (bucket_id='videos') with check (bucket_id='videos');
- * create policy if not exists "d:videos" on storage.objects for delete to authenticated using (bucket_id='videos');
- *
- * notify pgrst, 'reload schema';
+ * Security (recommended next):
+ * - Lock RLS to patient-only: USING (patient_id = auth.uid()) WITH CHECK (patient_id = auth.uid()).
  */
-
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase/client";
+import SignInCard from "@/components/auth/sign-in-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Video as VideoIcon, Upload, Clock, CheckCircle, AlertCircle, Play, Eye, Trash2 } from "lucide-react";
+import { Video as VideoIcon, Upload, Clock, CheckCircle, AlertCircle, Play, Eye, Trash2, LogOut } from "lucide-react";
 
 type VideoStatus = "uploading" | "processing" | "completed" | "failed";
 type VideoType = "daily-checkin" | "medication" | "therapy-session" | "progress-update";
@@ -88,23 +33,18 @@ interface Row {
   status: VideoStatus;
   storage_path: string | null;
   video_url: string | null;
-  thumbnail_url: string | null;
   size_mb: number | null;
   duration_seconds: number | null;
   submitted_at: string;
   processed_at: string | null;
 }
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
 const BUCKET = "videos";
 
 export default function RealTimeVideoSystem() {
   const [uid, setUid] = useState<string | null>(null);
   const [subs, setSubs] = useState<Row[]>([]);
+  const [err, setErr] = useState<string | null>(null);
   const [form, setForm] = useState<{ title: string; description: string; type: VideoType }>({
     title: "",
     description: "",
@@ -112,8 +52,7 @@ export default function RealTimeVideoSystem() {
   });
   const [isRecording, setIsRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
-  const [err, setErr] = useState<string | null>(null);
-  const [prog, setProg] = useState<Record<string, number>>({}); // optimistic upload %
+  const [prog, setProg] = useState<Record<string, number>>({});
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const mrRef = useRef<MediaRecorder | null>(null);
@@ -122,14 +61,25 @@ export default function RealTimeVideoSystem() {
   const timerRef = useRef<any>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  // Auth + load user’s rows + realtime
+  // Session (uses your singleton client)
   useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getUser();
+    let mounted = true;
+    supabase.auth.getUser().then(({ data }) => {
+      if (!mounted) return;
       setUid(data.user?.id ?? null);
-      if (!data.user) setErr("Auth session missing. Sign in to upload.");
-    })();
+      setErr(data.user ? null : "Auth session missing. Sign in to upload.");
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
+      setUid(session?.user?.id ?? null);
+      setErr(session?.user ? null : "Auth session missing. Sign in to upload.");
+    });
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
+
+  // Load rows + Realtime
   useEffect(() => {
     if (!uid) return;
     const load = async () => {
@@ -142,6 +92,7 @@ export default function RealTimeVideoSystem() {
       else setSubs(data as Row[]);
     };
     load();
+
     channelRef.current?.unsubscribe();
     const ch = supabase
       .channel(`video_subs_${uid}`)
@@ -151,7 +102,7 @@ export default function RealTimeVideoSystem() {
     return () => ch.unsubscribe();
   }, [uid]);
 
-  // Record timer
+  // Recording timer
   useEffect(() => {
     if (isRecording) timerRef.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
@@ -163,9 +114,7 @@ export default function RealTimeVideoSystem() {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       if (videoRef.current) videoRef.current.srcObject = stream;
       const mr = new MediaRecorder(stream);
-      mrRef.current = mr;
-      chunksRef.current = [];
-      lastBlobRef.current = null;
+      mrRef.current = mr; chunksRef.current = []; lastBlobRef.current = null;
       mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mr.start();
       setRecSecs(0);
@@ -177,16 +126,19 @@ export default function RealTimeVideoSystem() {
 
   function stopRecording() {
     if (!mrRef.current || !isRecording) return;
-    mrRef.current.stop();
-    setIsRecording(false);
+    mrRef.current.stop(); setIsRecording(false);
+
     const stream = videoRef.current?.srcObject as MediaStream | null;
     stream?.getTracks().forEach((t) => t.stop());
     if (videoRef.current) videoRef.current.srcObject = null;
-    if (chunksRef.current.length > 0) lastBlobRef.current = new Blob(chunksRef.current, { type: "video/webm" });
+
+    if (chunksRef.current.length > 0) {
+      lastBlobRef.current = new Blob(chunksRef.current, { type: "video/webm" });
+    }
   }
 
   async function submitVideo() {
-    if (!uid) return setErr("No user session.");
+    if (!uid) return setErr("Please sign in first.");
     if (!lastBlobRef.current) return setErr("No recording. Click Stop first.");
 
     const blob = lastBlobRef.current;
@@ -195,8 +147,8 @@ export default function RealTimeVideoSystem() {
     const title = form.title?.trim() || "Untitled Recording";
     const description = form.description?.trim() || null;
 
-    // Insert DB row first (so realtime list shows immediately)
-    const { data: row, error: insertErr } = await supabase
+    // Insert row first (why: show immediately; enables realtime)
+    const { data: row, error: insErr } = await supabase
       .from("video_submissions")
       .insert({
         patient_id: uid,
@@ -210,12 +162,12 @@ export default function RealTimeVideoSystem() {
       })
       .select("*")
       .single();
-    if (insertErr) return setErr(insertErr.message);
+    if (insErr) return setErr(insErr.message);
 
-    // Simulate progress while SDK uploads (no native progress)
+    // Optimistic progress while SDK uploads
     smoothProgress(row.id, 10, 85);
 
-    // Upload to Storage
+    // Upload to Storage (public bucket variant)
     const path = `${uid}/${row.id}.webm`;
     try {
       const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, blob, {
@@ -226,14 +178,14 @@ export default function RealTimeVideoSystem() {
 
       const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
 
-      // Update DB to "processing"
+      // Update to processing + attach URL/path
       const { error: updErr } = await supabase
         .from("video_submissions")
         .update({ storage_path: path, video_url: pub?.publicUrl ?? null, status: "processing" })
         .eq("id", row.id);
       if (updErr) throw updErr;
 
-      // TEMP: auto-complete after short delay (replace with your worker)
+      // TEMP: mark completed (replace with worker/webhook)
       setTimeout(async () => {
         await supabase
           .from("video_submissions")
@@ -245,7 +197,6 @@ export default function RealTimeVideoSystem() {
       await supabase.from("video_submissions").update({ status: "failed" }).eq("id", row.id);
       setErr(e?.message ?? "Upload failed");
     } finally {
-      // reset buffer
       lastBlobRef.current = null;
       chunksRef.current = [];
       setForm({ title: "", description: "", type: "daily-checkin" });
@@ -259,7 +210,10 @@ export default function RealTimeVideoSystem() {
     await supabase.from("video_submissions").delete().eq("id", id);
   }
 
-  // progress helpers
+  async function signOut() {
+    await supabase.auth.signOut();
+  }
+
   function smoothProgress(id: string, from: number, to: number) {
     let v = from;
     setProg((m) => ({ ...m, [id]: v }));
@@ -279,19 +233,38 @@ export default function RealTimeVideoSystem() {
     return Object.entries(g).sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime());
   }, [subs]);
 
+  if (!uid) {
+    return (
+      <div className="space-y-4">
+        <SignInCard />
+        {err && <div className="text-sm text-red-600 text-center">{err}</div>}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {/* Session header */}
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-gray-600">
+          Signed in as <code className="bg-gray-100 px-1 rounded">{uid}</code>
+        </div>
+        <Button variant="outline" size="sm" onClick={signOut}>
+          <LogOut className="w-4 h-4 mr-1" /> Sign out
+        </Button>
+      </div>
+
+      {/* Recorder */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <VideoIcon className="h-5 w-5 text-red-600" />
             Real-time Video Submission
           </CardTitle>
-          <CardDescription>Record and submit videos with live status (stored in Supabase)</CardDescription>
+          <CardDescription>Stored in Supabase (Storage + DB)</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {err && <div className="text-sm text-red-600">{err}</div>}
-
           <div className="relative bg-gray-900 rounded-lg overflow-hidden aspect-video">
             <video ref={videoRef} autoPlay muted className="w-full h-full object-cover" />
             {!isRecording && !lastBlobRef.current && (
@@ -312,7 +285,7 @@ export default function RealTimeVideoSystem() {
 
           <div className="flex justify-center gap-4">
             {!isRecording ? (
-              <Button onClick={startRecording} className="bg-red-600 hover:bg-red-700" disabled={!uid}>
+              <Button onClick={startRecording} className="bg-red-600 hover:bg-red-700">
                 <VideoIcon className="h-4 w-4 mr-2" /> Start Recording
               </Button>
             ) : (
@@ -348,7 +321,7 @@ export default function RealTimeVideoSystem() {
                 <label className="text-sm font-medium">Description</label>
                 <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
               </div>
-              <Button onClick={submitVideo} className="w-full" disabled={!uid}>
+              <Button onClick={submitVideo} className="w-full">
                 <Upload className="h-4 w-4 mr-2" /> Submit Video
               </Button>
             </div>
@@ -356,13 +329,14 @@ export default function RealTimeVideoSystem() {
         </CardContent>
       </Card>
 
+      {/* Realtime list */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5 text-blue-600" />
             Submission Status
           </CardTitle>
-          <CardDescription>Live tracking from Supabase (no mocks)</CardDescription>
+          <CardDescription>Live from Supabase</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -377,7 +351,6 @@ export default function RealTimeVideoSystem() {
                       s.status === "completed" ? 100 :
                       s.status === "failed" ? 0 :
                       prog[s.id] ?? (s.status === "processing" ? 90 : 10);
-
                     return (
                       <div key={s.id} className="border rounded-lg p-4 space-y-3">
                         <div className="flex items-start justify-between">
@@ -443,7 +416,7 @@ export default function RealTimeVideoSystem() {
   );
 }
 
-/* small helpers */
+/* minimal helpers (why: readability) */
 function statusBadge(s: VideoStatus) {
   return s === "completed" ? "bg-green-100 text-green-800"
     : s === "failed" ? "bg-red-100 text-red-800"
