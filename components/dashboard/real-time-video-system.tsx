@@ -1,15 +1,5 @@
 "use client";
 
-/**
- * Real, non-mock recorder wired to your Supabase client.
- * Requires:
- * - env: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
- * - Storage bucket 'videos' + RLS policies
- * - Table public.video_submissions (patient_id references public.patients(user_id))
- *
- * Security (recommended next):
- * - Lock RLS to patient-only: USING (patient_id = auth.uid()) WITH CHECK (patient_id = auth.uid()).
- */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import SignInCard from "@/components/auth/sign-in-card";
@@ -39,17 +29,18 @@ interface Row {
   processed_at: string | null;
 }
 
-const BUCKET = "videos";
+const BUCKET = "videos"; // make sure this bucket exists + policies set
 
 export default function RealTimeVideoSystem() {
   const [uid, setUid] = useState<string | null>(null);
-  const [subs, setSubs] = useState<Row[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [form, setForm] = useState<{ title: string; description: string; type: VideoType }>({
     title: "",
     description: "",
     type: "daily-checkin",
   });
+
   const [isRecording, setIsRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
   const [prog, setProg] = useState<Record<string, number>>({});
@@ -61,7 +52,7 @@ export default function RealTimeVideoSystem() {
   const timerRef = useRef<any>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  // Session (uses your singleton client)
+  // Session
   useEffect(() => {
     let mounted = true;
     supabase.auth.getUser().then(({ data }) => {
@@ -69,7 +60,7 @@ export default function RealTimeVideoSystem() {
       setUid(data.user?.id ?? null);
       setErr(data.user ? null : "Auth session missing. Sign in to upload.");
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       setUid(session?.user?.id ?? null);
       setErr(session?.user ? null : "Auth session missing. Sign in to upload.");
     });
@@ -79,7 +70,7 @@ export default function RealTimeVideoSystem() {
     };
   }, []);
 
-  // Load rows + Realtime
+  // Load + subscribe
   useEffect(() => {
     if (!uid) return;
     const load = async () => {
@@ -89,14 +80,14 @@ export default function RealTimeVideoSystem() {
         .eq("patient_id", uid)
         .order("submitted_at", { ascending: false });
       if (error) setErr(error.message);
-      else setSubs(data as Row[]);
+      else setRows(data as Row[]);
     };
     load();
 
     channelRef.current?.unsubscribe();
     const ch = supabase
       .channel(`video_subs_${uid}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "video_submissions", filter: `patient_id=eq.${uid}` }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "video_submissions", filter: `patient_id=eq.${uid}` }, load)
       .subscribe();
     channelRef.current = ch;
     return () => ch.unsubscribe();
@@ -117,24 +108,18 @@ export default function RealTimeVideoSystem() {
       mrRef.current = mr; chunksRef.current = []; lastBlobRef.current = null;
       mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mr.start();
-      setRecSecs(0);
-      setIsRecording(true);
+      setRecSecs(0); setIsRecording(true);
     } catch (e: any) {
       setErr(e?.message ?? "Camera/mic access failed");
     }
   }
-
   function stopRecording() {
     if (!mrRef.current || !isRecording) return;
     mrRef.current.stop(); setIsRecording(false);
-
     const stream = videoRef.current?.srcObject as MediaStream | null;
     stream?.getTracks().forEach((t) => t.stop());
     if (videoRef.current) videoRef.current.srcObject = null;
-
-    if (chunksRef.current.length > 0) {
-      lastBlobRef.current = new Blob(chunksRef.current, { type: "video/webm" });
-    }
+    if (chunksRef.current.length > 0) lastBlobRef.current = new Blob(chunksRef.current, { type: "video/webm" });
   }
 
   async function submitVideo() {
@@ -147,7 +132,7 @@ export default function RealTimeVideoSystem() {
     const title = form.title?.trim() || "Untitled Recording";
     const description = form.description?.trim() || null;
 
-    // Insert row first (why: show immediately; enables realtime)
+    // Insert first (so it shows immediately)
     const { data: row, error: insErr } = await supabase
       .from("video_submissions")
       .insert({
@@ -164,10 +149,10 @@ export default function RealTimeVideoSystem() {
       .single();
     if (insErr) return setErr(insErr.message);
 
-    // Optimistic progress while SDK uploads
+    // Optimistic progress (SDK has no native upload progress)
     smoothProgress(row.id, 10, 85);
 
-    // Upload to Storage (public bucket variant)
+    // Upload to Storage
     const path = `${uid}/${row.id}.webm`;
     try {
       const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, blob, {
@@ -178,14 +163,14 @@ export default function RealTimeVideoSystem() {
 
       const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
 
-      // Update to processing + attach URL/path
+      // Update row to processing + set URL
       const { error: updErr } = await supabase
         .from("video_submissions")
         .update({ storage_path: path, video_url: pub?.publicUrl ?? null, status: "processing" })
         .eq("id", row.id);
       if (updErr) throw updErr;
 
-      // TEMP: mark completed (replace with worker/webhook)
+      // TEMP: mark completed (replace with worker once you add processing)
       setTimeout(async () => {
         await supabase
           .from("video_submissions")
@@ -205,7 +190,7 @@ export default function RealTimeVideoSystem() {
   }
 
   async function handleDelete(id: string) {
-    const row = subs.find((r) => r.id === id);
+    const row = rows.find((r) => r.id === id);
     if (row?.storage_path) await supabase.storage.from(BUCKET).remove([row.storage_path]).catch(() => {});
     await supabase.from("video_submissions").delete().eq("id", id);
   }
@@ -215,23 +200,18 @@ export default function RealTimeVideoSystem() {
   }
 
   function smoothProgress(id: string, from: number, to: number) {
-    let v = from;
-    setProg((m) => ({ ...m, [id]: v }));
-    const h = setInterval(() => {
-      v += 5;
-      if (v >= to) { v = to; clearInterval(h); }
-      setProg((m) => ({ ...m, [id]: v }));
-    }, 200);
+    let v = from; setProg((m) => ({ ...m, [id]: v }));
+    const h = setInterval(() => { v += 5; if (v >= to) { v = to; clearInterval(h); } setProg((m) => ({ ...m, [id]: v })); }, 200);
   }
 
   const grouped = useMemo(() => {
-    const g = subs.reduce<Record<string, Row[]>>((acc, r) => {
+    const g = rows.reduce<Record<string, Row[]>>((acc, r) => {
       const key = new Date(r.submitted_at).toLocaleDateString();
       (acc[key] ||= []).push(r);
       return acc;
     }, {});
     return Object.entries(g).sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime());
-  }, [subs]);
+  }, [rows]);
 
   if (!uid) {
     return (
@@ -244,23 +224,15 @@ export default function RealTimeVideoSystem() {
 
   return (
     <div className="space-y-6">
-      {/* Session header */}
       <div className="flex items-center justify-between">
-        <div className="text-sm text-gray-600">
-          Signed in as <code className="bg-gray-100 px-1 rounded">{uid}</code>
-        </div>
-        <Button variant="outline" size="sm" onClick={signOut}>
-          <LogOut className="w-4 h-4 mr-1" /> Sign out
-        </Button>
+        <div className="text-sm text-muted-foreground">Signed in as <code className="bg-gray-100 px-1 rounded">{uid}</code></div>
+        <Button variant="outline" size="sm" onClick={signOut}><LogOut className="w-4 h-4 mr-1" /> Sign out</Button>
       </div>
 
       {/* Recorder */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <VideoIcon className="h-5 w-5 text-red-600" />
-            Real-time Video Submission
-          </CardTitle>
+          <CardTitle className="flex items-center gap-2"><VideoIcon className="h-5 w-5 text-red-600" /> Real-time Video Submission</CardTitle>
           <CardDescription>Stored in Supabase (Storage + DB)</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -268,7 +240,7 @@ export default function RealTimeVideoSystem() {
           <div className="relative bg-gray-900 rounded-lg overflow-hidden aspect-video">
             <video ref={videoRef} autoPlay muted className="w-full h-full object-cover" />
             {!isRecording && !lastBlobRef.current && (
-              <div className="absolute inset-0 flex items-center justify-center text-white/80">
+              <div className="absolute inset-0 grid place-items-center text-white/80">
                 <div className="text-center">
                   <VideoIcon className="h-12 w-12 mx-auto mb-2 opacity-50" />
                   <p className="text-sm">Click start to begin recording</p>
@@ -329,44 +301,34 @@ export default function RealTimeVideoSystem() {
         </CardContent>
       </Card>
 
-      {/* Realtime list */}
+      {/* Live list */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5 text-blue-600" />
-            Submission Status
-          </CardTitle>
+          <CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5 text-blue-600" /> Submission Status</CardTitle>
           <CardDescription>Live from Supabase</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {subs.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-8">No video submissions yet.</p>
+            {rows.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No video submissions yet.</p>
             ) : (
               grouped.map(([date, items]) => (
                 <div key={date} className="space-y-3">
-                  <div className="text-xs font-medium text-gray-600">{date}</div>
+                  <div className="text-xs font-medium text-muted-foreground">{date}</div>
                   {items.map((s) => {
-                    const p =
-                      s.status === "completed" ? 100 :
-                      s.status === "failed" ? 0 :
-                      prog[s.id] ?? (s.status === "processing" ? 90 : 10);
+                    const p = s.status === "completed" ? 100 : s.status === "failed" ? 0 : prog[s.id] ?? (s.status === "processing" ? 90 : 10);
                     return (
                       <div key={s.id} className="border rounded-lg p-4 space-y-3">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
                               <h4 className="font-medium">{s.title}</h4>
-                              {s.status === "completed" ? (
-                                <CheckCircle className="h-4 w-4 text-green-500" />
-                              ) : s.status === "failed" ? (
-                                <AlertCircle className="h-4 w-4 text-red-500" />
-                              ) : (
-                                <Clock className="h-4 w-4 text-yellow-500 animate-spin" />
-                              )}
+                              {s.status === "completed" ? <CheckCircle className="h-4 w-4 text-green-500" /> :
+                               s.status === "failed" ? <AlertCircle className="h-4 w-4 text-red-500" /> :
+                               <Clock className="h-4 w-4 text-yellow-500 animate-spin" />}
                             </div>
-                            <p className="text-sm text-gray-600 mb-2">{s.description}</p>
-                            <div className="flex items-center gap-4 text-xs text-gray-500">
+                            <p className="text-sm text-muted-foreground mb-2">{s.description}</p>
+                            <div className="flex items-center gap-4 text-xs text-muted-foreground">
                               <span>{formatClock(s.duration_seconds ?? 0)}</span>
                               <span>{s.size_mb ? `${s.size_mb} MB` : "-"}</span>
                               <span>{new Date(s.submitted_at).toLocaleString()}</span>
@@ -416,7 +378,7 @@ export default function RealTimeVideoSystem() {
   );
 }
 
-/* minimal helpers (why: readability) */
+/* helpers */
 function statusBadge(s: VideoStatus) {
   return s === "completed" ? "bg-green-100 text-green-800"
     : s === "failed" ? "bg-red-100 text-red-800"
@@ -432,8 +394,7 @@ function typeBadge(t: VideoType) {
   }
 }
 function formatClock(sec: number) {
-  const m = Math.floor(sec / 60);
-  const s = Math.max(0, sec % 60);
+  const m = Math.floor(sec / 60); const s = Math.max(0, sec % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 function getBlobDuration(blob: Blob): Promise<number> {
