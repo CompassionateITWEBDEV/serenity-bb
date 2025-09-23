@@ -10,7 +10,21 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Video as VideoIcon, Upload, Clock, CheckCircle, AlertCircle, Play, Eye, Trash2, PlusCircle, Edit2 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useToast } from "@/components/ui/use-toast";
+import {
+  Video as VideoIcon,
+  Upload,
+  Clock,
+  CheckCircle,
+  AlertCircle,
+  Play,
+  Eye,
+  Trash2,
+  PlusCircle,
+  Edit2,
+  Info,
+} from "lucide-react";
 
 type VideoStatus = "uploading" | "processing" | "completed" | "failed";
 type VideoType = "daily-checkin" | "medication" | "therapy-session" | "progress-update";
@@ -34,6 +48,14 @@ interface Row {
 const BUCKET = "videos";
 
 export default function RealTimeVideoSystem() {
+  const { toast } = useToast(); // why: surface “smart alert” to user
+  const [inlineNotice, setInlineNotice] = useState<{
+    kind: "success" | "error" | null;
+    title?: string;
+    desc?: string;
+    anchorId?: string | null;
+  }>({ kind: null, title: "", desc: "", anchorId: null });
+
   // ------- identity (guest, no sign-in) -------
   const guestId = getGuestId();
   const ownerCol = "visitor_id";
@@ -42,6 +64,8 @@ export default function RealTimeVideoSystem() {
   // ------- list + realtime -------
   const [rows, setRows] = useState<Row[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [lastSubmittedId, setLastSubmittedId] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -65,6 +89,18 @@ export default function RealTimeVideoSystem() {
     return () => ch.unsubscribe();
   }, [ownerVal]);
 
+  // auto-scroll + highlight to last submitted
+  useEffect(() => {
+    if (!lastSubmittedId) return;
+    const el = document.getElementById(`row-${lastSubmittedId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightId(lastSubmittedId);
+      const t = window.setTimeout(() => setHighlightId(null), 2500);
+      return () => window.clearTimeout(t);
+    }
+  }, [lastSubmittedId, rows.length]);
+
   // ------- recording -------
   const [isRecording, setIsRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
@@ -73,16 +109,17 @@ export default function RealTimeVideoSystem() {
   const mrRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  // crucial: state for preview visibility + stable URL
+  // recorded preview
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedPreviewUrl, setRecordedPreviewUrl] = useState<string | null>(null);
 
-  // clean preview URL on unmount
   useEffect(() => {
     return () => {
       if (recordedPreviewUrl) URL.revokeObjectURL(recordedPreviewUrl);
+      if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
     };
-  }, [recordedPreviewUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (isRecording) {
@@ -96,6 +133,7 @@ export default function RealTimeVideoSystem() {
 
   async function startRecording() {
     setErr(null);
+    setInlineNotice({ kind: null, title: "", desc: "", anchorId: null });
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     if (videoRef.current) videoRef.current.srcObject = stream;
 
@@ -225,6 +263,9 @@ export default function RealTimeVideoSystem() {
       if (row.storage_path) await supabase.storage.from(BUCKET).remove([row.storage_path]).catch(() => {});
     }
 
+    // user feedback: created
+    setLastSubmittedId(row.id);
+
     smoothProgress(row.id, 10, 85);
 
     const path = `${ownerVal}/${row.id}.${ext}`;
@@ -235,47 +276,73 @@ export default function RealTimeVideoSystem() {
     if (upErr) throw upErr;
 
     const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
-    await supabase.from("video_submissions").update({ storage_path: path, video_url: pub?.publicUrl ?? null, status: "processing" }).eq("id", row.id);
+    await supabase
+      .from("video_submissions")
+      .update({ storage_path: path, video_url: pub?.publicUrl ?? null, status: "processing" })
+      .eq("id", row.id);
 
     // mock processing → completed
     setTimeout(async () => {
-      await supabase.from("video_submissions").update({ status: "completed", processed_at: new Date().toISOString() }).eq("id", row.id);
+      await supabase
+        .from("video_submissions")
+        .update({ status: "completed", processed_at: new Date().toISOString() })
+        .eq("id", row.id);
       setProg((m) => ({ ...m, [row.id]: 100 }));
     }, 1000);
+
+    // Smart alerts
+    toast({
+      title: "Video submitted",
+      description: `${meta.title || "Untitled"} • ${formatClock(duration)} • ${sizeMb} MB`,
+    });
+    setInlineNotice({
+      kind: "success",
+      title: "Submission received",
+      desc: "We’re processing your video. It will appear below. Click to jump to it.",
+      anchorId: row.id,
+    });
+
+    return { id: row.id, duration, sizeMb };
   }
 
   // ------- submit flows -------
   async function submitRecorded() {
     if (!recordedBlob) return setErr("No recording. Click Stop first.");
     try {
-      await createOrReplaceVideo({
+      const { id } = await createOrReplaceVideo({
         fileBlob: recordedBlob,
         filenameHint: "recording.webm",
         meta: form,
       });
-      // cleanup preview
       if (recordedPreviewUrl) URL.revokeObjectURL(recordedPreviewUrl);
       setRecordedPreviewUrl(null);
       setRecordedBlob(null);
       setForm({ title: "", description: "", type: "daily-checkin" });
       setRecSecs(0);
+      // inline anchor
+      setInlineNotice((n) => ({ ...n, anchorId: id }));
     } catch (e: any) {
       setErr(e?.message ?? "Upload failed");
+      toast({ title: "Upload failed", description: "Please try again.", variant: "destructive" as any });
+      setInlineNotice({ kind: "error", title: "Upload failed", desc: "Please try again.", anchorId: null });
     }
   }
 
   async function submitPendingFile() {
     if (!pendingFile) return;
     try {
-      await createOrReplaceVideo({
+      const { id } = await createOrReplaceVideo({
         fileBlob: pendingFile,
         filenameHint: pendingFile.name,
         meta: form,
       });
       clearPendingFile();
       setForm({ title: "", description: "", type: "daily-checkin" });
+      setInlineNotice((n) => ({ ...n, anchorId: id }));
     } catch (e: any) {
       setErr(e?.message ?? "Upload failed");
+      toast({ title: "Upload failed", description: "Please try again.", variant: "destructive" as any });
+      setInlineNotice({ kind: "error", title: "Upload failed", desc: "Please try again.", anchorId: null });
     }
   }
 
@@ -309,11 +376,32 @@ export default function RealTimeVideoSystem() {
         </div>
       </div>
 
+      {/* Smart Inline Alert */}
+      {inlineNotice.kind && (
+        <Alert variant={inlineNotice.kind === "error" ? "destructive" : "default"} className="border">
+          <Info className="h-4 w-4" />
+          <AlertTitle>{inlineNotice.title}</AlertTitle>
+          <AlertDescription>
+            {inlineNotice.desc}{" "}
+            {inlineNotice.anchorId && (
+              <button
+                className="underline underline-offset-2"
+                onClick={() => setLastSubmittedId(inlineNotice.anchorId!)}
+              >
+                View in history
+              </button>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Recorder */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><VideoIcon className="h-5 w-5 text-red-600" /> Real-time Video Submission</CardTitle>
-          <CardDescription>Record, see an immediate preview, then upload</CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            <VideoIcon className="h-5 w-5 text-red-600" /> Real-time Video Submission
+          </CardTitle>
+          <CardDescription>Record, preview instantly, then upload</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {err && <div className="text-sm text-red-600">{err}</div>}
@@ -395,7 +483,9 @@ export default function RealTimeVideoSystem() {
       {/* History with inline players */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5 text-blue-600" /> Submission Status</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Upload className="h-5 w-5 text-blue-600" /> Submission Status
+          </CardTitle>
           <CardDescription>Uploaded videos are playable below</CardDescription>
         </CardHeader>
         <CardContent>
@@ -407,16 +497,27 @@ export default function RealTimeVideoSystem() {
                 <div key={date} className="space-y-3">
                   <div className="text-xs font-medium text-muted-foreground">{date}</div>
                   {items.map((s) => {
-                    const p = s.status === "completed" ? 100 : s.status === "failed" ? 0 : prog[s.id] ?? (s.status === "processing" ? 90 : 10);
+                    const p =
+                      s.status === "completed" ? 100 : s.status === "failed" ? 0 : prog[s.id] ?? (s.status === "processing" ? 90 : 10);
+                    const highlight = highlightId === s.id;
                     return (
-                      <div key={s.id} className="border rounded-lg p-4 space-y-3">
+                      <div
+                        id={`row-${s.id}`}
+                        key={s.id}
+                        className={`border rounded-lg p-4 space-y-3 transition
+                          ${highlight ? "ring-2 ring-green-500 animate-pulse" : ""}`}
+                      >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
                               <h4 className="font-medium">{s.title}</h4>
-                              {s.status === "completed" ? <CheckCircle className="h-4 w-4 text-green-500" /> :
-                               s.status === "failed" ? <AlertCircle className="h-4 w-4 text-red-500" /> :
-                               <Clock className="h-4 w-4 text-yellow-500 animate-spin" />}
+                              {s.status === "completed" ? (
+                                <CheckCircle className="h-4 w-4 text-green-500" />
+                              ) : s.status === "failed" ? (
+                                <AlertCircle className="h-4 w-4 text-red-500" />
+                              ) : (
+                                <Clock className="h-4 w-4 text-yellow-500 animate-spin" />
+                              )}
                             </div>
                             <p className="text-sm text-muted-foreground mb-2">{s.description}</p>
 
@@ -451,14 +552,23 @@ export default function RealTimeVideoSystem() {
                           {s.video_url && (
                             <>
                               <a href={s.video_url} target="_blank" rel="noreferrer">
-                                <Button size="sm" variant="outline"><Play className="h-3 w-3 mr-1" /> Open</Button>
+                                <Button size="sm" variant="outline">
+                                  <Play className="h-3 w-3 mr-1" /> Open
+                                </Button>
                               </a>
                               <a href={s.video_url} download>
-                                <Button size="sm" variant="outline"><Eye className="h-3 w-3 mr-1" /> Download</Button>
+                                <Button size="sm" variant="outline">
+                                  <Eye className="h-3 w-3 mr-1" /> Download
+                                </Button>
                               </a>
                             </>
                           )}
-                          <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700 bg-transparent" onClick={() => handleDelete(s.id)}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-red-600 hover:text-red-700 bg-transparent"
+                            onClick={() => handleDelete(s.id)}
+                          >
                             <Trash2 className="h-3 w-3" />
                           </Button>
                         </div>
@@ -492,7 +602,11 @@ function Meta({
         </div>
         <div>
           <Label className="text-sm">Type</Label>
-          <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as VideoType }))} className="w-full p-2 border rounded-md">
+          <select
+            value={form.type}
+            onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as VideoType }))}
+            className="w-full p-2 border rounded-md"
+          >
             <option value="daily-checkin">Daily Check-in</option>
             <option value="medication">Medication</option>
             <option value="therapy-session">Therapy Session</option>
@@ -519,20 +633,28 @@ function groupedByDate(rows: Row[]) {
 
 function typeBadge(t: VideoType) {
   switch (t) {
-    case "daily-checkin": return "bg-blue-100 text-blue-800";
-    case "medication": return "bg-green-100 text-green-800";
-    case "therapy-session": return "bg-purple-100 text-purple-800";
-    case "progress-update": return "bg-orange-100 text-orange-800";
+    case "daily-checkin":
+      return "bg-blue-100 text-blue-800";
+    case "medication":
+      return "bg-green-100 text-green-800";
+    case "therapy-session":
+      return "bg-purple-100 text-purple-800";
+    case "progress-update":
+      return "bg-orange-100 text-orange-800";
   }
 }
 function statusBadge(s: VideoStatus) {
-  return s === "completed" ? "bg-green-100 text-green-800"
-    : s === "failed" ? "bg-red-100 text-red-800"
-    : s === "processing" ? "bg-yellow-100 text-yellow-800"
+  return s === "completed"
+    ? "bg-green-100 text-green-800"
+    : s === "failed"
+    ? "bg-red-100 text-red-800"
+    : s === "processing"
+    ? "bg-yellow-100 text-yellow-800"
     : "bg-blue-100 text-blue-800";
 }
 function formatClock(sec: number) {
-  const m = Math.floor(sec / 60), s = Math.max(0, sec % 60);
+  const m = Math.floor(sec / 60),
+    s = Math.max(0, sec % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 function getBlobDuration(blob: Blob): Promise<number> {
@@ -561,6 +683,6 @@ function getGuestId(): string {
   }
 }
 function openEditInline(s: Row, setForm: (updater: any) => void) {
-  // small helper to prefill the top form; keep UX simple
+  // why: quick meta editing without opening another screen
   setForm({ title: s.title, description: s.description ?? "", type: s.type });
 }
