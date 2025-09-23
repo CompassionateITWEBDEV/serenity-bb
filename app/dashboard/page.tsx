@@ -4,7 +4,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
-import { useDashboardData } from "@/hooks/use-dashboard-data"; // ✅ fixed import
+import { useDashboardData } from "@/hooks/use-dashboard-data";
 
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { DashboardStats } from "@/components/dashboard/dashboard-stats";
@@ -18,7 +18,17 @@ import { SubmissionHistory } from "@/components/dashboard/submission-history";
 import { HealthcareMessaging } from "@/components/dashboard/healthcare-messaging";
 import { GroupChat } from "@/components/dashboard/group-chat";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
+
+/* Minimal, self-contained notice (dev-only) */
+function DevOnlyNotice({ text }: { text: string }) {
+  if (process.env.NODE_ENV === "production") return null; // why: never show DB/internal errors to patients
+  return (
+    <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      <span className="font-medium">Note (dev):</span>
+      <span>{text}</span>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const { isAuthenticated, loading, patient } = useAuth();
@@ -58,11 +68,9 @@ export default function DashboardPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">Welcome back, {firstName}!</h1>
           <p className="text-gray-600">Here’s your recovery progress and upcoming activities.</p>
-          {error && (
-            <p className="mt-2 text-sm text-red-600">
-              Couldn’t load some data. The page shows what it can for now. ({error})
-            </p>
-          )}
+
+          {/* was: red error line visible to patients; now: quiet dev-only note */}
+          {error && <DevOnlyNotice text="Some data couldn’t be loaded. Page continues with partial content." />}
         </div>
 
         <Tabs defaultValue="overview" className="space-y-6">
