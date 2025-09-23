@@ -103,7 +103,7 @@ function InlineBanner({
 }: {
   kind: "success" | "error";
   title: string;
-  desc?: string;
+  desc?: React.ReactNode;
   action?: React.ReactNode;
 }) {
   const tone =
@@ -515,7 +515,7 @@ export default function RealTimeVideoSystem() {
                 </button>
               )}
             </>
-          as unknown as string}
+          }
         />
       )}
 
