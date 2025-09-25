@@ -8,7 +8,7 @@ export function GameStats() {
   const { loading, summary } = useGameStats();
   const { gamesPlayed, totalMinutes, highScore, streakDays } = summary;
 
-  const Stat = ({
+  const Tile = ({
     label,
     value,
     Icon,
@@ -32,10 +32,10 @@ export function GameStats() {
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      <Stat label="Games Played" value={gamesPlayed} Icon={BatteryCharging} />
-      <Stat label="Total Play Time" value={`${totalMinutes} min`} Icon={Timer} />
-      <Stat label="High Scores" value={highScore} Icon={Trophy} />
-      <Stat label="Streak" value={`${streakDays} days`} Icon={Zap} />
+      <Tile label="Games Played" value={gamesPlayed} Icon={BatteryCharging} />
+      <Tile label="Total Play Time" value={`${totalMinutes} min`} Icon={Timer} />
+      <Tile label="High Scores" value={highScore} Icon={Trophy} />
+      <Tile label="Streak" value={`${streakDays} days`} Icon={Zap} />
     </div>
   );
 }
