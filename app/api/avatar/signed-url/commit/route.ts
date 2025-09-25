@@ -9,9 +9,11 @@ export async function POST(req: Request) {
   const { path } = await req.json().catch(() => ({}));
   if (!path) return NextResponse.json({ error: "path required" }, { status: 400 });
 
-  const sb = supabaseServer();
-  const { error } = await sb.from("patients").update({ avatar_path: path }).eq("id", user.id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const { error } = await supabaseServer()
+    .from("patients")
+    .update({ avatar_path: path })
+    .eq("id", user.id);
 
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
