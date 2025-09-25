@@ -1,72 +1,64 @@
 "use client";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import Link from "next/link";
-import { Clock, Trophy } from "lucide-react";
-import { useState } from "react";
+import { useGameStats } from "@/hooks/use-game-stats";
 
-interface Game { id: string; title: string; description: string; category: string; difficulty: string; duration: string; icon: any; color: string; borderColor: string; lastPlayed: string; bestScore: number; isNew: boolean; }
-interface GameCardProps { game: Game }
+type Game = {
+  id: string;
+  title: string;
+  description: string;
+  duration: string; // e.g. "10-15 min"
+  bestScore: number;
+  isNew?: boolean;
+  color?: string;
+  borderColor?: string;
+};
 
-export function GameCard({ game }: GameCardProps) {
-  const Icon = game.icon;
-  const [loading, setLoading] = useState(false);
-  const [awarded, setAwarded] = useState<number | null>(null);
+export function GameCard({ game }: { game: Game }) {
+  const { recordSession } = useGameStats();
 
-  async function completeDemoSession() {
-    // why: quick demo button for real-time + reward flow without a full game engine
-    setLoading(true);
-    setAwarded(null);
+  // Parse "10-15 min" -> take the upper bound minutes (15)
+  function parseDurationMin(s: string): number {
+    const m = /(\d+)(?:-(\d+))?\s*min/i.exec(s);
+    if (!m) return 10;
+    const a = parseInt(m[1], 10);
+    const b = m[2] ? parseInt(m[2], 10) : a;
+    return Math.max(a, b);
+  }
+
+  async function complete() {
+    const durationSec = parseDurationMin(game.duration) * 60;
+    const score = Math.floor(Math.random() * 1000); // TODO: replace with real game score
     try {
-      const res = await fetch("/api/games/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gameId: game.id,
-          score: Math.floor(600 + Math.random() * 400),      // 600-1000
-          durationSec: Math.floor(5 * 60 + Math.random() * 600), // 5-15 min
-        }),
-      });
-      const json = await res.json();
-      if (res.ok) setAwarded(json.tokensAwarded ?? 0);
-    } finally {
-      setLoading(false);
+      await recordSession(game.id, score, durationSec);
+      alert(`Saved session for "${game.title}" (score ${score}).`);
+    } catch (e: any) {
+      alert(`Could not save session: ${e.message ?? e}`);
     }
   }
 
   return (
-    <Card className={`border ${game.borderColor}`}>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-4">
-            <div className={`p-3 rounded-xl ${game.color}`}>
-              <Icon className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-xl font-semibold">{game.title}</h3>
-              <p className="text-sm text-gray-600">{game.description}</p>
-            </div>
+    <Card className={game.borderColor ? `border ${game.borderColor}` : ""}>
+      <CardContent className="p-5">
+        <div className="flex justify-between items-start">
+          <div>
+            <h4 className="font-semibold">{game.title}</h4>
+            <p className="text-sm text-gray-600">{game.description}</p>
+            <p className="mt-2 text-xs text-gray-500">
+              Duration: {game.duration} · Best Score: {game.bestScore ?? 0}
+            </p>
           </div>
-          {game.isNew && <Badge>New</Badge>}
+          {game.isNew && (
+            <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">New</span>
+          )}
         </div>
-
-        <div className="grid grid-cols-2 gap-4 text-sm text-gray-600 mb-4">
-          <div className="flex items-center gap-2"><Clock className="w-4 h-4" />Duration: {game.duration}</div>
-          <div className="flex items-center gap-2"><Trophy className="w-4 h-4" />Best Score: {game.bestScore}</div>
-        </div>
-
-        <div className="flex gap-3">
-          <Link href={`/dashboard/games/${game.id}`} className="w-full">
-            <Button className="w-full" variant="default">Continue Playing</Button>
-          </Link>
-          <Button className="w-full" variant="outline" onClick={completeDemoSession} disabled={loading}>
-            {loading ? "Saving..." : "Complete Session"}
+        <div className="mt-4 flex gap-2">
+          <Button variant="default">Continue Playing</Button>
+          <Button variant="outline" onClick={complete}>
+            Complete Session
           </Button>
         </div>
-        {awarded != null && (
-          <p className="text-xs text-green-700 mt-3">Rewarded {awarded} tokens 🎉</p>
-        )}
       </CardContent>
     </Card>
   );
