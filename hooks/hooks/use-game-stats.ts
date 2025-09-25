@@ -15,7 +15,7 @@ export type GameStats = {
 };
 
 export function useGameStats<T extends GameLike>(games: T[]): GameStats {
-  // Why: memoize derived stats to avoid unnecessary recompute.
+  // Why: memoize derived stats; prevents unnecessary recalculation.
   return useMemo(() => {
     const total = games.length;
     let completed = 0;
