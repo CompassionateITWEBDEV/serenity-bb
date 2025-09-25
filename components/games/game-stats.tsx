@@ -1,41 +1,34 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
-import { BatteryCharging, Timer, Trophy, Zap } from "lucide-react";
-import { useGameStats } from "@/hooks/use-game-stats";
+import React from "react";
+// Option A (recommended): relative import to avoid alias issues on Vercel
+import { useGameStats } from "../../hooks/use-game-stats";
+// Option B: if you prefer '@/hooks/*', ensure jsconfig.json below exists.
 
-export function GameStats() {
-  const { loading, summary } = useGameStats();
-  const { gamesPlayed, totalMinutes, highScore, streakDays } = summary;
+import type { Game } from "./game-card";
 
-  const Tile = ({
-    label,
-    value,
-    Icon,
-  }: {
-    label: string;
-    value: string | number;
-    Icon: any;
-  }) => (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs text-gray-500">{label}</p>
-            <p className="mt-1 text-2xl font-semibold">{loading ? "…" : value}</p>
-          </div>
-          <Icon className="h-5 w-5 text-gray-400" />
-        </div>
-      </CardContent>
-    </Card>
-  );
+type Props = {
+  games: Game[];
+};
+
+export default function GameStats({ games }: Props) {
+  const stats = useGameStats(games);
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      <Tile label="Games Played" value={gamesPlayed} Icon={BatteryCharging} />
-      <Tile label="Total Play Time" value={`${totalMinutes} min`} Icon={Timer} />
-      <Tile label="High Scores" value={highScore} Icon={Trophy} />
-      <Tile label="Streak" value={`${streakDays} days`} Icon={Zap} />
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <Stat label="Total" value={stats.total} />
+      <Stat label="Completed" value={stats.completed} />
+      <Stat label="Backlog" value={stats.backlog} />
+      <Stat label="Avg Rating" value={stats.avgRating?.toFixed(2) ?? "—"} />
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border p-4">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-xl font-semibold">{value}</div>
     </div>
   );
 }
