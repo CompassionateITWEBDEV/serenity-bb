@@ -17,6 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { usePatientStatus } from "@/hooks/use-patient-status";
+import { useAvatarUrl } from "@/hooks/use-avatar-url"; // <-- resolves avatar_path → URL
 import { Bell, Settings, LogOut, User, Heart, Menu, X } from "lucide-react";
 import type { Patient } from "@/lib/auth";
 
@@ -28,7 +29,14 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
   const { logout } = useAuth();
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { isNew } = usePatientStatus(); // <- real-time new/existing flag
+  const { isNew } = usePatientStatus();
+
+  // Prefer Storage-backed avatar_path; fallback to legacy avatar url.
+  const avatarUrl = useAvatarUrl(
+    (patient as any)?.avatar ?? null,
+    (patient as any)?.avatar_path ?? null,
+    /*signed*/ false
+  );
 
   const handleLogout = () => {
     logout();
@@ -46,6 +54,9 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
     { name: "Automation", href: "/dashboard/automation" },
   ];
 
+  const initials =
+    `${patient.firstName?.[0] ?? ""}${patient.lastName?.[0] ?? ""}`.toUpperCase() || "U";
+
   return (
     <header className="bg-white shadow-sm border-b">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -56,7 +67,9 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
               <div className="bg-cyan-100 p-2 rounded-lg">
                 <Heart className="h-6 w-6 text-cyan-600" />
               </div>
-              <span className="text-xl font-serif font-bold text-gray-900">Serenity Connect</span>
+              <span className="text-xl font-serif font-bold text-gray-900">
+                Serenity Connect
+              </span>
             </Link>
           </div>
 
@@ -78,7 +91,6 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
             {/* Notifications */}
             <Button variant="ghost" size="sm" className="relative">
               <Bell className="h-5 w-5" />
-              {/* Example static count; replace with real unread later */}
               <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
                 2
               </span>
@@ -90,15 +102,11 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                   <Avatar className="h-8 w-8">
                     <AvatarImage
-                      src={patient.avatar || "/placeholder.svg"}
+                      src={avatarUrl || "/placeholder.svg"}
                       alt={`${patient.firstName} ${patient.lastName}`}
                     />
-                    <AvatarFallback>
-                      {patient.firstName?.[0] ?? "U"}
-                      {patient.lastName?.[0] ?? ""}
-                    </AvatarFallback>
+                    <AvatarFallback>{initials}</AvatarFallback>
                   </Avatar>
-                  {/* New/Existing dot on avatar */}
                   <span
                     className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${
                       isNew ? "bg-blue-500" : "bg-emerald-500"
@@ -114,7 +122,11 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
                       <p className="text-sm font-medium leading-none">
                         {patient.firstName} {patient.lastName}
                       </p>
-                      <Badge className={isNew ? "bg-blue-100 text-blue-800" : "bg-emerald-100 text-emerald-800"}>
+                      <Badge
+                        className={
+                          isNew ? "bg-blue-100 text-blue-800" : "bg-emerald-100 text-emerald-800"
+                        }
+                      >
                         {isNew ? "New" : "Existing"}
                       </Badge>
                     </div>
@@ -149,13 +161,33 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
             </DropdownMenu>
 
             {/* Mobile menu button */}
-            <Button variant="ghost" size="sm" className="md:hidden" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="md:hidden"
+              onClick={() => setMobileMenuOpen((v) => !v)}
+            >
+              {/* toggled below */}
+              <span className="sr-only">Toggle menu</span>
+              {/* icon renders via state at the bottom */}
             </Button>
           </div>
         </div>
 
         {/* Mobile Navigation */}
+        {/* Keep previous mobileNav code; preserve icons */}
+        {/* Re-add the button icons here to avoid duplication */}
+        <div className="md:hidden">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setMobileMenuOpen((v) => !v)}
+            className="mt-2"
+          >
+            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </Button>
+        </div>
+
         {mobileMenuOpen && (
           <div className="md:hidden">
             <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 border-t">
