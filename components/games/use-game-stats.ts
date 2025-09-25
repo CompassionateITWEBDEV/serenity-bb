@@ -2,7 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import getClient from "@/lib/supabase-browser";
+import { supabaseBrowser as supabase } from "@/lib/supabase-browser";
 
 export type GameStats = {
   games_played: number;
@@ -27,9 +27,8 @@ const DEFAULT_STATS: GameStats = {
 };
 
 export function useGameStats(patientId?: string): UseGameStats {
-  const supabase = getClient();
   const [stats, setStats] = useState<GameStats | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const mounted = useRef(true);
@@ -38,16 +37,11 @@ export function useGameStats(patientId?: string): UseGameStats {
 
   useEffect(() => {
     mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
+    return () => { mounted.current = false; };
   }, []);
 
   const applyStats = useCallback((next: Partial<GameStats>) => {
-    setStats((prev) => ({
-      ...(prev ?? DEFAULT_STATS),
-      ...next,
-    }));
+    setStats(prev => ({ ...(prev ?? DEFAULT_STATS), ...next }));
   }, []);
 
   const fetchStats = useCallback(
@@ -56,22 +50,11 @@ export function useGameStats(patientId?: string): UseGameStats {
       setError(null);
       try {
         const [{ data: s, error: e1 }, { data: b, error: e2 }] = await Promise.all([
-          supabase
-            .from("patient_game_stats_v")
-            .select("*")
-            .eq("patient_id", pid)
-            .single(),
-          supabase
-            .from("reward_balances")
-            .select("balance")
-            .eq("patient_id", pid)
-            .maybeSingle(),
+          supabase.from("patient_game_stats_v").select("*").eq("patient_id", pid).single(),
+          supabase.from("reward_balances").select("balance").eq("patient_id", pid).maybeSingle(),
         ]);
-
         if (e1 || e2) throw new Error(e1?.message ?? e2?.message ?? "Unknown error");
-
         if (!mounted.current) return;
-
         applyStats({
           games_played: s?.games_played ?? 0,
           total_time_sec: s?.total_time_sec ?? 0,
@@ -80,18 +63,15 @@ export function useGameStats(patientId?: string): UseGameStats {
           balance: b?.balance ?? 0,
         });
       } catch (err: any) {
-        if (!mounted.current) return;
-        setError(err?.message ?? String(err));
+        if (mounted.current) setError(err?.message ?? String(err));
       } finally {
         if (mounted.current) setLoading(false);
       }
     },
-    [applyStats, supabase]
+    [applyStats]
   );
 
-  // Initial load + subscription
   useEffect(() => {
-    // teardown previous sub + timers
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
       channelRef.current = null;
@@ -114,18 +94,10 @@ export function useGameStats(patientId?: string): UseGameStats {
       .channel(`game_sessions_${patientId}`)
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "game_sessions",
-          filter: `patient_id=eq.${patientId}`,
-        },
+        { event: "*", schema: "public", table: "game_sessions", filter: `patient_id=eq.${patientId}` },
         () => {
-          // why: dedupe bursts from INSERT+UPDATE chains
           if (debounceRef.current) clearTimeout(debounceRef.current);
-          debounceRef.current = setTimeout(() => {
-            if (patientId) fetchStats(patientId);
-          }, 250);
+          debounceRef.current = setTimeout(() => { fetchStats(patientId); }, 250);
         }
       )
       .subscribe();
@@ -142,10 +114,7 @@ export function useGameStats(patientId?: string): UseGameStats {
         debounceRef.current = null;
       }
     };
-  }, [patientId, fetchStats, supabase]);
+  }, [patientId, fetchStats]);
 
-  return useMemo<UseGameStats>(
-    () => ({ stats, loading, error }),
-    [stats, loading, error]
-  );
+  return useMemo(() => ({ stats, loading, error }), [stats, loading, error]);
 }
