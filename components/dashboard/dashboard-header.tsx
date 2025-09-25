@@ -1,7 +1,7 @@
 // FILE: components/dashboard/dashboard-header.tsx
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -13,10 +13,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { usePatientStatus } from "@/hooks/use-patient-status";
-import { Settings, LogOut, User, Heart, Menu, X } from "lucide-react"; // Bell removed
+import { Settings, LogOut, User, Heart, Menu, X } from "lucide-react";
 import type { Patient } from "@/lib/auth";
 import { useProfileAvatar } from "@/hooks/use-profile-avatar";
-// import { useUnreadCount } from "@/hooks/use-unread-count"; // not needed with dropdown
 import { NotificationsDropdown } from "@/components/notifications/NotificationsDropdown";
 
 interface DashboardHeaderProps { patient: Patient; }
@@ -33,7 +32,29 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
     fallbackUrl: (patient as any)?.avatar ?? null,
     initialPath: (patient as any)?.avatar_path ?? null,
   });
-  // const { unreadCount } = useUnreadCount(userId); // replaced by NotificationsDropdown
+
+  // --- New: profile completeness + setup indicator ---
+  const completeness = useMemo(() => {
+    const fields = [
+      !!patient.firstName,
+      !!patient.lastName,
+      !!patient.email,
+      !!( (patient as any)?.avatar_path || (patient as any)?.avatar ),
+    ];
+    const filled = fields.filter(Boolean).length;
+    return Math.round((filled / fields.length) * 100);
+  }, [patient]);
+
+  const [needsSetup, setNeedsSetup] = useState<boolean>(isNew || completeness < 100);
+
+  useEffect(() => { setNeedsSetup(isNew || completeness < 100); }, [isNew, completeness]);
+
+  // Listen for Settings success to hide instantly
+  useEffect(() => {
+    const onProfileUpdated = () => setNeedsSetup(false);
+    window.addEventListener("profile:updated", onProfileUpdated);
+    return () => window.removeEventListener("profile:updated", onProfileUpdated);
+  }, []);
 
   const handleLogout = () => { logout(); router.push("/"); };
 
@@ -73,9 +94,25 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
           </nav>
 
           {/* Right Side */}
-          <div className="flex items-center space-x-4">
-            {/* Notifications dropdown (real data, small rectangles) */}
+          <div className="flex items-center space-x-3">
+            {/* Notifications dropdown (real data) */}
             <NotificationsDropdown />
+
+            {/* NEW: Setup pill */}
+            {needsSetup && (
+              <Link
+                href="/dashboard/settings"
+                className="hidden sm:inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium
+                           bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100 transition-colors"
+                title="Finish your profile to unlock all features"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-600" />
+                </span>
+                Complete setup · {completeness}%
+              </Link>
+            )}
 
             {/* User Menu */}
             <DropdownMenu>
@@ -86,7 +123,7 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
                     <AvatarFallback>{initials}</AvatarFallback>
                   </Avatar>
                   <span
-                    className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${isNew ? "bg-blue-500" : "bg-emerald-500"}`}
+                    className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${needsSetup ? "bg-amber-500" : "bg-emerald-500"}`}
                     aria-hidden
                   />
                 </Button>
@@ -96,8 +133,8 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
                   <div className="flex flex-col space-y-1">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium leading-none">{patient.firstName} {patient.lastName}</p>
-                      <Badge className={isNew ? "bg-blue-100 text-blue-800" : "bg-emerald-100 text-emerald-800"}>
-                        {isNew ? "New" : "Existing"}
+                      <Badge className={needsSetup ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}>
+                        {needsSetup ? `Setup ${completeness}%` : "Ready"}
                       </Badge>
                     </div>
                     <p className="text-xs leading-none text-muted-foreground">{patient.email}</p>
@@ -123,7 +160,21 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
           <Button variant="ghost" size="sm" onClick={() => setMobileMenuOpen(v => !v)} className="mt-2">
             {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </Button>
+          {needsSetup && (
+            <Link
+              href="/dashboard/settings"
+              className="mt-2 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium
+                         bg-amber-50 border-amber-200 text-amber-800"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-600" />
+              </span>
+              Complete setup · {completeness}%
+            </Link>
+          )}
         </div>
+
         {mobileMenuOpen && (
           <div className="md:hidden">
             <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 border-t">
