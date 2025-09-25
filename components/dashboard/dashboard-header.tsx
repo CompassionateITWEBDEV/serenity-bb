@@ -1,29 +1,23 @@
-// components/dashboard/dashboard-header.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { usePatientStatus } from "@/hooks/use-patient-status";
-import { useAvatarUrl } from "@/hooks/use-avatar-url"; // <-- resolves avatar_path → URL
 import { Bell, Settings, LogOut, User, Heart, Menu, X } from "lucide-react";
 import type { Patient } from "@/lib/auth";
+import { useProfileAvatar } from "@/hooks/use-profile-avatar";
+import { useUnreadCount } from "@/hooks/use-unread-count";
 
-interface DashboardHeaderProps {
-  patient: Patient;
-}
+interface DashboardHeaderProps { patient: Patient; }
 
 export function DashboardHeader({ patient }: DashboardHeaderProps) {
   const { logout } = useAuth();
@@ -31,31 +25,29 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { isNew } = usePatientStatus();
 
-  // Prefer Storage-backed avatar_path; fallback to legacy avatar url.
-  const avatarUrl = useAvatarUrl(
-    (patient as any)?.avatar ?? null,
-    (patient as any)?.avatar_path ?? null,
-    /*signed*/ false
+  const userId = (patient as any)?.id ?? null;
+  const { avatarUrl, initials } = useProfileAvatar({
+    userId,
+    fallbackUrl: (patient as any)?.avatar ?? null,      // legacy URL if any
+    initialPath: (patient as any)?.avatar_path ?? null, // seed from server props if provided
+  });
+  const { unreadCount } = useUnreadCount(userId);
+
+  const handleLogout = () => { logout(); router.push("/"); };
+
+  const navigation = useMemo(
+    () => [
+      { name: "Dashboard", href: "/dashboard" },
+      { name: "Games", href: "/dashboard/games" },
+      { name: "Progress", href: "/dashboard/progress" },
+      { name: "Appointments", href: "/dashboard/appointments" },
+      { name: "Resources", href: "/dashboard/resources" },
+      { name: "Messages", href: "/dashboard/messages" },
+      { name: "Settings", href: "/dashboard/settings" },
+      { name: "Automation", href: "/dashboard/automation" },
+    ],
+    []
   );
-
-  const handleLogout = () => {
-    logout();
-    router.push("/");
-  };
-
-  const navigation = [
-    { name: "Dashboard", href: "/dashboard" },
-    { name: "Games", href: "/dashboard/games" },
-    { name: "Progress", href: "/dashboard/progress" },
-    { name: "Appointments", href: "/dashboard/appointments" },
-    { name: "Resources", href: "/dashboard/resources" },
-    { name: "Messages", href: "/dashboard/messages" },
-    { name: "Settings", href: "/dashboard/settings" },
-    { name: "Automation", href: "/dashboard/automation" },
-  ];
-
-  const initials =
-    `${patient.firstName?.[0] ?? ""}${patient.lastName?.[0] ?? ""}`.toUpperCase() || "U";
 
   return (
     <header className="bg-white shadow-sm border-b">
@@ -64,23 +56,15 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
           {/* Logo */}
           <div className="flex items-center">
             <Link href="/dashboard" className="flex items-center space-x-2">
-              <div className="bg-cyan-100 p-2 rounded-lg">
-                <Heart className="h-6 w-6 text-cyan-600" />
-              </div>
-              <span className="text-xl font-serif font-bold text-gray-900">
-                Serenity Connect
-              </span>
+              <div className="bg-cyan-100 p-2 rounded-lg"><Heart className="h-6 w-6 text-cyan-600" /></div>
+              <span className="text-xl font-serif font-bold text-gray-900">Serenity Connect</span>
             </Link>
           </div>
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex space-x-8">
             {navigation.map((item) => (
-              <Link
-                key={item.name}
-                href={item.href}
-                className="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium transition-colors"
-              >
+              <Link key={item.name} href={item.href} className="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium transition-colors">
                 {item.name}
               </Link>
             ))}
@@ -89,11 +73,15 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
           {/* Right Side */}
           <div className="flex items-center space-x-4">
             {/* Notifications */}
-            <Button variant="ghost" size="sm" className="relative">
-              <Bell className="h-5 w-5" />
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                2
-              </span>
+            <Button variant="ghost" size="sm" className="relative" asChild>
+              <Link href="/dashboard/notifications" aria-label="Notifications">
+                <Bell className="h-5 w-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 min-w-5 px-1 flex items-center justify-center">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+              </Link>
             </Button>
 
             {/* User Menu */}
@@ -101,16 +89,11 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage
-                      src={avatarUrl || "/placeholder.svg"}
-                      alt={`${patient.firstName} ${patient.lastName}`}
-                    />
+                    <AvatarImage src={avatarUrl || "/placeholder.svg"} alt={`${patient.firstName} ${patient.lastName}`} />
                     <AvatarFallback>{initials}</AvatarFallback>
                   </Avatar>
                   <span
-                    className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${
-                      isNew ? "bg-blue-500" : "bg-emerald-500"
-                    }`}
+                    className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white ${isNew ? "bg-blue-500" : "bg-emerald-500"}`}
                     aria-hidden
                   />
                 </Button>
@@ -119,14 +102,8 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium leading-none">
-                        {patient.firstName} {patient.lastName}
-                      </p>
-                      <Badge
-                        className={
-                          isNew ? "bg-blue-100 text-blue-800" : "bg-emerald-100 text-emerald-800"
-                        }
-                      >
+                      <p className="text-sm font-medium leading-none">{patient.firstName} {patient.lastName}</p>
+                      <Badge className={isNew ? "bg-blue-100 text-blue-800" : "bg-emerald-100 text-emerald-800"}>
                         {isNew ? "New" : "Existing"}
                       </Badge>
                     </div>
@@ -134,70 +111,32 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard/profile">
-                    <User className="mr-2 h-4 w-4" />
-                    <span>Profile</span>
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard/settings">
-                    <Settings className="mr-2 h-4 w-4" />
-                    <span>Settings</span>
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard/notifications">
-                    <Bell className="mr-2 h-4 w-4" />
-                    <span>Notifications</span>
-                  </Link>
-                </DropdownMenuItem>
+                <DropdownMenuItem asChild><Link href="/dashboard/profile"><User className="mr-2 h-4 w-4" /><span>Profile</span></Link></DropdownMenuItem>
+                <DropdownMenuItem asChild><Link href="/dashboard/settings"><Settings className="mr-2 h-4 w-4" /><span>Settings</span></Link></DropdownMenuItem>
+                <DropdownMenuItem asChild><Link href="/dashboard/notifications"><Bell className="mr-2 h-4 w-4" /><span>Notifications</span></Link></DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout}>
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Log out</span>
-                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleLogout}><LogOut className="mr-2 h-4 w-4" /><span>Log out</span></DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
 
             {/* Mobile menu button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="md:hidden"
-              onClick={() => setMobileMenuOpen((v) => !v)}
-            >
-              {/* toggled below */}
+            <Button variant="ghost" size="sm" className="md:hidden" onClick={() => setMobileMenuOpen(v => !v)}>
               <span className="sr-only">Toggle menu</span>
-              {/* icon renders via state at the bottom */}
             </Button>
           </div>
         </div>
 
         {/* Mobile Navigation */}
-        {/* Keep previous mobileNav code; preserve icons */}
-        {/* Re-add the button icons here to avoid duplication */}
         <div className="md:hidden">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setMobileMenuOpen((v) => !v)}
-            className="mt-2"
-          >
+          <Button variant="ghost" size="sm" onClick={() => setMobileMenuOpen(v => !v)} className="mt-2">
             {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </Button>
         </div>
-
         {mobileMenuOpen && (
           <div className="md:hidden">
             <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 border-t">
               {navigation.map((item) => (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className="text-gray-600 hover:text-gray-900 block px-3 py-2 text-base font-medium"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
+                <Link key={item.name} href={item.href} className="text-gray-600 hover:text-gray-900 block px-3 py-2 text-base font-medium" onClick={() => setMobileMenuOpen(false)}>
                   {item.name}
                 </Link>
               ))}
