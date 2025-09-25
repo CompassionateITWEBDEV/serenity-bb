@@ -1,11 +1,26 @@
 "use client";
 
 import React from "react";
-// Option A (recommended): relative import to avoid alias issues on Vercel
-import { useGameStats } from "../../hooks/use-game-stats";
-// Option B: if you prefer '@/hooks/*', ensure jsconfig.json below exists.
+// ✅ Pick ONE import below that matches your project structure:
 
-import type { Game } from "./game-card";
+// If your tree is: project-root/
+//   ├─ hooks/use-game-stats.ts
+//   └─ components/games/game-stats.tsx
+// import { useGameStats } from "../../hooks/use-game-stats";
+
+// If your tree is: project-root/src/
+//   ├─ hooks/use-game-stats.ts
+//   └─ components/games/game-stats.tsx
+// import { useGameStats } from "../../../hooks/use-game-stats";
+
+// If you prefer alias "@/hooks/*" (enable with jsconfig.json below)
+import { useGameStats } from "@/hooks/use-game-stats";
+
+type Game = {
+  title: string;
+  completed?: boolean;
+  rating?: number | null;
+};
 
 type Props = {
   games: Game[];
