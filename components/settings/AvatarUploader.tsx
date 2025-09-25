@@ -1,4 +1,3 @@
-// FILE: components/settings/AvatarUploader.tsx  (update: send Bearer token)
 "use client";
 
 import { useRef, useState } from "react";
@@ -41,7 +40,7 @@ export default function AvatarUploader() {
       const j1 = await r1.json();
       if (!r1.ok) throw new Error(j1?.error || "Failed to get signed URL");
 
-      // 2) Upload
+      // 2) Upload to Supabase Storage using signed URL
       const r2 = await fetch(j1.signedUrl, {
         method: "PUT",
         headers: { "Content-Type": file.type },
@@ -49,7 +48,7 @@ export default function AvatarUploader() {
       });
       if (!r2.ok) throw new Error("Failed to upload");
 
-      // 3) Commit profile
+      // 3) Commit profile (NOTE: path matches server route)
       const r3 = await fetch("/api/avatar/commit", {
         method: "POST",
         headers: {
