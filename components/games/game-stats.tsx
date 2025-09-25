@@ -1,32 +1,12 @@
 "use client";
 
 import React from "react";
-// ✅ Pick ONE import below that matches your project structure:
-
-// If your tree is: project-root/
-//   ├─ hooks/use-game-stats.ts
-//   └─ components/games/game-stats.tsx
-// import { useGameStats } from "../../hooks/use-game-stats";
-
-// If your tree is: project-root/src/
-//   ├─ hooks/use-game-stats.ts
-//   └─ components/games/game-stats.tsx
-// import { useGameStats } from "../../../hooks/use-game-stats";
-
-// If you prefer alias "@/hooks/*" (enable with jsconfig.json below)
 import { useGameStats } from "@/hooks/use-game-stats";
+import type { Game } from "./game-card";
 
-type Game = {
-  title: string;
-  completed?: boolean;
-  rating?: number | null;
-};
+type Props = { games: Game[] };
 
-type Props = {
-  games: Game[];
-};
-
-export default function GameStats({ games }: Props) {
+function GameStats({ games }: Props) {
   const stats = useGameStats(games);
 
   return (
@@ -47,3 +27,6 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
     </div>
   );
 }
+
+export default GameStats;
+export { GameStats };
