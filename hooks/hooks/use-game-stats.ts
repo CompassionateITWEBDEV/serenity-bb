@@ -1,7 +1,7 @@
-// FILE: hooks/use-game-stats.ts
+// path: hooks/use-game-stats.ts
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 
 type SessionRow = {
@@ -21,10 +21,9 @@ export type GameSummary = {
 };
 
 function calcStreak(rows: SessionRow[]): number {
+  // Unique played days in local date (YYYY-MM-DD)
   const days = new Set(
-    rows.map((r) =>
-      new Date(r.created_at).toLocaleDateString("en-CA")
-    )
+    rows.map((r) => new Date(r.created_at).toLocaleDateString("en-CA"))
   );
   let streak = 0;
   const today = new Date();
@@ -51,11 +50,12 @@ export function useGameStats() {
   const refresh = useCallback(async () => {
     if (!uid) return;
     setLoading(true);
-    // Pull rows for streak; aggregates for totals
+
+    // Aggregates + recent rows for streak
     const [agg, recent] = await Promise.all([
       supabase
         .from("game_sessions")
-        .select("count:id, sum:duration_sec, max:score", { head: false })
+        .select("count:id, sum:duration_sec, max:score")
         .eq("patient_id", uid),
       supabase
         .from("game_sessions")
@@ -66,24 +66,23 @@ export function useGameStats() {
     ]);
 
     const count =
-      (agg?.data as any)?.[0]?.count ??
-      (Array.isArray(agg?.data) ? (agg.data as any[]).length : 0) ??
-      0;
+      Number((agg.data as any)?.[0]?.count ?? 0) ||
+      (Array.isArray(agg.data) ? (agg.data as any[]).length : 0);
 
-    const sumSec =
-      Number((agg?.data as any)?.[0]?.sum ?? 0) ||
+    const totalSec =
+      Number((agg.data as any)?.[0]?.sum ?? 0) ||
       (recent.data ?? []).reduce((a, r) => a + (r.duration_sec ?? 0), 0);
 
-    const maxScore =
-      Number((agg?.data as any)?.[0]?.max ?? 0) ||
+    const high =
+      Number((agg.data as any)?.[0]?.max ?? 0) ||
       (recent.data ?? []).reduce((m, r) => Math.max(m, r.score ?? 0), 0);
 
     const streak = calcStreak(recent.data ?? []);
 
     setSummary({
-      gamesPlayed: Number(count) || 0,
-      totalMinutes: Math.round((Number(sumSec) || 0) / 60),
-      highScore: Number(maxScore) || 0,
+      gamesPlayed: count || 0,
+      totalMinutes: Math.round((totalSec || 0) / 60),
+      highScore: high || 0,
       streakDays: streak || 0,
     });
     setLoading(false);
@@ -123,7 +122,8 @@ export function useGameStats() {
         duration_sec: durationSec,
       });
       if (error) throw error;
-      // Realtime will refresh; do a tiny optimistic bump to avoid NaN flashes.
+
+      // Optimistic bump; realtime will reconcile
       setSummary((s) => ({
         gamesPlayed: s.gamesPlayed + 1,
         totalMinutes: s.totalMinutes + Math.round(durationSec / 60),
