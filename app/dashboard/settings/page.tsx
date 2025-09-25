@@ -1,8 +1,12 @@
-// path: app/dashboard/settings/page.tsx
 "use client";
 
+/**
+ * Settings page: edits patient profile and avatar.
+ * - Requires `public.patients` with RLS allowing owner update.
+ * - Expects a Storage bucket `avatars` (public if USE_SIGNED_URL=false).
+ */
+
 import { useEffect, useMemo, useRef, useState } from "react";
-// ❌ REMOVE: import { createClient } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,15 +15,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Camera, Save } from "lucide-react";
-import { supabase } from "@/lib/supabase/client"; // ✅ use the shared, session-aware client
+import { supabase } from "@/lib/supabase/client";
 
-/** ──────────────────────────────────────────────────────────────
+/* ──────────────────────────────────────────────────────────────
  * QUICK CONFIG
  * ────────────────────────────────────────────────────────────── */
 const UID_COL = "user_id";
-const USE_SIGNED_URL = false; // set true only if Storage bucket "avatars" is PRIVATE
-const SIGNED_TTL_SECONDS = 60 * 60 * 24;
-/** ────────────────────────────────────────────────────────────── */
+const USE_SIGNED_URL = false; // true if "avatars" bucket is PRIVATE
+const SIGNED_TTL_SECONDS = 60 * 60 * 24; // 24h for signed URL
+/* ────────────────────────────────────────────────────────────── */
 
 type FormState = {
   firstName: string;
@@ -89,9 +93,7 @@ export default function SettingsPage() {
     }
     try {
       if (USE_SIGNED_URL) {
-        const { data, error } = await supabase.storage
-          .from("avatars")
-          .createSignedUrl(path, SIGNED_TTL_SECONDS);
+        const { data, error } = await supabase.storage.from("avatars").createSignedUrl(path, SIGNED_TTL_SECONDS);
         if (error) throw error;
         setDisplayUrl(cacheBust(data!.signedUrl));
       } else {
@@ -202,7 +204,7 @@ export default function SettingsPage() {
       const upd = await supabase.from("patients").update(payload).eq(UID_COL, uid);
       if (upd.error) throw upd.error;
 
-      window.dispatchEvent(new CustomEvent("profile:updated")); // notify header
+      window.dispatchEvent(new CustomEvent("profile:updated"));
       alert("Profile saved.");
     } catch (e: any) {
       console.error("save error:", e);
@@ -212,12 +214,16 @@ export default function SettingsPage() {
     }
   };
 
-  // === Avatar upload ===
   const openFilePicker = () => fileRef.current?.click();
 
   const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) {
+      alert("PNG/JPG/WebP only");
+      e.target.value = "";
+      return;
+    }
     if (file.size > 1_000_000) {
       alert("Image must be ≤ 1MB");
       e.target.value = "";
@@ -228,7 +234,7 @@ export default function SettingsPage() {
     try {
       const { data: sess } = await supabase.auth.getSession();
       const uid = sess?.session?.user?.id;
-      if (!uid) throw new Error("Not authenticated"); // this was your 401 source
+      if (!uid) throw new Error("Not authenticated");
 
       const safe = file.name.replace(/[^\w.\-]+/g, "_");
       const path = `${uid}/${Date.now()}-${safe}`;
@@ -256,7 +262,7 @@ export default function SettingsPage() {
 
       setAvatarPath(path);
       await resolveAvatarUrl(path);
-      window.dispatchEvent(new CustomEvent("profile:updated")); // refresh header avatar
+      window.dispatchEvent(new CustomEvent("profile:updated"));
       alert("Photo updated.");
     } catch (err: any) {
       console.error("avatar upload flow error:", err);
@@ -306,4 +312,134 @@ export default function SettingsPage() {
 
       <Tabs defaultValue="profile" className="space-y-6">
         <TabsList className="grid w-full grid-cols-5">
-          <TabsTr
+          <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="notifications">Notifications</TabsTrigger>
+          <TabsTrigger value="privacy">Privacy</TabsTrigger>
+          <TabsTrigger value="security">Security</TabsTrigger>
+          <TabsTrigger value="preferences">Preferences</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="profile">
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile Information</CardTitle>
+              <CardDescription>Update your personal information and profile picture</CardDescription>
+            </CardHeader>
+
+            <CardContent className="space-y-6">
+              <div className="flex items-center gap-6">
+                <Avatar className="h-20 w-20">
+                  {displayUrl ? (
+                    <AvatarImage
+                      key={displayUrl}
+                      src={displayUrl}
+                      alt="Profile picture"
+                      onError={() => {
+                        console.warn("Avatar failed to load; hiding until next resolve.");
+                        setDisplayUrl("");
+                      }}
+                    />
+                  ) : null}
+                  <AvatarFallback>{initials}</AvatarFallback>
+                </Avatar>
+
+                <div className="flex items-center gap-2">
+                  <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickFile} />
+                  <Button variant="outline" onClick={openFilePicker} disabled={uploading}>
+                    <Camera className="mr-2 h-4 w-4" />
+                    {uploading ? "Uploading…" : "Change Photo"}
+                  </Button>
+                  {avatarPath ? (
+                    <Button variant="ghost" onClick={onRemovePhoto} disabled={uploading}>
+                      Remove
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="firstName">First Name</Label>
+                  <Input id="firstName" value={form.firstName} onChange={onChange} />
+                </div>
+                <div>
+                  <Label htmlFor="lastName">Last Name</Label>
+                  <Input id="lastName" value={form.lastName} onChange={onChange} />
+                </div>
+                <div>
+                  <Label htmlFor="email">Email</Label>
+                  <Input id="email" type="email" value={form.email} onChange={onChange} />
+                </div>
+                <div>
+                  <Label htmlFor="phoneNumber">Phone Number</Label>
+                  <Input
+                    id="phoneNumber"
+                    inputMode="tel"
+                    value={form.phoneNumber}
+                    onChange={(e) => setForm((f) => ({ ...f, phoneNumber: phoneDigitsOnly(e.target.value) }))}
+                    placeholder="5551234567"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="dateOfBirth">Date of Birth</Label>
+                  <Input id="dateOfBirth" type="date" value={form.dateOfBirth} onChange={onChange} />
+                </div>
+                <div>
+                  <Label htmlFor="emergencyName">Emergency Contact</Label>
+                  <Input id="emergencyName" value={form.emergencyName} onChange={onChange} />
+                </div>
+                <div>
+                  <Label htmlFor="emergencyPhone">Emergency Phone</Label>
+                  <Input
+                    id="emergencyPhone"
+                    inputMode="tel"
+                    value={form.emergencyPhone}
+                    onChange={(e) => setForm((f) => ({ ...f, emergencyPhone: phoneDigitsOnly(e.target.value) }))}
+                    placeholder="5551234567"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Label htmlFor="bio">Bio</Label>
+                  <Textarea id="bio" rows={4} value={form.bio} onChange={onChange} />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <Button onClick={onSave} disabled={saving}>
+                  <Save className="mr-2 h-4 w-4" />
+                  {saving ? "Saving…" : "Save Changes"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Placeholder tabs */}
+        <TabsContent value="notifications">
+          <Card>
+            <CardHeader><CardTitle>Notifications</CardTitle></CardHeader>
+            <CardContent>Coming soon…</CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="privacy">
+          <Card>
+            <CardHeader><CardTitle>Privacy</CardTitle></CardHeader>
+            <CardContent>Coming soon…</CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="security">
+          <Card>
+            <CardHeader><CardTitle>Security</CardTitle></CardHeader>
+            <CardContent>Coming soon…</CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="preferences">
+          <Card>
+            <CardHeader><CardTitle>Preferences</CardTitle></CardHeader>
+            <CardContent>Coming soon…</CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
