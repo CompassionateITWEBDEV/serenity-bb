@@ -7,15 +7,15 @@ export type GameLike = {
   rating?: number | null;
 };
 
-export type GameStats = {
+export type GameStatsShape = {
   total: number;
   completed: number;
   backlog: number;
   avgRating: number | null;
 };
 
-export function useGameStats<T extends GameLike>(games: T[]): GameStats {
-  // Why: memoize derived stats; prevents unnecessary recalculation.
+export function useGameStats<T extends GameLike>(games: T[]): GameStatsShape {
+  // Why: memoize derived stats to avoid unnecessary recompute.
   return useMemo(() => {
     const total = games.length;
     let completed = 0;
