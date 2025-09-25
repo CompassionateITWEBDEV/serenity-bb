@@ -9,10 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useNotificationsMini } from "@/hooks/use-notifications-mini";
 
-// minimal classnames joiner
-function cx(...xs: Array<string | false | null | undefined>) {
-  return xs.filter(Boolean).join(" ");
-}
+function cx(...xs: Array<string | null | false | undefined>) { return xs.filter(Boolean).join(" "); }
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const s = Math.max(1, Math.floor(diff / 1000));
@@ -81,19 +78,14 @@ export function NotificationsDropdown() {
                   >
                     <div className="flex items-start gap-3">
                       <span
-                        className={cx(
-                          "mt-1 h-2.5 w-2.5 rounded-full",
-                          n.read ? "bg-zinc-300" : "bg-blue-600"
-                        )}
+                        className={cx("mt-1 h-2.5 w-2.5 rounded-full", n.read ? "bg-zinc-300" : "bg-blue-600")}
                         aria-hidden
                       />
                       <div className="min-w-0 flex-1">
                         <p className={cx("truncate text-sm font-medium", n.read ? "text-gray-800" : "text-gray-900")}>
                           {n.title ?? "Notification"}
                         </p>
-                        {n.body && (
-                          <p className="mt-0.5 line-clamp-2 text-sm text-gray-600">{n.body}</p>
-                        )}
+                        {n.body && <p className="mt-0.5 line-clamp-2 text-sm text-gray-600">{n.body}</p>}
                         <p className="mt-1 text-[11px] text-gray-500">{timeAgo(n.created_at)}</p>
                       </div>
                     </div>
@@ -123,3 +115,5 @@ export function NotificationsDropdown() {
     </DropdownMenu>
   );
 }
+
+export default NotificationsDropdown;
