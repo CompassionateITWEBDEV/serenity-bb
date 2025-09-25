@@ -1,43 +1,37 @@
-import { type User } from "@supabase/supabase-js";
-import supabaseServer, { supabaseAdmin } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+import type { User } from "@supabase/supabase-js";
+import supabaseServer from "@/lib/supabase/server";
 
-/** Resolve authenticated user from SSR cookies, Authorization header, or sb-access-token cookie. */
+// Why: In many prod envs the service role key isn't set. This validates Bearer using anon client.
 export async function getAuthUser(req: Request): Promise<User | null> {
-  // 1) SSR cookies (works when the session cookies are present on this domain)
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+  // 1) Try Authorization: Bearer <token>
+  const auth =
+    req.headers.get("authorization") || req.headers.get("Authorization") || "";
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  const accessToken = m?.[1]?.trim();
+
+  if (accessToken) {
+    try {
+      const sb = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      });
+      const { data, error } = await sb.auth.getUser();
+      if (!error && data?.user) return data.user;
+    } catch {
+      // fall through
+    }
+  }
+
+  // 2) Fallback: SSR cookies (works if you use set/get cookies strategy)
   try {
     const sb = supabaseServer();
     const { data, error } = await sb.auth.getUser();
     if (!error && data?.user) return data.user;
   } catch {
-    // fall through
-  }
-
-  // 2) Authorization: Bearer <access_token>
-  try {
-    const auth = req.headers.get("authorization") || req.headers.get("Authorization");
-    const m = auth?.match(/^Bearer\s+(.+)$/i);
-    const token = m?.[1]?.trim();
-    if (token) {
-      const admin = supabaseAdmin();
-      const { data, error } = await admin.auth.getUser(token);
-      if (!error && data?.user) return data.user;
-    }
-  } catch {
-    // fall through
-  }
-
-  // 3) Cookie fallback: sb-access-token=<token>
-  try {
-    const cookieHeader = req.headers.get("cookie") || "";
-    const m = cookieHeader.match(/(?:^|;\s*)sb-access-token=([^;]+)/i);
-    const token = m?.[1] ? decodeURIComponent(m[1]) : undefined;
-    if (token) {
-      const admin = supabaseAdmin();
-      const { data, error } = await admin.auth.getUser(token);
-      if (!error && data?.user) return data.user;
-    }
-  } catch {
-    // fall through
+    // ignore
   }
 
   return null;
