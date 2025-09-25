@@ -1,6 +1,8 @@
 // FILE: lib/supabase-browser.ts
 // Singleton browser client; avoids multiple GoTrue instances.
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+"use client";
+export { supabase as default, supabase } from "@/lib/supabase/client";
+export { getSupabaseClient as getClient } from "@/lib/supabase/client";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
