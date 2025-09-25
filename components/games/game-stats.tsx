@@ -2,19 +2,17 @@
 
 import React from "react";
 import { useGameStats } from "@/hooks/use-game-stats";
-import type { Game } from "./game-card";
 
-type Props = { games: Game[] };
+export type MinimalGame = { completed?: boolean; rating?: number | null };
 
-function GameStats({ games }: Props) {
-  const stats = useGameStats(games);
-
+export default function GameStats({ games }: { games: MinimalGame[] }) {
+  const stats = useGameStats(games ?? []);
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       <Stat label="Total" value={stats.total} />
       <Stat label="Completed" value={stats.completed} />
       <Stat label="Backlog" value={stats.backlog} />
-      <Stat label="Avg Rating" value={stats.avgRating?.toFixed(2) ?? "—"} />
+      <Stat label="Avg Rating" value={stats.avgRating == null ? "—" : stats.avgRating.toFixed(2)} />
     </div>
   );
 }
@@ -27,6 +25,3 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
     </div>
   );
 }
-
-export default GameStats;
-export { GameStats };
