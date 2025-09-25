@@ -1,4 +1,3 @@
-// FILE: hooks/use-notifications-mini.ts
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -6,109 +5,77 @@ import { supabase } from "@/lib/supabase/client";
 
 export type MiniNotification = {
   id: string;
-  user_id: string;
-  title: string | null;
-  body: string | null;
-  href: string | null;
+  patient_id: string;
+  type: "message" | "medicine" | "alert";
+  title: string;
+  message: string;
   read: boolean;
-  created_at: string;
+  created_at: string; // ISO
 };
 
 export function useNotificationsMini(pageSize = 8) {
-  const [userId, setUserId] = useState<string | null>(null);
+  const [uid, setUid] = useState<string | null>(null);
   const [items, setItems] = useState<MiniNotification[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const unreadCount = useMemo(
-    () => items.reduce((acc, n) => acc + (n.read ? 0 : 1), 0),
-    [items]
-  );
+  const unreadCount = useMemo(() => items.reduce((a, n) => a + (n.read ? 0 : 1), 0), [items]);
 
   const refresh = useCallback(async () => {
-    if (!userId) return;
+    if (!uid) return;
     setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("notifications")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(pageSize);
-      if (error) throw error;
-      setItems((data as MiniNotification[]) ?? []);
-      setError(null);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to load notifications");
-    } finally {
-      setLoading(false);
-    }
-  }, [userId, pageSize]);
+    const { data, error } = await supabase
+      .from<MiniNotification>("notifications")
+      .select("*")
+      .eq("patient_id", uid)
+      .order("created_at", { ascending: false })
+      .limit(pageSize);
+    if (!error) setItems(data ?? []);
+    setLoading(false);
+  }, [uid, pageSize]);
 
-  const markRead = useCallback(
-    async (id: string) => {
-      if (!userId) return;
-      try {
-        const { error } = await supabase
-          .from("notifications")
-          .update({ read: true })
-          .eq("id", id)
-          .eq("user_id", userId);
-        if (error) throw error;
-        setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to mark as read");
-      }
-    },
-    [userId]
-  );
+  const markRead = useCallback(async (id: string) => {
+    if (!uid) return;
+    const { error } = await supabase
+      .from("notifications")
+      .update({ read: true })
+      .eq("id", id)
+      .eq("patient_id", uid);
+    if (!error) setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+  }, [uid]);
 
   const markAllRead = useCallback(async () => {
-    if (!userId) return;
-    try {
-      const { error } = await supabase
-        .from("notifications")
-        .update({ read: true })
-        .eq("user_id", userId)
-        .eq("read", false);
-      if (error) throw error;
-      setItems((prev) => prev.map((n) => ({ ...n, read: true })));
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to mark all as read");
-    }
-  }, [userId]);
+    if (!uid) return;
+    const { error } = await supabase
+      .from("notifications")
+      .update({ read: true })
+      .eq("patient_id", uid)
+      .eq("read", false);
+    if (!error) setItems((prev) => prev.map((n) => ({ ...n, read: true })));
+  }, [uid]);
 
   useEffect(() => {
     let live = true;
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!live) return;
-      setUserId(data.user?.id ?? null);
+      const { data } = await supabase.auth.getSession();
+      if (live) setUid(data.session?.user?.id ?? null);
     })();
     return () => { live = false; };
   }, []);
 
   useEffect(() => {
-    if (!userId) return;
-
+    if (!uid) return;
     refresh();
 
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-      channelRef.current = null;
-    }
+    if (channelRef.current) supabase.removeChannel(channelRef.current);
     const ch = supabase
-      .channel(`notifications:mini:${userId}`)
+      .channel(`notifications:${uid}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` },
+        { event: "*", schema: "public", table: "notifications", filter: `patient_id=eq.${uid}` },
         (payload) => {
           setItems((prev) => {
-            if (payload.eventType === "INSERT") {
-              const next = [payload.new as MiniNotification, ...prev];
-              return next.slice(0, pageSize);
-            }
+            if (payload.eventType === "INSERT") return [payload.new as MiniNotification, ...prev].slice(0, pageSize);
             if (payload.eventType === "UPDATE") {
               const up = payload.new as MiniNotification;
               return prev.map((n) => (n.id === up.id ? up : n));
@@ -124,10 +91,8 @@ export function useNotificationsMini(pageSize = 8) {
       .subscribe();
     channelRef.current = ch;
 
-    return () => {
-      if (channelRef.current) supabase.removeChannel(channelRef.current);
-    };
-  }, [userId, pageSize, refresh]);
+    return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
+  }, [uid, pageSize, refresh]);
 
-  return { items, unreadCount, loading, error, refresh, markRead, markAllRead };
+  return { items, unreadCount, loading, refresh, markRead, markAllRead };
 }
