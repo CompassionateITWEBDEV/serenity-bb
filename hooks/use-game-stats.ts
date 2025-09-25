@@ -1,3 +1,4 @@
+// path: hooks/use-game-stats.ts
 "use client";
 
 import { useMemo } from "react";
