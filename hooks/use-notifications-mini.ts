@@ -1,3 +1,4 @@
+// FILE: hooks/use-notifications-mini.ts
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -8,9 +9,9 @@ export type MiniNotification = {
   user_id: string;
   title: string | null;
   body: string | null;
-  href: string | null;      // optional deep link
+  href: string | null;
   read: boolean;
-  created_at: string;       // ISO timestamp
+  created_at: string;
 };
 
 export function useNotificationsMini(pageSize = 8) {
@@ -78,7 +79,6 @@ export function useNotificationsMini(pageSize = 8) {
     }
   }, [userId]);
 
-  // Resolve user once
   useEffect(() => {
     let live = true;
     (async () => {
@@ -89,7 +89,6 @@ export function useNotificationsMini(pageSize = 8) {
     return () => { live = false; };
   }, []);
 
-  // Initial fetch + realtime subscribe
   useEffect(() => {
     if (!userId) return;
 
