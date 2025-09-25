@@ -8,7 +8,7 @@ export type Game = {
   title: string;
   coverUrl?: string;
   genre?: string;
-  rating?: number; // 0..5
+  rating?: number;
   completed?: boolean;
 };
 
@@ -17,10 +17,10 @@ type Props = {
   onToggleComplete?: (id: string, next: boolean) => void;
 };
 
-export default function GameCard({ game, onToggleComplete }: Props) {
+function GameCard({ game, onToggleComplete }: Props) {
   const [completed, setCompleted] = useState<boolean>(Boolean(game.completed));
 
-  // Why: keep server/client state boundaries clear; local optimistic toggle.
+  // Why: keep server/client boundary clean; optimistic update.
   const toggle = () => {
     const next = !completed;
     setCompleted(next);
@@ -67,3 +67,6 @@ export default function GameCard({ game, onToggleComplete }: Props) {
     </Card>
   );
 }
+
+export default GameCard;
+export { GameCard };
