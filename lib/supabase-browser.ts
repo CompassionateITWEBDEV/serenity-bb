@@ -1,30 +1,29 @@
-"use client"
-import { createClient, type SupabaseClient } from "@supabase/supabase-js"
+// FILE: lib/supabase-browser.ts
+// Singleton browser client; avoids multiple GoTrue instances.
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __SUPABASE_BROWSER__: SupabaseClient | undefined
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+let _client: SupabaseClient | null = null;
+
+export function getBrowserClient(): SupabaseClient {
+  if (_client) return _client;
+  _client = createClient(url, anon, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storageKey: "sb-patient", // why: namespace to avoid clashes
+    },
+    realtime: { params: { eventsPerSecond: 5 } },
+  });
+  return _client;
 }
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+/** Preferred: import { supabaseBrowser } from "@/lib/supabase-browser" */
+export const supabaseBrowser = getBrowserClient();
 
-if (!url || !anon) {
-  const msg = "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY"
-  if (process.env.NODE_ENV !== "production") {
-    throw new Error(`❌ ${msg}. Configure .env.local & Vercel envs.`)
-  } else {
-    // eslint-disable-next-line no-console
-    console.error(`❌ ${msg}.`)
-  }
-}
-
-function getClient(): SupabaseClient {
-  if (!globalThis.__SUPABASE_BROWSER__) {
-    globalThis.__SUPABASE_BROWSER__ = createClient(url ?? "", anon ?? "", {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
-    })
-  }
-  return globalThis.__SUPABASE_BROWSER__
-}
-export const supabase = getClient()
+// (Optional) default export kept as the *client* to prevent misuse.
+// If you previously imported default and *called* it, switch to the named import above.
+export default supabaseBrowser;
