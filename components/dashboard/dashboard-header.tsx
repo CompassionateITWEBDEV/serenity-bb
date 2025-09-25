@@ -1,3 +1,4 @@
+// FILE: components/dashboard/dashboard-header.tsx
 "use client";
 
 import { useState, useMemo } from "react";
@@ -12,10 +13,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { usePatientStatus } from "@/hooks/use-patient-status";
-import { Bell, Settings, LogOut, User, Heart, Menu, X } from "lucide-react";
+import { Settings, LogOut, User, Heart, Menu, X } from "lucide-react"; // Bell removed
 import type { Patient } from "@/lib/auth";
 import { useProfileAvatar } from "@/hooks/use-profile-avatar";
-import { useUnreadCount } from "@/hooks/use-unread-count";
+// import { useUnreadCount } from "@/hooks/use-unread-count"; // not needed with dropdown
+import { NotificationsDropdown } from "@/components/notifications/NotificationsDropdown";
 
 interface DashboardHeaderProps { patient: Patient; }
 
@@ -28,10 +30,10 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
   const userId = (patient as any)?.id ?? null;
   const { avatarUrl, initials } = useProfileAvatar({
     userId,
-    fallbackUrl: (patient as any)?.avatar ?? null,      // legacy URL if any
-    initialPath: (patient as any)?.avatar_path ?? null, // seed from server props if provided
+    fallbackUrl: (patient as any)?.avatar ?? null,
+    initialPath: (patient as any)?.avatar_path ?? null,
   });
-  const { unreadCount } = useUnreadCount(userId);
+  // const { unreadCount } = useUnreadCount(userId); // replaced by NotificationsDropdown
 
   const handleLogout = () => { logout(); router.push("/"); };
 
@@ -72,17 +74,8 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
 
           {/* Right Side */}
           <div className="flex items-center space-x-4">
-            {/* Notifications */}
-            <Button variant="ghost" size="sm" className="relative" asChild>
-              <Link href="/dashboard/notifications" aria-label="Notifications">
-                <Bell className="h-5 w-5" />
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 min-w-5 px-1 flex items-center justify-center">
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </span>
-                )}
-              </Link>
-            </Button>
+            {/* Notifications dropdown (real data, small rectangles) */}
+            <NotificationsDropdown />
 
             {/* User Menu */}
             <DropdownMenu>
@@ -113,7 +106,6 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild><Link href="/dashboard/profile"><User className="mr-2 h-4 w-4" /><span>Profile</span></Link></DropdownMenuItem>
                 <DropdownMenuItem asChild><Link href="/dashboard/settings"><Settings className="mr-2 h-4 w-4" /><span>Settings</span></Link></DropdownMenuItem>
-                <DropdownMenuItem asChild><Link href="/dashboard/notifications"><Bell className="mr-2 h-4 w-4" /><span>Notifications</span></Link></DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout}><LogOut className="mr-2 h-4 w-4" /><span>Log out</span></DropdownMenuItem>
               </DropdownMenuContent>
