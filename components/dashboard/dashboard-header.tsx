@@ -16,7 +16,7 @@ import { usePatientStatus } from "@/hooks/use-patient-status";
 import { Settings, LogOut, User, Heart, Menu, X } from "lucide-react";
 import type { Patient } from "@/lib/auth";
 import { useProfileAvatar } from "@/hooks/use-profile-avatar";
-import { NotificationsDropdown } from "@/components/notifications/NotificationsDropdown";
+import { NotificationsDropdown } from "@/components/notification/NotificationsDropdown";
 
 interface DashboardHeaderProps { patient: Patient; }
 
