@@ -1,9 +1,11 @@
+// FILE: components/settings/AvatarUploader.tsx  (update: send Bearer token)
 "use client";
 
 import { useRef, useState } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getAccessToken } from "@/lib/supabase/client";
 
 export default function AvatarUploader() {
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -11,7 +13,7 @@ export default function AvatarUploader() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function onChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function onChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) return setError("PNG/JPG/WebP only");
@@ -25,33 +27,40 @@ export default function AvatarUploader() {
     if (!file) return;
     setBusy(true);
     try {
-      // 1) Ask server for a signed upload URL
-      const res1 = await fetch("/api/avatar/signed-url", {
+      const token = (await getAccessToken()) ?? "";
+
+      // 1) Signed upload URL
+      const r1 = await fetch("/api/avatar/signed-url", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
         body: JSON.stringify({ fileName: file.name, contentType: file.type }),
       });
-      const { signedUrl, path, error: e1 } = await res1.json();
-      if (!res1.ok) throw new Error(e1 || "Failed to get signed url");
+      const j1 = await r1.json();
+      if (!r1.ok) throw new Error(j1?.error || "Failed to get signed URL");
 
-      // 2) Upload file with PUT (no auth required)
-      const res2 = await fetch(signedUrl, {
+      // 2) Upload
+      const r2 = await fetch(j1.signedUrl, {
         method: "PUT",
         headers: { "Content-Type": file.type },
         body: file,
       });
-      if (!res2.ok) throw new Error("Failed to upload");
+      if (!r2.ok) throw new Error("Failed to upload");
 
-      // 3) Commit avatar_path to profile
-      const res3 = await fetch("/api/avatar/commit", {
+      // 3) Commit profile
+      const r3 = await fetch("/api/avatar/commit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path }),
+        headers: {
+          "Content-Type": "application/json",
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify({ path: j1.path }),
       });
-      const j3 = await res3.json();
-      if (!res3.ok) throw new Error(j3?.error || "Failed to save profile");
+      const j3 = await r3.json();
+      if (!r3.ok) throw new Error(j3?.error || "Failed to save profile");
 
-      // 4) Done: clear preview; let navbar pick up via your avatar hook/re-render
       setPreview(null);
       if (fileRef.current) fileRef.current.value = "";
       alert("Profile photo updated.");
