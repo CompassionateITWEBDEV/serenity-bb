@@ -1,6 +1,6 @@
 // ============================================================================
-// File: /lib/supabase/server.ts
-// SSR Supabase client (cookies) + Admin (service role)
+// FILE: lib/supabase/server.ts
+// SSR Supabase client (cookies) + Admin (service role) + compat exports
 // ============================================================================
 
 import { cookies } from "next/headers";
@@ -12,7 +12,7 @@ type Db = unknown;
 
 /**
  * SSR client bound to Next.js cookies.
- * Safe to use in Route Handlers and Server Components.
+ * Safe in Route Handlers and Server Components.
  */
 export default function supabaseServer(): SupabaseClient<Db> {
   const cookieStore = cookies();
@@ -23,16 +23,12 @@ export default function supabaseServer(): SupabaseClient<Db> {
   return createServerClient<Db>(url, anon, {
     cookies: {
       get: (name: string) => cookieStore.get(name)?.value,
-      // why: in Server Components set/remove can throw; swallow safely
+      // In Server Components set/remove can throw; swallow safely.
       set: (name: string, value: string, options: CookieOptions) => {
-        try {
-          cookieStore.set({ name, value, ...options });
-        } catch { /* no-op on read-only cookies context */ }
+        try { cookieStore.set({ name, value, ...options }); } catch { /* no-op */ }
       },
       remove: (name: string, options: CookieOptions) => {
-        try {
-          cookieStore.set({ name, value: "", ...options, maxAge: 0 });
-        } catch { /* no-op on read-only cookies context */ }
+        try { cookieStore.set({ name, value: "", ...options, maxAge: 0 }); } catch { /* no-op */ }
       },
     },
   });
@@ -48,14 +44,15 @@ export function supabaseAdmin(): SupabaseClient<Db> {
   if (_admin) return _admin;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  // Support both common env names
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ??
     process.env.SUPABASE_SERVICE_ROLE ??
     "";
 
   if (!url || !key) {
-    throw new Error("Missing SUPABASE service role env (SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE).");
+    throw new Error(
+      "Missing service role env (SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE)."
+    );
   }
 
   _admin = createSbClient<Db>(url, key, {
@@ -65,21 +62,19 @@ export function supabaseAdmin(): SupabaseClient<Db> {
   return _admin;
 }
 
-/** Optional: quick sanity check for deployment diagnostics. */
+/** Optional sanity check for deployment diagnostics. */
 export function assertServerEnv(): void {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) throw new Error("NEXT_PUBLIC_SUPABASE_URL not set");
   if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) throw new Error("NEXT_PUBLIC_SUPABASE_ANON_KEY not set");
-  if (
-    !(
-      process.env.SUPABASE_SERVICE_ROLE_KEY ||
-      process.env.SUPABASE_SERVICE_ROLE
-    )
-  ) {
-    // not fatal unless you call supabaseAdmin()
-    console.warn("[supabase] Service role key not configured – admin client will fail.");
+  if (!(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE)) {
+    console.warn("[supabase] Service role key not configured – admin client will fail if used.");
   }
 }
 
-// No confusing aliases like `createClient = supabaseAdmin`; keep exports explicit.
-// default export: supabaseServer
-// named export: supabaseAdmin
+/* ----------------------------------------------------------------------------
+ * Compat aliases (keeps existing imports working):
+ *   import { createClient } from "@/lib/supabase/server"          // SSR client
+ *   import { createServiceRoleClient } from "@/lib/supabase/server" // Admin
+ * -------------------------------------------------------------------------- */
+export const createClient = supabaseServer;
+export const createServiceRoleClient = supabaseAdmin;
