@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+// ❌ REMOVE: import { createClient } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,14 +10,15 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Camera, Save, User } from "lucide-react";
+import { Camera, Save } from "lucide-react";
+import { supabase } from "@/lib/supabase/client"; // ✅ use the shared, session-aware client
 
 /** ──────────────────────────────────────────────────────────────
  * QUICK CONFIG
  * ────────────────────────────────────────────────────────────── */
 const UID_COL = "user_id";
 const USE_SIGNED_URL = false; // set true only if Storage bucket "avatars" is PRIVATE
-const SIGNED_TTL_SECONDS = 60 * 60 * 24; // 24h when using signed URLs
+const SIGNED_TTL_SECONDS = 60 * 60 * 24;
 /** ────────────────────────────────────────────────────────────── */
 
 type FormState = {
@@ -41,14 +42,9 @@ type PatientRow = {
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
   bio: string | null;
-  avatar_path: string | null; // ← store path, not URL
+  avatar_path: string | null;
   updated_at?: string | null;
 };
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 const phoneDigitsOnly = (s: string) => s.replace(/\D/g, "");
 const toISO = (s?: string | null) => {
@@ -64,7 +60,6 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Persisted path in DB; displayUrl is resolved (public or signed)
   const [avatarPath, setAvatarPath] = useState<string | null>(null);
   const [displayUrl, setDisplayUrl] = useState<string>("");
 
@@ -87,7 +82,6 @@ export default function SettingsPage() {
     return (a + b || "??").toUpperCase();
   }, [form.firstName, form.lastName]);
 
-  // Why: Resolve a fresh URL every time we mount or path changes (fixes “photo gone”).
   async function resolveAvatarUrl(path: string | null) {
     if (!path) {
       setDisplayUrl("");
@@ -104,16 +98,13 @@ export default function SettingsPage() {
         const { data } = supabase.storage.from("avatars").getPublicUrl(path);
         setDisplayUrl(cacheBust(data.publicUrl));
       }
-      if (typeof window !== "undefined") {
-        localStorage.setItem("avatarPath", path);
-      }
+      if (typeof window !== "undefined") localStorage.setItem("avatarPath", path);
     } catch (e) {
       console.error("resolveAvatarUrl error:", e);
       setDisplayUrl("");
     }
   }
 
-  // Load or seed the patient record
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -139,8 +130,7 @@ export default function SettingsPage() {
         const phone = row?.phone_number ?? meta.phoneNumber ?? meta.phone_number ?? "";
         const dob = row?.date_of_birth ? toISO(row.date_of_birth) : toISO(meta.dateOfBirth ?? meta.date_of_birth);
         const ecName = row?.emergency_contact_name ?? meta.emergencyContactName ?? meta.emergency_contact_name ?? "";
-        const ecPhone =
-          row?.emergency_contact_phone ?? meta.emergencyContactPhone ?? meta.emergency_contact_phone ?? "";
+        const ecPhone = row?.emergency_contact_phone ?? meta.emergencyContactPhone ?? meta.emergency_contact_phone ?? "";
         const bio = row?.bio ?? "";
         const path = row?.avatar_path ?? null;
 
@@ -155,7 +145,7 @@ export default function SettingsPage() {
             emergency_contact_name: ecName || null,
             emergency_contact_phone: ecPhone || null,
             bio: bio || null,
-            avatar_path: null, // no photo yet
+            avatar_path: null,
             updated_at: new Date().toISOString(),
           };
           const ins = await supabase.from("patients").insert(seed).select().single();
@@ -173,15 +163,12 @@ export default function SettingsPage() {
           bio,
         });
 
-        // Set and resolve avatar from path
-        const persistedPath =
-          path ??
-          (typeof window !== "undefined" ? localStorage.getItem("avatarPath") || null : null);
-
+        const persistedPath = path ?? (typeof window !== "undefined" ? localStorage.getItem("avatarPath") || null : null);
         setAvatarPath(persistedPath);
         await resolveAvatarUrl(persistedPath);
       } catch (err) {
         console.error("initial load error:", err);
+        alert("You must be signed in to edit your settings.");
       } finally {
         setLoading(false);
       }
@@ -210,12 +197,12 @@ export default function SettingsPage() {
         emergency_contact_phone: phoneDigitsOnly(form.emergencyPhone) || null,
         bio: form.bio || null,
         updated_at: new Date().toISOString(),
-        // avatar_path is updated only on upload/remove
       };
 
       const upd = await supabase.from("patients").update(payload).eq(UID_COL, uid);
       if (upd.error) throw upd.error;
 
+      window.dispatchEvent(new CustomEvent("profile:updated")); // notify header
       alert("Profile saved.");
     } catch (e: any) {
       console.error("save error:", e);
@@ -241,9 +228,8 @@ export default function SettingsPage() {
     try {
       const { data: sess } = await supabase.auth.getSession();
       const uid = sess?.session?.user?.id;
-      if (!uid) throw new Error("Not authenticated");
+      if (!uid) throw new Error("Not authenticated"); // this was your 401 source
 
-      // Why: Store *path* so we can re-sign or get public URL on demand.
       const safe = file.name.replace(/[^\w.\-]+/g, "_");
       const path = `${uid}/${Date.now()}-${safe}`;
 
@@ -258,7 +244,6 @@ export default function SettingsPage() {
         return;
       }
 
-      // Update DB with path only
       const upd = await supabase
         .from<PatientRow>("patients")
         .update({ avatar_path: path, updated_at: new Date().toISOString() })
@@ -270,7 +255,8 @@ export default function SettingsPage() {
       }
 
       setAvatarPath(path);
-      await resolveAvatarUrl(path); // resolves to public or signed URL
+      await resolveAvatarUrl(path);
+      window.dispatchEvent(new CustomEvent("profile:updated")); // refresh header avatar
       alert("Photo updated.");
     } catch (err: any) {
       console.error("avatar upload flow error:", err);
@@ -289,10 +275,7 @@ export default function SettingsPage() {
       const uid = sess?.session?.user?.id;
       if (!uid) throw new Error("Not authenticated");
 
-      // Optional: delete the file (ignore errors to avoid blocking UI)
-      await supabase.storage.from("avatars").remove([avatarPath]);
-
-      // Clear DB path
+      await supabase.storage.from("avatars").remove([avatarPath]).catch(() => {});
       const upd = await supabase
         .from<PatientRow>("patients")
         .update({ avatar_path: null, updated_at: new Date().toISOString() })
@@ -301,9 +284,8 @@ export default function SettingsPage() {
 
       setAvatarPath(null);
       setDisplayUrl("");
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("avatarPath");
-      }
+      if (typeof window !== "undefined") localStorage.removeItem("avatarPath");
+      window.dispatchEvent(new CustomEvent("profile:updated"));
       alert("Photo removed.");
     } catch (e: any) {
       console.error("remove photo error:", e);
@@ -313,9 +295,7 @@ export default function SettingsPage() {
     }
   };
 
-  if (loading) {
-    return <div className="p-6">Loading…</div>;
-  }
+  if (loading) return <div className="p-6">Loading…</div>;
 
   return (
     <div className="container mx-auto p-6">
@@ -326,133 +306,4 @@ export default function SettingsPage() {
 
       <Tabs defaultValue="profile" className="space-y-6">
         <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
-          <TabsTrigger value="privacy">Privacy</TabsTrigger>
-          <TabsTrigger value="security">Security</TabsTrigger>
-          <TabsTrigger value="preferences">Preferences</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="profile">
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile Information</CardTitle>
-              <CardDescription>Update your personal information and profile picture</CardDescription>
-            </CardHeader>
-
-            <CardContent className="space-y-6">
-              <div className="flex items-center gap-6">
-                <Avatar className="h-20 w-20">
-                  {/* Why: Do not clear on error; keep path so we can re-resolve next time. */}
-                  {displayUrl ? (
-                    <AvatarImage
-                      key={displayUrl}
-                      src={displayUrl}
-                      alt="Profile picture"
-                      onError={() => {
-                        console.warn("Avatar image failed to load; keeping path for future re-resolve.");
-                        setDisplayUrl(""); // just hide image, keep avatarPath untouched
-                      }}
-                    />
-                  ) : null}
-                  <AvatarFallback>{initials}</AvatarFallback>
-                </Avatar>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={onPickFile}
-                  />
-                  <Button variant="outline" onClick={openFilePicker} disabled={uploading}>
-                    <Camera className="mr-2 h-4 w-4" />
-                    {uploading ? "Uploading…" : "Change Photo"}
-                  </Button>
-                  {avatarPath ? (
-                    <Button variant="ghost" onClick={onRemovePhoto} disabled={uploading}>
-                      Remove
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="firstName">First Name</Label>
-                  <Input id="firstName" value={form.firstName} onChange={onChange} />
-                </div>
-                <div>
-                  <Label htmlFor="lastName">Last Name</Label>
-                  <Input id="lastName" value={form.lastName} onChange={onChange} />
-                </div>
-                <div>
-                  <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" value={form.email} onChange={onChange} />
-                </div>
-                <div>
-                  <Label htmlFor="phoneNumber">Phone Number</Label>
-                  <Input
-                    id="phoneNumber"
-                    inputMode="tel"
-                    value={form.phoneNumber}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, phoneNumber: phoneDigitsOnly(e.target.value) }))
-                    }
-                    placeholder="5551234567"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="dateOfBirth">Date of Birth</Label>
-                  <Input id="dateOfBirth" type="date" value={form.dateOfBirth} onChange={onChange} />
-                </div>
-                <div>
-                  <Label htmlFor="emergencyName">Emergency Contact</Label>
-                  <Input id="emergencyName" value={form.emergencyName} onChange={onChange} />
-                </div>
-                <div>
-                  <Label htmlFor="emergencyPhone">Emergency Phone</Label>
-                  <Input
-                    id="emergencyPhone"
-                    inputMode="tel"
-                    value={form.emergencyPhone}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, emergencyPhone: phoneDigitsOnly(e.target.value) }))
-                    }
-                    placeholder="5551234567"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <Label htmlFor="bio">Bio</Label>
-                  <Textarea id="bio" rows={4} value={form.bio} onChange={onChange} />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 pt-2">
-                <Button onClick={onSave} disabled={saving}>
-                  <Save className="mr-2 h-4 w-4" />
-                  {saving ? "Saving…" : "Save Changes"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* other tabs omitted for brevity */}
-        <TabsContent value="notifications">
-          <Card><CardHeader><CardTitle>Notifications</CardTitle></CardHeader><CardContent>Coming soon…</CardContent></Card>
-        </TabsContent>
-        <TabsContent value="privacy">
-          <Card><CardHeader><CardTitle>Privacy</CardTitle></CardHeader><CardContent>Coming soon…</CardContent></Card>
-        </TabsContent>
-        <TabsContent value="security">
-          <Card><CardHeader><CardTitle>Security</CardTitle></CardHeader><CardContent>Coming soon…</CardContent></Card>
-        </TabsContent>
-        <TabsContent value="preferences">
-          <Card><CardHeader><CardTitle>Preferences</CardTitle></CardHeader><CardContent>Coming soon…</CardContent></Card>
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
+          <TabsTr
