@@ -1,17 +1,14 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/hooks/use-auth";
-import { DashboardHeader } from "@/components/dashboard/dashboard-header";
-import { Gamepad2 } from "lucide-react";
 import Link from "next/link";
+import { Gamepad2, Heart } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth"; // keep your existing auth hook
 
-// Client-only to dodge hydration edge cases
-const GameCard = dynamic(() => import("@/components/games/game-card"), { ssr: false });
-const GameStats = dynamic(() => import("@/components/games/game-stats"), { ssr: false });
-
+/* =========================
+   Types
+   ========================= */
 type Game = {
   id: string;
   title: string;
@@ -19,18 +16,108 @@ type Game = {
   rating?: number | null;
   completed?: boolean;
 };
+
 type PatientGamesResponse = {
   patientId: string;
   games: Game[];
   totals: { total: number; completed: number; backlog: number; avgRating: number | null };
 };
 
+/* =========================
+   Utilities
+   ========================= */
 async function jsonFetcher<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: { "Content-Type": "application/json" }, cache: "no-store" });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text().catch(() => res.statusText)}`);
   return res.json() as Promise<T>;
 }
 
+/* =========================
+   Local, safe components
+   (no external imports)
+   ========================= */
+
+/** Minimal card – no external UI libs, no conditional hooks */
+function LocalGameCard({ game, onToggle }: { game: Game; onToggle?: (id: string, next: boolean) => void }) {
+  const [completed, setCompleted] = useState<boolean>(!!game.completed);
+  const toggle = () => {
+    const next = !completed;
+    setCompleted(next);
+    onToggle?.(game.id, next);
+  };
+  return (
+    <div className="rounded-xl border bg-white overflow-hidden">
+      <div className="p-4 flex gap-4">
+        <div className="h-24 w-24 rounded-xl bg-gray-200 flex items-center justify-center text-xs">No Art</div>
+        <div className="flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h3 className="font-semibold leading-tight">{game.title || "Untitled"}</h3>
+              <p className="text-sm text-gray-500">{game.category || "Uncategorized"}</p>
+            </div>
+            <button
+              onClick={toggle}
+              className={`px-3 py-1 rounded-full text-sm border ${
+                completed ? "bg-green-100 border-green-300" : "bg-white"
+              }`}
+            >
+              {completed ? "Completed" : "Mark complete"}
+            </button>
+          </div>
+          {typeof game.rating === "number" ? (
+            <p className="mt-2 text-sm">Rating: {game.rating.toFixed(1)}/5</p>
+          ) : (
+            <p className="mt-2 text-sm text-gray-500">No rating</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Local stats – accepts minimal array, no external hook */
+function LocalGameStats({ games }: { games: { completed?: boolean; rating?: number | null }[] }) {
+  const total = games.length;
+  const completed = games.filter((g) => !!g.completed).length;
+  const backlog = total - completed;
+  const ratings = games.map((g) => g.rating).filter((n): n is number => n != null);
+  const avg = ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
+
+  const Stat = ({ label, value }: { label: string; value: React.ReactNode }) => (
+    <div className="rounded-2xl border p-4 bg-white">
+      <div className="text-xs text-gray-500">{label}</div>
+      <div className="text-xl font-semibold">{value}</div>
+    </div>
+  );
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <Stat label="Total" value={total} />
+      <Stat label="Completed" value={completed} />
+      <Stat label="Backlog" value={backlog} />
+      <Stat label="Avg Rating" value={avg == null ? "—" : avg.toFixed(2)} />
+    </div>
+  );
+}
+
+/** Local header to avoid importing a Server Component by accident */
+function LocalHeader({ patient }: { patient: { firstName?: string } | null | undefined }) {
+  return (
+    <header className="bg-white border-b">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <Link href="/dashboard" className="flex items-center gap-2 text-cyan-600">
+          <Heart className="h-6 w-6" />
+          <span className="font-serif font-bold">Serenity Rehabilitation Center</span>
+        </Link>
+        <div className="text-sm text-gray-600">Welcome{patient?.firstName ? `, ${patient.firstName}` : ""}</div>
+      </div>
+    </header>
+  );
+}
+
+/* =========================
+   Page
+   ========================= */
 export default function GamesPage() {
   const { isAuthenticated, loading, patient } = useAuth();
   const router = useRouter();
@@ -41,10 +128,12 @@ export default function GamesPage() {
   const [error, setError] = useState<Error | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Auth redirect
   useEffect(() => {
     if (!loading && !isAuthenticated) router.push("/login");
   }, [isAuthenticated, loading, router]);
 
+  // Live polling fetch
   useEffect(() => {
     if (!patient?.id) return;
 
@@ -114,14 +203,14 @@ export default function GamesPage() {
   const games = data?.games ?? [];
   const totals = data?.totals ?? { total: 0, completed: 0, backlog: 0, avgRating: null };
 
-  // Compute inline (no useMemo)
   const statsInput = games.map((g) => ({ completed: !!g.completed, rating: g.rating ?? null }));
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <DashboardHeader patient={patient} />
+      <LocalHeader patient={patient} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Title */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
             <div className="bg-purple-100 p-3 rounded-lg">
@@ -165,10 +254,12 @@ export default function GamesPage() {
           </div>
         </div>
 
+        {/* Stats */}
         <section className="mb-8">
-          <GameStats games={Array.isArray(statsInput) ? statsInput : []} />
+          <LocalGameStats games={statsInput} />
         </section>
 
+        {/* Games grid */}
         <section className="mt-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-6">Available Games</h2>
           {error ? (
@@ -179,11 +270,12 @@ export default function GamesPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {games.map((g) =>
                 g?.id ? (
-                  <GameCard
+                  <LocalGameCard
                     key={g.id}
                     game={{
                       id: String(g.id),
                       title: String(g.title ?? "Untitled"),
+                      category: String(g.category ?? "Uncategorized"),
                       rating: g.rating ?? null,
                       completed: !!g.completed,
                     }}
@@ -194,6 +286,7 @@ export default function GamesPage() {
           )}
         </section>
 
+        {/* Categories */}
         <section className="mt-12">
           <h2 className="text-xl font-semibold text-gray-900 mb-6">Game Categories</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -212,6 +305,9 @@ export default function GamesPage() {
   );
 }
 
+/* =========================
+   Helpers
+   ========================= */
 function getCategoriesFrom(games: { category: string }[]) {
   const palette = [
     "bg-purple-100 text-purple-700",
