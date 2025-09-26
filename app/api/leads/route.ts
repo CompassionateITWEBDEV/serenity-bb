@@ -15,25 +15,26 @@ const LeadSchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const raw = await req.json();
-    const data = LeadSchema.parse(raw);
+    const input = LeadSchema.parse(await req.json());
+    const name = `${input.first_name} ${input.last_name}`.trim(); // why: satisfy NOT NULL `name` if enforced
 
-    const sb = supabaseAdmin(); // why: bypass RLS safely on server
+    const sb = supabaseAdmin();
     const { error } = await sb.from("leads").insert({
-      first_name: data.first_name,
-      last_name: data.last_name,
-      email: data.email,
-      phone: data.phone ?? null,
-      subject: data.subject ?? null,
-      message: data.message,
-      contact_method: data.contact_method,
-      source: data.source,
+      first_name: input.first_name,
+      last_name: input.last_name,
+      name,                           // <- add this
+      email: input.email,
+      phone: input.phone ?? null,
+      subject: input.subject ?? null,
+      message: input.message,
+      contact_method: input.contact_method,
+      source: input.source,
+      // status/is_spam use defaults
     });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ ok: true });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Invalid payload";
-    return NextResponse.json({ error: msg }, { status: 400 });
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Invalid payload" }, { status: 400 });
   }
 }
