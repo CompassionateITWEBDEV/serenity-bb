@@ -1,155 +1,154 @@
-// /app/api/profile/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+// app/api/profile/route.ts
+// Server handler that uses *patients* (not profiles) and maps phone_number properly.
+import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-function supabaseForRequest(req: NextRequest) {
-  const auth = req.headers.get("authorization") || "";
-  const global: any = {};
-  if (auth.toLowerCase().startsWith("bearer ")) {
-    global.headers = { Authorization: auth };
-  }
-  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global });
-}
-
-type DbRow = {
-  id: string;
+type PatientRow = {
+  user_id: string;
   email: string | null;
   first_name: string | null;
   last_name: string | null;
-  phone: string | null;
+  phone_number: string | null;
+  date_of_birth: string | null;         // ISO date (YYYY-MM-DD)
   address: string | null;
-  date_of_birth: string | null;
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
-  treatment_type: string | null;
-  avatar_url: string | null;
-  admission_date: string | null;
-  primary_physician: string | null;
-  counselor: string | null;
+  emergency_contact_relationship: string | null;
+  treatment_program: string | null;
+  avatar: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
-function toPayload(row: DbRow) {
-  return {
-    patientInfo: {
-      id: row.id,
-      email: row.email ?? "",
-      firstName: row.first_name ?? "",
-      lastName: row.last_name ?? "",
-      phone: row.phone ?? "",
-      phoneNumber: row.phone ?? "",
-      address: row.address ?? "",
-      dateOfBirth: row.date_of_birth ?? "",
-      emergencyContact: {
-        name: row.emergency_contact_name ?? "",
-        phone: row.emergency_contact_phone ?? "",
-        relationship: "",
-      },
-      treatmentType: row.treatment_type ?? "Outpatient",
-      treatmentPlan: row.treatment_type ?? "Outpatient",
-      admissionDate: row.admission_date ?? "",
-      joinDate: row.admission_date ?? "",
-      primaryPhysician: row.primary_physician ?? "",
-      counselor: row.counselor ?? "",
-      avatar: row.avatar_url ?? null,
-    },
-    achievements: [],
-    healthMetrics: [],
-    recentActivity: [],
+type ProfilePayload = {
+  patientInfo: {
+    id?: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string | null;
+    phoneNumber?: string | null;
+    dateOfBirth?: string | null;
+    address?: string | null;
+    emergencyContact?: { name?: string; phone?: string; relationship?: string } | null;
+    admissionDate?: string | null;
+    treatmentType?: string | null;
+    treatmentPlan?: string | null;
+    primaryPhysician?: string | null;
+    counselor?: string | null;
+    avatar?: string | null;
+    joinDate?: string | null;
   };
+  achievements: Array<{ id: string | number; title: string; description: string; icon: string; date: string }>;
+  healthMetrics: Array<{ label: string; value: number }>;
+  recentActivity: Array<{ id: string | number; activity: string; time: string; type: "wellness" | "therapy" | "medical" | "assessment" }>;
+};
+
+function supaServer() {
+  return createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    cookies: {
+      get: (key) => cookies().get(key)?.value,
+      set: () => {},
+      remove: () => {},
+    },
+  });
 }
 
-function emptyPayload(userId: string, email: string | null) {
-  return {
-    patientInfo: {
-      id: userId,
-      email: email ?? "",
-      firstName: "",
-      lastName: "",
-      phone: "",
-      phoneNumber: "",
-      address: "",
-      dateOfBirth: "",
-      emergencyContact: { name: "", phone: "", relationship: "" },
-      treatmentType: "Outpatient",
-      treatmentPlan: "Outpatient",
-      admissionDate: "",
-      joinDate: "",
-      primaryPhysician: "",
-      counselor: "",
-      avatar: null,
-    },
-    achievements: [],
-    healthMetrics: [],
-    recentActivity: [],
-  };
-}
+export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
-  try {
-    const supabase = supabaseForRequest(req);
-    const { data: userRes, error: uerr } = await supabase.auth.getUser();
-    if (uerr || !userRes.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    const uid = userRes.user.id;
+/* GET /api/profile */
+export async function GET() {
+  const supabase = supaServer();
 
-    const { data, error } = await supabase
-      .from<DbRow>("profiles")
-      .select(
-        "id,email,first_name,last_name,phone,address,date_of_birth,emergency_contact_name,emergency_contact_phone,treatment_type,avatar_url,admission_date,primary_physician,counselor"
-      )
-      .eq("id", uid)
-      .single();
-
-    if (error) {
-      // If no row, return defaults so the UI can create one on save
-      if (error.code === "PGRST116" || /no rows/i.test(error.message))
-        return NextResponse.json(emptyPayload(uid, userRes.user.email ?? null), { status: 200 });
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json(toPayload(data), { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
+  // who am i?
+  const { data: auth, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !auth?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-}
 
-export async function PATCH(req: NextRequest) {
-  try {
-    const supabase = supabaseForRequest(req);
-    const { data: userRes, error: uerr } = await supabase.auth.getUser();
-    if (uerr || !userRes.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    const uid = userRes.user.id;
+  const uid = auth.user.id;
 
-    const body = await req.json();
-    const update: Partial<DbRow> = {
-      id: uid,
-      email: userRes.user.email ?? null,
-      first_name: body.firstName ?? null,
-      last_name: body.lastName ?? null,
-      phone: body.phone ?? body.phoneNumber ?? null,
-      address: body.address ?? null,
-      date_of_birth: body.dateOfBirth ?? null,
-      emergency_contact_name: body.emergencyContact?.name ?? null,
-      emergency_contact_phone: body.emergencyContact?.phone ?? null,
-      treatment_type: body.treatmentType ?? null,
-      avatar_url: body.avatar ?? null,
-      primary_physician: body.primaryPhysician ?? null,
-      counselor: body.counselor ?? null,
+  // fetch patient (seed if missing)
+  let { data: patient, error } = await supabase
+    .from("patients")
+    .select("*")
+    .eq("user_id", uid)
+    .maybeSingle<PatientRow>();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (!patient) {
+    // seed a minimal patient row using auth info
+    const seed: Partial<PatientRow> = {
+      user_id: uid,
+      email: auth.user.email ?? null,
+      first_name: auth.user.user_metadata?.first_name ?? null,
+      last_name: auth.user.user_metadata?.last_name ?? null,
+      phone_number: null,
+      treatment_program: "Outpatient",
     };
-
-    const { data, error } = await supabase
-      .from<DbRow>("profiles")
-      .upsert(update, { onConflict: "id", ignoreDuplicates: false })
-      .select(
-        "id,email,first_name,last_name,phone,address,date_of_birth,emergency_contact_name,emergency_contact_phone,treatment_type,avatar_url,admission_date,primary_physician,counselor"
-      )
-      .single();
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json(toPayload(data), { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
+    const ins = await supabase.from("patients").insert(seed).select("*").single<PatientRow>();
+    if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
+    patient = ins.data!;
   }
+
+  const payload: ProfilePayload = {
+    patientInfo: {
+      id: patient.user_id,
+      firstName: patient.first_name ?? "",
+      lastName: patient.last_name ?? "",
+      email: patient.email ?? auth.user.email ?? "",
+      phone: patient.phone_number,            // kept for your UI fallback
+      phoneNumber: patient.phone_number,
+      dateOfBirth: patient.date_of_birth,
+      address: patient.address,
+      emergencyContact: {
+        name: patient.emergency_contact_name ?? undefined,
+        phone: patient.emergency_contact_phone ?? undefined,
+        relationship: patient.emergency_contact_relationship ?? undefined,
+      },
+      treatmentType: patient.treatment_program ?? "Outpatient",
+      avatar: patient.avatar,
+      joinDate: patient.created_at,
+    },
+    achievements: [],
+    healthMetrics: [],
+    recentActivity: [],
+  };
+
+  return NextResponse.json(payload, { status: 200 });
+}
+
+/* PATCH /api/profile  body: { firstName,lastName,phone,dateOfBirth } */
+export async function PATCH(req: Request) {
+  const supabase = supaServer();
+  const { data: auth, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !auth?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const uid = auth.user.id;
+
+  const body = await req.json().catch(() => ({}));
+  const firstName: string | undefined = body.firstName;
+  const lastName: string | undefined = body.lastName;
+  const phone: string | undefined = body.phone;             // maps to phone_number
+  const dateOfBirth: string | undefined = body.dateOfBirth; // expect YYYY-MM-DD
+
+  const patch: Partial<PatientRow> = {};
+  if (typeof firstName === "string") patch.first_name = firstName;
+  if (typeof lastName === "string") patch.last_name = lastName;
+  if (typeof phone === "string") patch.phone_number = phone;
+  if (typeof dateOfBirth === "string" && dateOfBirth.length >= 8) patch.date_of_birth = dateOfBirth;
+
+  if (Object.keys(patch).length === 0) {
+    return NextResponse.json({ ok: true }, { status: 200 });
+  }
+
+  const { error } = await supabase.from("patients").update(patch).eq("user_id", uid);
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  return NextResponse.json({ ok: true }, { status: 200 });
 }
