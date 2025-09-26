@@ -1,39 +1,25 @@
-// path: hooks/use-game-stats.ts
 "use client";
 
 import { useMemo } from "react";
 
-export type GameLike = {
-  completed?: boolean;
-  rating?: number | null;
-};
-
-export type GameStatsShape = {
-  total: number;
-  completed: number;
-  backlog: number;
-  avgRating: number | null;
-};
+export type GameLike = { completed?: boolean; rating?: number | null };
+export type GameStatsShape = { total: number; completed: number; backlog: number; avgRating: number | null };
 
 export function useGameStats<T extends GameLike>(games: T[]): GameStatsShape {
-  // Why: memoize derived stats to avoid unnecessary recompute.
   return useMemo(() => {
     const total = games.length;
-    let completed = 0;
-    let ratingSum = 0;
-    let ratingCount = 0;
+    let completed = 0, ratingSum = 0, ratingCount = 0;
 
     for (const g of games) {
       if (g?.completed) completed += 1;
-      if (typeof g?.rating === "number") {
-        ratingSum += g.rating;
-        ratingCount += 1;
-      }
+      if (typeof g?.rating === "number") { ratingSum += g.rating; ratingCount += 1; }
     }
 
-    const backlog = total - completed;
-    const avgRating = ratingCount ? ratingSum / ratingCount : null;
-
-    return { total, completed, backlog, avgRating };
+    return {
+      total,
+      completed,
+      backlog: total - completed,
+      avgRating: ratingCount ? ratingSum / ratingCount : null,
+    };
   }, [games]);
 }
