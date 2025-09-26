@@ -1,34 +1,38 @@
-// path: app/dashboard/games/page.tsx
-"use client";
+"use client"
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { useAuth } from "@/hooks/use-auth";
-import GameCard from "@/components/games/game-card";   // ✅ default import
-import GameStats from "@/components/games/game-stats"; // ✅ default import
-import { Gamepad2, Brain, Heart, Target, Puzzle, Zap, Heart as HeartIcon } from "lucide-react";
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/hooks/use-auth"
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
+import { GameCard } from "@/components/games/game-card"
+import { GameStats } from "@/components/games/game-stats"
+import { Gamepad2, Brain, Heart, Target, Puzzle, Zap } from "lucide-react"
+import Link from "next/link"
+
 export default function GamesPage() {
-  const { isAuthenticated, loading, patient } = useAuth();
-  const router = useRouter();
+  const { isAuthenticated, loading, patient } = useAuth()
+  const router = useRouter()
 
   useEffect(() => {
-    if (!loading && !isAuthenticated) router.push("/login");
-  }, [isAuthenticated, loading, router]);
+    if (!loading && !isAuthenticated) {
+      router.push("/login")
+    }
+  }, [isAuthenticated, loading, router])
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4" />
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading games...</p>
         </div>
       </div>
-    );
+    )
   }
 
-  if (!isAuthenticated || !patient) return null;
+  if (!isAuthenticated || !patient) {
+    return null
+  }
 
   const games = [
     {
@@ -115,26 +119,14 @@ export default function GamesPage() {
       bestScore: 0,
       isNew: true,
     },
-  ];
-
-  // ✅ Minimal + stable shape for GameStats fallback
-  const statsInput = games.map(() => ({ completed: false, rating: null as number | null }));
+  ]
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Local, client-safe header (replaces DashboardHeader to avoid server/client mismatch) */}
-      <header className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link href="/dashboard" className="flex items-center gap-2 text-cyan-600">
-            <HeartIcon className="h-6 w-6" />
-            <span className="font-serif font-bold">Serenity Rehabilitation Center</span>
-          </Link>
-          <div className="text-sm text-gray-600">Welcome{patient?.firstName ? `, ${patient.firstName}` : ""}</div>
-        </div>
-      </header>
+      <DashboardHeader patient={patient} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Title */}
+        {/* Header */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
             <div className="bg-purple-100 p-3 rounded-lg">
@@ -148,51 +140,72 @@ export default function GamesPage() {
         </div>
 
         {/* Stats */}
-        <section className="mb-8">
-          <GameStats games={statsInput} />
-        </section>
+        <GameStats />
 
         {/* Games Grid */}
-        <section className="mt-8">
+        <div className="mt-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-6">Available Games</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {games.map((game) => (
-              <GameCard
-                key={game.id}
-                game={{
-                  id: game.id,
-                  title: game.title,
-                  genre: game.category,
-                  rating: undefined,
-                  completed: false,
-                }}
-              />
+              <GameCard key={game.id} game={game} />
             ))}
           </div>
-        </section>
+        </div>
 
         {/* Categories */}
-        <section className="mt-12">
+        <div className="mt-12">
           <h2 className="text-xl font-semibold text-gray-900 mb-6">Game Categories</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {[
-              { name: "Mindfulness", count: 2, color: "bg-purple-100 text-purple-700", href: "/dashboard/games?category=mindfulness" },
-              { name: "Emotional Wellness", count: 2, color: "bg-pink-100 text-pink-700", href: "/dashboard/games?category=emotional" },
-              { name: "Cognitive Training", count: 2, color: "bg-blue-100 text-blue-700", href: "/dashboard/games?category=cognitive" },
-              { name: "Stress Management", count: 1, color: "bg-yellow-100 text-yellow-700", href: "/dashboard/games?category=stress" },
-              { name: "Memory Training", count: 1, color: "bg-green-100 text-green-700", href: "/dashboard/games?category=memory" },
-              { name: "Positive Psychology", count: 1, color: "bg-emerald-100 text-emerald-700", href: "/dashboard/games?category=positive" },
-            ].map((c) => (
-              <Link key={c.name} href={c.href}>
-                <div className={`p-4 rounded-lg text-center cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 ${c.color}`}>
-                  <div className="font-medium text-sm">{c.name}</div>
-                  <div className="text-xs opacity-75 mt-1">{c.count} games</div>
+              {
+                name: "Mindfulness",
+                count: 2,
+                color: "bg-purple-100 text-purple-700",
+                href: "/dashboard/games?category=mindfulness",
+              },
+              {
+                name: "Emotional Wellness",
+                count: 2,
+                color: "bg-pink-100 text-pink-700",
+                href: "/dashboard/games?category=emotional",
+              },
+              {
+                name: "Cognitive Training",
+                count: 2,
+                color: "bg-blue-100 text-blue-700",
+                href: "/dashboard/games?category=cognitive",
+              },
+              {
+                name: "Stress Management",
+                count: 1,
+                color: "bg-yellow-100 text-yellow-700",
+                href: "/dashboard/games?category=stress",
+              },
+              {
+                name: "Memory Training",
+                count: 1,
+                color: "bg-green-100 text-green-700",
+                href: "/dashboard/games?category=memory",
+              },
+              {
+                name: "Positive Psychology",
+                count: 1,
+                color: "bg-emerald-100 text-emerald-700",
+                href: "/dashboard/games?category=positive",
+              },
+            ].map((category) => (
+              <Link key={category.name} href={category.href}>
+                <div
+                  className={`p-4 rounded-lg text-center cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 ${category.color}`}
+                >
+                  <div className="font-medium text-sm">{category.name}</div>
+                  <div className="text-xs opacity-75 mt-1">{category.count} games</div>
                 </div>
               </Link>
             ))}
           </div>
-        </section>
+        </div>
       </main>
     </div>
-  );
+  )
 }
