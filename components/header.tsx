@@ -17,7 +17,7 @@ export function Header() {
 
   return (
     <header className="bg-white shadow-sm border-b">
-      <div className="max-w-9xl mx-auto px-5 sm:px-6 lg:px-8 border-b border-slate-200">
+      <div className="max-w-9xl mx-auto px-5 sm:px-6 lg:px-8 border-b border-slate-300">
         <div className="flex items-center justify-between h-16 pt-px">
           <div className="flex items-center">
             <Link
