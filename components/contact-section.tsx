@@ -39,7 +39,7 @@ export function ContactSection() {
             </CardHeader>
             <CardContent>
               <p className="text-gray-600 mb-4">Send us your questions</p>
-              <p className="text-lg font-semibold text-cyan-600">help@serenityrehab.com</p>
+              <p className="text-lg font-semibold text-cyan-600">src.health</p>
               <p className="text-sm text-gray-500 mt-2">Response within 2 hours</p>
             </CardContent>
           </Card>
@@ -58,7 +58,7 @@ export function ContactSection() {
                 <br />
                 Blvd N, Pontiac, MI 48342
               </p>
-              <p className="text-sm text-gray-500 mt-2">Open Mon-Fri 8AM-6PM</p>
+              <p className="text-sm text-gray-500 mt-2">Open Mon-Fri 8AM-5PM</p>
             </CardContent>
           </Card>
         </div>
