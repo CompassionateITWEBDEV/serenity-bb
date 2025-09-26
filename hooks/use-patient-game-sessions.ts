@@ -10,22 +10,19 @@ export type GameSessionRow = {
   score: number;
   duration_sec: number;
   created_at: string;
-  updated_at?: string | null;
-  device?: string | null;
-  metadata?: Record<string, unknown> | null;
 };
 
 export function usePatientGameSessions(patientId?: string) {
+  // ✅ hooks are declared unconditionally
   const [sessions, setSessions] = useState<GameSessionRow[]>([]);
-  const [loading, setLoading] = useState<boolean>(supaEnvOk && !!patientId);
+  const [loading, setLoading] = useState<boolean>(Boolean(supaEnvOk && patientId));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!supaEnvOk || !patientId) return;
 
     let ignore = false;
-
-    async function load() {
+    (async () => {
       setLoading(true);
       const { data, error } = await supabase
         .from("game_sessions")
@@ -36,9 +33,7 @@ export function usePatientGameSessions(patientId?: string) {
       if (error) setError(error.message);
       setSessions(data ?? []);
       setLoading(false);
-    }
-
-    load();
+    })();
 
     const ch = supabase
       .channel(`rt-game-sessions-${patientId}`)
