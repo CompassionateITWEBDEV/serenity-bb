@@ -4,20 +4,30 @@ import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
-import GameCard from "@/components/games/game-card";       // ✅ default import
-import GameStats from "@/components/games/game-stats";     // ✅ default import
+import GameCard from "@/components/games/game-card";   // ✅ default import
+import GameStats from "@/components/games/game-stats"; // ✅ default import
 import { Gamepad2 } from "lucide-react";
 import Link from "next/link";
 import { useGamesCatalog } from "@/hooks/use-games-catalog";
 import { usePatientGameSessions } from "@/hooks/use-patient-game-sessions";
 
 export default function GamesPage() {
+  // ✅ All hooks are top-level and unconditional
   const { isAuthenticated, loading: authLoading, patient } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) router.push("/login");
   }, [isAuthenticated, authLoading, router]);
+
+  // ✅ Call data hooks after auth; still unconditional
+  const { games: catalog = [], loading: catLoading, error: catErr, envOk: env1 } = useGamesCatalog();
+  const {
+    sessions = [],
+    loading: sesLoading,
+    error: sesErr,
+    envOk: env2,
+  } = usePatientGameSessions(patient?.id);
 
   if (authLoading) {
     return (
@@ -31,17 +41,12 @@ export default function GamesPage() {
   }
   if (!isAuthenticated || !patient) return null;
 
-  // Real-time data
-  const { games: catalog, loading: catLoading, error: catErr, envOk: env1 } = useGamesCatalog();
-  const { sessions, loading: sesLoading, error: sesErr, envOk: env2 } =
-    usePatientGameSessions(patient.id);
-
   const envOk = env1 && env2;
 
-  // Played if any session exists for that game
+  // ✅ Derived values are pure
   const playedSet = useMemo(() => new Set(sessions.map((s) => s.game_id)), [sessions]);
 
-  // Minimal shape for stats: only {completed, rating?}
+  // ✅ Stats input is always an array; no conditionals inside GameStats
   const statsInput = useMemo(
     () => catalog.map((g) => ({ completed: playedSet.has(g.id), rating: null as number | null })),
     [catalog, playedSet]
@@ -52,7 +57,6 @@ export default function GamesPage() {
       <DashboardHeader patient={patient} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
             <div className="bg-purple-100 p-3 rounded-lg">
@@ -66,21 +70,18 @@ export default function GamesPage() {
 
           {!envOk && (
             <div className="rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
-              Supabase env not set (or realtime blocked). Add <code>NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
-              <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>. Page will not crash, but will show empty data.
+              Supabase env not set or realtime blocked. Add <code>NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
+              <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>.
             </div>
           )}
           {catErr && <div className="text-sm text-red-600">Catalog error: {catErr}</div>}
           {sesErr && <div className="text-sm text-red-600">Sessions error: {sesErr}</div>}
         </div>
 
-        {/* ✅ Stats must receive props */}
+        {/* ✅ Always pass an array */}
         <GameStats games={statsInput} />
-        {(catLoading || sesLoading) && (
-          <div className="mt-2 text-xs text-gray-500">Syncing in real time…</div>
-        )}
+        {(catLoading || sesLoading) && <div className="mt-2 text-xs text-gray-500">Syncing…</div>}
 
-        {/* Games Grid */}
         <div className="mt-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-6">Available Games</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -101,17 +102,25 @@ export default function GamesPage() {
                 />
               </div>
             ))}
-            {!catLoading && catalog.length === 0 && envOk && (
+            {!catLoading && envOk && catalog.length === 0 && (
               <div className="col-span-full text-sm text-gray-500">
-                No games available. Seed the <code>public.games</code> table.
+                No games available. Seed <code>public.games</code>.
               </div>
             )}
           </div>
         </div>
 
-        {/* Categories */}
         <div className="mt-12">
           <h2 className="text-xl font-semibold text-gray-900 mb-6">Game Categories</h2>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            {(Array.from(new Set(catalog.map((g) => g.category).filter(Boolean))) as string[]).map((cat) => (
+              <Link key={cat} href={`/dashboard/games?category=${encodeURIComponent(cat)}`}>
+                <div className="p-4 rounded-lg text-center cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 bg-gray-100">
+                  <div className="font-medium text-sm">{cat}</div>
+                </div>
+              </Link>
+            ))}
+          </div>
         </div>
       </main>
     </div>
