@@ -3,10 +3,11 @@
 import React from "react";
 import { useGameStats } from "@/hooks/use-game-stats";
 
-export type MinimalGame = { completed?: boolean; rating?: number | null };
-
+// ✅ Hook is called unconditionally; props have defaults
+type MinimalGame = { completed?: boolean; rating?: number | null };
 export default function GameStats({ games }: { games: MinimalGame[] }) {
-  const stats = useGameStats(games ?? []);
+  const safe = Array.isArray(games) ? games : [];
+  const stats = useGameStats(safe);
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       <Stat label="Total" value={stats.total} />
