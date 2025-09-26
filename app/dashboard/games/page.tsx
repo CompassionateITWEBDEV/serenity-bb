@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
-import useSWR from "swr";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
@@ -24,44 +23,63 @@ type PatientGamesResponse = {
   totals: { total: number; completed: number; backlog: number; avgRating: number | null };
 };
 
-// Local fetcher; keeps this file self-contained.
-const jsonFetcher = async <T,>(url: string): Promise<T> => {
+async function jsonFetcher<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: { "Content-Type": "application/json" }, cache: "no-store" });
-  if (!res.ok) {
-    // why: propagate detail for visible error state
-    throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text().catch(() => res.statusText)}`);
   return res.json() as Promise<T>;
-};
+}
 
 export default function GamesPage() {
   const { isAuthenticated, loading, patient } = useAuth();
   const router = useRouter();
 
+  const [data, setData] = useState<PatientGamesResponse | null>(null);
+  const [isLoadingRemote, setIsLoadingRemote] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     if (!loading && !isAuthenticated) router.push("/login");
   }, [isAuthenticated, loading, router]);
 
-  // SWR live fetch; replace URL with your real API if different.
-  const apiKey = patient?.id ? `/api/patient/games?patientId=${encodeURIComponent(patient.id)}` : null;
-  const { data, error, isLoading, isValidating, mutate } = useSWR<PatientGamesResponse>(
-    apiKey,
-    jsonFetcher,
-    {
-      refreshInterval: 5000, // why: lightweight "real-time" polling
-      revalidateOnFocus: true,
-      keepPreviousData: true,
-    }
-  );
+  useEffect(() => {
+    if (!patient?.id) return;
 
-  const games = data?.games ?? [];
-  const totals = data?.totals ?? { total: 0, completed: 0, backlog: 0, avgRating: null };
+    let mounted = true;
 
-  // Minimal shape for GameStats
-  const statsInput = useMemo(
-    () => games.map(g => ({ completed: !!g.completed, rating: g.rating ?? null })),
-    [games]
-  );
+    const url = `/api/patient/games?patientId=${encodeURIComponent(patient.id)}`;
+
+    const load = async (initial = false) => {
+      try {
+        initial ? setIsLoadingRemote(true) : setIsValidating(true);
+        const next = await jsonFetcher<PatientGamesResponse>(url);
+        if (mounted) {
+          setData(next);
+          setError(null);
+        }
+      } catch (e) {
+        if (mounted) setError(e as Error);
+      } finally {
+        if (mounted) {
+          setIsLoadingRemote(false);
+          setIsValidating(false);
+        }
+      }
+    };
+
+    load(true);
+
+    intervalRef.current = setInterval(() => load(false), 5000); // why: simple live polling
+    const onVis = () => document.visibilityState === "visible" && load(false);
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      mounted = false;
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [patient?.id]);
 
   if (loading) {
     return (
@@ -75,6 +93,14 @@ export default function GamesPage() {
   }
 
   if (!isAuthenticated || !patient) return null;
+
+  const games = data?.games ?? [];
+  const totals = data?.totals ?? { total: 0, completed: 0, backlog: 0, avgRating: null };
+
+  const statsInput = useMemo(
+    () => games.map(g => ({ completed: !!g.completed, rating: g.rating ?? null })),
+    [games]
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -96,17 +122,30 @@ export default function GamesPage() {
             </div>
           </div>
 
-          {/* Live summary + manual refresh */}
+          {/* Summary + manual refresh */}
           <div className="flex items-center gap-3 text-sm text-gray-600">
-            {isLoading
+            {isLoadingRemote
               ? "Loading games…"
               : error
               ? `Error loading games: ${error.message}`
               : `${totals.total} games • ${totals.completed} completed • ${totals.backlog} backlog`}
             <button
-              onClick={() => mutate()}
+              onClick={() => {
+                if (patient?.id) {
+                  const url = `/api/patient/games?patientId=${encodeURIComponent(patient.id)}`;
+                  setIsValidating(true);
+                  jsonFetcher<PatientGamesResponse>(url)
+                    .then((next) => {
+                      setData(next);
+                      setError(null);
+                    })
+                    .catch((e) => setError(e as Error))
+                    .finally(() => setIsValidating(false));
+                }
+              }}
               className="ml-3 px-3 py-1.5 rounded-md border hover:bg-gray-50"
               aria-label="Refresh"
+              title="Refresh"
             >
               Refresh
             </button>
@@ -123,7 +162,7 @@ export default function GamesPage() {
           <h2 className="text-xl font-semibold text-gray-900 mb-6">Available Games</h2>
           {error ? (
             <div className="text-sm text-red-600">Failed to load games.</div>
-          ) : games.length === 0 && !isLoading ? (
+          ) : games.length === 0 && !isLoadingRemote ? (
             <div className="text-sm text-gray-600">No games yet.</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -142,15 +181,13 @@ export default function GamesPage() {
           )}
         </section>
 
-        {/* Categories derived on client */}
+        {/* Categories */}
         <section className="mt-12">
           <h2 className="text-xl font-semibold text-gray-900 mb-6">Game Categories</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {getCategoriesFrom(games).map((c) => (
               <Link key={c.name} href={`/dashboard/games?category=${encodeURIComponent(c.name)}`}>
-                <div
-                  className={`p-4 rounded-lg text-center cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 ${c.color}`}
-                >
+                <div className={`p-4 rounded-lg text-center cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 ${c.color}`}>
                   <div className="font-medium text-sm">{c.name}</div>
                   <div className="text-xs opacity-75 mt-1">{c.count} games</div>
                 </div>
