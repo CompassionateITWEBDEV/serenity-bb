@@ -20,7 +20,6 @@ type Props = {
 function GameCard({ game, onToggleComplete }: Props) {
   const [completed, setCompleted] = useState<boolean>(Boolean(game.completed));
 
-  // Why: keep server/client boundary clean; optimistic update.
   const toggle = () => {
     const next = !completed;
     setCompleted(next);
@@ -32,11 +31,7 @@ function GameCard({ game, onToggleComplete }: Props) {
       <CardContent className="p-4 flex gap-4">
         {game.coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={game.coverUrl}
-            alt={game.title}
-            className="h-24 w-24 rounded-xl object-cover"
-          />
+          <img src={game.coverUrl} alt={game.title} className="h-24 w-24 rounded-xl object-cover" />
         ) : (
           <div className="h-24 w-24 rounded-xl bg-gray-200 flex items-center justify-center text-sm">
             No Art
@@ -46,9 +41,7 @@ function GameCard({ game, onToggleComplete }: Props) {
           <div className="flex items-start justify-between gap-2">
             <div>
               <h3 className="font-semibold leading-tight">{game.title}</h3>
-              {game.genre && (
-                <p className="text-sm text-muted-foreground">{game.genre}</p>
-              )}
+              {game.genre && <p className="text-sm text-muted-foreground">{game.genre}</p>}
             </div>
             <button
               onClick={toggle}
