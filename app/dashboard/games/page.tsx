@@ -7,8 +7,7 @@ import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 
 // ✅ Use default imports (these are client components)
-import GameCard from "@/components/games/game-card";
-import GameStats from "@/components/games/game-stats";
+
 
 import {
   Gamepad2,
