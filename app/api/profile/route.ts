@@ -1,154 +1,101 @@
-// app/api/profile/route.ts
-// Server handler that uses *patients* (not profiles) and maps phone_number properly.
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseForToken } from "@/lib/supabase/server";
+import { getBearerTokenFromRequest } from "@/lib/auth";
 
-type PatientRow = {
-  user_id: string;
-  email: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  phone_number: string | null;
-  date_of_birth: string | null;         // ISO date (YYYY-MM-DD)
-  address: string | null;
-  emergency_contact_name: string | null;
-  emergency_contact_phone: string | null;
-  emergency_contact_relationship: string | null;
-  treatment_program: string | null;
-  avatar: string | null;
-  created_at: string;
-  updated_at: string;
-};
+export async function GET(req: NextRequest) {
+  const token = getBearerTokenFromRequest();
+  const sb = supabaseForToken(token);
 
-type ProfilePayload = {
-  patientInfo: {
-    id?: string;
-    firstName: string;
-    lastName: string;
-    email: string;
-    phone?: string | null;
-    phoneNumber?: string | null;
-    dateOfBirth?: string | null;
-    address?: string | null;
-    emergencyContact?: { name?: string; phone?: string; relationship?: string } | null;
-    admissionDate?: string | null;
-    treatmentType?: string | null;
-    treatmentPlan?: string | null;
-    primaryPhysician?: string | null;
-    counselor?: string | null;
-    avatar?: string | null;
-    joinDate?: string | null;
-  };
-  achievements: Array<{ id: string | number; title: string; description: string; icon: string; date: string }>;
-  healthMetrics: Array<{ label: string; value: number }>;
-  recentActivity: Array<{ id: string | number; activity: string; time: string; type: "wellness" | "therapy" | "medical" | "assessment" }>;
-};
+  const { data: userRes, error: userErr } = await sb.auth.getUser();
+  if (userErr || !userRes.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-function supaServer() {
-  return createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-    cookies: {
-      get: (key) => cookies().get(key)?.value,
-      set: () => {},
-      remove: () => {},
-    },
+  const userId = userRes.user.id;
+
+  // patient (one per user) – or latest by created_at
+  const { data: patient, error: pErr } = await sb
+    .from("patients")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (pErr) return NextResponse.json({ error: pErr.message }, { status: 400 });
+
+  const patientId = patient?.id;
+
+  // related
+  const [{ data: achievements }, { data: healthMetrics }, { data: recentActivity }] = await Promise.all([
+    patientId
+      ? sb.from("patient_achievements").select("*").eq("user_id", userId).eq("patient_id", patientId).order("date", { ascending: false })
+      : Promise.resolve({ data: [] as any }),
+    patientId
+      ? sb.from("patient_health_metrics").select("*").eq("user_id", userId).eq("patient_id", patientId).order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] as any }),
+    patientId
+      ? sb.from("patient_activity").select("*").eq("user_id", userId).eq("patient_id", patientId).order("time", { ascending: false }).limit(25)
+      : Promise.resolve({ data: [] as any }),
+  ]);
+
+  return NextResponse.json({
+    patientInfo: patient
+      ? {
+          id: patient.id,
+          firstName: patient.first_name,
+          lastName: patient.last_name,
+          email: patient.email,
+          phone: patient.phone,
+          dateOfBirth: patient.date_of_birth ?? null,
+          address: patient.address,
+          emergencyContact: patient.emergency_contact,
+          admissionDate: patient.admission_date,
+          treatmentType: patient.treatment_type,
+          treatmentPlan: patient.treatment_plan,
+          primaryPhysician: patient.primary_physician,
+          counselor: patient.counselor,
+          avatar: patient.avatar,
+          joinDate: patient.join_date,
+        }
+      : null,
+    achievements: (achievements ?? []).map((a) => ({
+      id: a.id, title: a.title, description: a.description, icon: a.icon, date: a.date,
+    })),
+    healthMetrics: (healthMetrics ?? []).map((m) => ({ label: m.label, value: Number(m.value) })),
+    recentActivity: (recentActivity ?? []).map((r) => ({
+      id: r.id, activity: r.activity, time: r.time, type: r.type,
+    })),
   });
 }
 
-export const dynamic = "force-dynamic";
-
-/* GET /api/profile */
-export async function GET() {
-  const supabase = supaServer();
-
-  // who am i?
-  const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !auth?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const uid = auth.user.id;
-
-  // fetch patient (seed if missing)
-  let { data: patient, error } = await supabase
-    .from("patients")
-    .select("*")
-    .eq("user_id", uid)
-    .maybeSingle<PatientRow>();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  if (!patient) {
-    // seed a minimal patient row using auth info
-    const seed: Partial<PatientRow> = {
-      user_id: uid,
-      email: auth.user.email ?? null,
-      first_name: auth.user.user_metadata?.first_name ?? null,
-      last_name: auth.user.user_metadata?.last_name ?? null,
-      phone_number: null,
-      treatment_program: "Outpatient",
-    };
-    const ins = await supabase.from("patients").insert(seed).select("*").single<PatientRow>();
-    if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
-    patient = ins.data!;
-  }
-
-  const payload: ProfilePayload = {
-    patientInfo: {
-      id: patient.user_id,
-      firstName: patient.first_name ?? "",
-      lastName: patient.last_name ?? "",
-      email: patient.email ?? auth.user.email ?? "",
-      phone: patient.phone_number,            // kept for your UI fallback
-      phoneNumber: patient.phone_number,
-      dateOfBirth: patient.date_of_birth,
-      address: patient.address,
-      emergencyContact: {
-        name: patient.emergency_contact_name ?? undefined,
-        phone: patient.emergency_contact_phone ?? undefined,
-        relationship: patient.emergency_contact_relationship ?? undefined,
-      },
-      treatmentType: patient.treatment_program ?? "Outpatient",
-      avatar: patient.avatar,
-      joinDate: patient.created_at,
-    },
-    achievements: [],
-    healthMetrics: [],
-    recentActivity: [],
-  };
-
-  return NextResponse.json(payload, { status: 200 });
-}
-
-/* PATCH /api/profile  body: { firstName,lastName,phone,dateOfBirth } */
-export async function PATCH(req: Request) {
-  const supabase = supaServer();
-  const { data: auth, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !auth?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const uid = auth.user.id;
+export async function PATCH(req: NextRequest) {
+  const token = getBearerTokenFromRequest();
+  const sb = supabaseForToken(token);
+  const { data: userRes, error: userErr } = await sb.auth.getUser();
+  if (userErr || !userRes.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = userRes.user.id;
 
   const body = await req.json().catch(() => ({}));
-  const firstName: string | undefined = body.firstName;
-  const lastName: string | undefined = body.lastName;
-  const phone: string | undefined = body.phone;             // maps to phone_number
-  const dateOfBirth: string | undefined = body.dateOfBirth; // expect YYYY-MM-DD
+  const payload: any = {
+    first_name: body.firstName,
+    last_name: body.lastName,
+    phone: body.phone ?? body.phoneNumber,
+    date_of_birth: body.dateOfBirth || null,
+  };
 
-  const patch: Partial<PatientRow> = {};
-  if (typeof firstName === "string") patch.first_name = firstName;
-  if (typeof lastName === "string") patch.last_name = lastName;
-  if (typeof phone === "string") patch.phone_number = phone;
-  if (typeof dateOfBirth === "string" && dateOfBirth.length >= 8) patch.date_of_birth = dateOfBirth;
-
-  if (Object.keys(patch).length === 0) {
-    return NextResponse.json({ ok: true }, { status: 200 });
+  // ensure record exists
+  const { data: patient } = await sb.from("patients").select("id").eq("user_id", userId).limit(1).maybeSingle();
+  if (!patient) {
+    const { error: insErr } = await sb.from("patients").insert({
+      user_id: userId,
+      email: userRes.user.email,
+      ...payload,
+    });
+    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
+    return NextResponse.json({ ok: true });
   }
 
-  const { error } = await supabase.from("patients").update(patch).eq("user_id", uid);
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  const { error: updErr } = await sb.from("patients").update(payload).eq("id", patient.id).eq("user_id", userId);
+  if (updErr) return NextResponse.json({ error: updErr.message }, { status: 400 });
 
-  return NextResponse.json({ ok: true }, { status: 200 });
+  return NextResponse.json({ ok: true });
 }
