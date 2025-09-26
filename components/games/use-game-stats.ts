@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 
 export type GameStatSummary = {
@@ -20,7 +20,6 @@ type SessionRow = {
 };
 
 function calcStreak(rows: SessionRow[]): number {
-  // unique activity dates (YYYY-MM-DD) in local tz
   const days = new Set(
     rows.map((r) =>
       new Date(r.created_at).toLocaleDateString("en-CA", { timeZone: undefined })
@@ -52,7 +51,6 @@ export function useGameStats() {
   const refresh = useCallback(async () => {
     if (!uid) return;
     setLoading(true);
-    // pull recent 90 days detailed rows for streak, plus aggregates for all-time
     const [agg, recent] = await Promise.all([
       supabase
         .from("game_sessions")
@@ -69,7 +67,6 @@ export function useGameStats() {
     const count = (agg.count ?? 0) as number;
     const totalSec =
       ((agg.data as any)?.[0]?.sum as number | null) ??
-      // some PostgREST versions put aggregates in first row; fallback compute:
       recent.data?.reduce((a, r) => a + (r.duration_sec ?? 0), 0) ??
       0;
     const maxScore =
@@ -94,10 +91,10 @@ export function useGameStats() {
       const u = data.session?.user?.id ?? null;
       setUid(u);
       if (u) await refresh();
+      else setLoading(false);
     })();
   }, [refresh]);
 
-  // realtime: insert/update/delete
   useEffect(() => {
     if (!uid) return;
     const ch = supabase
@@ -123,12 +120,11 @@ export function useGameStats() {
         duration_sec: durationSec,
       });
       if (error) throw error;
-      // refresh will run via realtime, but do a quick optimistic update for UX
       setSummary((s) => ({
         gamesPlayed: s.gamesPlayed + 1,
         totalMinutes: s.totalMinutes + Math.round(durationSec / 60),
         highScore: Math.max(s.highScore, score || 0),
-        streakDays: s.streakDays, // next server refresh recalculates accurately
+        streakDays: s.streakDays,
       }));
     },
     [uid]
