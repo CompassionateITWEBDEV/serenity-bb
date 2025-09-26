@@ -1,83 +1,50 @@
-// path: app/api/progress/route.ts
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-/** Why: unified JSON response the UI expects; never return HTML. */
 type Trend = "up" | "down";
 
-export const dynamic = "force-dynamic"; // ensure no stale caching by Next
-// export const runtime = "edge"; // optional: uncomment if you run at the edge
+export const dynamic = "force-dynamic"; // avoid stale cache
 
 export async function GET() {
-  const cookieStore = cookies();
+  const url  = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  if (!url || !anon) return json({ error: "Supabase env vars missing" }, 500);
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get: (key) => cookieStore.get(key)?.value,
-        set: (key, value, options) => cookieStore.set(key, value, options),
-        remove: (key, options) => cookieStore.set(key, "", { ...options, maxAge: 0 }),
-      },
-    }
-  );
+  const supabase = createServerClient(url, anon, {
+    cookies: {
+      get: (key) => cookies().get(key)?.value,
+      set: (key, value, options) => cookies().set(key, value, options),
+      remove: (key, options) => cookies().set(key, "", { ...options, maxAge: 0 }),
+    },
+  });
 
   try {
     const {
       data: { user },
       error: authErr,
     } = await supabase.auth.getUser();
-    if (authErr || !user) {
-      return json({ error: "Unauthorized" }, 401);
-    }
 
+    if (authErr || !user) return json({ error: "Unauthorized" }, 401);
     const pid = user.id;
 
-    // Pull all related data in parallel
-    const [
-      ovr,
-      goals,
-      mls,
-      metrics,
-      weekly,
-    ] = await Promise.all([
-      supabase.from("progress_overview").select("*").eq("patient_id", pid).maybeSingle(),
-      supabase
-        .from("weekly_goals")
-        .select("id,name,current,target,updated_at")
-        .eq("patient_id", pid)
-        .order("updated_at", { ascending: false }),
-      supabase
-        .from("milestones")
-        .select("id,name,date,completed,type")
-        .eq("patient_id", pid)
-        .order("date", { ascending: false }),
-      supabase
-        .from("progress_metrics")
-        .select("id,title,value,change,trend,icon,color,bgcolor")
-        .eq("patient_id", pid)
-        .order("updated_at", { ascending: false })
-        .limit(12),
-      supabase
-        .from("weekly_data")
-        .select("id,week,wellness,attendance,goals")
-        .eq("patient_id", pid)
-        .order("updated_at", { ascending: false })
-        .limit(12),
+    // Query everything in parallel
+    const [overview, goals, mls, metrics, weekly] = await Promise.all([
+      supabase.from("progress_overview").select("overall_progress").eq("patient_id", pid).maybeSingle(),
+      supabase.from("weekly_goals").select("id,name,current,target").eq("patient_id", pid).order("updated_at", { ascending: false }),
+      supabase.from("milestones").select("id,name,date,completed,type").eq("patient_id", pid).order("date", { ascending: true }),
+      supabase.from("progress_metrics").select("id,title,value,change,trend,icon,color,bgcolor").eq("patient_id", pid),
+      supabase.from("weekly_data").select("id,week,wellness,attendance,goals").eq("patient_id", pid).order("week", { ascending: true }),
     ]);
 
-    // Bubble up DB errors as JSON
-    if (ovr.error) return json({ error: ovr.error.message }, 500);
-    if (goals.error) return json({ error: goals.error.message }, 500);
-    if (mls.error) return json({ error: mls.error.message }, 500);
-    if (metrics.error) return json({ error: metrics.error.message }, 500);
-    if (weekly.error) return json({ error: weekly.error.message }, 500);
+    // Surface DB errors early
+    const dbErr =
+      overview.error || goals.error || mls.error || metrics.error || weekly.error;
+    if (dbErr) return json({ error: dbErr.message }, 500);
 
-    // Normalize -> camelCase payload the page.tsx expects
+    // Shape payload exactly as app/dashboard/progress/page.tsx expects
     const payload = {
-      overallProgress: Number(ovr.data?.overall_progress ?? 0),
+      overallProgress: Number(overview.data?.overall_progress ?? 0),
       weeklyGoals: (goals.data ?? []).map((g) => ({
         id: g.id,
         name: g.name,
@@ -87,17 +54,17 @@ export async function GET() {
       milestones: (mls.data ?? []).map((m) => ({
         id: m.id,
         name: m.name,
-        date: m.date ? String(m.date) : "",
+        date: m.date,
         completed: Boolean(m.completed),
-        type: (m.type === "major" ? "major" : "minor") as "major" | "minor",
+        type: (m.type as "major" | "minor") ?? "minor",
       })),
       progressMetrics: (metrics.data ?? []).map((r) => ({
         id: r.id,
         title: r.title,
         value: String(r.value ?? ""),
-        change: String(r.change ?? ""),
-        trend: (r.trend === "down" ? "down" : "up") as Trend,
-        icon: (r.icon as any) ?? undefined,
+        change: String(r.change ?? "0"),
+        trend: ((r.trend as Trend) ?? "up") as Trend,
+        icon: r.icon ?? undefined,
         color: r.color ?? undefined,
         bgColor: r.bgcolor ?? undefined,
       })),
@@ -112,18 +79,16 @@ export async function GET() {
 
     return json(payload, 200);
   } catch (e: any) {
-    // Always return JSON on exceptions
     return json({ error: e?.message || "Internal Server Error" }, 500);
   }
 }
 
-/** Handle CORS preflight if your deployment needs it (harmless otherwise). */
 export function OPTIONS() {
   return json({}, 204);
 }
 
-/** Helper: set JSON + no-store to prevent edge/proxy HTML fallbacks. */
 function json(body: unknown, status = 200) {
+  // Important: always return JSON (no HTML fallbacks)
   const res = NextResponse.json(body, { status });
   res.headers.set("Cache-Control", "no-store, max-age=0");
   return res;
