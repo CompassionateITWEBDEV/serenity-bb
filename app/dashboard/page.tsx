@@ -18,10 +18,7 @@ import { SubmissionHistory } from "@/components/dashboard/submission-history";
 import { HealthcareMessaging } from "@/components/dashboard/healthcare-messaging";
 import { GroupChat } from "@/components/dashboard/group-chat";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-/* SweetAlert2 */
-import Swal from "sweetalert2";
-import "sweetalert2/dist/sweetalert2.min.css";
+import { getSwal } from "@/lib/sweetalert"; // <-- use CDN wrapper
 
 /* Minimal, self-contained notice (dev-only) */
 function DevOnlyNotice({ text }: { text: string }) {
@@ -52,40 +49,32 @@ export default function DashboardPage() {
     if (sessionStorage.getItem(key)) return;
 
     const sessions = data?.kpis?.sessions ?? 0;
-    const joinDate = patient.joinDate || patient.join_date || null;
-    const isRecentJoin =
-      joinDate ? (Date.now() - new Date(joinDate).getTime()) / 86400000 < 3 : false;
-
+    const joinDate = (patient as any).joinDate || (patient as any).join_date || null;
+    const isRecentJoin = joinDate ? (Date.now() - new Date(joinDate).getTime()) / 86400000 < 3 : false;
     const isNewPatient = sessions === 0 || isRecentJoin;
 
-    const firstName =
-      patient.firstName || patient.first_name || "there";
-
-    const title = isNewPatient
-      ? `Welcome, ${firstName}!`
-      : `Welcome back, ${firstName}!`;
-
+    const firstName = (patient as any).firstName || (patient as any).first_name || "there";
+    const title = isNewPatient ? `Welcome, ${firstName}!` : `Welcome back, ${firstName}!`;
     const text = isNewPatient
       ? "You're all set. Want a quick tour of your dashboard and profile?"
       : "Great to see you again. Pick up right where you left off.";
 
-    (async () => {
-      sessionStorage.setItem(key, "1"); // prevent duplicates in this tab session
-      const res = await Swal.fire({
-        icon: "success",
-        title,
-        text,
-        confirmButtonText: isNewPatient ? "Take a tour" : "Let’s go",
-        showCancelButton: true,
-        cancelButtonText: "Maybe later",
-        confirmButtonColor: "#06b6d4", // cyan-500
-        reverseButtons: true,
-      });
-      if (res.isConfirmed) {
-        // quick tour: go to profile for first-time users; else stay
-        if (isNewPatient) router.push("/dashboard/profile");
-      }
-    })();
+    const Swal = getSwal();
+    if (!Swal) return; // CDN not ready yet
+
+    sessionStorage.setItem(key, "1"); // avoid duplicate in this tab session
+    Swal.fire({
+      icon: "success",
+      title,
+      text,
+      confirmButtonText: isNewPatient ? "Take a tour" : "Let’s go",
+      showCancelButton: true,
+      cancelButtonText: "Maybe later",
+      confirmButtonColor: "#06b6d4",
+      reverseButtons: true,
+    }).then((res) => {
+      if (res.isConfirmed && isNewPatient) router.push("/dashboard/profile");
+    });
   }, [isAuthenticated, loading, dataLoading, data, patient, router]);
 
   if (loading || (isAuthenticated && dataLoading && !data)) {
@@ -107,7 +96,7 @@ export default function DashboardPage() {
     );
   }
 
-  const firstName = patient.firstName || patient.first_name || "there";
+  const firstName = (patient as any).firstName || (patient as any).first_name || "there";
 
   return (
     <div className="min-h-screen bg-gray-50">
