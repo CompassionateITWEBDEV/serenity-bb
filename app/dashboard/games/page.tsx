@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
@@ -8,27 +8,10 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { Gamepad2 } from "lucide-react";
 import Link from "next/link";
 
-/* --------- Dynamic component resolvers (default OR named) --------- */
-const GameCard = dynamic(async () => {
-  const m: any = await import("@/components/games/game-card");
-  const Comp = m?.default ?? m?.GameCard;
-  return function ResolvedGameCard(props: any) {
-    // why: fail safe instead of throwing when export is wrong
-    if (typeof Comp !== "function") return <div className="h-24 rounded-xl border p-4 text-sm">GameCard missing</div>;
-    return <Comp {...props} />;
-  };
-}, { ssr: false });
+// Client-only to dodge hydration edge cases
+const GameCard = dynamic(() => import("@/components/games/game-card"), { ssr: false });
+const GameStats = dynamic(() => import("@/components/games/game-stats"), { ssr: false });
 
-const GameStats = dynamic(async () => {
-  const m: any = await import("@/components/games/game-stats");
-  const Comp = m?.default ?? m?.GameStats;
-  return function ResolvedGameStats(props: any) {
-    if (typeof Comp !== "function") return <div className="h-16 rounded-xl border p-4 text-sm">GameStats missing</div>;
-    return <Comp {...props} />;
-  };
-}, { ssr: false });
-
-/* ----------------------------- Types ----------------------------- */
 type Game = {
   id: string;
   title: string;
@@ -42,14 +25,12 @@ type PatientGamesResponse = {
   totals: { total: number; completed: number; backlog: number; avgRating: number | null };
 };
 
-/* ---------------------------- Utilities -------------------------- */
 async function jsonFetcher<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: { "Content-Type": "application/json" }, cache: "no-store" });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text().catch(() => res.statusText)}`);
   return res.json() as Promise<T>;
 }
 
-/* ----------------------------- Page ------------------------------ */
 export default function GamesPage() {
   const { isAuthenticated, loading, patient } = useAuth();
   const router = useRouter();
@@ -60,12 +41,10 @@ export default function GamesPage() {
   const [error, setError] = useState<Error | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Auth gate
   useEffect(() => {
     if (!loading && !isAuthenticated) router.push("/login");
   }, [isAuthenticated, loading, router]);
 
-  // Polling fetch (no external libs)
   useEffect(() => {
     if (!patient?.id) return;
 
@@ -78,7 +57,6 @@ export default function GamesPage() {
         const next = await jsonFetcher<PatientGamesResponse>(url);
         if (!mounted) return;
 
-        // Defensive sanitize
         const safeGames = Array.isArray(next.games)
           ? next.games.filter(Boolean).map((g) => ({
               id: String(g?.id ?? ""),
@@ -102,12 +80,10 @@ export default function GamesPage() {
         });
         setError(null);
       } catch (e) {
-        if (mounted) setError(e as Error);
+        setError(e as Error);
       } finally {
-        if (mounted) {
-          setIsLoadingRemote(false);
-          setIsValidating(false);
-        }
+        setIsLoadingRemote(false);
+        setIsValidating(false);
       }
     };
 
@@ -117,9 +93,9 @@ export default function GamesPage() {
     document.addEventListener("visibilitychange", onVis);
 
     return () => {
-      mounted = false;
       if (intervalRef.current) clearInterval(intervalRef.current);
       document.removeEventListener("visibilitychange", onVis);
+      mounted = false;
     };
   }, [patient?.id]);
 
@@ -138,18 +114,14 @@ export default function GamesPage() {
   const games = data?.games ?? [];
   const totals = data?.totals ?? { total: 0, completed: 0, backlog: 0, avgRating: null };
 
-  // Minimal + stable input for GameStats
-  const statsInput = useMemo(
-    () => games.map((g) => ({ completed: !!g.completed, rating: g.rating ?? null })),
-    [games]
-  );
+  // Compute inline (no useMemo)
+  const statsInput = games.map((g) => ({ completed: !!g.completed, rating: g.rating ?? null }));
 
   return (
     <div className="min-h-screen bg-gray-50">
       <DashboardHeader patient={patient} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
             <div className="bg-purple-100 p-3 rounded-lg">
@@ -164,7 +136,6 @@ export default function GamesPage() {
             </div>
           </div>
 
-          {/* Summary + manual refresh */}
           <div className="flex items-center gap-3 text-sm text-gray-600">
             {isLoadingRemote
               ? "Loading games…"
@@ -194,12 +165,10 @@ export default function GamesPage() {
           </div>
         </div>
 
-        {/* Stats (safe) */}
         <section className="mb-8">
           <GameStats games={Array.isArray(statsInput) ? statsInput : []} />
         </section>
 
-        {/* Grid (safe) */}
         <section className="mt-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-6">Available Games</h2>
           {error ? (
@@ -225,7 +194,6 @@ export default function GamesPage() {
           )}
         </section>
 
-        {/* Categories */}
         <section className="mt-12">
           <h2 className="text-xl font-semibold text-gray-900 mb-6">Game Categories</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -244,7 +212,6 @@ export default function GamesPage() {
   );
 }
 
-/* ---------------------------- Helpers ---------------------------- */
 function getCategoriesFrom(games: { category: string }[]) {
   const palette = [
     "bg-purple-100 text-purple-700",
