@@ -1,4 +1,3 @@
-// /app/dashboard/profile/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -13,11 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Calendar, Phone, Mail, MapPin, Activity, Award, Target, TrendingUp, Edit, Save, X, CheckCircle,
-} from "lucide-react";
-
-/* ------------------------------- Types ---------------------------------- */
+import { Calendar, Phone, Mail, MapPin, Activity, Award, Target, TrendingUp, Edit, Save, X, CheckCircle, PlusCircle, Trash2 } from "lucide-react";
 
 type PatientInfo = {
   id?: string;
@@ -38,18 +33,16 @@ type PatientInfo = {
   joinDate?: string | null;
 };
 
-type Achievement = { id: number | string; title: string; description: string; icon: string; date: string };
+type Achievement = { id: string; title: string; description: string; icon: string; date: string };
 type HealthMetric = { label: string; value: number };
-type ActivityItem = { id: number | string; activity: string; time: string; type: "wellness" | "therapy" | "medical" | "assessment" };
+type ActivityItem = { id: string; activity: string; time: string; type: "wellness" | "therapy" | "medical" | "assessment" };
 
 type ProfilePayload = {
-  patientInfo: PatientInfo;
+  patientInfo: PatientInfo | null;
   achievements: Achievement[];
   healthMetrics: HealthMetric[];
   recentActivity: ActivityItem[];
 };
-
-/* ------------------------------ Validation ------------------------------ */
 
 const EditSchema = z.object({
   firstName: z.string().min(1, "Required"),
@@ -57,18 +50,6 @@ const EditSchema = z.object({
   phoneNumber: z.string().min(3, "Too short"),
   dateOfBirth: z.string().optional(),
 });
-
-/* ------------------------------ Utilities ------------------------------- */
-
-async function getAccessToken(): Promise<string | null> {
-  const { data } = await supabase.auth.getSession();
-  let token = data?.session?.access_token ?? null;
-  if (!token) {
-    const { data: refreshed } = await supabase.auth.refreshSession();
-    token = refreshed?.session?.access_token ?? null;
-  }
-  return token;
-}
 
 function makeEmptyPatient(): PatientInfo {
   return {
@@ -82,8 +63,6 @@ function makeEmptyPatient(): PatientInfo {
     treatmentType: "Outpatient",
   };
 }
-
-/* -------------------------------- Page ---------------------------------- */
 
 export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<"overview" | "medical" | "achievements" | "activity">("overview");
@@ -100,34 +79,44 @@ export default function ProfilePage() {
   const [editForm, setEditForm] = useState({ firstName: "", lastName: "", phoneNumber: "", dateOfBirth: "" });
   const firstInputRef = useRef<HTMLInputElement | null>(null);
 
+  async function getAccessToken(): Promise<string | null> {
+    const { data } = await supabase.auth.getSession();
+    let token = data?.session?.access_token ?? null;
+    if (!token) {
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      token = refreshed?.session?.access_token ?? null;
+    }
+    return token;
+  }
+
+  async function fetchProfile(signal?: AbortSignal) {
+    const token = await getAccessToken();
+    const res = await fetch("/api/profile", {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      credentials: "include",
+      cache: "no-store",
+      signal,
+    });
+    if (res.status === 401) {
+      setAuthExpired(true);
+      setPatient(makeEmptyPatient());
+      return;
+    }
+    if (!res.ok) throw new Error((await res.text()) || res.statusText);
+    const json = (await res.json()) as ProfilePayload;
+    setPatient(json.patientInfo || makeEmptyPatient());
+    setAchievements(json.achievements || []);
+    setHealthMetrics(json.healthMetrics || []);
+    setRecentActivity(json.recentActivity || []);
+    setStatus(null);
+  }
+
   useEffect(() => {
     const ac = new AbortController();
     (async () => {
       try {
-        const token = await getAccessToken();
-        const res = await fetch("/api/profile", {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          credentials: "include",
-          cache: "no-store",
-          signal: ac.signal,
-        });
-
-        if (res.status === 401) {
-          setAuthExpired(true);
-          setPatient(makeEmptyPatient()); // ensure non-null
-          return;
-        }
-
-        if (!res.ok) throw new Error((await res.text()) || res.statusText);
-
-        const json = (await res.json()) as ProfilePayload;
-        setPatient(json.patientInfo || makeEmptyPatient());
-        setAchievements(json.achievements || []);
-        setHealthMetrics(json.healthMetrics || []);
-        setRecentActivity(json.recentActivity || []);
-        setStatus(null);
+        await fetchProfile(ac.signal);
       } catch (e) {
-        // Network/parse/etc. Still keep usable defaults.
         setPatient((p) => p || makeEmptyPatient());
         setStatus({ type: "error", message: e instanceof Error ? e.message : "Failed to load profile." });
       } finally {
@@ -135,7 +124,29 @@ export default function ProfilePage() {
       }
     })();
     return () => ac.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Realtime subscription
+  useEffect(() => {
+    if (!patient?.id) return;
+    const channel = supabase
+      .channel(`patient-${patient.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "patients", filter: `id=eq.${patient.id}` }, () => fetchProfile())
+      .on("postgres_changes", { event: "*", schema: "public", table: "patient_achievements", filter: `patient_id=eq.${patient.id}` }, () => fetchProfile())
+      .on("postgres_changes", { event: "*", schema: "public", table: "patient_health_metrics", filter: `patient_id=eq.${patient.id}` }, () => fetchProfile())
+      .on("postgres_changes", { event: "*", schema: "public", table: "patient_activity", filter: `patient_id=eq.${patient.id}` }, () => fetchProfile())
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          // no-op
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patient?.id]);
 
   function startEdit() {
     setEditForm({
@@ -202,6 +213,48 @@ export default function ProfilePage() {
     setStatus(null);
   }
 
+  // Simple CRUD helpers (examples)
+  async function createPatient() {
+    try {
+      const token = await getAccessToken();
+      const res = await fetch("/api/patients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          firstName: "New",
+          lastName: "Patient",
+          treatmentType: "Outpatient",
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await fetchProfile();
+      setStatus({ type: "success", message: "Patient created." });
+      setTimeout(() => setStatus(null), 2000);
+    } catch (e) {
+      setStatus({ type: "error", message: e instanceof Error ? e.message : "Create failed." });
+    }
+  }
+
+  async function deletePatient() {
+    if (!patient?.id) return;
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(`/api/patients/${patient.id}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setPatient(makeEmptyPatient());
+      setAchievements([]);
+      setHealthMetrics([]);
+      setRecentActivity([]);
+      setStatus({ type: "success", message: "Patient deleted." });
+      setTimeout(() => setStatus(null), 2000);
+    } catch (e) {
+      setStatus({ type: "error", message: e instanceof Error ? e.message : "Delete failed." });
+    }
+  }
+
   if (loading) {
     return (
       <div className="container mx-auto p-6 max-w-6xl">
@@ -211,18 +264,24 @@ export default function ProfilePage() {
   }
 
   const demoAchievements: Achievement[] = [
-    { id: 1, title: "30 Days Clean", description: "Completed 30 consecutive days", icon: "🏆", date: "2024-04-01" },
-    { id: 2, title: "Mindfulness Master", description: "Completed 50 meditation sessions", icon: "🧘", date: "2024-03-15" },
+    { id: "1", title: "30 Days Clean", description: "Completed 30 consecutive days", icon: "🏆", date: "2024-04-01" },
+    { id: "2", title: "Mindfulness Master", description: "Completed 50 meditation sessions", icon: "🧘", date: "2024-03-15" },
   ];
   const demoMetrics: HealthMetric[] = healthMetrics?.length ? healthMetrics : [{ label: "Overall Progress", value: 78 }];
   const demoActivity: ActivityItem[] =
-    recentActivity?.length ? recentActivity : [{ id: 1, activity: "Completed mindfulness session", time: "2 hours ago", type: "wellness" }];
+    recentActivity?.length ? recentActivity : [{ id: "1", activity: "Completed mindfulness session", time: "2 hours ago", type: "wellness" }];
 
   return (
     <div className="container mx-auto p-6 max-w-6xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
-        <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
+          <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={createPatient}><PlusCircle className="h-4 w-4 mr-2" />New Patient</Button>
+          <Button variant="destructive" onClick={deletePatient} disabled={!patient?.id}><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
+        </div>
       </div>
 
       {(status || authExpired) && (
@@ -250,7 +309,6 @@ export default function ProfilePage() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* LEFT: read-only overview */}
         <div className="lg:col-span-1">
           <Card>
             <CardHeader className="text-center">
@@ -306,7 +364,7 @@ export default function ProfilePage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {demoMetrics.map((m, i) => (
+              {(healthMetrics?.length ? healthMetrics : demoMetrics).map((m, i) => (
                 <div key={i}>
                   <div className="flex justify-between text-sm mb-1">
                     <span>{m.label}</span>
@@ -319,7 +377,6 @@ export default function ProfilePage() {
           </Card>
         </div>
 
-        {/* RIGHT: tabs; Medical tab is the only place with inputs + Save/Cancel */}
         <div className="lg:col-span-2">
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="space-y-6">
             <TabsList className="grid w-full grid-cols-4">
@@ -483,7 +540,7 @@ export default function ProfilePage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {(recentActivity.length ? recentActivity : [{ id: 1, activity: "Completed mindfulness session", time: "2 hours ago", type: "wellness" as const }]).map((item) => (
+                    {(recentActivity.length ? recentActivity : demoActivity).map((item) => (
                       <div key={item.id} className="flex items-center gap-4 p-3 border rounded-lg">
                         <div className={`w-2 h-2 rounded-full ${
                           item.type === "wellness" ? "bg-green-500" :
@@ -492,7 +549,9 @@ export default function ProfilePage() {
                         }`} />
                         <div className="flex-1">
                           <p className="font-medium">{item.activity}</p>
-                          <p className="text-sm text-gray-600">{item.time}</p>
+                          <p className="text-sm text-gray-600">
+                            {typeof item.time === "string" ? item.time : new Date(item.time).toLocaleString()}
+                          </p>
                         </div>
                       </div>
                     ))}
