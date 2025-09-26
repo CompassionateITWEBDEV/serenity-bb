@@ -66,7 +66,6 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
       { name: "Appointments", href: "/dashboard/appointments" },
       { name: "Resources", href: "/dashboard/resources" },
       { name: "Messages", href: "/dashboard/messages" },
-      { name: "Settings", href: "/dashboard/settings" },
       { name: "Automation", href: "/dashboard/automation" },
     ],
     []
