@@ -24,7 +24,7 @@ export function Header() {
               href="/"
               className="flex items-center space-x-2 text-2xl font-serif font-bold text-cyan-600 hover:text-indigo-500 transition-colors"
             >
-              <Heart className="h-6 w-6" />
+              <Heart className="h-10 w-10" />
               <span>Serenity Rehabilitation Center</span>
             </Link>
           </div>
