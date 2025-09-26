@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import GameCard from "@/components/games/game-card";   // ✅ default import
 import GameStats from "@/components/games/game-stats"; // ✅ default import
 import { Gamepad2, Brain, Heart, Target, Puzzle, Zap, Heart as HeartIcon } from "lucide-react";
-
+import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 export default function GamesPage() {
   const { isAuthenticated, loading, patient } = useAuth();
   const router = useRouter();
