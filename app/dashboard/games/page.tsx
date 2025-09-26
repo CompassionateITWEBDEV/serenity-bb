@@ -8,16 +8,27 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { Gamepad2 } from "lucide-react";
 import Link from "next/link";
 
-/** Lazy-load likely crashers as client-only to avoid hydration issues */
-const GameCard = dynamic(() => import("@/components/games/game-card"), {
-  ssr: false,
-  loading: () => <div className="h-24 rounded-xl border animate-pulse" />,
-});
-const GameStats = dynamic(() => import("@/components/games/game-stats"), {
-  ssr: false,
-  loading: () => <div className="h-16 rounded-xl border animate-pulse" />,
-});
+/* --------- Dynamic component resolvers (default OR named) --------- */
+const GameCard = dynamic(async () => {
+  const m: any = await import("@/components/games/game-card");
+  const Comp = m?.default ?? m?.GameCard;
+  return function ResolvedGameCard(props: any) {
+    // why: fail safe instead of throwing when export is wrong
+    if (typeof Comp !== "function") return <div className="h-24 rounded-xl border p-4 text-sm">GameCard missing</div>;
+    return <Comp {...props} />;
+  };
+}, { ssr: false });
 
+const GameStats = dynamic(async () => {
+  const m: any = await import("@/components/games/game-stats");
+  const Comp = m?.default ?? m?.GameStats;
+  return function ResolvedGameStats(props: any) {
+    if (typeof Comp !== "function") return <div className="h-16 rounded-xl border p-4 text-sm">GameStats missing</div>;
+    return <Comp {...props} />;
+  };
+}, { ssr: false });
+
+/* ----------------------------- Types ----------------------------- */
 type Game = {
   id: string;
   title: string;
@@ -31,44 +42,14 @@ type PatientGamesResponse = {
   totals: { total: number; completed: number; backlog: number; avgRating: number | null };
 };
 
-/** Small boundary to surface exact offender instead of white-screen */
-class SectionBoundary extends React.Component<
-  { name: string; children: React.ReactNode },
-  { error: Error | null }
-> {
-  constructor(props: { name: string; children: React.ReactNode }) {
-    super(props);
-    this.state = { error: null };
-  }
-  static getDerivedStateFromError(error: Error) {
-    return { error };
-  }
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error(`[GamesPage:${this.props.name}]`, error, info.componentStack);
-  }
-  render() {
-    if (this.state.error) {
-      return (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-          <div className="text-sm font-semibold text-red-700">
-            {this.props.name} failed to render
-          </div>
-          <div className="mt-2 text-xs text-red-800 whitespace-pre-wrap break-words">
-            {this.state.error.message}
-          </div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
+/* ---------------------------- Utilities -------------------------- */
 async function jsonFetcher<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: { "Content-Type": "application/json" }, cache: "no-store" });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text().catch(() => res.statusText)}`);
   return res.json() as Promise<T>;
 }
 
+/* ----------------------------- Page ------------------------------ */
 export default function GamesPage() {
   const { isAuthenticated, loading, patient } = useAuth();
   const router = useRouter();
@@ -79,10 +60,12 @@ export default function GamesPage() {
   const [error, setError] = useState<Error | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Auth gate
   useEffect(() => {
     if (!loading && !isAuthenticated) router.push("/login");
   }, [isAuthenticated, loading, router]);
 
+  // Polling fetch (no external libs)
   useEffect(() => {
     if (!patient?.id) return;
 
@@ -95,6 +78,7 @@ export default function GamesPage() {
         const next = await jsonFetcher<PatientGamesResponse>(url);
         if (!mounted) return;
 
+        // Defensive sanitize
         const safeGames = Array.isArray(next.games)
           ? next.games.filter(Boolean).map((g) => ({
               id: String(g?.id ?? ""),
@@ -113,9 +97,7 @@ export default function GamesPage() {
               total: safeGames.length,
               completed: safeGames.filter((x) => x.completed).length,
               backlog: safeGames.filter((x) => !x.completed).length,
-              avgRating:
-                safeGames.map((g) => g.rating).filter((n): n is number => n != null)
-                  .reduce((a, b) => a + b, 0) || null,
+              avgRating: null,
             },
         });
         setError(null);
@@ -151,11 +133,12 @@ export default function GamesPage() {
       </div>
     );
   }
-
   if (!isAuthenticated || !patient) return null;
 
   const games = data?.games ?? [];
   const totals = data?.totals ?? { total: 0, completed: 0, backlog: 0, avgRating: null };
+
+  // Minimal + stable input for GameStats
   const statsInput = useMemo(
     () => games.map((g) => ({ completed: !!g.completed, rating: g.rating ?? null })),
     [games]
@@ -211,63 +194,57 @@ export default function GamesPage() {
           </div>
         </div>
 
-        {/* Stats */}
-        <SectionBoundary name="Stats">
-          <section className="mb-8">
-            <GameStats games={Array.isArray(statsInput) ? statsInput : []} />
-          </section>
-        </SectionBoundary>
+        {/* Stats (safe) */}
+        <section className="mb-8">
+          <GameStats games={Array.isArray(statsInput) ? statsInput : []} />
+        </section>
 
-        {/* Grid */}
-        <SectionBoundary name="Grid">
-          <section className="mt-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-6">Available Games</h2>
-            {error ? (
-              <div className="text-sm text-red-600">Failed to load games.</div>
-            ) : games.length === 0 && !isLoadingRemote ? (
-              <div className="text-sm text-gray-600">No games yet.</div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {games.map((g) =>
-                  g?.id ? (
-                    <GameCard
-                      key={g.id}
-                      game={{
-                        id: String(g.id),
-                        title: String(g.title ?? "Untitled"),
-                        rating: g.rating ?? null,
-                        completed: !!g.completed,
-                      }}
-                    />
-                  ) : null
-                )}
-              </div>
-            )}
-          </section>
-        </SectionBoundary>
+        {/* Grid (safe) */}
+        <section className="mt-8">
+          <h2 className="text-xl font-semibold text-gray-900 mb-6">Available Games</h2>
+          {error ? (
+            <div className="text-sm text-red-600">Failed to load games.</div>
+          ) : games.length === 0 && !isLoadingRemote ? (
+            <div className="text-sm text-gray-600">No games yet.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {games.map((g) =>
+                g?.id ? (
+                  <GameCard
+                    key={g.id}
+                    game={{
+                      id: String(g.id),
+                      title: String(g.title ?? "Untitled"),
+                      rating: g.rating ?? null,
+                      completed: !!g.completed,
+                    }}
+                  />
+                ) : null
+              )}
+            </div>
+          )}
+        </section>
 
         {/* Categories */}
-        <SectionBoundary name="Categories">
-          <section className="mt-12">
-            <h2 className="text-xl font-semibold text-gray-900 mb-6">Game Categories</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {getCategoriesFrom(games).map((c) => (
-                <Link key={c.name} href={`/dashboard/games?category=${encodeURIComponent(c.name)}`}>
-                  <div className={`p-4 rounded-lg text-center cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 ${c.color}`}>
-                    <div className="font-medium text-sm">{c.name}</div>
-                    <div className="text-xs opacity-75 mt-1">{c.count} games</div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </section>
-        </SectionBoundary>
+        <section className="mt-12">
+          <h2 className="text-xl font-semibold text-gray-900 mb-6">Game Categories</h2>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            {getCategoriesFrom(games).map((c) => (
+              <Link key={c.name} href={`/dashboard/games?category=${encodeURIComponent(c.name)}`}>
+                <div className={`p-4 rounded-lg text-center cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 ${c.color}`}>
+                  <div className="font-medium text-sm">{c.name}</div>
+                  <div className="text-xs opacity-75 mt-1">{c.count} games</div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
       </main>
     </div>
   );
 }
 
-/** Helpers */
+/* ---------------------------- Helpers ---------------------------- */
 function getCategoriesFrom(games: { category: string }[]) {
   const palette = [
     "bg-purple-100 text-purple-700",
