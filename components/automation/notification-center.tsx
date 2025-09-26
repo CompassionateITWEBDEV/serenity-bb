@@ -1,186 +1,156 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Switch } from "@/components/ui/switch"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Bell, Mail, MessageSquare, Smartphone, Settings } from "lucide-react"
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { supabase } from "@/lib/supabase/client";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Bell, Mail, MessageSquare, Smartphone, Settings } from "lucide-react";
 
-interface NotificationRule {
-  id: string
-  name: string
-  type: "appointment" | "medication" | "progress" | "emergency" | "wellness"
-  channels: ("email" | "sms" | "push" | "in_app")[]
-  conditions: string
-  frequency: "immediate" | "daily" | "weekly"
-  active: boolean
-}
+type RuleType = "appointment" | "medication" | "progress" | "emergency" | "wellness";
+type Channel = "email" | "sms" | "push" | "in_app";
+type Freq = "immediate" | "daily" | "weekly";
+type NotifStatus = "sent" | "delivered" | "read" | "failed";
+type Priority = "low" | "medium" | "high" | "urgent";
 
-interface Notification {
-  id: string
-  title: string
-  message: string
-  type: "appointment" | "medication" | "progress" | "emergency" | "wellness"
-  channel: "email" | "sms" | "push" | "in_app"
-  status: "sent" | "delivered" | "read" | "failed"
-  timestamp: string
-  priority: "low" | "medium" | "high" | "urgent"
-}
+type NotificationRule = {
+  id: string;
+  user_id: string;
+  name: string;
+  type: RuleType;
+  channels: Channel[];
+  conditions: string | null;
+  frequency: Freq;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+type Notification = {
+  id: string;
+  user_id: string;
+  title: string;
+  message: string;
+  type: RuleType;
+  channel: Channel;
+  status: NotifStatus;
+  timestamp: string;
+  priority: Priority;
+};
+type Prefs = {
+  user_id: string;
+  enable_notifications: boolean;
+  quiet_start: string;
+  quiet_end: string;
+  max_daily_notifications: number;
+  min_priority: Priority;
+};
 
 export default function NotificationCenter() {
-  const [notificationRules, setNotificationRules] = useState<NotificationRule[]>([
-    {
-      id: "1",
-      name: "Appointment Reminders",
-      type: "appointment",
-      channels: ["email", "sms", "push"],
-      conditions: "24 hours before appointment",
-      frequency: "immediate",
-      active: true,
-    },
-    {
-      id: "2",
-      name: "Medication Alerts",
-      type: "medication",
-      channels: ["push", "sms"],
-      conditions: "Scheduled medication time",
-      frequency: "immediate",
-      active: true,
-    },
-    {
-      id: "3",
-      name: "Progress Milestones",
-      type: "progress",
-      channels: ["email", "in_app"],
-      conditions: "Goal achievement or warning",
-      frequency: "immediate",
-      active: true,
-    },
-    {
-      id: "4",
-      name: "Weekly Wellness Check",
-      type: "wellness",
-      channels: ["email", "push"],
-      conditions: "Every Sunday at 6 PM",
-      frequency: "weekly",
-      active: true,
-    },
-    {
-      id: "5",
-      name: "Emergency Alerts",
-      type: "emergency",
-      channels: ["email", "sms", "push", "in_app"],
-      conditions: "Critical health events",
-      frequency: "immediate",
-      active: true,
-    },
-  ])
+  const [uid, setUid] = useState<string | null>(null);
+  const [rules, setRules] = useState<NotificationRule[]>([]);
+  const [notifs, setNotifs] = useState<Notification[]>([]);
+  const [prefs, setPrefs] = useState<Prefs | null>(null);
 
-  const [recentNotifications, setRecentNotifications] = useState<Notification[]>([
-    {
-      id: "1",
-      title: "Appointment Reminder",
-      message: "You have a counseling session tomorrow at 10:00 AM with Dr. Sarah Johnson",
-      type: "appointment",
-      channel: "email",
-      status: "delivered",
-      timestamp: "2024-01-15T09:00:00Z",
-      priority: "medium",
-    },
-    {
-      id: "2",
-      title: "Medication Time",
-      message: "Time to take your Methadone (40mg)",
-      type: "medication",
-      channel: "push",
-      status: "read",
-      timestamp: "2024-01-15T08:00:00Z",
-      priority: "high",
-    },
-    {
-      id: "3",
-      title: "Progress Achievement",
-      message: "Congratulations! You've completed 5 recovery activities this week",
-      type: "progress",
-      channel: "in_app",
-      status: "read",
-      timestamp: "2024-01-14T18:30:00Z",
-      priority: "low",
-    },
-    {
-      id: "4",
-      title: "Wellness Check-in",
-      message: "How are you feeling today? Complete your daily wellness check-in",
-      type: "wellness",
-      channel: "push",
-      status: "delivered",
-      timestamp: "2024-01-14T19:00:00Z",
-      priority: "medium",
-    },
-  ])
+  // session + patient ensure + load data
+  const loadAll = useCallback(async () => {
+    const { data: sess } = await supabase.auth.getSession();
+    const user = sess.session?.user;
+    if (!user) return;
+    setUid(user.id);
 
-  const [globalSettings, setGlobalSettings] = useState({
-    enableNotifications: true,
-    quietHours: { start: "22:00", end: "07:00" },
-    maxDailyNotifications: 10,
-    priorityFilter: "low" as "low" | "medium" | "high" | "urgent",
-  })
-
-  const toggleRule = (ruleId: string) => {
-    setNotificationRules((prev) => prev.map((rule) => (rule.id === ruleId ? { ...rule, active: !rule.active } : rule)))
-  }
-
-  const updateRuleChannels = (ruleId: string, channels: ("email" | "sms" | "push" | "in_app")[]) => {
-    setNotificationRules((prev) => prev.map((rule) => (rule.id === ruleId ? { ...rule, channels } : rule)))
-  }
-
-  const getChannelIcon = (channel: string) => {
-    switch (channel) {
-      case "email":
-        return <Mail className="h-4 w-4" />
-      case "sms":
-        return <MessageSquare className="h-4 w-4" />
-      case "push":
-        return <Smartphone className="h-4 w-4" />
-      case "in_app":
-        return <Bell className="h-4 w-4" />
-      default:
-        return <Bell className="h-4 w-4" />
+    // ensure patient exists (read-only guard)
+    const { data: pat } = await supabase.from("patients").select("user_id").eq("user_id", user.id).maybeSingle();
+    if (!pat) {
+      // optional soft create via an admin path; keep read-only here
+      console.warn("No patients row for current user_id");
     }
+
+    const [{ data: r }, { data: n }, { data: p }] = await Promise.all([
+      supabase.from("notification_rules").select("*").eq("user_id", user.id).order("created_at"),
+      supabase
+        .from("notifications")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("timestamp", { ascending: false })
+        .limit(50),
+      supabase.from("notification_preferences").select("*").eq("user_id", user.id).maybeSingle(),
+    ]);
+
+    setRules((r as NotificationRule[]) ?? []);
+    setNotifs((n as Notification[]) ?? []);
+    setPrefs((p as Prefs) ?? {
+      user_id: user.id,
+      enable_notifications: true,
+      quiet_start: "22:00",
+      quiet_end: "07:00",
+      max_daily_notifications: 10,
+      min_priority: "low",
+    });
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  // realtime
+  useEffect(() => {
+    if (!uid) return;
+    const ch = supabase
+      .channel(`notif:${uid}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "notification_rules", filter: `user_id=eq.${uid}` }, async () => {
+        const { data } = await supabase.from("notification_rules").select("*").eq("user_id", uid).order("created_at");
+        setRules((data as NotificationRule[]) ?? []);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${uid}` }, async () => {
+        const { data } = await supabase
+          .from("notifications").select("*").eq("user_id", uid).order("timestamp", { ascending: false }).limit(50);
+        setNotifs((data as Notification[]) ?? []);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "notification_preferences", filter: `user_id=eq.${uid}` }, async () => {
+        const { data } = await supabase.from("notification_preferences").select("*").eq("user_id", uid).maybeSingle();
+        setPrefs((data as Prefs) ?? null);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [uid]);
+
+  // actions
+  async function toggleRule(ruleId: string, next: boolean) {
+    if (!uid) return;
+    setRules((prev) => prev.map(r => r.id === ruleId ? { ...r, active: next } : r)); // optimistic
+    await supabase.from("notification_rules").update({ active: next }).eq("id", ruleId).eq("user_id", uid);
+  }
+  async function updateRuleChannels(ruleId: string, channels: Channel[]) {
+    if (!uid) return;
+    setRules((prev) => prev.map(r => r.id === ruleId ? { ...r, channels } : r)); // optimistic
+    await supabase.from("notification_rules").update({ channels }).eq("id", ruleId).eq("user_id", uid);
+  }
+  async function upsertPrefs(patch: Partial<Prefs>) {
+    if (!uid) return;
+    const next = { ...(prefs ?? { user_id: uid, enable_notifications: true, quiet_start: "22:00", quiet_end: "07:00", max_daily_notifications: 10, min_priority: "low" as Priority }), ...patch };
+    setPrefs(next); // optimistic
+    await supabase.from("notification_preferences").upsert(next, { onConflict: "user_id" });
   }
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case "urgent":
-        return "bg-red-100 text-red-800 border-red-200"
-      case "high":
-        return "bg-orange-100 text-orange-800 border-orange-200"
-      case "medium":
-        return "bg-blue-100 text-blue-800 border-blue-200"
-      case "low":
-        return "bg-gray-100 text-gray-800 border-gray-200"
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200"
-    }
-  }
+  // helpers
+  const channelIcon = (c: Channel) =>
+    c === "email" ? <Mail className="h-4 w-4" /> :
+    c === "sms"   ? <MessageSquare className="h-4 w-4" /> :
+    c === "push"  ? <Smartphone className="h-4 w-4" /> : <Bell className="h-4 w-4" />;
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "delivered":
-        return "text-green-600"
-      case "read":
-        return "text-blue-600"
-      case "failed":
-        return "text-red-600"
-      case "sent":
-        return "text-yellow-600"
-      default:
-        return "text-gray-600"
-    }
-  }
+  const priorityBadge = (p: Priority) =>
+    p === "urgent" ? "bg-red-100 text-red-800 border-red-200" :
+    p === "high"   ? "bg-orange-100 text-orange-800 border-orange-200" :
+    p === "medium" ? "bg-blue-100 text-blue-800 border-blue-200" :
+                     "bg-gray-100 text-gray-800 border-gray-200";
 
+  const statusColor = (s: NotifStatus) =>
+    s === "delivered" ? "text-green-600"
+    : s === "read"    ? "text-blue-600"
+    : s === "failed"  ? "text-red-600"
+    :                   "text-yellow-600";
+
+  // render
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -199,150 +169,125 @@ export default function NotificationCenter() {
             </CardHeader>
             <CardContent>
               <div className="space-y-6">
-                {notificationRules.map((rule) => (
+                {rules.map((rule) => (
                   <div key={rule.id} className="p-4 border border-gray-200 rounded-lg">
                     <div className="flex items-start justify-between mb-3">
                       <div>
                         <h4 className="font-medium">{rule.name}</h4>
-                        <p className="text-sm text-gray-600 mt-1">{rule.conditions}</p>
+                        <p className="text-sm text-gray-600 mt-1">{rule.conditions ?? "—"}</p>
                       </div>
-                      <Switch checked={rule.active} onCheckedChange={() => toggleRule(rule.id)} />
+                      <Switch checked={rule.active} onCheckedChange={(v) => toggleRule(rule.id, !!v)} />
                     </div>
+
                     <div className="space-y-3">
                       <div>
                         <label className="text-sm font-medium text-gray-700 mb-2 block">Channels</label>
                         <div className="flex gap-2 flex-wrap">
-                          {["email", "sms", "push", "in_app"].map((channel) => (
-                            <Button
-                              key={channel}
-                              size="sm"
-                              variant={rule.channels.includes(channel as any) ? "default" : "outline"}
-                              onClick={() => {
-                                const newChannels = rule.channels.includes(channel as any)
-                                  ? rule.channels.filter((c) => c !== channel)
-                                  : [...rule.channels, channel as any]
-                                updateRuleChannels(rule.id, newChannels)
-                              }}
-                              className="h-8 px-3"
-                            >
-                              {getChannelIcon(channel)}
-                              <span className="ml-1 capitalize">{channel === "in_app" ? "In-App" : channel}</span>
-                            </Button>
-                          ))}
+                          {(["email","sms","push","in_app"] as Channel[]).map((ch) => {
+                            const enabled = rule.channels.includes(ch);
+                            const next = enabled ? rule.channels.filter(c => c !== ch) : [...rule.channels, ch];
+                            return (
+                              <Button key={ch} size="sm" variant={enabled ? "default" : "outline"} onClick={() => updateRuleChannels(rule.id, next)} className="h-8 px-3">
+                                {channelIcon(ch)}
+                                <span className="ml-1 capitalize">{ch === "in_app" ? "In-App" : ch}</span>
+                              </Button>
+                            );
+                          })}
                         </div>
                       </div>
+
                       <div className="flex items-center gap-4 text-sm">
                         <Badge variant="outline">{rule.type}</Badge>
                         <Badge variant="secondary">{rule.frequency}</Badge>
-                        <Badge variant={rule.active ? "default" : "secondary"}>
-                          {rule.active ? "Active" : "Inactive"}
-                        </Badge>
+                        <Badge variant={rule.active ? "default" : "secondary"}>{rule.active ? "Active" : "Inactive"}</Badge>
                       </div>
                     </div>
                   </div>
                 ))}
+                {rules.length === 0 && <div className="text-sm text-gray-500">No rules configured.</div>}
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Global Settings</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Global Settings</CardTitle></CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium">Enable Notifications</h4>
-                    <p className="text-sm text-gray-600">Master switch for all notifications</p>
+              {prefs && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-medium">Enable Notifications</h4>
+                      <p className="text-sm text-gray-600">Master switch for all notifications</p>
+                    </div>
+                    <Switch checked={!!prefs.enable_notifications} onCheckedChange={(v) => upsertPrefs({ enable_notifications: !!v })} />
                   </div>
-                  <Switch
-                    checked={globalSettings.enableNotifications}
-                    onCheckedChange={(checked) =>
-                      setGlobalSettings((prev) => ({ ...prev, enableNotifications: checked }))
-                    }
-                  />
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 mb-2 block">Quiet Hours Start</label>
-                    <input
-                      type="time"
-                      value={globalSettings.quietHours.start}
-                      onChange={(e) =>
-                        setGlobalSettings((prev) => ({
-                          ...prev,
-                          quietHours: { ...prev.quietHours, start: e.target.value },
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                    />
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-2 block">Quiet Hours Start</label>
+                      <input type="time" value={prefs.quiet_start} onChange={(e) => upsertPrefs({ quiet_start: e.target.value })} className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-cyan-500" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-2 block">Quiet Hours End</label>
+                      <input type="time" value={prefs.quiet_end} onChange={(e) => upsertPrefs({ quiet_end: e.target.value })} className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-cyan-500" />
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 mb-2 block">Quiet Hours End</label>
-                    <input
-                      type="time"
-                      value={globalSettings.quietHours.end}
-                      onChange={(e) =>
-                        setGlobalSettings((prev) => ({
-                          ...prev,
-                          quietHours: { ...prev.quietHours, end: e.target.value },
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                    />
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-2 block">Max Daily Notifications</label>
+                      <input type="number" min={0} value={prefs.max_daily_notifications} onChange={(e) => upsertPrefs({ max_daily_notifications: Number(e.target.value) || 0 })} className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-cyan-500" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-2 block">Minimum Priority Level</label>
+                      <Select value={prefs.min_priority} onValueChange={(v: Priority) => upsertPrefs({ min_priority: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Low and above</SelectItem>
+                          <SelectItem value="medium">Medium and above</SelectItem>
+                          <SelectItem value="high">High and above</SelectItem>
+                          <SelectItem value="urgent">Urgent only</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700 mb-2 block">Minimum Priority Level</label>
-                  <Select
-                    value={globalSettings.priorityFilter}
-                    onValueChange={(value: any) => setGlobalSettings((prev) => ({ ...prev, priorityFilter: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">Low and above</SelectItem>
-                      <SelectItem value="medium">Medium and above</SelectItem>
-                      <SelectItem value="high">High and above</SelectItem>
-                      <SelectItem value="urgent">Urgent only</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </div>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Recent Notifications</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle>Recent Notifications</CardTitle></CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {recentNotifications.map((notification) => (
-                <div key={notification.id} className="p-3 border border-gray-200 rounded-lg">
+              {notifs.map((n) => (
+                <div key={n.id} className="p-3 border border-gray-200 rounded-lg">
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      {getChannelIcon(notification.channel)}
-                      <h4 className="font-medium text-sm">{notification.title}</h4>
+                      {channelIcon(n.channel)}
+                      <h4 className="font-medium text-sm">{n.title}</h4>
                     </div>
-                    <Badge className={`text-xs ${getPriorityColor(notification.priority)}`}>
-                      {notification.priority}
-                    </Badge>
+                    <Badge className={`text-xs ${priorityBadge(n.priority)}`}>{n.priority}</Badge>
                   </div>
-                  <p className="text-sm text-gray-600 mb-2">{notification.message}</p>
+                  <p className="text-sm text-gray-600 mb-2">{n.message}</p>
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500">{new Date(notification.timestamp).toLocaleString()}</span>
-                    <span className={getStatusColor(notification.status)}>{notification.status}</span>
+                    <span className="text-gray-500">{new Date(n.timestamp).toLocaleString()}</span>
+                    <span className={
+                      n.status === "delivered" ? "text-green-600" :
+                      n.status === "read" ? "text-blue-600" :
+                      n.status === "failed" ? "text-red-600" : "text-yellow-600"
+                    }>
+                      {n.status}
+                    </span>
                   </div>
                 </div>
               ))}
+              {notifs.length === 0 && <div className="text-sm text-gray-500">No notifications yet.</div>}
             </div>
           </CardContent>
         </Card>
       </div>
     </div>
-  )
+  );
 }
