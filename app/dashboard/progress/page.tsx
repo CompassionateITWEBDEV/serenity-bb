@@ -46,28 +46,70 @@ type ProgressPayload = {
 const iconMap: Record<IconName, LucideIcon> = { Calendar, Heart, Target, CheckCircle };
 const clamp = (n: number, min = 0, max = 100) => Math.max(min, Math.min(max, n));
 
-/** Why: reject HTML/redirects (prevents <!DOCTYPE ...> text). */
+/** Enhanced fetch with better error handling */
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: { Accept: "application/json", ...(init?.headers || {}) },
-    credentials: "include",
-    cache: "no-store",
-  });
-  const ct = res.headers.get("content-type") || "";
-  if (!ct.includes("application/json")) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Non-JSON response ${res.status}: ${text.slice(0, 140)}…`);
+  try {
+    const res = await fetch(url, {
+      ...init,
+      headers: { 
+        Accept: "application/json", 
+        "Content-Type": "application/json",
+        ...(init?.headers || {}) 
+      },
+      credentials: "include",
+      cache: "no-store",
+    });
+
+    // Handle non-200 responses
+    if (!res.ok) {
+      // Try to get error message from response
+      let errorMessage = `HTTP ${res.status}`;
+      try {
+        const errorBody = await res.text();
+        if (errorBody) {
+          // Check if it's JSON
+          try {
+            const errorJson = JSON.parse(errorBody);
+            errorMessage = errorJson.error || errorJson.message || errorMessage;
+          } catch {
+            // Not JSON, use text
+            errorMessage = errorBody.slice(0, 100);
+          }
+        }
+      } catch {
+        // Ignore parsing errors
+      }
+      throw new Error(errorMessage);
+    }
+
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("application/json")) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Non-JSON response: ${text.slice(0, 100)}...`);
+    }
+
+    const body = await res.json();
+    return body as T;
+  } catch (error) {
+    // Re-throw with more context
+    if (error instanceof Error) {
+      throw new Error(`Failed to fetch ${url}: ${error.message}`);
+    }
+    throw new Error(`Failed to fetch ${url}: Unknown error`);
   }
-  const body = await res.json();
-  if (!res.ok) throw new Error(body?.error || body?.message || `HTTP ${res.status}`);
-  return body as T;
 }
 
 /** Why: tolerate snake_case or camelCase payloads. */
 function normalizeProgress(input: any): ProgressPayload {
-  if (!input || typeof input !== "object")
-    return { overallProgress: 0, weeklyGoals: [], milestones: [], progressMetrics: [], weeklyData: [] };
+  if (!input || typeof input !== "object") {
+    return { 
+      overallProgress: 0, 
+      weeklyGoals: [], 
+      milestones: [], 
+      progressMetrics: [], 
+      weeklyData: [] 
+    };
+  }
 
   const overall =
     input.overallProgress ??
@@ -93,10 +135,13 @@ export default function ProgressPage() {
   const { isAuthenticated, loading, patient } = useAuth();
   const router = useRouter();
 
-  // Stable key: only the id, not the whole object (prevents effect loops).
-  const userId = useMemo(() => (patient?.user_id || patient?.id || null) as string | null, [patient?.user_id, patient?.id]);
+  // Fix: Use user_id instead of id (common in Supabase auth)
+  const userId = useMemo(() => {
+    if (!patient) return null;
+    return (patient.user_id || patient.id || patient.userId || null) as string | null;
+  }, [patient]);
 
-  const [initializing, setInitializing] = useState(true); // only for first load
+  const [initializing, setInitializing] = useState(true);
   const [data, setData] = useState<ProgressPayload>({
     overallProgress: 0,
     weeklyGoals: [],
@@ -105,6 +150,7 @@ export default function ProgressPage() {
     weeklyData: [],
   });
   const [err, setErr] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   // Redirect once when unauthenticated
   const redirectedRef = useRef(false);
@@ -115,39 +161,67 @@ export default function ProgressPage() {
     }
   }, [loading, isAuthenticated, router]);
 
-  // Fetch once per userId (avoid depending on changing patient object)
+  // Fetch with retry logic
   const fetchedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isAuthenticated || !userId) return;
-    if (fetchedRef.current === userId) return; // already fetched for this user
+    if (fetchedRef.current === userId && retryCount === 0) return; // already fetched for this user
 
-    fetchedRef.current = userId; // mark before starting to avoid double runs
+    fetchedRef.current = userId;
     const ac = new AbortController();
 
     (async () => {
       try {
-        const { data: sessionRes } = await supabase.auth.getSession();
+        const { data: sessionRes, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          throw new Error(`Session error: ${sessionError.message}`);
+        }
+
         const token = sessionRes.session?.access_token;
+        
+        if (!token) {
+          throw new Error("No access token available");
+        }
 
         const payload = await fetchJson<any>("/api/progress", {
           method: "GET",
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          headers: { Authorization: `Bearer ${token}` },
           signal: ac.signal,
         });
 
         setData(normalizeProgress(payload));
         setErr(null);
+        setRetryCount(0); // Reset retry count on success
       } catch (e: any) {
         if (e?.name === "AbortError") return;
-        setErr(e?.message || "Failed to load progress");
-        // keep whatever we already had; do NOT flip back to global spinner
+        
+        const errorMessage = e?.message || "Failed to load progress";
+        console.error("Progress fetch error:", e);
+        setErr(errorMessage);
+        
+        // Auto-retry logic for certain errors
+        if (retryCount < 2 && (
+          errorMessage.includes("fetch") || 
+          errorMessage.includes("network") ||
+          errorMessage.includes("500")
+        )) {
+          setTimeout(() => setRetryCount(prev => prev + 1), 2000);
+        }
       } finally {
         setInitializing(false);
       }
     })();
 
     return () => ac.abort();
-  }, [isAuthenticated, userId]);
+  }, [isAuthenticated, userId, retryCount]);
+
+  // Manual retry function
+  const handleRetry = () => {
+    setErr(null);
+    setInitializing(true);
+    setRetryCount(prev => prev + 1);
+  };
 
   // First paint: only show spinner once
   if (loading || (isAuthenticated && initializing)) {
@@ -156,6 +230,9 @@ export default function ProgressPage() {
         <div className="text-center" aria-live="polite" aria-busy="true">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4" />
           <p className="text-gray-600">Loading progress…</p>
+          {retryCount > 0 && (
+            <p className="text-sm text-gray-500 mt-2">Retry attempt {retryCount}/2</p>
+          )}
         </div>
       </div>
     );
@@ -191,7 +268,24 @@ export default function ProgressPage() {
               <p className="text-gray-600">Monitor your recovery journey and celebrate achievements</p>
             </div>
           </div>
-          {err && <p className="text-sm text-red-600">Error: {err}</p>}
+          
+          {/* Enhanced error display with retry button */}
+          {err && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-medium text-red-800">Unable to load progress data</h3>
+                  <p className="text-sm text-red-600 mt-1">{err}</p>
+                </div>
+                <button
+                  onClick={handleRetry}
+                  className="bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1 rounded text-sm font-medium transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Overall Progress */}
@@ -216,33 +310,39 @@ export default function ProgressPage() {
 
         {/* Progress Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {progressMetrics.map((metric, i) => {
-            const Icon = metric.icon ? iconMap[metric.icon] : Calendar;
-            const key = String(metric.id ?? `${metric.title}-${i}`);
-            return (
-              <Card key={key}>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div className={`p-2 rounded-lg ${metric.bgColor ?? "bg-gray-100"}`}>
-                      <Icon className={`h-6 w-6 ${metric.color ?? "text-gray-600"}`} />
+          {progressMetrics.length === 0 ? (
+            <div className="col-span-full bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+              <p className="text-gray-500">Progress metrics will appear here once data is available</p>
+            </div>
+          ) : (
+            progressMetrics.map((metric, i) => {
+              const Icon = metric.icon ? iconMap[metric.icon] : Calendar;
+              const key = String(metric.id ?? `${metric.title}-${i}`);
+              return (
+                <Card key={key}>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div className={`p-2 rounded-lg ${metric.bgColor ?? "bg-gray-100"}`}>
+                        <Icon className={`h-6 w-6 ${metric.color ?? "text-gray-600"}`} />
+                      </div>
+                      <div
+                        className={`flex items-center gap-1 text-sm ${
+                          metric.trend === "up" ? "text-green-600" : "text-red-600"
+                        }`}
+                      >
+                        {metric.trend === "up" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+                        {metric.change}
+                      </div>
                     </div>
-                    <div
-                      className={`flex items-center gap-1 text-sm ${
-                        metric.trend === "up" ? "text-green-600" : "text-red-600"
-                      }`}
-                    >
-                      {metric.trend === "up" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
-                      {metric.change}
+                    <div className="mt-4">
+                      <div className="text-2xl font-bold text-gray-900">{metric.value}</div>
+                      <div className="text-sm text-gray-600">{metric.title}</div>
                     </div>
-                  </div>
-                  <div className="mt-4">
-                    <div className="text-2xl font-bold text-gray-900">{metric.value}</div>
-                    <div className="text-sm text-gray-600">{metric.title}</div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
         </div>
 
         {/* Tabs */}
@@ -260,7 +360,9 @@ export default function ProgressPage() {
                 <CardTitle>This Week&apos;s Goals</CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
-                {weeklyGoals.length === 0 && <p className="text-sm text-gray-500">No goals yet. They will appear here.</p>}
+                {weeklyGoals.length === 0 && (
+                  <p className="text-sm text-gray-500">No goals yet. They will appear here once set by your care team.</p>
+                )}
                 {weeklyGoals.map((goal, i) => {
                   const pct = goal.target > 0 ? Math.round(clamp((goal.current / goal.target) * 100)) : 0;
                   const key = String((goal as any).id ?? `${goal.name}-${i}`);
@@ -291,7 +393,9 @@ export default function ProgressPage() {
                 <CardTitle>Recovery Milestones</CardTitle>
               </CardHeader>
               <CardContent>
-                {milestones.length === 0 && <p className="text-sm text-gray-500">No milestones yet.</p>}
+                {milestones.length === 0 && (
+                  <p className="text-sm text-gray-500">No milestones yet. They will appear as you progress through your recovery journey.</p>
+                )}
                 <div className="space-y-4">
                   {milestones.map((m, i) => {
                     const key = String((m as any).id ?? `${m.name}-${i}`);
@@ -322,7 +426,9 @@ export default function ProgressPage() {
                 <CardTitle>Progress Trends</CardTitle>
               </CardHeader>
               <CardContent>
-                {weeklyData.length === 0 && <p className="text-sm text-gray-500">No trend data yet.</p>}
+                {weeklyData.length === 0 && (
+                  <p className="text-sm text-gray-500">No trend data yet. Weekly progress will be tracked here.</p>
+                )}
                 <div className="space-y-6">
                   {weeklyData.map((w, i) => {
                     const key = String((w as any).id ?? `${w.week}-${i}`);
