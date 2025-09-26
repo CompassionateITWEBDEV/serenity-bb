@@ -1,6 +1,7 @@
+// app/dashboard/appointments/page.tsx  — Fixed: reload after CRUD + past-date guard
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase/client";
@@ -14,12 +15,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar, Clock, Plus, Video, MapPin, User, CheckCircle, XCircle, AlertCircle, Edit, Trash2 } from "lucide-react";
+import {
+  Calendar, Clock, Plus, Video, MapPin, User,
+  CheckCircle, XCircle, AlertCircle, Edit, Trash2
+} from "lucide-react";
 
 type Appt = {
   id: string;
   patient_id: string;
-  appointment_time: string;
+  appointment_time: string; // ISO
   status: "scheduled" | "confirmed" | "pending" | "cancelled" | "completed";
   title: string | null;
   provider: string | null;
@@ -37,7 +41,6 @@ const TYPES: NonNullable<Appt["type"]>[] = ["therapy", "group", "medical", "fami
 export default function AppointmentsPage() {
   const { isAuthenticated, loading, patient, user } = useAuth();
   const router = useRouter();
-
   const patientId = isAuthenticated ? (patient?.user_id || patient?.id || user?.id) : null;
 
   const [isBookingOpen, setIsBookingOpen] = useState(false);
@@ -70,40 +73,44 @@ export default function AppointmentsPage() {
     status: "scheduled" as Appt["status"],
   });
 
-  // Redirect if not authed
+  // Guard: must be logged in
   useEffect(() => {
     if (!loading && !isAuthenticated) router.push("/login");
   }, [isAuthenticated, loading, router]);
 
-  // Load + realtime
+  // Normalize local date+time → ISO (keeps the chosen local wall time)
+  function toISO(date: string, time: string) {
+    const [y, m, d] = date.split("-").map(Number);
+    const [hh, mm] = time.split(":").map(Number);
+    const local = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0);
+    return local.toISOString();
+  }
+
+  // Fetch appointments (reusable)
+  const loadAppointments = useCallback(async () => {
+    if (!patientId) return;
+    const { data, error } = await supabase
+      .from("appointments")
+      .select("*")
+      .eq("patient_id", patientId)
+      .order("appointment_time", { ascending: true });
+    if (!error) setItems((data as Appt[]) || []);
+  }, [patientId]);
+
+  // Initial load + realtime refresh
   useEffect(() => {
     if (!patientId) return;
-    let mounted = true;
-
-    const load = async () => {
-      const { data, error } = await supabase
-        .from("appointments")
-        .select("*")
-        .eq("patient_id", patientId)
-        .order("appointment_time", { ascending: true });
-      if (!error && mounted) setItems((data as Appt[]) || []);
-    };
-    load();
-
+    void loadAppointments();
     const ch = supabase
       .channel(`appt_${patientId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "appointments", filter: `patient_id=eq.${patientId}` },
-        load
+        () => loadAppointments() // ensure UI refresh even if insert happens elsewhere
       )
       .subscribe();
-
-    return () => {
-      mounted = false;
-      ch.unsubscribe();
-    };
-  }, [patientId]);
+    return () => ch.unsubscribe();
+  }, [patientId, loadAppointments]);
 
   if (loading) {
     return (
@@ -117,14 +124,14 @@ export default function AppointmentsPage() {
   }
   if (!isAuthenticated || !patientId || !patient) return null;
 
-  // Derived
+  // Derived lists
   const now = new Date();
   const upcoming = items.filter((a) => new Date(a.appointment_time) >= now && a.status !== "cancelled");
   const history = items.filter((a) => new Date(a.appointment_time) < now || a.status === "completed" || a.status === "cancelled");
   const thisWeekCount = items.filter((a) => {
     const d = new Date(a.appointment_time);
     const start = new Date(); start.setHours(0,0,0,0);
-    const day = start.getDay(); const diff = (day === 0 ? -6 : 1) - day;
+    const day = start.getDay(); const diff = (day === 0 ? -6 : 1) - day; // Monday as week start
     start.setDate(start.getDate() + diff);
     const end = new Date(start); end.setDate(start.getDate() + 7);
     return d >= start && d < end;
@@ -136,7 +143,7 @@ export default function AppointmentsPage() {
     return Math.round((attended / total) * 100);
   })();
 
-  // Helpers
+  // UI helpers
   function getStatusColor(status: Appt["status"]) {
     switch (status) {
       case "confirmed": return "bg-green-100 text-green-800";
@@ -169,17 +176,40 @@ export default function AppointmentsPage() {
     const d = new Date(iso);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
-  function toISO(date: string, time: string) {
-    // Why: keep user local time consistent as timestamp with TZ
-    return new Date(`${date}T${time}:00`).toISOString();
-  }
 
-  // CRUD
+  // === CRUD ===
   async function createAppt() {
     if (!form.type || !form.date || !form.time) return;
+
+    // Prevent past bookings → otherwise it won't show in Upcoming
+    const selected = new Date(`${form.date}T${form.time}:00`);
+    if (selected < new Date()) {
+      alert("Please pick a future date/time.");
+      return;
+    }
+
     setBusy(true);
     try {
       const iso = toISO(form.date, form.time);
+
+      // Optimistic UI (optional)
+      const temp: Appt = {
+        id: `temp-${crypto.randomUUID()}`,
+        patient_id: patientId!,
+        appointment_time: iso,
+        status: "pending",
+        title: form.title || "Appointment",
+        provider: form.provider || null,
+        duration_min: Number(form.duration) || null,
+        type: form.type,
+        location: form.isVirtual ? "Virtual Meeting" : (form.location || null),
+        is_virtual: form.isVirtual,
+        notes: form.notes || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      setItems((prev) => [...prev, temp].sort((a,b)=>+new Date(a.appointment_time)-+new Date(b.appointment_time)));
+
       const { error } = await supabase.from("appointments").insert({
         patient_id: patientId,
         appointment_time: iso,
@@ -192,7 +222,13 @@ export default function AppointmentsPage() {
         is_virtual: form.isVirtual,
         notes: form.notes || null,
       });
-      if (!error) {
+
+      if (error) {
+        alert(error.message);
+        // Revert optimistic insert
+        setItems((prev) => prev.filter((r) => r.id !== temp.id));
+      } else {
+        await loadAppointments(); // reconcile with DB
         setIsBookingOpen(false);
         setForm({ type: "", provider: "", date: "", time: "", duration: "60", location: "", isVirtual: false, title: "", notes: "" });
       }
@@ -207,8 +243,7 @@ export default function AppointmentsPage() {
       id: a.id,
       type: (a.type || "") as any,
       provider: a.provider || "",
-      date,
-      time,
+      date, time,
       duration: String(a.duration_min ?? "60"),
       location: a.location || "",
       isVirtual: !!a.is_virtual,
@@ -221,11 +256,10 @@ export default function AppointmentsPage() {
 
   async function saveEdit() {
     if (!editForm.id || !editForm.type || !editForm.date || !editForm.time) return;
+    const iso = toISO(editForm.date, editForm.time);
     setBusy(true);
     try {
-      const iso = toISO(editForm.date, editForm.time);
-      await supabase
-        .from("appointments")
+      const { error } = await supabase.from("appointments")
         .update({
           appointment_time: iso,
           status: editForm.status,
@@ -239,20 +273,30 @@ export default function AppointmentsPage() {
         })
         .eq("id", editForm.id)
         .eq("patient_id", patientId);
+      if (error) alert(error.message);
       setIsEditOpen(false);
+      await loadAppointments();
     } finally { setBusy(false); }
   }
 
   async function deleteAppt(id: string) {
     if (!confirm("Delete this appointment?")) return;
-    await supabase.from("appointments").delete().eq("id", id).eq("patient_id", patientId);
+    const prev = items;
+    setItems((list) => list.filter((a) => a.id !== id));
+    const { error } = await supabase.from("appointments").delete().eq("id", id).eq("patient_id", patientId);
+    if (error) {
+      alert(error.message);
+      setItems(prev); // rollback
+    }
   }
 
   async function updateStatus(id: string, status: Appt["status"]) {
-    await supabase.from("appointments").update({ status }).eq("id", id).eq("patient_id", patientId);
+    const { error } = await supabase.from("appointments").update({ status }).eq("id", id).eq("patient_id", patientId);
+    if (error) alert(error.message);
+    else await loadAppointments();
   }
 
-  // Render
+  // === UI ===
   return (
     <div className="min-h-screen bg-gray-50">
       <DashboardHeader patient={patient} />
@@ -286,9 +330,7 @@ export default function AppointmentsPage() {
                     <Label>Appointment Type</Label>
                     <Select value={form.type} onValueChange={(v) => setForm((f) => ({ ...f, type: v as any }))}>
                       <SelectTrigger><SelectValue placeholder="Select appointment type" /></SelectTrigger>
-                      <SelectContent>
-                        {TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                      </SelectContent>
+                      <SelectContent>{TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
@@ -341,17 +383,14 @@ export default function AppointmentsPage() {
             <div><div className="text-2xl font-bold text-gray-900">{upcoming.length}</div><div className="text-sm text-gray-600">Upcoming</div></div>
             <div className="bg-blue-100 p-3 rounded-lg"><Calendar className="h-6 w-6 text-blue-600" /></div>
           </div></CardContent></Card>
-
           <Card><CardContent className="p-6"><div className="flex items-center justify-between">
             <div><div className="text-2xl font-bold text-gray-900">{thisWeekCount}</div><div className="text-sm text-gray-600">This Week</div></div>
             <div className="bg-green-100 p-3 rounded-lg"><Clock className="h-6 w-6 text-green-600" /></div>
           </div></CardContent></Card>
-
           <Card><CardContent className="p-6"><div className="flex items-center justify-between">
             <div><div className="text-2xl font-bold text-gray-900">{virtualCount}</div><div className="text-sm text-gray-600">Virtual</div></div>
             <div className="bg-purple-100 p-3 rounded-lg"><Video className="h-6 w-6 text-purple-600" /></div>
           </div></CardContent></Card>
-
           <Card><CardContent className="p-6"><div className="flex items-center justify-between">
             <div><div className="text-2xl font-bold text-gray-900">{attendancePct}%</div><div className="text-sm text-gray-600">Attendance</div></div>
             <div className="bg-yellow-100 p-3 rounded-lg"><CheckCircle className="h-6 w-6 text-yellow-600" /></div>
@@ -381,7 +420,6 @@ export default function AppointmentsPage() {
                               {a.status}
                             </Badge>
                           </div>
-
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
                             <div className="flex items-center gap-2"><User className="h-4 w-4" />{a.provider || "—"}</div>
                             <div className="flex items-center gap-2"><Calendar className="h-4 w-4" />{fmtDate(a.appointment_time)}</div>
@@ -391,10 +429,8 @@ export default function AppointmentsPage() {
                               {a.location || (a.is_virtual ? "Virtual Meeting" : "—")}
                             </div>
                           </div>
-
                           {a.notes && <div className="mt-3 p-3 bg-gray-50 rounded-lg"><p className="text-sm text-gray-700">{a.notes}</p></div>}
                         </div>
-
                         <div className="flex gap-2 ml-4">
                           {a.is_virtual && <Button size="sm" className="bg-purple-600 hover:bg-purple-700"><Video className="h-4 w-4 mr-2" />Join</Button>}
                           <Button size="sm" variant="outline" onClick={() => openEdit(a)}><Edit className="h-4 w-4" /></Button>
@@ -427,14 +463,12 @@ export default function AppointmentsPage() {
                               {a.status}
                             </Badge>
                           </div>
-
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
                             <div className="flex items-center gap-2"><User className="h-4 w-4" />{a.provider || "—"}</div>
                             <div className="flex items-center gap-2"><Calendar className="h-4 w-4" />{fmtDate(a.appointment_time)}</div>
                             <div className="flex items-center gap-2"><Clock className="h-4 w-4" />{fmtTime(a.appointment_time)} ({a.duration_min ?? 0} min)</div>
                             <div className="flex items-center gap-2"><MapPin className="h-4 w-4" />{a.location || "—"}</div>
                           </div>
-
                           {a.notes && <div className="mt-3 p-3 bg-gray-50 rounded-lg"><p className="text-sm text-gray-700">{a.notes}</p></div>}
                         </div>
                       </div>
@@ -453,10 +487,7 @@ export default function AppointmentsPage() {
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Edit / Reschedule</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Title</Label>
-              <Input value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} />
-            </div>
+            <div className="space-y-2"><Label>Title</Label><Input value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} /></div>
             <div className="space-y-2">
               <Label>Type</Label>
               <Select value={editForm.type} onValueChange={(v) => setEditForm((f) => ({ ...f, type: v as any }))}>
@@ -464,51 +495,25 @@ export default function AppointmentsPage() {
                 <SelectContent>{TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Provider</Label>
-              <Input value={editForm.provider} onChange={(e) => setEditForm((f) => ({ ...f, provider: e.target.value }))} />
+            <div className="space-y-2"><Label>Provider</Label><Input value={editForm.provider} onChange={(e) => setEditForm((f) => ({ ...f, provider: e.target.value }))} /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2"><Label>Date</Label><Input type="date" value={editForm.date} onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))} /></div>
+              <div className="space-y-2"><Label>Time</Label><Input type="time" value={editForm.time} onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))} /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Date</Label>
-                <Input type="date" value={editForm.date} onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Time</Label>
-                <Input type="time" value={editForm.time} onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))} />
-              </div>
+              <div className="space-y-2"><Label>Duration (min)</Label><Input type="number" min={5} value={editForm.duration} onChange={(e) => setEditForm((f) => ({ ...f, duration: e.target.value }))} /></div>
+              <div className="space-y-2"><Label>Location</Label><Input value={editForm.location} onChange={(e) => setEditForm((f) => ({ ...f, location: e.target.value }))} /></div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Duration (min)</Label>
-                <Input type="number" min={5} value={editForm.duration} onChange={(e) => setEditForm((f) => ({ ...f, duration: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Location</Label>
-                <Input value={editForm.location} onChange={(e) => setEditForm((f) => ({ ...f, location: e.target.value }))} />
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <input id="edit_isVirtual" type="checkbox" checked={editForm.isVirtual} onChange={(e) => setEditForm((f) => ({ ...f, isVirtual: e.target.checked }))} />
-              <Label htmlFor="edit_isVirtual">Virtual</Label>
-            </div>
+            <div className="flex items-center gap-2"><input id="edit_isVirtual" type="checkbox" checked={editForm.isVirtual} onChange={(e) => setEditForm((f) => ({ ...f, isVirtual: e.target.checked }))} /><Label htmlFor="edit_isVirtual">Virtual</Label></div>
             <div className="space-y-2">
               <Label>Status</Label>
               <Select value={editForm.status} onValueChange={(v) => setEditForm((f) => ({ ...f, status: v as Appt["status"] }))}>
                 <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
-                <SelectContent>
-                  {["pending","scheduled","confirmed","completed","cancelled"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                </SelectContent>
+                <SelectContent>{["pending","scheduled","confirmed","completed","cancelled"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Notes</Label>
-              <Textarea rows={3} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} />
-            </div>
-            <div className="flex gap-3 pt-4">
-              <Button className="flex-1" onClick={saveEdit} disabled={busy || !editForm.id || !editForm.type || !editForm.date || !editForm.time}>Save</Button>
-              <Button variant="outline" onClick={() => setIsEditOpen(false)}>Close</Button>
-            </div>
+            <div className="space-y-2"><Label>Notes</Label><Textarea rows={3} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+            <div className="flex gap-3 pt-4"><Button className="flex-1" onClick={saveEdit} disabled={busy || !editForm.id || !editForm.type || !editForm.date || !editForm.time}>Save</Button><Button variant="outline" onClick={() => setIsEditOpen(false)}>Close</Button></div>
           </div>
         </DialogContent>
       </Dialog>
