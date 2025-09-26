@@ -1,15 +1,23 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
-import GameCard from "@/components/games/game-card";   // must be default export
-import GameStats from "@/components/games/game-stats"; // must be default export
 import { Gamepad2 } from "lucide-react";
 import Link from "next/link";
 
-/** ---------- Types ---------- */
+/** Lazy-load likely crashers as client-only to avoid hydration issues */
+const GameCard = dynamic(() => import("@/components/games/game-card"), {
+  ssr: false,
+  loading: () => <div className="h-24 rounded-xl border animate-pulse" />,
+});
+const GameStats = dynamic(() => import("@/components/games/game-stats"), {
+  ssr: false,
+  loading: () => <div className="h-16 rounded-xl border animate-pulse" />,
+});
+
 type Game = {
   id: string;
   title: string;
@@ -17,19 +25,18 @@ type Game = {
   rating?: number | null;
   completed?: boolean;
 };
-
 type PatientGamesResponse = {
   patientId: string;
   games: Game[];
   totals: { total: number; completed: number; backlog: number; avgRating: number | null };
 };
 
-/** ---------- Error Boundary (find the real offender fast) ---------- */
-class ErrorBoundary extends React.Component<
-  { children: React.ReactNode },
+/** Small boundary to surface exact offender instead of white-screen */
+class SectionBoundary extends React.Component<
+  { name: string; children: React.ReactNode },
   { error: Error | null }
 > {
-  constructor(props: { children: React.ReactNode }) {
+  constructor(props: { name: string; children: React.ReactNode }) {
     super(props);
     this.state = { error: null };
   }
@@ -37,26 +44,18 @@ class ErrorBoundary extends React.Component<
     return { error };
   }
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    // why: surface the exact component/stack that crashed (prod-friendly)
-    console.error("[GamesPage ErrorBoundary]", error, info.componentStack);
+    console.error(`[GamesPage:${this.props.name}]`, error, info.componentStack);
   }
   render() {
     if (this.state.error) {
       return (
-        <div className="max-w-2xl mx-auto mt-16 p-6 rounded-xl border bg-white">
-          <h2 className="text-lg font-semibold text-red-700">Something crashed on this page</h2>
-          <p className="text-sm text-gray-700 mt-2">
-            We couldn’t render one of the widgets. The team has been notified.
-          </p>
-          <pre className="mt-4 text-xs overflow-auto max-h-64 whitespace-pre-wrap">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+          <div className="text-sm font-semibold text-red-700">
+            {this.props.name} failed to render
+          </div>
+          <div className="mt-2 text-xs text-red-800 whitespace-pre-wrap break-words">
             {this.state.error.message}
-          </pre>
-          <button
-            className="mt-4 px-3 py-1.5 rounded-md border hover:bg-gray-50"
-            onClick={() => location.reload()}
-          >
-            Reload
-          </button>
+          </div>
         </div>
       );
     }
@@ -64,17 +63,12 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-/** ---------- Fetch util ---------- */
 async function jsonFetcher<T>(url: string): Promise<T> {
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
-  });
+  const res = await fetch(url, { headers: { "Content-Type": "application/json" }, cache: "no-store" });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text().catch(() => res.statusText)}`);
   return res.json() as Promise<T>;
 }
 
-/** ---------- Page ---------- */
 export default function GamesPage() {
   const { isAuthenticated, loading, patient } = useAuth();
   const router = useRouter();
@@ -85,12 +79,10 @@ export default function GamesPage() {
   const [error, setError] = useState<Error | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Auth gate
   useEffect(() => {
     if (!loading && !isAuthenticated) router.push("/login");
   }, [isAuthenticated, loading, router]);
 
-  // Live polling (no external libs)
   useEffect(() => {
     if (!patient?.id) return;
 
@@ -101,24 +93,32 @@ export default function GamesPage() {
       try {
         initial ? setIsLoadingRemote(true) : setIsValidating(true);
         const next = await jsonFetcher<PatientGamesResponse>(url);
-        if (mounted) {
-          // defensive: ensure array + required fields
-          const safeGames = Array.isArray(next.games)
-            ? next.games.filter(Boolean).map((g) => ({
-                id: String(g.id ?? ""),
-                title: String(g.title ?? "Untitled"),
-                category: String(g.category ?? "Uncategorized"),
-                rating: g.rating ?? null,
-                completed: !!g.completed,
-              }))
-            : [];
-          setData({
-            patientId: String(next.patientId ?? ""),
-            games: safeGames,
-            totals: next.totals ?? { total: safeGames.length, completed: 0, backlog: safeGames.length, avgRating: null },
-          });
-          setError(null);
-        }
+        if (!mounted) return;
+
+        const safeGames = Array.isArray(next.games)
+          ? next.games.filter(Boolean).map((g) => ({
+              id: String(g?.id ?? ""),
+              title: String(g?.title ?? "Untitled"),
+              category: String(g?.category ?? "Uncategorized"),
+              rating: g?.rating ?? null,
+              completed: !!g?.completed,
+            }))
+          : [];
+
+        setData({
+          patientId: String(next?.patientId ?? patient.id),
+          games: safeGames,
+          totals:
+            next?.totals ?? {
+              total: safeGames.length,
+              completed: safeGames.filter((x) => x.completed).length,
+              backlog: safeGames.filter((x) => !x.completed).length,
+              avgRating:
+                safeGames.map((g) => g.rating).filter((n): n is number => n != null)
+                  .reduce((a, b) => a + b, 0) || null,
+            },
+        });
+        setError(null);
       } catch (e) {
         if (mounted) setError(e as Error);
       } finally {
@@ -130,7 +130,6 @@ export default function GamesPage() {
     };
 
     load(true);
-
     intervalRef.current = setInterval(() => load(false), 5000);
     const onVis = () => document.visibilityState === "visible" && load(false);
     document.addEventListener("visibilitychange", onVis);
@@ -157,69 +156,70 @@ export default function GamesPage() {
 
   const games = data?.games ?? [];
   const totals = data?.totals ?? { total: 0, completed: 0, backlog: 0, avgRating: null };
-
-  // Minimal shape for GameStats (guaranteed stable)
   const statsInput = useMemo(
     () => games.map((g) => ({ completed: !!g.completed, rating: g.rating ?? null })),
     [games]
   );
 
   return (
-    <ErrorBoundary>
-      <div className="min-h-screen bg-gray-50">
-        <DashboardHeader patient={patient} />
+    <div className="min-h-screen bg-gray-50">
+      <DashboardHeader patient={patient} />
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {/* Title */}
-          <div className="mb-8">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="bg-purple-100 p-3 rounded-lg">
-                <Gamepad2 className="h-8 w-8 text-purple-600" />
-              </div>
-              <div>
-                <h1 className="text-3xl font-serif font-bold text-gray-900">Recovery Games</h1>
-                <p className="text-gray-600">
-                  Interactive activities to support your healing journey
-                  {isValidating ? <span className="ml-2 text-xs text-gray-500">(updating…)</span> : null}
-                </p>
-              </div>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="bg-purple-100 p-3 rounded-lg">
+              <Gamepad2 className="h-8 w-8 text-purple-600" />
             </div>
-
-            {/* Summary + manual refresh */}
-            <div className="flex items-center gap-3 text-sm text-gray-600">
-              {isLoadingRemote
-                ? "Loading games…"
-                : error
-                ? `Error loading games: ${error.message}`
-                : `${totals.total} games • ${totals.completed} completed • ${totals.backlog} backlog`}
-              <button
-                onClick={() => {
-                  if (!patient?.id) return;
-                  const url = `/api/patient/games?patientId=${encodeURIComponent(patient.id)}`;
-                  setIsValidating(true);
-                  jsonFetcher<PatientGamesResponse>(url)
-                    .then((next) => {
-                      setData(next);
-                      setError(null);
-                    })
-                    .catch((e) => setError(e as Error))
-                    .finally(() => setIsValidating(false));
-                }}
-                className="ml-3 px-3 py-1.5 rounded-md border hover:bg-gray-50"
-                aria-label="Refresh"
-                title="Refresh"
-              >
-                Refresh
-              </button>
+            <div>
+              <h1 className="text-3xl font-serif font-bold text-gray-900">Recovery Games</h1>
+              <p className="text-gray-600">
+                Interactive activities to support your healing journey
+                {isValidating ? <span className="ml-2 text-xs text-gray-500">(updating…)</span> : null}
+              </p>
             </div>
           </div>
 
-          {/* Stats (defensive) */}
+          {/* Summary + manual refresh */}
+          <div className="flex items-center gap-3 text-sm text-gray-600">
+            {isLoadingRemote
+              ? "Loading games…"
+              : error
+              ? `Error loading games: ${error.message}`
+              : `${totals.total} games • ${totals.completed} completed • ${totals.backlog} backlog`}
+            <button
+              onClick={async () => {
+                if (!patient?.id) return;
+                try {
+                  setIsValidating(true);
+                  const next = await jsonFetcher<PatientGamesResponse>(
+                    `/api/patient/games?patientId=${encodeURIComponent(patient.id)}`
+                  );
+                  setData(next);
+                  setError(null);
+                } catch (e) {
+                  setError(e as Error);
+                } finally {
+                  setIsValidating(false);
+                }
+              }}
+              className="ml-3 px-3 py-1.5 rounded-md border hover:bg-gray-50"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <SectionBoundary name="Stats">
           <section className="mb-8">
             <GameStats games={Array.isArray(statsInput) ? statsInput : []} />
           </section>
+        </SectionBoundary>
 
-          {/* Games Grid (defensive) */}
+        {/* Grid */}
+        <SectionBoundary name="Grid">
           <section className="mt-8">
             <h2 className="text-xl font-semibold text-gray-900 mb-6">Available Games</h2>
             {error ? (
@@ -244,16 +244,16 @@ export default function GamesPage() {
               </div>
             )}
           </section>
+        </SectionBoundary>
 
-          {/* Categories */}
+        {/* Categories */}
+        <SectionBoundary name="Categories">
           <section className="mt-12">
             <h2 className="text-xl font-semibold text-gray-900 mb-6">Game Categories</h2>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               {getCategoriesFrom(games).map((c) => (
                 <Link key={c.name} href={`/dashboard/games?category=${encodeURIComponent(c.name)}`}>
-                  <div
-                    className={`p-4 rounded-lg text-center cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 ${c.color}`}
-                  >
+                  <div className={`p-4 rounded-lg text-center cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 ${c.color}`}>
                     <div className="font-medium text-sm">{c.name}</div>
                     <div className="text-xs opacity-75 mt-1">{c.count} games</div>
                   </div>
@@ -261,8 +261,26 @@ export default function GamesPage() {
               ))}
             </div>
           </section>
-        </main>
-      </div>
-    </ErrorBoundary>
+        </SectionBoundary>
+      </main>
+    </div>
   );
+}
+
+/** Helpers */
+function getCategoriesFrom(games: { category: string }[]) {
+  const palette = [
+    "bg-purple-100 text-purple-700",
+    "bg-pink-100 text-pink-700",
+    "bg-blue-100 text-blue-700",
+    "bg-yellow-100 text-yellow-700",
+    "bg-green-100 text-green-700",
+    "bg-emerald-100 text-emerald-700",
+  ];
+  const map = new Map<string, number>();
+  games.forEach((g) => {
+    const cat = g?.category ? String(g.category) : "Uncategorized";
+    map.set(cat, (map.get(cat) ?? 0) + 1);
+  });
+  return [...map.entries()].map(([name, count], i) => ({ name, count, color: palette[i % palette.length] }));
 }
