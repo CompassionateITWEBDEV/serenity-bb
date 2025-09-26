@@ -1,3 +1,4 @@
+// components/patient-intake-form.tsx
 "use client";
 
 import type React from "react";
@@ -22,10 +23,46 @@ interface PatientIntakeFormData {
   previousTreatment: string;
   currentMedications: string;
   treatmentType: string;
-  hasInsurance: string;
-  insuranceProvider: string;
+  hasInsurance: string;          // "yes" | "no"
+  insuranceProvider: string;     // label from list or "Other"/"Not sure"
   additionalNotes: string;
 }
+
+/* Covered payers (verbatim list + common variants) */
+const COVERED_INSURERS: string[] = [
+  "AETNA BETTER HEALTH-MEDICARE",
+  "AETNA",
+  "AMBETTER HEALTH PLAN",
+  "AMERIHEALTH CARITAS VIP CARE PLUS",
+  "ASR",
+  "BCBS MEDICARE ADVANTAGE",
+  "BCBS MI",
+  "BCN ADVANTAGE XYK",
+  "BLUE CARE NETWORK",
+  "BLUE CROSS COMPLETE",
+  "CIGNA- PPO",
+  "COVENTRY",
+  "HAP CARESOURCE",
+  "HAP MEDICARE PLUS BLUE",
+  "HAP SENIOR PLUS MEDICARE",
+  "HEALTHPLUS OF MICHIGAN",
+  "HUMANA MEDICARE",
+  "MCLAREN MEDICARE",
+  "MEDICARE A",
+  "MEDICARE B",
+  "MEDICARE PLUS BLUE",
+  "MERIDIAN COMPLETE MICHIGAN",
+  "MMCD MERIDIAN HMP",
+  "MICHIGAN COMPLETE",
+  "MOLINA MEDICARE",
+  "NGS",
+  "PRIORITY HEALTH MEDICARE",
+  "TOTAL HEALTHCARE, INC",
+  "UNITED HEALTH CARE MEDICARE",
+  "VA",
+  "WELLCARE MEDICARE",
+  "ZING HEALTH PLAN",
+];
 
 export function PatientIntakeForm() {
   const [currentStep, setCurrentStep] = useState(1);
@@ -56,8 +93,18 @@ export function PatientIntakeForm() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
-    setSubmitting(true);
 
+    // validation: require insurer when "Yes"
+    if (formData.hasInsurance === "yes" && !formData.insuranceProvider) {
+      getSwal()?.fire({
+        icon: "warning",
+        title: "Select your insurance",
+        text: "Please choose your insurance provider from the list.",
+      });
+      return;
+    }
+
+    setSubmitting(true);
     try {
       const res = await fetch("/api/intake", {
         method: "POST",
@@ -70,19 +117,15 @@ export function PatientIntakeForm() {
         throw new Error(txt || "Submission failed");
       }
 
-      // success SweetAlert
       const Swal = getSwal();
-      if (Swal) {
-        await Swal.fire({
-          icon: "success",
-          title: "Application submitted",
-          text: "Thank you. Our team will contact you within 24 hours.",
-          confirmButtonText: "Done",
-          confirmButtonColor: "#06b6d4",
-        });
-      }
+      await Swal?.fire({
+        icon: "success",
+        title: "Application submitted",
+        text: "Thank you. Our team will contact you within 24 hours.",
+        confirmButtonText: "Done",
+        confirmButtonColor: "#06b6d4",
+      });
 
-      // reset & go to step 1
       setFormData({
         fullName: "",
         dateOfBirth: "",
@@ -102,13 +145,11 @@ export function PatientIntakeForm() {
       setCurrentStep(1);
     } catch (err) {
       const Swal = getSwal();
-      if (Swal) {
-        await Swal.fire({
-          icon: "error",
-          title: "Could not submit",
-          text: err instanceof Error ? err.message : "Please try again.",
-        });
-      }
+      await Swal?.fire({
+        icon: "error",
+        title: "Could not submit",
+        text: err instanceof Error ? err.message : "Please try again.",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -142,7 +183,6 @@ export function PatientIntakeForm() {
         <form onSubmit={onSubmit} className="space-y-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">{getStepTitle()}</h3>
 
-          {/* --- Step 1 (same as your code) --- */}
           {currentStep === 1 && (
             <div className="space-y-4">
               <div>
@@ -180,139 +220,3 @@ export function PatientIntakeForm() {
 
               <div>
                 <Label htmlFor="emergencyContactName">Emergency Contact Name</Label>
-                <Input id="emergencyContactName" type="text" placeholder="Emergency contact full name" value={formData.emergencyContactName} onChange={(e) => handleInputChange("emergencyContactName", e.target.value)} />
-              </div>
-
-              <div>
-                <Label htmlFor="emergencyContactPhone">Emergency Contact Phone</Label>
-                <Input id="emergencyContactPhone" type="tel" placeholder="(555) 123-4567" value={formData.emergencyContactPhone} onChange={(e) => handleInputChange("emergencyContactPhone", e.target.value)} />
-              </div>
-            </div>
-          )}
-
-          {/* --- Step 2 (same) --- */}
-          {currentStep === 2 && (
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="primaryConcern">Primary Concern *</Label>
-                <Textarea id="primaryConcern" placeholder="Please describe your primary concern or reason for seeking treatment" className="min-h-20" value={formData.primaryConcern} onChange={(e) => handleInputChange("primaryConcern", e.target.value)} required />
-              </div>
-
-              <div>
-                <Label>Have you received addiction treatment before?</Label>
-                <div className="flex space-x-6 mt-2">
-                  <label className="flex items-center space-x-2">
-                    <input type="radio" name="previousTreatment" value="yes" checked={formData.previousTreatment === "yes"} onChange={(e) => handleInputChange("previousTreatment", e.target.value)} className="text-cyan-500" />
-                    <span>Yes</span>
-                  </label>
-                  <label className="flex items-center space-x-2">
-                    <input type="radio" name="previousTreatment" value="no" checked={formData.previousTreatment === "no"} onChange={(e) => handleInputChange("previousTreatment", e.target.value)} className="text-cyan-500" />
-                    <span>No</span>
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="currentMedications">Current Medications</Label>
-                <Textarea id="currentMedications" placeholder="List any medications you are currently taking" value={formData.currentMedications} onChange={(e) => handleInputChange("currentMedications", e.target.value)} />
-              </div>
-            </div>
-          )}
-
-          {/* --- Step 3 (same) --- */}
-          {currentStep === 3 && (
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="treatmentType">Preferred Treatment Type</Label>
-                <Select value={formData.treatmentType} onValueChange={(value) => handleInputChange("treatmentType", value)}>
-                  <SelectTrigger><SelectValue placeholder="Select treatment type" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="inpatient">Inpatient Treatment</SelectItem>
-                    <SelectItem value="outpatient">Outpatient Treatment</SelectItem>
-                    <SelectItem value="intensive-outpatient">Intensive Outpatient</SelectItem>
-                    <SelectItem value="detox">Detoxification</SelectItem>
-                    <SelectItem value="counseling">Individual Counseling</SelectItem>
-                    <SelectItem value="group">Group Therapy</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label>Do you have health insurance?</Label>
-                <div className="flex space-x-6 mt-2">
-                  <label className="flex items-center space-x-2">
-                    <input type="radio" name="hasInsurance" value="yes" checked={formData.hasInsurance === "yes"} onChange={(e) => handleInputChange("hasInsurance", e.target.value)} className="text-cyan-500" />
-                    <span>Yes</span>
-                  </label>
-                  <label className="flex items-center space-x-2">
-                    <input type="radio" name="hasInsurance" value="no" checked={formData.hasInsurance === "no"} onChange={(e) => handleInputChange("hasInsurance", e.target.value)} className="text-cyan-500" />
-                    <span>No</span>
-                  </label>
-                </div>
-              </div>
-
-              {formData.hasInsurance === "yes" && (
-                <div>
-                  <Label htmlFor="insuranceProvider">Insurance Provider</Label>
-                  <Input id="insuranceProvider" type="text" placeholder="e.g., Blue Cross, Aetna" value={formData.insuranceProvider} onChange={(e) => handleInputChange("insuranceProvider", e.target.value)} />
-                </div>
-              )}
-
-              <div>
-                <Label htmlFor="additionalNotes">Additional Notes</Label>
-                <Textarea id="additionalNotes" placeholder="Any additional information you'd like us to know" value={formData.additionalNotes} onChange={(e) => handleInputChange("additionalNotes", e.target.value)} />
-              </div>
-            </div>
-          )}
-
-          {/* --- Step 4 (same) --- */}
-          {currentStep === 4 && (
-            <div className="space-y-4">
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-gray-900 mb-2">Review Your Information</h4>
-                <div className="space-y-2 text-sm text-gray-600">
-                  <p><strong>Name:</strong> {formData.fullName}</p>
-                  <p><strong>Email:</strong> {formData.email}</p>
-                  <p><strong>Phone:</strong> {formData.phone}</p>
-                  <p><strong>Contact Method:</strong> {formData.preferredContactMethod}</p>
-                  <p><strong>Treatment Type:</strong> {formData.treatmentType || "—"}</p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <label className="flex items-start space-x-3">
-                  <input type="checkbox" required className="mt-1 text-cyan-500" />
-                  <span className="text-sm">I consent to treatment and understand that this information will be used to provide appropriate care *</span>
-                </label>
-                <label className="flex items-start space-x-3">
-                  <input type="checkbox" required className="mt-1 text-cyan-500" />
-                  <span className="text-sm">I agree to the privacy policy and terms of service *</span>
-                </label>
-              </div>
-            </div>
-          )}
-
-          <div className="flex justify-between pt-6">
-            {currentStep > 1 && (
-              <Button type="button" variant="outline" onClick={prevStep} className="px-6 bg-transparent">
-                Previous
-              </Button>
-            )}
-
-            <div className="ml-auto">
-              {currentStep < totalSteps ? (
-                <Button type="button" onClick={nextStep} className="bg-cyan-500 hover:bg-cyan-600 text-white px-6">
-                  Next Step
-                </Button>
-              ) : (
-                <Button disabled={submitting} type="submit" className="bg-indigo-500 hover:bg-indigo-600 text-white px-8">
-                  {submitting ? "Submitting..." : "Submit Application"}
-                </Button>
-              )}
-            </div>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
-  );
-}
