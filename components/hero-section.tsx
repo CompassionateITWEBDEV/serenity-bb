@@ -50,7 +50,7 @@ export function HeroSection() {
               
               <div className="hero-buttons">
                 <a
-                  href="https://docs.google.com/forms/d/e/1FAIpQLSfbECwxl06fOsIvhDnPxK-Fr98ysUeDFwjlODgCK1NpEM4L-Q/viewform?usp=header"
+                  href="https://tally.so/r/n9ejEp"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="btn-primary-link"
