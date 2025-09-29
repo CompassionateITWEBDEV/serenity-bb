@@ -9,24 +9,23 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eye, EyeOff } from "lucide-react";
 
-/* SweetAlert themed to Serenity */
 async function serenitySwal(opts: { title: string; text?: string; mood: "success"|"error"|"info" }) {
   const Swal = (await import("sweetalert2")).default;
-  const palette =
+  const theme =
     opts.mood === "success"
-      ? { emoji: "💙✨", bg: "linear-gradient(135deg,#f0fdfa,#ecfeff)" }
+      ? { emoji: "💙✨", backdrop: "linear-gradient(135deg,#eff6ff,#e0e7ff)" }
       : opts.mood === "error"
-      ? { emoji: "🚫😕", bg: "linear-gradient(135deg,#fff1f2,#fee2e2)" }
-      : { emoji: "🛠️😊", bg: "linear-gradient(135deg,#eff6ff,#e0f2fe)" };
+      ? { emoji: "🚫😕", backdrop: "linear-gradient(135deg,#fee2e2,#fecaca)" }
+      : { emoji: "ℹ️😊", backdrop: "linear-gradient(135deg,#e0f2fe,#dbeafe)" };
   return Swal.fire({
     title: opts.title,
     text: opts.text,
     icon: undefined,
-    iconHtml: `<div style="font-size:32px">${palette.emoji}</div>`,
-    background: "#fff",
+    iconHtml: `<div style="font-size:32px">${theme.emoji}</div>`,
+    background: "#ffffff",
     color: "#0f172a",
-    backdrop: palette.bg,
-    confirmButtonColor: "#06b6d4",
+    backdrop: theme.backdrop,
+    confirmButtonColor: "#2563eb",
     customClass: { popup: "rounded-2xl", confirmButton: "rounded-xl" },
     timer: opts.mood === "success" ? 1300 : undefined,
   });
@@ -63,7 +62,7 @@ export default function StaffLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-sans font-bold text-gray-900 mb-2">Login as Staff</h1>
@@ -113,19 +112,17 @@ export default function StaffLoginPage() {
                 </div>
               </div>
 
-              <Button disabled={busy} type="submit" className="w-full h-11">
+              <Button disabled={busy} type="submit" className="w-full h-11 bg-blue-600 hover:bg-blue-700">
                 {busy ? "Signing in..." : "Sign In"}
               </Button>
 
-              {/* ✅ New: direct link to staff signup */}
               <p className="text-center text-sm text-gray-600">
                 Need an account?{" "}
-                <Link href="/staff/signup" className="text-cyan-600 hover:text-cyan-700 hover:underline">
+                <Link href="/staff/signup" className="text-blue-600 hover:text-blue-700 hover:underline">
                   Create Staff Account
                 </Link>
               </p>
 
-              {/* Optional cross-link back to patient login */}
               <div className="text-center">
                 <Link href="/login" className="text-xs text-gray-500 hover:underline">
                   ← Patient login
