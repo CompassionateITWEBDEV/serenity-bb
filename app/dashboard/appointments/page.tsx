@@ -163,9 +163,7 @@ function toType(v: string): NonNullable<Appt["type"]> {
 export default function AppointmentsPage() {
   const { isAuthenticated, loading, patient, user } = useAuth();
   const router = useRouter();
-
-  // appointments.patient_id -> patients.user_id
-  const patientId = isAuthenticated ? (patient?.user_id ?? user?.id ?? null) : null;
+  const patientId = isAuthenticated ? (patient?.user_id || patient?.id || user?.id) : null;
 
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -254,19 +252,8 @@ export default function AppointmentsPage() {
       </div>
     );
   }
-
-  if (!isAuthenticated) return null;
-
-  if (!patientId) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4" />
-          <p className="text-gray-600">Preparing your dashboard…</p>
-        </div>
-      </div>
-    );
-  }
+  
+  if (!isAuthenticated || !patientId || !patient) return null;
 
   /* Derived lists */
   const now = new Date();
@@ -430,28 +417,6 @@ export default function AppointmentsPage() {
       await swal({ icon: "info", title: "Pick a future time" }); 
       return; 
     }
-    
-    if (!patientId) {
-      await swal({ icon: "error", title: "Patient ID Missing", text: "Unable to determine patient ID. Please try logging out and back in." });
-      return;
-    }
-    
-    // Verify patient exists by user_id (FK target)
-    const { data: patientCheck, error: patientError } = await supabase
-      .from("patients")
-      .select("user_id")
-      .eq("user_id", patientId)
-      .single();
-      
-    if (patientError || !patientCheck) {
-      await swal({ 
-        icon: "error", 
-        title: "Patient Not Found", 
-        text: `Patient ID ${patientId} does not exist in the database. Error: ${patientError?.message || 'Not found'}` 
-      });
-      return;
-    }
-    
     setBusy(true);
     try {
       const iso = toISO(form.date, form.time);
@@ -598,16 +563,7 @@ export default function AppointmentsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {patient ? (
-        <DashboardHeader patient={patient} />
-      ) : (
-        <div className="border-b bg-white">
-          <div className="max-w-7xl mx-auto p-4">
-            <h1 className="text-xl font-semibold">Appointments</h1>
-            <p className="text-sm text-gray-600">We’re syncing your profile…</p>
-          </div>
-        </div>
-      )}
+      <DashboardHeader patient={patient} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Smart Alerts */}
