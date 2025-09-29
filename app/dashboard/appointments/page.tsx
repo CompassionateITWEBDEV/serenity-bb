@@ -56,16 +56,34 @@ type AlertModel = {
 /* =============== Utils =============== */
 
 const todayStart = (() => { const t = new Date(); t.setHours(0,0,0,0); return t; })();
-function formatYmd(d?: Date) { return d ? new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10) : ""; }
-function parseYmd(s: string) { if (!s) return undefined; const [y,m,dd] = s.split("-").map(Number); return new Date(y, (m||1)-1, dd||1); }
-function toISO(date: string, time: string) { const [y,m,dd] = date.split("-").map(Number); const [hh,mm] = time.split(":").map(Number); return new Date(y,(m||1)-1,dd||1,hh||0,mm||0).toISOString(); }
 
-async function swal<T = any>(opts: T) { const Swal = (await import("sweetalert2")).default; return Swal.fire(opts as any); }
+function formatYmd(d?: Date) { 
+  return d ? new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10) : ""; 
+}
+
+function parseYmd(s: string) { 
+  if (!s) return undefined; 
+  const [y,m,dd] = s.split("-").map(Number); 
+  return new Date(y, (m||1)-1, dd||1); 
+}
+
+function toISO(date: string, time: string) { 
+  const [y,m,dd] = date.split("-").map(Number); 
+  const [hh,mm] = time.split(":").map(Number); 
+  return new Date(y,(m||1)-1,dd||1,hh||0,mm||0).toISOString(); 
+}
+
+async function swal<T = any>(opts: T) { 
+  const Swal = (await import("sweetalert2")).default; 
+  return Swal.fire(opts as any); 
+}
+
 async function swalToast(title: string, icon: "success" | "error" | "warning" | "info") {
   const Swal = (await import("sweetalert2")).default;
   const Toast = Swal.mixin({ toast: true, position: "top-end", showConfirmButton: false, timer: 2200, timerProgressBar: true });
   return Toast.fire({ icon, title });
 }
+
 async function swalConfirm(opts?: Partial<{ title: string; text?: string; confirmText?: string; confirmColor?: string; icon?: "warning"|"question" }>) {
   const Swal = (await import("sweetalert2")).default;
   return Swal.fire({
@@ -80,9 +98,20 @@ async function swalConfirm(opts?: Partial<{ title: string; text?: string; confir
   });
 }
 
-function endTime(a: Appt) { const start = new Date(a.appointment_time); const dur = Math.max(0, a.duration_min ?? 60); return new Date(start.getTime() + dur * 60000); }
-function minutesBetween(a: Date, b: Date) { return Math.round((b.getTime() - a.getTime()) / 60000); }
-function isOverlap(a: Appt, b: Appt) { const aS = new Date(a.appointment_time), aE = endTime(a), bS = new Date(b.appointment_time), bE = endTime(b); return aS < bE && bS < aE; }
+function endTime(a: Appt) { 
+  const start = new Date(a.appointment_time); 
+  const dur = Math.max(0, a.duration_min ?? 60); 
+  return new Date(start.getTime() + dur * 60000); 
+}
+
+function minutesBetween(a: Date, b: Date) { 
+  return Math.round((b.getTime() - a.getTime()) / 60000); 
+}
+
+function isOverlap(a: Appt, b: Appt) { 
+  const aS = new Date(a.appointment_time), aE = endTime(a), bS = new Date(b.appointment_time), bE = endTime(b); 
+  return aS < bE && bS < aE; 
+}
 
 function getStatusColor(status: Appt["status"]) {
   switch (status) {
@@ -93,11 +122,13 @@ function getStatusColor(status: Appt["status"]) {
     default: return "bg-gray-100 text-gray-800";
   }
 }
+
 function getStatusIcon(status: Appt["status"]) {
   return status === "confirmed" || status === "completed" ? CheckCircle
     : status === "pending" ? AlertCircle
     : status === "cancelled" ? XCircle : Clock;
 }
+
 function getTypeColor(t?: string | null) {
   switch (t) {
     case "therapy": return "bg-purple-100 text-purple-600";
@@ -108,17 +139,23 @@ function getTypeColor(t?: string | null) {
     default: return "bg-gray-100 text-gray-600";
   }
 }
-function fmtDate(iso: string) { return new Date(iso).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }); }
-function fmtTime(iso: string) { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
 
-/* Avoid `as ...` in JSX */
+function fmtDate(iso: string) { 
+  return new Date(iso).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }); 
+}
+
+function fmtTime(iso: string) { 
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); 
+}
+
 function toStatus(v: string): Appt["status"] {
   const allowed: Appt["status"][] = ["pending", "scheduled", "confirmed", "completed", "cancelled"];
-  return (allowed.includes(v as any) ? (v as Appt["status"]) : "scheduled");
+  return (allowed.includes(v as any) ? v : "scheduled") as Appt["status"];
 }
+
 function toType(v: string): NonNullable<Appt["type"]> {
   const allowed: NonNullable<Appt["type"]>[] = ["therapy", "group", "medical", "family", "assessment"];
-  return (allowed.includes(v as any) ? (v as NonNullable<Appt["type"]>) : "therapy");
+  return (allowed.includes(v as any) ? v : "therapy") as NonNullable<Appt["type"]>;
 }
 
 /* =============== Page =============== */
@@ -144,6 +181,7 @@ export default function AppointmentsPage() {
     title: "",
     notes: "",
   });
+  
   const [editForm, setEditForm] = useState({
     id: "",
     type: "" as NonNullable<Appt["type"]> | "",
@@ -164,7 +202,9 @@ export default function AppointmentsPage() {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [snoozes, setSnoozes] = useState<Record<string, string>>({});
 
-  useEffect(() => { if (!loading && !isAuthenticated) router.push("/login"); }, [isAuthenticated, loading, router]);
+  useEffect(() => { 
+    if (!loading && !isAuthenticated) router.push("/login"); 
+  }, [isAuthenticated, loading, router]);
 
   const loadAppointments = useCallback(async () => {
     if (!patientId) return;
@@ -183,14 +223,24 @@ export default function AppointmentsPage() {
       .channel(`appt_${patientId}`)
       .on("postgres_changes",
         { event: "*", schema: "public", table: "appointments", filter: `patient_id=eq.${patientId}` },
-        () => loadAppointments()
+        () => { void loadAppointments(); }
       )
       .subscribe();
-    return () => ch.unsubscribe();
+    return () => { void ch.unsubscribe(); };
   }, [patientId, loadAppointments]);
 
-  useEffect(() => { try { const raw = localStorage.getItem("appt_alert_snoozes"); if (raw) setSnoozes(JSON.parse(raw)); } catch {} }, []);
-  useEffect(() => { try { localStorage.setItem("appt_alert_snoozes", JSON.stringify(snoozes)); } catch {} }, [snoozes]);
+  useEffect(() => { 
+    try { 
+      const raw = localStorage.getItem("appt_alert_snoozes"); 
+      if (raw) setSnoozes(JSON.parse(raw)); 
+    } catch {} 
+  }, []);
+  
+  useEffect(() => { 
+    try { 
+      localStorage.setItem("appt_alert_snoozes", JSON.stringify(snoozes)); 
+    } catch {} 
+  }, [snoozes]);
 
   if (loading) {
     return (
@@ -202,6 +252,7 @@ export default function AppointmentsPage() {
       </div>
     );
   }
+  
   if (!isAuthenticated || !patientId || !patient) return null;
 
   /* Derived lists */
@@ -211,13 +262,18 @@ export default function AppointmentsPage() {
 
   const thisWeekCount = items.filter((a) => {
     const d = new Date(a.appointment_time);
-    const start = new Date(); start.setHours(0,0,0,0);
-    const day = start.getDay(); const diff = (day === 0 ? -6 : 1) - day;
+    const start = new Date(); 
+    start.setHours(0,0,0,0);
+    const day = start.getDay(); 
+    const diff = (day === 0 ? -6 : 1) - day;
     start.setDate(start.getDate() + diff);
-    const end = new Date(start); end.setDate(start.getDate() + 7);
+    const end = new Date(start); 
+    end.setDate(start.getDate() + 7);
     return d >= start && d < end;
   }).length;
+  
   const virtualCount = items.filter((a) => !!a.is_virtual).length;
+  
   const attendancePct = (() => {
     const total = items.length || 1;
     const attended = items.filter((a) => a.status === "completed").length;
@@ -230,7 +286,10 @@ export default function AppointmentsPage() {
   let overlapPair: { a: Appt; b: Appt } | undefined;
   for (let i=0;i<sortedUpcoming.length && !overlapPair;i++){
     for (let j=i+1;j<sortedUpcoming.length;j++){
-      if (isOverlap(sortedUpcoming[i], sortedUpcoming[j])) { overlapPair = { a: sortedUpcoming[i], b: sortedUpcoming[j] }; break; }
+      if (isOverlap(sortedUpcoming[i], sortedUpcoming[j])) { 
+        overlapPair = { a: sortedUpcoming[i], b: sortedUpcoming[j] }; 
+        break; 
+      }
       if (new Date(sortedUpcoming[j].appointment_time) >= endTime(sortedUpcoming[i])) break;
     }
   }
@@ -240,70 +299,124 @@ export default function AppointmentsPage() {
   for (let i=0;i<sortedUpcoming.length-1;i++){
     const prev = sortedUpcoming[i], next = sortedUpcoming[i+1];
     const gap = minutesBetween(endTime(prev), new Date(next.appointment_time));
-    if (gap >= 0 && gap < MIN_GAP) { tightGap = { prev, next, gap }; break; }
+    if (gap >= 0 && gap < MIN_GAP) { 
+      tightGap = { prev, next, gap }; 
+      break; 
+    }
   }
 
   const pendingOld = sortedUpcoming.find(a => a.status === "pending" && new Date(a.created_at) < new Date(Date.now() - 48*3600*1000));
 
-  const byDay = new Map<string, Appt[]>();
-  sortedUpcoming.forEach(a => { const k = new Date(a.appointment_time).toDateString(); byDay.set(k, [...(byDay.get(k)||[]), a]); });
+  const byDay = new Map<string, Appt[]>(); 
+  sortedUpcoming.forEach(a => { 
+    const k = new Date(a.appointment_time).toDateString(); 
+    byDay.set(k, [...(byDay.get(k)||[]), a]); 
+  });
   const heavyEntry = [...byDay.entries()].find(([,list]) => list.length > 3);
 
-  const EARLY = 10, LATE = 15; const nowTs = Date.now();
+  const EARLY = 10, LATE = 15; 
+  const nowTs = Date.now();
   const joinSoon = sortedUpcoming.find(a => a.is_virtual && ((new Date(a.appointment_time).getTime() - nowTs)/60000 <= EARLY) && ((nowTs - new Date(a.appointment_time).getTime())/60000 <= LATE));
 
   /* Build alert models */
   const alertModels: AlertModel[] = [];
-  if (joinSoon) alertModels.push({
-    id: `join-${joinSoon.id}`, variant: "default", tone: "ok",
-    title: `It's time to join "${joinSoon.title || "Virtual Appointment"}".`,
-    desc: `${fmtDate(joinSoon.appointment_time)} at ${fmtTime(joinSoon.appointment_time)}.`,
-    action: { kind: "join", apptId: joinSoon.id }
-  });
-  if (overlapPair) alertModels.push({
-    id: `overlap-${overlapPair.a.id}-${overlapPair.b.id}`, variant: "destructive", tone: "warn",
-    title: "You've got overlapping appointments.",
-    desc: `“${overlapPair.a.title || "Appt"}” overlaps with “${overlapPair.b.title || "Appt"}”. Review and reschedule.`,
-    action: { kind: "edit", apptId: overlapPair.a.id }
-  });
-  if (tightGap) alertModels.push({
-    id: `tightgap-${tightGap.prev.id}-${tightGap.next.id}`, variant: "default", tone: "warn",
-    title: "Tight turnaround between sessions.",
-    desc: `Only ${tightGap.gap} min between “${tightGap.prev.title || "Appt"}” and “${tightGap.next.title || "Appt"}”. Consider padding.`,
-    action: { kind: "edit", apptId: tightGap.next.id }
-  });
-  if (pendingOld) alertModels.push({
-    id: `pending-${pendingOld.id}`, variant: "default", tone: "info",
-    title: "Appointment request pending > 48h.",
-    desc: `“${pendingOld.title || "Appointment"}” is still pending. Update status if confirmed.`,
-    action: { kind: "scheduled", apptId: pendingOld.id }
-  });
+  
+  if (joinSoon) {
+    alertModels.push({
+      id: `join-${joinSoon.id}`, 
+      variant: "default", 
+      tone: "ok",
+      title: `It's time to join "${joinSoon.title || "Virtual Appointment"}".`,
+      desc: `${fmtDate(joinSoon.appointment_time)} at ${fmtTime(joinSoon.appointment_time)}.`,
+      action: { kind: "join", apptId: joinSoon.id }
+    });
+  }
+  
+  if (overlapPair) {
+    alertModels.push({
+      id: `overlap-${overlapPair.a.id}-${overlapPair.b.id}`, 
+      variant: "destructive", 
+      tone: "warn",
+      title: "You've got overlapping appointments.",
+      desc: `"${overlapPair.a.title || "Appt"}" overlaps with "${overlapPair.b.title || "Appt"}". Review and reschedule.`,
+      action: { kind: "edit", apptId: overlapPair.a.id }
+    });
+  }
+  
+  if (tightGap) {
+    alertModels.push({
+      id: `tightgap-${tightGap.prev.id}-${tightGap.next.id}`, 
+      variant: "default", 
+      tone: "warn",
+      title: "Tight turnaround between sessions.",
+      desc: `Only ${tightGap.gap} min between "${tightGap.prev.title || "Appt"}" and "${tightGap.next.title || "Appt"}". Consider padding.`,
+      action: { kind: "edit", apptId: tightGap.next.id }
+    });
+  }
+  
+  if (pendingOld) {
+    alertModels.push({
+      id: `pending-${pendingOld.id}`, 
+      variant: "default", 
+      tone: "info",
+      title: "Appointment request pending > 48h.",
+      desc: `"${pendingOld.title || "Appointment"}" is still pending. Update status if confirmed.`,
+      action: { kind: "scheduled", apptId: pendingOld.id }
+    });
+  }
+  
   if (heavyEntry) {
     const [day, list] = heavyEntry;
     alertModels.push({
-      id: `heavy-${day}`, variant: "default", tone: "info",
+      id: `heavy-${day}`, 
+      variant: "default", 
+      tone: "info",
       title: "Packed day detected.",
       desc: `${list.length} sessions on ${day}. Consider moving one to reduce overload.`,
       action: { kind: "rebalance" }
     });
   }
-  if (!sortedUpcoming.length) alertModels.push({
-    id: "noupcoming", variant: "default", tone: "info",
-    title: "No upcoming appointments.", desc: "Book your next session to stay on track.",
-    action: { kind: "book" }
-  });
+  
+  if (!sortedUpcoming.length) {
+    alertModels.push({
+      id: "noupcoming", 
+      variant: "default", 
+      tone: "info",
+      title: "No upcoming appointments.", 
+      desc: "Book your next session to stay on track.",
+      action: { kind: "book" }
+    });
+  }
 
   /* Snooze/Dismiss */
   const nowIso = new Date().toISOString();
-  function isVisible(id: string) { if (dismissed.has(id)) return false; const until = snoozes[id]; return !until || until <= nowIso; }
-  function snooze(id: string, mins: number) { const until = new Date(Date.now() + mins*60000).toISOString(); setSnoozes(prev => ({ ...prev, [id]: until })); }
-  function dismiss(id: string) { setDismissed(new Set([...dismissed, id])); }
+  
+  function isVisible(id: string) { 
+    if (dismissed.has(id)) return false; 
+    const until = snoozes[id]; 
+    return !until || until <= nowIso; 
+  }
+  
+  function snooze(id: string, mins: number) { 
+    const until = new Date(Date.now() + mins*60000).toISOString(); 
+    setSnoozes(prev => ({ ...prev, [id]: until })); 
+  }
+  
+  function dismiss(id: string) { 
+    setDismissed(new Set([...dismissed, id])); 
+  }
 
   /* CRUD */
   async function createAppt() {
-    if (!form.type || !form.date || !form.time) { await swal({ icon: "warning", title: "Missing info", text: "Type, Date and Time are required." }); return; }
+    if (!form.type || !form.date || !form.time) { 
+      await swal({ icon: "warning", title: "Missing info", text: "Type, Date and Time are required." }); 
+      return; 
+    }
     const selected = new Date(`${form.date}T${form.time}:00`);
-    if (selected < new Date()) { await swal({ icon: "info", title: "Pick a future time" }); return; }
+    if (selected < new Date()) { 
+      await swal({ icon: "info", title: "Pick a future time" }); 
+      return; 
+    }
     setBusy(true);
     try {
       const iso = toISO(form.date, form.time);
@@ -338,7 +451,7 @@ export default function AppointmentsPage() {
       });
 
       if (error) {
-        await swal({ icon: "error", title: "Couldn’t book", text: error.message });
+        await swal({ icon: "error", title: "Couldn't book", text: error.message });
         setItems((prev) => prev.filter((r) => r.id !== temp.id));
       } else {
         await loadAppointments();
@@ -346,7 +459,9 @@ export default function AppointmentsPage() {
         setForm({ type: "", provider: "", date: "", time: "", duration: "60", location: "", isVirtual: false, title: "", notes: "" });
         await swalToast("Appointment requested", "success");
       }
-    } finally { setBusy(false); }
+    } finally { 
+      setBusy(false); 
+    }
   }
 
   function openEdit(a: Appt) {
@@ -366,10 +481,17 @@ export default function AppointmentsPage() {
     });
     setIsEditOpen(true);
   }
-  function openEditById(id?: string) { const a = items.find(x => x.id === id); if (a) openEdit(a); }
+  
+  function openEditById(id?: string) { 
+    const a = items.find(x => x.id === id); 
+    if (a) openEdit(a); 
+  }
 
   async function saveEdit() {
-    if (!editForm.id || !editForm.type || !editForm.date || !editForm.time) { await swal({ icon: "warning", title: "Fill required fields" }); return; }
+    if (!editForm.id || !editForm.type || !editForm.date || !editForm.time) { 
+      await swal({ icon: "warning", title: "Fill required fields" }); 
+      return; 
+    }
     const iso = toISO(editForm.date, editForm.time);
     setBusy(true);
     try {
@@ -387,33 +509,54 @@ export default function AppointmentsPage() {
         })
         .eq("id", editForm.id)
         .eq("patient_id", patientId);
-      if (error) await swal({ icon: "error", title: "Save failed", text: error.message });
-      else {
+      if (error) {
+        await swal({ icon: "error", title: "Save failed", text: error.message });
+      } else {
         setIsEditOpen(false);
         await loadAppointments();
         await swalToast("Appointment updated", "success");
       }
-    } finally { setBusy(false); }
+    } finally { 
+      setBusy(false); 
+    }
   }
 
   async function deleteAppt(id: string) {
-    const ans = await swalConfirm({ title: "Delete appointment?", text: "This cannot be undone.", confirmText: "Delete", confirmColor: "#dc2626", icon: "warning" });
+    const ans = await swalConfirm({ 
+      title: "Delete appointment?", 
+      text: "This cannot be undone.", 
+      confirmText: "Delete", 
+      confirmColor: "#dc2626", 
+      icon: "warning" 
+    });
     if (!ans.isConfirmed) return;
     const prev = items;
     setItems((list) => list.filter((a) => a.id !== id));
     const { error } = await supabase.from("appointments").delete().eq("id", id).eq("patient_id", patientId);
-    if (error) { await swal({ icon: "error", title: "Delete failed", text: error.message }); setItems(prev); }
-    else await swalToast("Appointment deleted", "success");
+    if (error) { 
+      await swal({ icon: "error", title: "Delete failed", text: error.message }); 
+      setItems(prev); 
+    } else {
+      await swalToast("Appointment deleted", "success");
+    }
   }
 
   async function updateStatus(id: string, status: Appt["status"]) {
     if (status === "cancelled") {
-      const ans = await swalConfirm({ title: "Cancel this appointment?", confirmText: "Cancel appointment", confirmColor: "#dc2626" });
+      const ans = await swalConfirm({ 
+        title: "Cancel this appointment?", 
+        confirmText: "Cancel appointment", 
+        confirmColor: "#dc2626" 
+      });
       if (!ans.isConfirmed) return;
     }
     const { error } = await supabase.from("appointments").update({ status }).eq("id", id).eq("patient_id", patientId);
-    if (error) await swal({ icon: "error", title: "Update failed", text: error.message });
-    else { await loadAppointments(); await swalToast(status === "cancelled" ? "Appointment cancelled" : "Status updated", "success"); }
+    if (error) {
+      await swal({ icon: "error", title: "Update failed", text: error.message });
+    } else { 
+      await loadAppointments(); 
+      await swalToast(status === "cancelled" ? "Appointment cancelled" : "Status updated", "success"); 
+    }
   }
 
   /* =================== UI =================== */
@@ -447,7 +590,7 @@ export default function AppointmentsPage() {
                             <Button size="sm" variant="outline" onClick={()=>openEditById(a.action?.apptId)}><Edit className="h-4 w-4 mr-2" /> Review</Button>
                           )}
                           {a.action?.kind === "scheduled" && a.action.apptId && (
-                            <Button size="sm" variant="outline" onClick={()=>updateStatus(a.action.apptId, "scheduled")}><CheckCircle2 className="h-4 w-4 mr-2" /> Mark scheduled</Button>
+                            <Button size="sm" variant="outline" onClick={()=>updateStatus(a.action!.apptId!, "scheduled")}><CheckCircle2 className="h-4 w-4 mr-2" /> Mark scheduled</Button>
                           )}
                           {a.action?.kind === "rebalance" && (
                             <Button size="sm" variant="outline" onClick={()=>setIsBookingOpen(true)}><CalendarIcon className="h-4 w-4 mr-2" /> Rebalance</Button>
@@ -527,7 +670,7 @@ export default function AppointmentsPage() {
                   <div className="flex items-center gap-2"><input id="isVirtual" type="checkbox" checked={form.isVirtual} onChange={(e) => setForm((f) => ({ ...f, isVirtual: e.target.checked }))} /><Label htmlFor="isVirtual">Virtual</Label></div>
                   <div className="space-y-2"><Label>Notes</Label><Textarea rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Any specific concerns or requests..." /></div>
                   <div className="flex gap-3 pt-4">
-                    <Button className="flex-1" onClick={createAppt} disabled={busy || !form.type || !form.date || !form.time)}>Request Appointment</Button>
+                    <Button className="flex-1" onClick={createAppt} disabled={busy || !form.type || !form.date || !form.time}>Request Appointment</Button>
                     <Button variant="outline" onClick={() => setIsBookingOpen(false)}>Cancel</Button>
                   </div>
                 </div>
@@ -673,9 +816,10 @@ export default function AppointmentsPage() {
               </Select>
             </div>
             <div className="space-y-2"><Label>Notes</Label><Textarea rows={3} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} /></div>
-            <div className="flex gap-3 pt-4"><Button className="flex-1" onClick={saveEdit} disabled={busy || !editForm.id || !editForm.type || !editForm.date || !editForm.time)}>Save</Button><Button variant="outline" onClick={() => setIsEditOpen(false)}>Close</Button></div>
+            <div className="flex gap-3 pt-4"><Button className="flex-1" onClick={saveEdit} disabled={busy || !editForm.id || !editForm.type || !editForm.date || !editForm.time}>Save</Button><Button variant="outline" onClick={() => setIsEditOpen(false)}>Close</Button></div>
           </div>
         </DialogContent>
       </Dialog>
     </div>
   );
+}
