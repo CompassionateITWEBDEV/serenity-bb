@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * Settings page: edits patient profile and avatar.
- * - Requires `public.patients` with RLS allowing owner update.
- * - Expects a Storage bucket `avatars` (public if USE_SIGNED_URL=false).
- */
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,13 +11,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Camera, Save } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 
-/* ──────────────────────────────────────────────────────────────
- * QUICK CONFIG
- * ────────────────────────────────────────────────────────────── */
-const UID_COL = "user_id";
-const USE_SIGNED_URL = false; // true if "avatars" bucket is PRIVATE
-const SIGNED_TTL_SECONDS = 60 * 60 * 24; // 24h for signed URL
-/* ────────────────────────────────────────────────────────────── */
+// ---- Config (set to true if your avatars bucket is private) ----
+const USE_SIGNED_URL = false;
+const SIGNED_TTL_SECONDS = 60 * 60 * 24;
 
 type FormState = {
   firstName: string;
@@ -37,12 +27,12 @@ type FormState = {
 };
 
 type PatientRow = {
-  [UID_COL]: string;
+  user_id: string;
   first_name: string | null;
   last_name: string | null;
   email: string | null;
   phone_number: string | null;
-  date_of_birth: string | null;
+  date_of_birth: string | null; // date
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
   bio: string | null;
@@ -116,12 +106,11 @@ export default function SettingsPage() {
         if (!user) throw new Error("Not authenticated");
         const uid = user.id;
 
+        // Fetch or seed the patient row
         const { data: row, error: rowErr } = await supabase
-          .from<PatientRow>("patients")
-          .select(
-            `${UID_COL},first_name,last_name,email,phone_number,date_of_birth,emergency_contact_name,emergency_contact_phone,bio,avatar_path,updated_at`
-          )
-          .eq(UID_COL, uid)
+          .from("patients")
+          .select("user_id,first_name,last_name,email,phone_number,date_of_birth,emergency_contact_name,emergency_contact_phone,bio,avatar_path,updated_at")
+          .eq("user_id", uid)
           .maybeSingle();
         if (rowErr) console.error("patients select error:", rowErr);
 
@@ -137,8 +126,9 @@ export default function SettingsPage() {
         const path = row?.avatar_path ?? null;
 
         if (!row) {
+          // Upsert ensures row exists; conflict target = user_id (PK)
           const seed: Partial<PatientRow> = {
-            [UID_COL]: uid,
+            user_id: uid,
             first_name: first || null,
             last_name: last || null,
             email,
@@ -150,8 +140,8 @@ export default function SettingsPage() {
             avatar_path: null,
             updated_at: new Date().toISOString(),
           };
-          const ins = await supabase.from("patients").insert(seed).select().single();
-          if (ins.error) console.error("seed insert error:", ins.error);
+          const ins = await supabase.from("patients").upsert(seed, { onConflict: "user_id" }).select().single();
+          if (ins.error) console.error("seed upsert error:", ins.error);
         }
 
         setForm({
@@ -190,6 +180,7 @@ export default function SettingsPage() {
       if (!uid) throw new Error("Not authenticated");
 
       const payload: Partial<PatientRow> = {
+        user_id: uid,
         first_name: form.firstName || null,
         last_name: form.lastName || null,
         email: form.email || null,
@@ -201,8 +192,15 @@ export default function SettingsPage() {
         updated_at: new Date().toISOString(),
       };
 
-      const upd = await supabase.from("patients").update(payload).eq(UID_COL, uid);
-      if (upd.error) throw upd.error;
+      // Upsert to ensure it always saves even if row missing
+      const { error } = await supabase.from("patients").upsert(payload, { onConflict: "user_id" });
+      if (error) {
+        // Helpful email unique error surface
+        if (String(error.message).toLowerCase().includes("unique") && String(error.message).includes("email")) {
+          throw new Error("That email is already used by another account.");
+        }
+        throw error;
+      }
 
       window.dispatchEvent(new CustomEvent("profile:updated"));
       alert("Profile saved.");
@@ -239,6 +237,7 @@ export default function SettingsPage() {
       const safe = file.name.replace(/[^\w.\-]+/g, "_");
       const path = `${uid}/${Date.now()}-${safe}`;
 
+      // Upload avatar to user-scoped folder
       const up = await supabase.storage.from("avatars").upload(path, file, {
         cacheControl: "3600",
         upsert: true,
@@ -250,13 +249,14 @@ export default function SettingsPage() {
         return;
       }
 
-      const upd = await supabase
-        .from<PatientRow>("patients")
+      // Save avatar path on profile
+      const { error: updErr } = await supabase
+        .from("patients")
         .update({ avatar_path: path, updated_at: new Date().toISOString() })
-        .eq(UID_COL, uid);
-      if (upd.error) {
-        console.error("DB UPDATE ERROR:", upd.error);
-        alert(`Saved file but failed to update profile: ${upd.error.message}`);
+        .eq("user_id", uid);
+      if (updErr) {
+        console.error("DB UPDATE ERROR:", updErr);
+        alert(`Saved file but failed to update profile: ${updErr.message}`);
         return;
       }
 
@@ -282,11 +282,11 @@ export default function SettingsPage() {
       if (!uid) throw new Error("Not authenticated");
 
       await supabase.storage.from("avatars").remove([avatarPath]).catch(() => {});
-      const upd = await supabase
-        .from<PatientRow>("patients")
+      const { error } = await supabase
+        .from("patients")
         .update({ avatar_path: null, updated_at: new Date().toISOString() })
-        .eq(UID_COL, uid);
-      if (upd.error) throw upd.error;
+        .eq("user_id", uid);
+      if (error) throw error;
 
       setAvatarPath(null);
       setDisplayUrl("");
@@ -416,28 +416,16 @@ export default function SettingsPage() {
 
         {/* Placeholder tabs */}
         <TabsContent value="notifications">
-          <Card>
-            <CardHeader><CardTitle>Notifications</CardTitle></CardHeader>
-            <CardContent>Coming soon…</CardContent>
-          </Card>
+          <Card><CardHeader><CardTitle>Notifications</CardTitle></CardHeader><CardContent>Coming soon…</CardContent></Card>
         </TabsContent>
         <TabsContent value="privacy">
-          <Card>
-            <CardHeader><CardTitle>Privacy</CardTitle></CardHeader>
-            <CardContent>Coming soon…</CardContent>
-          </Card>
+          <Card><CardHeader><CardTitle>Privacy</CardTitle></CardHeader><CardContent>Coming soon…</CardContent></Card>
         </TabsContent>
         <TabsContent value="security">
-          <Card>
-            <CardHeader><CardTitle>Security</CardTitle></CardHeader>
-            <CardContent>Coming soon…</CardContent>
-          </Card>
+          <Card><CardHeader><CardTitle>Security</CardTitle></CardHeader><CardContent>Coming soon…</CardContent></Card>
         </TabsContent>
         <TabsContent value="preferences">
-          <Card>
-            <CardHeader><CardTitle>Preferences</CardTitle></CardHeader>
-            <CardContent>Coming soon…</CardContent>
-          </Card>
+          <Card><CardHeader><CardTitle>Preferences</CardTitle></CardHeader><CardContent>Coming soon…</CardContent></Card>
         </TabsContent>
       </Tabs>
     </div>
