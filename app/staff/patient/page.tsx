@@ -1,20 +1,22 @@
-// FILE: app/staff/patients/page.tsx
+// FILE: app/staff/patient/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { supabase } from "@/lib/supabase/client";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
 import {
   Home, Search, Filter, UserRound, Users2, Stethoscope, Syringe, Phone, Clock,
   ChevronRight, BadgeCheck, AlertCircle, MessageSquare, Bell, Settings
 } from "lucide-react";
-import { supabase } from "@/lib/supabase/client";
 
-/* ===================== Figma theme tokens ===================== */
+/* ===================== Figma teal tokens ===================== */
 const FIGMA = {
   primary: "#2AD1C8",
   primary700: "#16B5AC",
@@ -53,13 +55,16 @@ async function serenitySwal(opts: { title: string; text?: string; mood: "success
 
 /* ============================ Types ============================ */
 type VisitStatus = "today" | "upcoming" | "overdue";
+
 type DBPatient = {
   user_id: string;
   full_name: string | null;
   first_name: string | null;
   last_name: string | null;
   phone_number: string | null;
+  created_at?: string;
 };
+
 type DBAppointment = {
   id: string;
   patient_id: string;
@@ -83,13 +88,12 @@ const isToday = (iso: string) => {
   const d = new Date(iso); const n = new Date();
   return d.getFullYear()===n.getFullYear() && d.getMonth()===n.getMonth() && d.getDate()===n.getDate();
 };
-function toName(p: DBPatient) {
+const toName = (p: DBPatient) => {
   const n = `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim();
   return n || p.full_name || "Unknown";
-}
-function dedupe<T>(arr: T[]): T[] { return [...new Set(arr)]; }
+};
 
-/* ============================ Status chip ============================ */
+/* ============================ Chips & Cards ============================ */
 function VisitChip({ s }: { s: VisitStatus }) {
   const style = s==="today"
     ? { bg: FIGMA.primary50, color: FIGMA.primary700, bd: FIGMA.primary }
@@ -104,10 +108,10 @@ function VisitChip({ s }: { s: VisitStatus }) {
   );
 }
 
-/* ============================ Patient cards ============================ */
 function PatientCardDetailed({ row }: { row: PatientRow }) {
   return (
     <div className="rounded-2xl border bg-white p-4 relative">
+      {/* why: right edge accent to match figma */}
       <div className="absolute right-0 top-2 bottom-2 w-1.5 rounded-l-full" style={{ background: FIGMA.primary }} />
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-3">
@@ -131,7 +135,7 @@ function PatientCardDetailed({ row }: { row: PatientRow }) {
                 {row.next?.provider ?? "—"}
               </div>
               <div className="flex items-center gap-2" style={{ color: FIGMA.gray500 }}>
-                <Syringe className="h-4 w-4" style={{ color: FIGMA.primary700 }} />
+                <Syringe className="h-4 w-4" style={{ color: FIGGA.primary700 }} />
                 {row.next ? fmtTime(row.next.at) : "—"}
               </div>
               <div className="flex items-center gap-2" style={{ color: FIGMA.gray500 }}>
@@ -155,6 +159,7 @@ function PatientCardDetailed({ row }: { row: PatientRow }) {
     </div>
   );
 }
+
 function PatientRowSummary({ row }: { row: PatientRow }) {
   return (
     <div className="flex items-center justify-between rounded-xl border bg-white px-3 py-2">
@@ -179,39 +184,34 @@ function PatientRowSummary({ row }: { row: PatientRow }) {
 export default function StaffPatientsPage() {
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"detailed" | "summary">("detailed");
-  const [openFilter, setOpenFilter] = useState(false);
   const [filterStatus, setFilterStatus] = useState<VisitStatus | "all">("all");
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const [rows, setRows] = useState<PatientRow[]>([]);
   const [loading, setLoading] = useState(false);
   const unsubRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  // why: single loader pulls patients (search) + next appt per patient, then merges
-  const load = async () => {
+  async function load() {
     setLoading(true);
     try {
-      // 1) Patients (server-filtered search)
       const or = q.trim()
         ? `full_name.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`
         : undefined;
 
       let pQuery = supabase
         .from("patients")
-        .select("user_id,full_name,first_name,last_name,phone_number")
+        .select("user_id,full_name,first_name,last_name,phone_number,created_at")
         .order("created_at", { ascending: false })
         .limit(500);
-
       if (or) pQuery = pQuery.or(or);
 
       const { data: patients, error: pErr } = await pQuery;
       if (pErr) throw pErr;
 
-      const ids = patients?.map(p => p.user_id) ?? [];
+      const ids = (patients ?? []).map(p => p.user_id);
       if (ids.length === 0) { setRows([]); return; }
 
-      // 2) Appointments for these patients (future + recent to catch overdue)
-      const nowIso = new Date().toISOString();
-      const fromIso = new Date(Date.now() - 7*24*3600*1000).toISOString(); // last 7 days
+      const fromIso = new Date(Date.now() - 7*24*3600*1000).toISOString(); // last 7 days to detect "overdue"
       const { data: appts, error: aErr } = await supabase
         .from("appointments")
         .select("id,patient_id,appointment_time,status,provider,type")
@@ -219,18 +219,18 @@ export default function StaffPatientsPage() {
         .neq("status", "cancelled")
         .gte("appointment_time", fromIso)
         .order("appointment_time", { ascending: true });
-
       if (aErr) throw aErr;
 
-      // 3) Build per-patient next appt + status
       const byPatient = new Map<string, DBAppointment[]>();
       (appts || []).forEach(a => byPatient.set(a.patient_id, [...(byPatient.get(a.patient_id)||[]), a]));
 
-      const merged: PatientRow[] = patients!.map((p: DBPatient) => {
+      const merged: PatientRow[] = (patients ?? []).map((p: DBPatient) => {
         const list = (byPatient.get(p.user_id) || []).sort((a,b)=>+new Date(a.appointment_time)-+new Date(b.appointment_time));
-        const future = list.find(a => new Date(a.appointment_time) >= new Date());
+        const now = new Date();
+
+        const future = list.find(a => new Date(a.appointment_time) >= now);
         const pastPending = list
-          .filter(a => new Date(a.appointment_time) < new Date())
+          .filter(a => new Date(a.appointment_time) < now)
           .reverse()
           .find(a => a.status === "pending" || a.status === "scheduled" || a.status === "confirmed");
 
@@ -258,12 +258,10 @@ export default function StaffPatientsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  // initial + on search/filter
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [q]);
 
-  // realtime: reload on patients/appointments change
   useEffect(() => {
     if (unsubRef.current) { void unsubRef.current.unsubscribe(); unsubRef.current = null; }
     const ch = supabase
@@ -318,15 +316,14 @@ export default function StaffPatientsPage() {
                 />
               </div>
 
-              <Sheet open={openFilter} onOpenChange={setOpenFilter}>
-                <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full">
-                    <Filter className="h-5 w-5" style={{ color: FIGMA.primary700 }} />
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="right" className="w-80">
-                  <SheetHeader><SheetTitle>Filters</SheetTitle></SheetHeader>
-                  <div className="mt-4 space-y-3">
+              {/* Filter Dialog (replaces missing Sheet) */}
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" onClick={() => setFilterOpen(true)}>
+                <Filter className="h-5 w-5" style={{ color: FIGMA.primary700 }} />
+              </Button>
+              <Dialog open={filterOpen} onOpenChange={setFilterOpen}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader><DialogTitle>Filters</DialogTitle></DialogHeader>
+                  <div className="mt-2 space-y-3">
                     <div className="text-sm" style={{ color: FIGMA.gray500 }}>Visit status</div>
                     <div className="flex flex-wrap gap-2">
                       {(["all","today","upcoming","overdue"] as const).map(k => {
@@ -347,14 +344,14 @@ export default function StaffPatientsPage() {
                         );
                       })}
                     </div>
-                    <div className="pt-4">
-                      <Button onClick={()=>setOpenFilter(false)} className="w-full" style={{ background: FIGMA.primary }}>
+                    <div className="pt-2">
+                      <Button onClick={()=>setFilterOpen(false)} className="w-full" style={{ background: FIGMA.primary }}>
                         Apply
                       </Button>
                     </div>
                   </div>
-                </SheetContent>
-              </Sheet>
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
         </div>
