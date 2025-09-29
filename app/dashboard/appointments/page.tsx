@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { JSX } from "react";
 import { useRouter } from "next/navigation";
 import { DayPicker } from "react-day-picker";
 import "react-day-picker/dist/style.css";
@@ -20,16 +19,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Calendar as CalendarIcon, Clock, Plus, Video, MapPin, User,
-  CheckCircle, XCircle, AlertCircle, Edit, Trash2,
-  Bell, AlertTriangle, Info, CheckCircle2
+  CheckCircle, XCircle, AlertCircle, Edit, Trash2, Bell,
+  AlertTriangle, Info, CheckCircle2
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-// ---------- Types ----------
+/* ============================ Types ============================ */
+
 type Appt = {
   id: string;
   patient_id: string;
-  appointment_time: string;
+  appointment_time: string; // ISO
   status: "scheduled" | "confirmed" | "pending" | "cancelled" | "completed";
   title: string | null;
   provider: string | null;
@@ -41,9 +41,20 @@ type Appt = {
   created_at: string;
   updated_at: string;
 };
+
 const TYPES: NonNullable<Appt["type"]>[] = ["therapy", "group", "medical", "family", "assessment"];
 
-// ---------- Date utils ----------
+type AlertModel = {
+  id: string;
+  variant: "default" | "destructive";
+  tone: "info" | "warn" | "ok";
+  title: string;
+  desc: string;
+  action?: { kind: "join" | "edit" | "scheduled" | "rebalance" | "book"; apptId?: string };
+};
+
+/* ============================ Date utils ============================ */
+
 const todayStart = (() => { const t = new Date(); t.setHours(0,0,0,0); return t; })();
 function formatYmd(d?: Date) { return d ? new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10) : ""; }
 function parseYmd(s: string) { if (!s) return undefined; const [y,m,dd] = s.split("-").map(Number); return new Date(y, (m||1)-1, dd||1); }
@@ -54,7 +65,8 @@ function toISO(date: string, time: string) {
   return local.toISOString();
 }
 
-// ---------- SweetAlert2 helpers (SSR-safe) ----------
+/* ====================== SweetAlert2 helpers ====================== */
+
 async function swal<T = any>(opts: T) {
   const Swal = (await import("sweetalert2")).default;
   return Swal.fire(opts as any);
@@ -78,12 +90,12 @@ async function swalConfirm(opts?: Partial<{title:string; text?:string; confirmTe
   });
 }
 
-// ---------- Scheduling helpers ----------
+/* ============================ Helpers ============================ */
+
 function endTime(a: Appt) { const start = new Date(a.appointment_time); const dur = Math.max(0, a.duration_min ?? 60); return new Date(start.getTime() + dur * 60000); }
 function minutesBetween(a: Date, b: Date) { return Math.round((b.getTime() - a.getTime()) / 60000); }
 function isOverlap(a: Appt, b: Appt) { const aStart = new Date(a.appointment_time), aEnd = endTime(a), bStart = new Date(b.appointment_time), bEnd = endTime(b); return aStart < bEnd && bStart < aEnd; }
 
-// ---------- UI helpers ----------
 function getStatusColor(status: Appt["status"]) {
   switch (status) {
     case "confirmed": return "bg-green-100 text-green-800";
@@ -111,7 +123,8 @@ function getTypeColor(t?: string | null) {
 function fmtDate(iso: string) { return new Date(iso).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }); }
 function fmtTime(iso: string) { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
 
-// ---------- Page ----------
+/* ============================ Page ============================ */
+
 export default function AppointmentsPage() {
   const { isAuthenticated, loading, patient, user } = useAuth();
   const router = useRouter();
@@ -147,18 +160,14 @@ export default function AppointmentsPage() {
     status: "scheduled" as Appt["status"],
   });
 
-  // calendar dropdown state
   const [openCreateCal, setOpenCreateCal] = useState(false);
   const [openEditCal, setOpenEditCal] = useState(false);
 
-  // smart alert state
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [snoozes, setSnoozes] = useState<Record<string, string>>({});
 
-  // auth guard
   useEffect(() => { if (!loading && !isAuthenticated) router.push("/login"); }, [isAuthenticated, loading, router]);
 
-  // fetch
   const loadAppointments = useCallback(async () => {
     if (!patientId) return;
     const { data, error } = await supabase
@@ -169,7 +178,6 @@ export default function AppointmentsPage() {
     else await swal({ icon: "error", title: "Failed to load", text: error.message });
   }, [patientId]);
 
-  // realtime
   useEffect(() => {
     if (!patientId) return;
     void loadAppointments();
@@ -183,7 +191,6 @@ export default function AppointmentsPage() {
     return () => ch.unsubscribe();
   }, [patientId, loadAppointments]);
 
-  // persisted snoozes
   useEffect(() => { try { const raw = localStorage.getItem("appt_alert_snoozes"); if (raw) setSnoozes(JSON.parse(raw)); } catch {} }, []);
   useEffect(() => { try { localStorage.setItem("appt_alert_snoozes", JSON.stringify(snoozes)); } catch {} }, [snoozes]);
 
@@ -199,14 +206,14 @@ export default function AppointmentsPage() {
   }
   if (!isAuthenticated || !patientId || !patient) return null;
 
-  // Derived lists
   const now = new Date();
   const upcoming = items.filter((a) => new Date(a.appointment_time) >= now && a.status !== "cancelled");
   const history = items.filter((a) => new Date(a.appointment_time) < now || a.status === "completed" || a.status === "cancelled");
+
   const thisWeekCount = items.filter((a) => {
     const d = new Date(a.appointment_time);
     const start = new Date(); start.setHours(0,0,0,0);
-    const day = start.getDay(); const diff = (day === 0 ? -6 : 1) - day; // Monday start
+    const day = start.getDay(); const diff = (day === 0 ? -6 : 1) - day;
     start.setDate(start.getDate() + diff);
     const end = new Date(start); end.setDate(start.getDate() + 7);
     return d >= start && d < end;
@@ -218,7 +225,8 @@ export default function AppointmentsPage() {
     return Math.round((attended / total) * 100);
   })();
 
-  // ---- Smart checks (simple) ----
+  /* ---------------- Smart detections ---------------- */
+
   const sortedUpcoming = [...upcoming].sort((x,y)=>+new Date(x.appointment_time)-+new Date(y.appointment_time));
 
   let overlapPair: { a: Appt; b: Appt } | undefined;
@@ -241,20 +249,12 @@ export default function AppointmentsPage() {
 
   const byDay = new Map<string, Appt[]>(); 
   sortedUpcoming.forEach(a => { const k = new Date(a.appointment_time).toDateString(); byDay.set(k, [...(byDay.get(k)||[]), a]); });
-  const heavy = [...byDay.entries()].find(([,list]) => list.length > 3);
+  const heavyEntry = [...byDay.entries()].find(([,list]) => list.length > 3);
 
   const EARLY = 10, LATE = 15; const nowTs = Date.now();
   const joinSoon = sortedUpcoming.find(a => a.is_virtual && ((new Date(a.appointment_time).getTime() - nowTs)/60000 <= EARLY) && ((nowTs - new Date(a.appointment_time).getTime())/60000 <= LATE));
 
-  // ---- Build alert models (plain data) ----
-  type AlertModel = {
-    id: string;
-    variant: "default" | "destructive";
-    tone: "info" | "warn" | "ok";
-    title: string;
-    desc: string;
-    action: { kind: "join" | "edit" | "scheduled" | "rebalance" | "book"; apptId?: string } | null;
-  };
+  /* ---------------- Build alert models ---------------- */
 
   const alertModels: AlertModel[] = [];
   if (joinSoon) alertModels.push({
@@ -281,8 +281,8 @@ export default function AppointmentsPage() {
     desc: `“${pendingOld.title || "Appointment"}” is still pending. Update status if confirmed.`,
     action: { kind: "scheduled", apptId: pendingOld.id }
   });
-  if (heavy) {
-    const [day, list] = heavy;
+  if (heavyEntry) {
+    const [day, list] = heavyEntry;
     alertModels.push({
       id: `heavy-${day}`, variant: "default", tone: "info",
       title: "Packed day detected.",
@@ -296,18 +296,17 @@ export default function AppointmentsPage() {
     action: { kind: "book" }
   });
 
-  // ---- Snooze / Dismiss ----
+  /* ---------------- Snooze/Dismiss ---------------- */
+
   const nowIso = new Date().toISOString();
-  function isVisible(id: string) { const until = snoozes[id]; if (dismissed.has(id)) return false; return !until || until <= nowIso; }
+  function isVisible(id: string) { if (dismissed.has(id)) return false; const until = snoozes[id]; return !until || until <= nowIso; }
   function snooze(id: string, mins: number) { const until = new Date(Date.now() + mins*60000).toISOString(); setSnoozes(prev => ({ ...prev, [id]: until })); }
   function dismiss(id: string) { setDismissed(new Set([...dismissed, id])); }
 
-  // ---------- CRUD ----------
+  /* ---------------- CRUD ---------------- */
+
   async function createAppt() {
-    if (!form.type || !form.date || !form.time) {
-      await swal({ icon: "warning", title: "Missing info", text: "Type, Date and Time are required." });
-      return;
-    }
+    if (!form.type || !form.date || !form.time) { await swal({ icon: "warning", title: "Missing info", text: "Type, Date and Time are required." }); return; }
     const selected = new Date(`${form.date}T${form.time}:00`);
     if (selected < new Date()) { await swal({ icon: "info", title: "Pick a future time" }); return; }
 
@@ -356,7 +355,7 @@ export default function AppointmentsPage() {
     } finally { setBusy(false); }
   }
 
-  async function openEdit(a: Appt) {
+  function openEdit(a: Appt) {
     const d = new Date(a.appointment_time);
     const date = d.toISOString().slice(0,10);
     const time = d.toTimeString().slice(0,5);
@@ -374,17 +373,10 @@ export default function AppointmentsPage() {
     });
     setIsEditOpen(true);
   }
-
-  async function openEditById(id?: string) {
-    const a = items.find(x => x.id === id);
-    if (a) openEdit(a);
-  }
+  function openEditById(id?: string) { const a = items.find(x => x.id === id); if (a) openEdit(a); }
 
   async function saveEdit() {
-    if (!editForm.id || !editForm.type || !editForm.date || !editForm.time) {
-      await swal({ icon: "warning", title: "Fill required fields" });
-      return;
-    }
+    if (!editForm.id || !editForm.type || !editForm.date || !editForm.time) { await swal({ icon: "warning", title: "Fill required fields" }); return; }
     const iso = toISO(editForm.date, editForm.time);
     setBusy(true);
     try {
@@ -429,13 +421,11 @@ export default function AppointmentsPage() {
     }
     const { error } = await supabase.from("appointments").update({ status }).eq("id", id).eq("patient_id", patientId);
     if (error) await swal({ icon: "error", title: "Update failed", text: error.message });
-    else {
-      await loadAppointments();
-      await swalToast(status === "cancelled" ? "Appointment cancelled" : "Status updated", "success");
-    }
+    else { await loadAppointments(); await swalToast(status === "cancelled" ? "Appointment cancelled" : "Status updated", "success"); }
   }
 
-  // ---------- UI ----------
+  /* ---------------- UI ---------------- */
+
   return (
     <div className="min-h-screen bg-gray-50">
       <DashboardHeader patient={patient} />
