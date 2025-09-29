@@ -109,21 +109,22 @@ export function LeadGenerationSection() {
                 <MapPin className="w-5 h-5 text-cyan-500" />
                 <div>
                   <div className="font-medium">Address</div>
-                  <div className="text-sm text-gray-600">123 Recovery St, Wellness, MI 48507</div>
+                  <div className="text-sm text-gray-600">673 Martin Luther King Jr
+Blvd N, Pontiac, MI 48342</div>
                 </div>
               </div>
               <div className="flex items-center space-x-3">
                 <Phone className="w-5 h-5 text-cyan-500" />
                 <div>
                   <div className="font-medium">Phone</div>
-                  <div className="text-sm text-gray-600">248-838-3656</div>
+                  <div className="text-sm text-gray-600">(248)-838-3686</div>
                 </div>
               </div>
               <div className="flex items-center space-x-3">
                 <Mail className="w-5 h-5 text-cyan-500" />
                 <div>
                   <div className="font-medium">Email</div>
-                  <div className="text-sm text-gray-600">info@serenityrehab.com</div>
+                  <div className="text-sm text-gray-600">src.health</div>
                 </div>
               </div>
 
@@ -190,7 +191,7 @@ export function LeadGenerationSection() {
                   <p className="text-sm text-gray-600 mb-3">
                     Our intake coordinators are available to help you start your recovery journey today.
                   </p>
-                  <Button className="w-full bg-cyan-500 hover:bg-cyan-600">Call Now: 248-838-3656</Button>
+                  <Button className="w-full bg-cyan-500 hover:bg-cyan-600">Call Now: (248)-838-3686</Button>
                 </div>
               </div>
             </CardContent>
