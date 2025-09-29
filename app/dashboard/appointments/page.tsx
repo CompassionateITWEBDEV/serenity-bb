@@ -1,4 +1,4 @@
-// app/dashboard/appointments/page.tsx  — Fixed: reload after CRUD + past-date guard
+// app/dashboard/appointments/page.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -16,9 +16,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Calendar, Clock, Plus, Video, MapPin, User,
+  Calendar as CalendarIcon, Clock, Plus, Video, MapPin, User,
   CheckCircle, XCircle, AlertCircle, Edit, Trash2
 } from "lucide-react";
+
+// NEW: calendar components
+import DatePicker from "@/components/forms/DatePicker";
+import AppointmentCalendar from "@/components/calendar/AppointmentCalendar";
 
 type Appt = {
   id: string;
@@ -106,7 +110,7 @@ export default function AppointmentsPage() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "appointments", filter: `patient_id=eq.${patientId}` },
-        () => loadAppointments() // ensure UI refresh even if insert happens elsewhere
+        () => loadAppointments() // Why: reflect external CRUD instantly
       )
       .subscribe();
     return () => ch.unsubscribe();
@@ -131,7 +135,7 @@ export default function AppointmentsPage() {
   const thisWeekCount = items.filter((a) => {
     const d = new Date(a.appointment_time);
     const start = new Date(); start.setHours(0,0,0,0);
-    const day = start.getDay(); const diff = (day === 0 ? -6 : 1) - day; // Monday as week start
+    const day = start.getDay(); const diff = (day === 0 ? -6 : 1) - day; // Monday start
     start.setDate(start.getDate() + diff);
     const end = new Date(start); end.setDate(start.getDate() + 7);
     return d >= start && d < end;
@@ -177,6 +181,9 @@ export default function AppointmentsPage() {
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
+  // Today 00:00 for disabling past days in DatePicker
+  const todayStart = (() => { const t = new Date(); t.setHours(0,0,0,0); return t; })();
+
   // === CRUD ===
   async function createAppt() {
     if (!form.type || !form.date || !form.time) return;
@@ -192,7 +199,7 @@ export default function AppointmentsPage() {
     try {
       const iso = toISO(form.date, form.time);
 
-      // Optimistic UI (optional)
+      // Optimistic UI
       const temp: Appt = {
         id: `temp-${crypto.randomUUID()}`,
         patient_id: patientId!,
@@ -225,10 +232,9 @@ export default function AppointmentsPage() {
 
       if (error) {
         alert(error.message);
-        // Revert optimistic insert
-        setItems((prev) => prev.filter((r) => r.id !== temp.id));
+        setItems((prev) => prev.filter((r) => r.id !== temp.id)); // rollback
       } else {
-        await loadAppointments(); // reconcile with DB
+        await loadAppointments();
         setIsBookingOpen(false);
         setForm({ type: "", provider: "", date: "", time: "", duration: "60", location: "", isVirtual: false, title: "", notes: "" });
       }
@@ -306,7 +312,7 @@ export default function AppointmentsPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="bg-blue-100 p-3 rounded-lg">
-                <Calendar className="h-8 w-8 text-blue-600" />
+                <CalendarIcon className="h-8 w-8 text-blue-600" />
               </div>
               <div>
                 <h1 className="text-3xl font-serif font-bold text-gray-900">Appointments</h1>
@@ -340,11 +346,21 @@ export default function AppointmentsPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label>Date</Label>
-                      <Input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
+                      <DatePicker
+                        value={form.date ? new Date(form.date) : undefined}
+                        onChange={(d) =>
+                          setForm((f) => ({ ...f, date: d ? d.toISOString().slice(0, 10) : "" }))
+                        }
+                        disabled={(d) => d < todayStart} // Why: prevent past days
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label>Time</Label>
-                      <Input type="time" value={form.time} onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))} />
+                      <Input
+                        type="time"
+                        value={form.time}
+                        onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))}
+                      />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -377,11 +393,16 @@ export default function AppointmentsPage() {
           </div>
         </div>
 
+        {/* NEW: Month calendar summary */}
+        <div className="mb-8">
+          <AppointmentCalendar appointments={items} />
+        </div>
+
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card><CardContent className="p-6"><div className="flex items-center justify-between">
             <div><div className="text-2xl font-bold text-gray-900">{upcoming.length}</div><div className="text-sm text-gray-600">Upcoming</div></div>
-            <div className="bg-blue-100 p-3 rounded-lg"><Calendar className="h-6 w-6 text-blue-600" /></div>
+            <div className="bg-blue-100 p-3 rounded-lg"><CalendarIcon className="h-6 w-6 text-blue-600" /></div>
           </div></CardContent></Card>
           <Card><CardContent className="p-6"><div className="flex items-center justify-between">
             <div><div className="text-2xl font-bold text-gray-900">{thisWeekCount}</div><div className="text-sm text-gray-600">This Week</div></div>
@@ -422,7 +443,7 @@ export default function AppointmentsPage() {
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
                             <div className="flex items-center gap-2"><User className="h-4 w-4" />{a.provider || "—"}</div>
-                            <div className="flex items-center gap-2"><Calendar className="h-4 w-4" />{fmtDate(a.appointment_time)}</div>
+                            <div className="flex items-center gap-2"><CalendarIcon className="h-4 w-4" />{fmtDate(a.appointment_time)}</div>
                             <div className="flex items-center gap-2"><Clock className="h-4 w-4" />{fmtTime(a.appointment_time)} ({a.duration_min ?? 0} min)</div>
                             <div className="flex items-center gap-2">
                               {a.is_virtual ? <Video className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
@@ -465,7 +486,7 @@ export default function AppointmentsPage() {
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
                             <div className="flex items-center gap-2"><User className="h-4 w-4" />{a.provider || "—"}</div>
-                            <div className="flex items-center gap-2"><Calendar className="h-4 w-4" />{fmtDate(a.appointment_time)}</div>
+                            <div className="flex items-center gap-2"><CalendarIcon className="h-4 w-4" />{fmtDate(a.appointment_time)}</div>
                             <div className="flex items-center gap-2"><Clock className="h-4 w-4" />{fmtTime(a.appointment_time)} ({a.duration_min ?? 0} min)</div>
                             <div className="flex items-center gap-2"><MapPin className="h-4 w-4" />{a.location || "—"}</div>
                           </div>
@@ -497,8 +518,20 @@ export default function AppointmentsPage() {
             </div>
             <div className="space-y-2"><Label>Provider</Label><Input value={editForm.provider} onChange={(e) => setEditForm((f) => ({ ...f, provider: e.target.value }))} /></div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2"><Label>Date</Label><Input type="date" value={editForm.date} onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))} /></div>
-              <div className="space-y-2"><Label>Time</Label><Input type="time" value={editForm.time} onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))} /></div>
+              <div className="space-y-2">
+                <Label>Date</Label>
+                <DatePicker
+                  value={editForm.date ? new Date(editForm.date) : undefined}
+                  onChange={(d) =>
+                    setEditForm((f) => ({ ...f, date: d ? d.toISOString().slice(0, 10) : "" }))
+                  }
+                  disabled={(d) => d < todayStart}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Time</Label>
+                <Input type="time" value={editForm.time} onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))} />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2"><Label>Duration (min)</Label><Input type="number" min={5} value={editForm.duration} onChange={(e) => setEditForm((f) => ({ ...f, duration: e.target.value }))} /></div>
