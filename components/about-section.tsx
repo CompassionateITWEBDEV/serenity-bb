@@ -23,7 +23,7 @@ export function AboutSection() {
                 <p className="text-gray-600">Successful Recoveries</p>
               </div>
               <div className="bg-white p-6 rounded-xl shadow-sm">
-                <h3 className="text-2xl font-bold text-cyan-600 mb-2">15+</h3>
+                <h3 className="text-2xl font-bold text-cyan-600 mb-2">2+</h3>
                 <p className="text-gray-600">Years of Experience</p>
               </div>
               <div className="bg-white p-6 rounded-xl shadow-sm">
