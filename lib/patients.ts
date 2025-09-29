@@ -1,12 +1,12 @@
-import { supabase } from "./supabase/client";
+import { supabase } from "@/lib/supabase/client";
 
 export type StaffPatient = { id: string; name: string; email?: string | null; created_at?: string };
 
 export function displayName(p: { full_name?: string | null; first_name?: string | null; last_name?: string | null }) {
   const full = (p.full_name ?? "").trim();
   if (full) return full;
-  const name = [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
-  return name || "Unnamed Patient";
+  const combo = [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
+  return combo || "Unnamed Patient";
 }
 
 export async function fetchPatients(q?: string, limit = 500): Promise<StaffPatient[]> {
@@ -23,6 +23,7 @@ export async function fetchPatients(q?: string, limit = 500): Promise<StaffPatie
 
   const { data, error } = await query;
   if (error) throw error;
+
   return (data ?? []).map((p: any) => ({
     id: p.user_id,
     name: displayName(p),
@@ -32,7 +33,6 @@ export async function fetchPatients(q?: string, limit = 500): Promise<StaffPatie
 }
 
 export function subscribePatients(onChange: () => void) {
-  // Requires DB replication enabled for 'patients'
   const chan = supabase
     .channel("patients.realtime")
     .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, onChange)
