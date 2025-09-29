@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DayPicker } from "react-day-picker";
 import "react-day-picker/dist/style.css";
@@ -19,8 +19,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Calendar as CalendarIcon, Clock, Plus, Video, MapPin, User,
-  CheckCircle, XCircle, AlertCircle, Edit, Trash2
+  CheckCircle, XCircle, AlertCircle, Edit, Trash2,
+  Bell, AlertTriangle, Info, CheckCircle2
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 type Appt = {
   id: string;
@@ -44,6 +46,38 @@ const TYPES: NonNullable<Appt["type"]>[] = ["therapy", "group", "medical", "fami
 const todayStart = (() => { const t = new Date(); t.setHours(0,0,0,0); return t; })();
 function formatYmd(d?: Date) { return d ? new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10) : ""; }
 function parseYmd(s: string) { if (!s) return undefined; const [y,m,dd] = s.split("-").map(Number); return new Date(y, (m||1)-1, dd||1); }
+
+// --- smart alert helpers ---
+type SmartAlert = {
+  id: string;
+  variant: "default" | "destructive";
+  tone: "info" | "warn" | "ok";
+  title: string;
+  desc: string;
+  action?: JSX.Element;
+};
+
+function toISO(date: string, time: string) {
+  const [y, m, d] = date.split("-").map(Number);
+  const [hh, mm] = time.split(":").map(Number);
+  const local = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0);
+  return local.toISOString();
+}
+
+// Compute end time using duration (defaults to 60min if null/0)
+function endTime(a: Appt) {
+  const start = new Date(a.appointment_time);
+  const dur = Math.max(0, a.duration_min ?? 60);
+  return new Date(start.getTime() + dur * 60000);
+}
+function minutesBetween(a: Date, b: Date) { return Math.round((b.getTime() - a.getTime()) / 60000); }
+function isOverlap(a: Appt, b: Appt) {
+  const aStart = new Date(a.appointment_time);
+  const aEnd = endTime(a);
+  const bStart = new Date(b.appointment_time);
+  const bEnd = endTime(b);
+  return aStart < bEnd && bStart < aEnd;
+}
 
 export default function AppointmentsPage() {
   const { isAuthenticated, loading, patient, user } = useAuth();
@@ -84,16 +118,22 @@ export default function AppointmentsPage() {
   const [openCreateCal, setOpenCreateCal] = useState(false);
   const [openEditCal, setOpenEditCal] = useState(false);
 
+  // --- Smart Alert state (snooze/dismiss) ---
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [snoozes, setSnoozes] = useState<Record<string, string>>({}); // id -> ISO until
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("appt_alert_snoozes");
+      if (raw) setSnoozes(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("appt_alert_snoozes", JSON.stringify(snoozes)); } catch { /* ignore */ }
+  }, [snoozes]);
+
   // Guard: must be logged in
   useEffect(() => { if (!loading && !isAuthenticated) router.push("/login"); }, [isAuthenticated, loading, router]);
-
-  // Normalize local date+time → ISO (keeps chosen local wall time)
-  function toISO(date: string, time: string) {
-    const [y, m, d] = date.split("-").map(Number);
-    const [hh, mm] = time.split(":").map(Number);
-    const local = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0);
-    return local.toISOString();
-  }
 
   // Fetch appointments (reusable)
   const loadAppointments = useCallback(async () => {
@@ -182,6 +222,189 @@ export default function AppointmentsPage() {
   function fmtTime(iso: string) {
     const d = new Date(iso);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  // === Smart detection ===
+  const overlaps = useMemo(() => {
+    const list: { a: Appt; b: Appt }[] = [];
+    const sorted = [...upcoming].sort((x,y)=>+new Date(x.appointment_time)-+new Date(y.appointment_time));
+    for (let i=0;i<sorted.length;i++){
+      for (let j=i+1;j<sorted.length;j++){
+        if (isOverlap(sorted[i], sorted[j])) list.push({ a: sorted[i], b: sorted[j] });
+        else {
+          // once no overlap with j, further j might start even later; break if start past end
+          const end = endTime(sorted[i]);
+          const nextStart = new Date(sorted[j].appointment_time);
+          if (nextStart >= end) break;
+        }
+      }
+    }
+    return list;
+  }, [upcoming]);
+
+  const tightGaps = useMemo(() => {
+    const MIN_GAP = 10; // minutes
+    const list: { prev: Appt; next: Appt; gap: number }[] = [];
+    const s = [...upcoming].sort((x,y)=>+new Date(x.appointment_time)-+new Date(y.appointment_time));
+    for (let i=0;i<s.length-1;i++){
+      const a = s[i], b = s[i+1];
+      const gap = minutesBetween(endTime(a), new Date(b.appointment_time));
+      if (gap >= 0 && gap < MIN_GAP) list.push({ prev: a, next: b, gap });
+    }
+    return list;
+  }, [upcoming]);
+
+  const longPending = useMemo(() => {
+    const HOURS = 48;
+    const cutoff = new Date(Date.now() - HOURS*3600*1000);
+    return upcoming.filter(a => a.status === "pending" && new Date(a.created_at) < cutoff);
+  }, [upcoming]);
+
+  const heavyDays = useMemo(() => {
+    const MAX_PER_DAY = 3;
+    const byDay = new Map<string, Appt[]>();
+    upcoming.forEach(a => {
+      const key = new Date(a.appointment_time).toDateString();
+      byDay.set(key, [...(byDay.get(key)||[]), a]);
+    });
+    return [...byDay.entries()].filter(([,list]) => list.length > MAX_PER_DAY).map(([k, list]) => ({ day:k, list }));
+  }, [upcoming]);
+
+  const joinWindow = useMemo(() => {
+    const EARLY = 10, LATE = 15; // minutes
+    const nowTs = Date.now();
+    return upcoming.find(a => {
+      if (!a.is_virtual) return false;
+      const start = new Date(a.appointment_time).getTime();
+      const deltaMin = (start - nowTs)/60000;
+      const afterStartMin = (nowTs - start)/60000;
+      return (deltaMin <= EARLY && deltaMin >= -LATE);
+    });
+  }, [upcoming]);
+
+  // --- Build Smart Alerts list ---
+  const alerts = useMemo<SmartAlert[]>(() => {
+    const arr: SmartAlert[] = [];
+
+    if (joinWindow) {
+      arr.push({
+        id: `join-${joinWindow.id}`,
+        variant: "default",
+        tone: "ok",
+        title: `It's time to join "${joinWindow.title || "Virtual Appointment"}".`,
+        desc: `${fmtDate(joinWindow.appointment_time)} at ${fmtTime(joinWindow.appointment_time)}.`,
+        action: (
+          <Button size="sm" className="mt-2" onClick={()=>alert("TODO: open virtual link") /* why: depends on your link field */}>
+            <Video className="h-4 w-4 mr-2" /> Join
+          </Button>
+        )
+      });
+    }
+
+    if (overlaps.length) {
+      const first = overlaps[0];
+      arr.push({
+        id: `overlap-${first.a.id}-${first.b.id}`,
+        variant: "destructive",
+        tone: "warn",
+        title: "You've got overlapping appointments.",
+        desc: `“${first.a.title || "Appt"}” overlaps with “${first.b.title || "Appt"}”. Review and reschedule.`,
+        action: (
+          <Button size="sm" variant="outline" onClick={()=>openEdit(first.a)}>
+            <Edit className="h-4 w-4 mr-2" /> Review
+          </Button>
+        )
+      });
+    }
+
+    if (tightGaps.length) {
+      const { prev, next, gap } = tightGaps[0];
+      arr.push({
+        id: `tightgap-${prev.id}-${next.id}`,
+        variant: "default",
+        tone: "warn",
+        title: "Tight turnaround between sessions.",
+        desc: `Only ${gap} min between “${prev.title || "Appt"}” and “${next.title || "Appt"}”. Consider padding.`,
+        action: (
+          <Button size="sm" variant="outline" onClick={()=>openEdit(next)}>
+            <Edit className="h-4 w-4 mr-2" /> Adjust next
+          </Button>
+        )
+      });
+    }
+
+    if (longPending.length) {
+      const target = longPending[0];
+      arr.push({
+        id: `pending-${target.id}`,
+        variant: "default",
+        tone: "info",
+        title: "Appointment request pending > 48h.",
+        desc: `“${target.title || "Appointment"}” is still pending. Update status if confirmed.`,
+        action: (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={()=>updateStatus(target.id, "scheduled")}
+          >
+            <CheckCircle2 className="h-4 w-4 mr-2" /> Mark scheduled
+          </Button>
+        )
+      });
+    }
+
+    if (heavyDays.length) {
+      const day = heavyDays[0];
+      arr.push({
+        id: `heavy-${day.day}`,
+        variant: "default",
+        tone: "info",
+        title: "Packed day detected.",
+        desc: `${day.list.length} sessions on ${day.day}. Consider moving one to reduce overload.`,
+        action: (
+          <Button size="sm" variant="outline" onClick={()=>setIsBookingOpen(true)}>
+            <CalendarIcon className="h-4 w-4 mr-2" /> Rebalance
+          </Button>
+        )
+      });
+    }
+
+    if (!upcoming.length) {
+      arr.push({
+        id: "noupcoming",
+        variant: "default",
+        tone: "info",
+        title: "No upcoming appointments.",
+        desc: "Book your next session to stay on track.",
+        action: (
+          <Button size="sm" onClick={()=>setIsBookingOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" /> Book now
+          </Button>
+        )
+      });
+    }
+
+    return arr;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joinWindow, overlaps, tightGaps, longPending, heavyDays, upcoming.length]);
+
+  // Apply snoozes & dismissals
+  const visibleAlerts = useMemo(() => {
+    const nowIso = new Date().toISOString();
+    return alerts.filter(a => {
+      if (dismissed.has(a.id)) return false;
+      const until = snoozes[a.id];
+      if (until && until > nowIso) return false;
+      return true;
+    });
+  }, [alerts, dismissed, snoozes]);
+
+  function onDismiss(id: string) {
+    setDismissed(new Set([...dismissed, id]));
+  }
+  function onSnooze(id: string, mins: number) {
+    const until = new Date(Date.now() + mins*60000).toISOString();
+    setSnoozes(prev => ({ ...prev, [id]: until }));
   }
 
   // === CRUD ===
@@ -298,6 +521,36 @@ export default function AppointmentsPage() {
       <DashboardHeader patient={patient} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Smart Alerts */}
+        {visibleAlerts.length > 0 && (
+          <div className="space-y-3 mb-6">
+            {visibleAlerts.map(a => {
+              const Icon = a.tone === "warn" ? AlertTriangle : a.tone === "ok" ? CheckCircle2 : Info;
+              return (
+                <Alert key={a.id} variant={a.variant}>
+                  <div className="flex items-start gap-3">
+                    <Icon className="h-5 w-5 mt-0.5" />
+                    <div className="flex-1">
+                      <AlertTitle className="flex items-center gap-2">
+                        <Bell className="h-4 w-4" /> {a.title}
+                      </AlertTitle>
+                      <AlertDescription className="text-sm text-gray-700">
+                        {a.desc}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {a.action}
+                          <Button size="sm" variant="ghost" onClick={()=>onSnooze(a.id, 60)}>Snooze 1h</Button>
+                          <Button size="sm" variant="ghost" onClick={()=>onSnooze(a.id, 60*24)}>Snooze 1d</Button>
+                          <Button size="sm" variant="ghost" onClick={()=>onDismiss(a.id)}>Dismiss</Button>
+                        </div>
+                      </AlertDescription>
+                    </div>
+                  </div>
+                </Alert>
+              );
+            })}
+          </div>
+        )}
+
         <div className="mb-8">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
