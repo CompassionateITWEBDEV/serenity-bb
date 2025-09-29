@@ -16,7 +16,6 @@ type Props = {
   className?: string;
 };
 
-// Why: Reusable, accessible date selector used by forms and dialogs.
 export default function DatePicker({ value, onChange, placeholder = "Pick a date", disabled, className }: Props) {
   const [open, setOpen] = React.useState(false);
 
@@ -25,11 +24,7 @@ export default function DatePicker({ value, onChange, placeholder = "Pick a date
       <PopoverTrigger asChild>
         <Button
           variant="outline"
-          className={cn(
-            "w-full justify-start text-left font-normal h-10",
-            !value && "text-gray-500",
-            className
-          )}
+          className={cn("w-full justify-start text-left font-normal h-10", !value && "text-gray-500", className)}
         >
           <CalendarIcon className="mr-2 h-4 w-4" />
           {value ? format(value, "EEE, dd MMM yyyy") : <span>{placeholder}</span>}
@@ -40,7 +35,7 @@ export default function DatePicker({ value, onChange, placeholder = "Pick a date
           selected={value}
           onSelect={(d) => {
             onChange(d);
-            setOpen(false);
+            setOpen(false); // close after pick
           }}
           disabled={disabled}
         />
