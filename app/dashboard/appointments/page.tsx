@@ -24,12 +24,12 @@ import {
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-/* ============================ Types ============================ */
+/* =============== Types =============== */
 
 type Appt = {
   id: string;
   patient_id: string;
-  appointment_time: string; // ISO
+  appointment_time: string;
   status: "scheduled" | "confirmed" | "pending" | "cancelled" | "completed";
   title: string | null;
   provider: string | null;
@@ -53,30 +53,20 @@ type AlertModel = {
   action?: { kind: "join" | "edit" | "scheduled" | "rebalance" | "book"; apptId?: string };
 };
 
-/* ============================ Date utils ============================ */
+/* =============== Utils =============== */
 
 const todayStart = (() => { const t = new Date(); t.setHours(0,0,0,0); return t; })();
 function formatYmd(d?: Date) { return d ? new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10) : ""; }
 function parseYmd(s: string) { if (!s) return undefined; const [y,m,dd] = s.split("-").map(Number); return new Date(y, (m||1)-1, dd||1); }
-function toISO(date: string, time: string) {
-  const [y, m, d] = date.split("-").map(Number);
-  const [hh, mm] = time.split(":").map(Number);
-  const local = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0);
-  return local.toISOString();
-}
+function toISO(date: string, time: string) { const [y,m,dd] = date.split("-").map(Number); const [hh,mm] = time.split(":").map(Number); return new Date(y,(m||1)-1,dd||1,hh||0,mm||0).toISOString(); }
 
-/* ====================== SweetAlert2 helpers ====================== */
-
-async function swal<T = any>(opts: T) {
-  const Swal = (await import("sweetalert2")).default;
-  return Swal.fire(opts as any);
-}
+async function swal<T = any>(opts: T) { const Swal = (await import("sweetalert2")).default; return Swal.fire(opts as any); }
 async function swalToast(title: string, icon: "success" | "error" | "warning" | "info") {
   const Swal = (await import("sweetalert2")).default;
   const Toast = Swal.mixin({ toast: true, position: "top-end", showConfirmButton: false, timer: 2200, timerProgressBar: true });
   return Toast.fire({ icon, title });
 }
-async function swalConfirm(opts?: Partial<{title:string; text?:string; confirmText?:string; confirmColor?:string; icon?: "warning"|"question"}>) {
+async function swalConfirm(opts?: Partial<{ title: string; text?: string; confirmText?: string; confirmColor?: string; icon?: "warning"|"question" }>) {
   const Swal = (await import("sweetalert2")).default;
   return Swal.fire({
     title: opts?.title || "Are you sure?",
@@ -90,11 +80,9 @@ async function swalConfirm(opts?: Partial<{title:string; text?:string; confirmTe
   });
 }
 
-/* ============================ Helpers ============================ */
-
 function endTime(a: Appt) { const start = new Date(a.appointment_time); const dur = Math.max(0, a.duration_min ?? 60); return new Date(start.getTime() + dur * 60000); }
 function minutesBetween(a: Date, b: Date) { return Math.round((b.getTime() - a.getTime()) / 60000); }
-function isOverlap(a: Appt, b: Appt) { const aStart = new Date(a.appointment_time), aEnd = endTime(a), bStart = new Date(b.appointment_time), bEnd = endTime(b); return aStart < bEnd && bStart < aEnd; }
+function isOverlap(a: Appt, b: Appt) { const aS = new Date(a.appointment_time), aE = endTime(a), bS = new Date(b.appointment_time), bE = endTime(b); return aS < bE && bS < aE; }
 
 function getStatusColor(status: Appt["status"]) {
   switch (status) {
@@ -123,7 +111,17 @@ function getTypeColor(t?: string | null) {
 function fmtDate(iso: string) { return new Date(iso).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }); }
 function fmtTime(iso: string) { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
 
-/* ============================ Page ============================ */
+/* Avoid `as ...` in JSX */
+function toStatus(v: string): Appt["status"] {
+  const allowed: Appt["status"][] = ["pending", "scheduled", "confirmed", "completed", "cancelled"];
+  return (allowed.includes(v as any) ? v : "scheduled") as Appt["status"];
+}
+function toType(v: string): NonNullable<Appt["type"]> {
+  const allowed: NonNullable<Appt["type"]>[] = ["therapy", "group", "medical", "family", "assessment"];
+  return (allowed.includes(v as any) ? v : "therapy") as NonNullable<Appt["type"]>;
+}
+
+/* =============== Page =============== */
 
 export default function AppointmentsPage() {
   const { isAuthenticated, loading, patient, user } = useAuth();
@@ -147,7 +145,7 @@ export default function AppointmentsPage() {
     notes: "",
   });
   const [editForm, setEditForm] = useState({
-    id: "" as string,
+    id: "",
     type: "" as NonNullable<Appt["type"]> | "",
     provider: "",
     date: "",
@@ -206,6 +204,7 @@ export default function AppointmentsPage() {
   }
   if (!isAuthenticated || !patientId || !patient) return null;
 
+  /* Derived lists */
   const now = new Date();
   const upcoming = items.filter((a) => new Date(a.appointment_time) >= now && a.status !== "cancelled");
   const history = items.filter((a) => new Date(a.appointment_time) < now || a.status === "completed" || a.status === "cancelled");
@@ -225,8 +224,7 @@ export default function AppointmentsPage() {
     return Math.round((attended / total) * 100);
   })();
 
-  /* ---------------- Smart detections ---------------- */
-
+  /* Smart checks */
   const sortedUpcoming = [...upcoming].sort((x,y)=>+new Date(x.appointment_time)-+new Date(y.appointment_time));
 
   let overlapPair: { a: Appt; b: Appt } | undefined;
@@ -254,8 +252,7 @@ export default function AppointmentsPage() {
   const EARLY = 10, LATE = 15; const nowTs = Date.now();
   const joinSoon = sortedUpcoming.find(a => a.is_virtual && ((new Date(a.appointment_time).getTime() - nowTs)/60000 <= EARLY) && ((nowTs - new Date(a.appointment_time).getTime())/60000 <= LATE));
 
-  /* ---------------- Build alert models ---------------- */
-
+  /* Build alert models */
   const alertModels: AlertModel[] = [];
   if (joinSoon) alertModels.push({
     id: `join-${joinSoon.id}`, variant: "default", tone: "ok",
@@ -296,20 +293,17 @@ export default function AppointmentsPage() {
     action: { kind: "book" }
   });
 
-  /* ---------------- Snooze/Dismiss ---------------- */
-
+  /* Snooze/Dismiss */
   const nowIso = new Date().toISOString();
   function isVisible(id: string) { if (dismissed.has(id)) return false; const until = snoozes[id]; return !until || until <= nowIso; }
   function snooze(id: string, mins: number) { const until = new Date(Date.now() + mins*60000).toISOString(); setSnoozes(prev => ({ ...prev, [id]: until })); }
   function dismiss(id: string) { setDismissed(new Set([...dismissed, id])); }
 
-  /* ---------------- CRUD ---------------- */
-
+  /* CRUD */
   async function createAppt() {
     if (!form.type || !form.date || !form.time) { await swal({ icon: "warning", title: "Missing info", text: "Type, Date and Time are required." }); return; }
     const selected = new Date(`${form.date}T${form.time}:00`);
     if (selected < new Date()) { await swal({ icon: "info", title: "Pick a future time" }); return; }
-
     setBusy(true);
     try {
       const iso = toISO(form.date, form.time);
@@ -321,7 +315,7 @@ export default function AppointmentsPage() {
         title: form.title || "Appointment",
         provider: form.provider || null,
         duration_min: Number(form.duration) || null,
-        type: form.type,
+        type: form.type || null,
         location: form.isVirtual ? "Virtual Meeting" : (form.location || null),
         is_virtual: form.isVirtual,
         notes: form.notes || null,
@@ -337,7 +331,7 @@ export default function AppointmentsPage() {
         title: form.title || null,
         provider: form.provider || null,
         duration_min: Number(form.duration) || null,
-        type: form.type,
+        type: form.type || null,
         location: form.isVirtual ? "Virtual Meeting" : form.location || null,
         is_virtual: form.isVirtual,
         notes: form.notes || null,
@@ -357,13 +351,12 @@ export default function AppointmentsPage() {
 
   function openEdit(a: Appt) {
     const d = new Date(a.appointment_time);
-    const date = d.toISOString().slice(0,10);
-    const time = d.toTimeString().slice(0,5);
     setEditForm({
       id: a.id,
       type: (a.type || "") as any,
       provider: a.provider || "",
-      date, time,
+      date: d.toISOString().slice(0,10),
+      time: d.toTimeString().slice(0,5),
       duration: String(a.duration_min ?? "60"),
       location: a.location || "",
       isVirtual: !!a.is_virtual,
@@ -406,7 +399,6 @@ export default function AppointmentsPage() {
   async function deleteAppt(id: string) {
     const ans = await swalConfirm({ title: "Delete appointment?", text: "This cannot be undone.", confirmText: "Delete", confirmColor: "#dc2626", icon: "warning" });
     if (!ans.isConfirmed) return;
-
     const prev = items;
     setItems((list) => list.filter((a) => a.id !== id));
     const { error } = await supabase.from("appointments").delete().eq("id", id).eq("patient_id", patientId);
@@ -424,14 +416,13 @@ export default function AppointmentsPage() {
     else { await loadAppointments(); await swalToast(status === "cancelled" ? "Appointment cancelled" : "Status updated", "success"); }
   }
 
-  /* ---------------- UI ---------------- */
+  /* =================== UI =================== */
 
   return (
     <div className="min-h-screen bg-gray-50">
       <DashboardHeader patient={patient} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
         {/* Smart Alerts */}
         {alertModels.filter(a => isVisible(a.id)).length > 0 && (
           <div className="space-y-3 mb-6">
@@ -456,7 +447,7 @@ export default function AppointmentsPage() {
                             <Button size="sm" variant="outline" onClick={()=>openEditById(a.action?.apptId)}><Edit className="h-4 w-4 mr-2" /> Review</Button>
                           )}
                           {a.action?.kind === "scheduled" && a.action.apptId && (
-                            <Button size="sm" variant="outline" onClick={()=>updateStatus(a.action!.apptId!, "scheduled")}><CheckCircle2 className="h-4 w-4 mr-2" /> Mark scheduled</Button>
+                            <Button size="sm" variant="outline" onClick={()=>updateStatus(a.action.apptId, "scheduled")}><CheckCircle2 className="h-4 w-4 mr-2" /> Mark scheduled</Button>
                           )}
                           {a.action?.kind === "rebalance" && (
                             <Button size="sm" variant="outline" onClick={()=>setIsBookingOpen(true)}><CalendarIcon className="h-4 w-4 mr-2" /> Rebalance</Button>
@@ -500,7 +491,7 @@ export default function AppointmentsPage() {
                   <div className="space-y-2"><Label>Title</Label><Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g., Individual Therapy Session" /></div>
                   <div className="space-y-2">
                     <Label>Appointment Type</Label>
-                    <Select value={form.type} onValueChange={(v) => setForm((f) => ({ ...f, type: v as any }))}>
+                    <Select value={form.type} onValueChange={(v) => setForm((f) => ({ ...f, type: toType(v) }))}>
                       <SelectTrigger><SelectValue placeholder="Select appointment type" /></SelectTrigger>
                       <SelectContent>{TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
                     </Select>
@@ -639,7 +630,7 @@ export default function AppointmentsPage() {
             <div className="space-y-2"><Label>Title</Label><Input value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} /></div>
             <div className="space-y-2">
               <Label>Type</Label>
-              <Select value={editForm.type} onValueChange={(v) => setEditForm((f) => ({ ...f, type: v as any }))}>
+              <Select value={editForm.type} onValueChange={(v) => setEditForm((f) => ({ ...f, type: toType(v) }))}>
                 <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                 <SelectContent>{TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
               </Select>
@@ -676,7 +667,7 @@ export default function AppointmentsPage() {
             <div className="flex items-center gap-2"><input id="edit_isVirtual" type="checkbox" checked={editForm.isVirtual} onChange={(e) => setEditForm((f) => ({ ...f, isVirtual: e.target.checked }))} /><Label htmlFor="edit_isVirtual">Virtual</Label></div>
             <div className="space-y-2">
               <Label>Status</Label>
-              <Select value={editForm.status} onValueChange={(v) => setEditForm((f) => ({ ...f, status: v as Appt["status"] }))}>
+              <Select value={editForm.status} onValueChange={(v) => setEditForm((f) => ({ ...f, status: toStatus(v) }))}>
                 <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
                 <SelectContent>{["pending","scheduled","confirmed","completed","cancelled"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
               </Select>
@@ -688,4 +679,3 @@ export default function AppointmentsPage() {
       </Dialog>
     </div>
   );
-}
