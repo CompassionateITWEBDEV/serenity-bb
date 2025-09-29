@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { DayPicker } from "react-day-picker";
+import "react-day-picker/dist/style.css";
+
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase/client";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
@@ -36,6 +39,11 @@ type Appt = {
 };
 
 const TYPES: NonNullable<Appt["type"]>[] = ["therapy", "group", "medical", "family", "assessment"];
+
+// --- local date utils (why: consistent YYYY-MM-DD handling) ---
+const todayStart = (() => { const t = new Date(); t.setHours(0,0,0,0); return t; })();
+function formatYmd(d?: Date) { return d ? new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10) : ""; }
+function parseYmd(s: string) { if (!s) return undefined; const [y,m,dd] = s.split("-").map(Number); return new Date(y, (m||1)-1, dd||1); }
 
 export default function AppointmentsPage() {
   const { isAuthenticated, loading, patient, user } = useAuth();
@@ -72,10 +80,12 @@ export default function AppointmentsPage() {
     status: "scheduled" as Appt["status"],
   });
 
+  // calendar dropdown state
+  const [openCreateCal, setOpenCreateCal] = useState(false);
+  const [openEditCal, setOpenEditCal] = useState(false);
+
   // Guard: must be logged in
-  useEffect(() => {
-    if (!loading && !isAuthenticated) router.push("/login");
-  }, [isAuthenticated, loading, router]);
+  useEffect(() => { if (!loading && !isAuthenticated) router.push("/login"); }, [isAuthenticated, loading, router]);
 
   // Normalize local date+time → ISO (keeps chosen local wall time)
   function toISO(date: string, time: string) {
@@ -89,8 +99,7 @@ export default function AppointmentsPage() {
   const loadAppointments = useCallback(async () => {
     if (!patientId) return;
     const { data, error } = await supabase
-      .from("appointments")
-      .select("*")
+      .from("appointments").select("*")
       .eq("patient_id", patientId)
       .order("appointment_time", { ascending: true });
     if (!error) setItems((data as Appt[]) || []);
@@ -102,8 +111,7 @@ export default function AppointmentsPage() {
     void loadAppointments();
     const ch = supabase
       .channel(`appt_${patientId}`)
-      .on(
-        "postgres_changes",
+      .on("postgres_changes",
         { event: "*", schema: "public", table: "appointments", filter: `patient_id=eq.${patientId}` },
         () => loadAppointments()
       )
@@ -130,7 +138,7 @@ export default function AppointmentsPage() {
   const thisWeekCount = items.filter((a) => {
     const d = new Date(a.appointment_time);
     const start = new Date(); start.setHours(0,0,0,0);
-    const day = start.getDay(); const diff = (day === 0 ? -6 : 1) - day; // Monday as week start
+    const day = start.getDay(); const diff = (day === 0 ? -6 : 1) - day; // Monday start
     start.setDate(start.getDate() + diff);
     const end = new Date(start); end.setDate(start.getDate() + 7);
     return d >= start && d < end;
@@ -176,26 +184,16 @@ export default function AppointmentsPage() {
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
-  // Today 00:00 + YYYY-MM-DD for <input min>
-  const todayStart = (() => { const t = new Date(); t.setHours(0,0,0,0); return t; })();
-  const todayStr = todayStart.toISOString().slice(0, 10);
-
   // === CRUD ===
   async function createAppt() {
     if (!form.type || !form.date || !form.time) return;
 
-    // Prevent past bookings (date+time)
     const selected = new Date(`${form.date}T${form.time}:00`);
-    if (selected < new Date()) {
-      alert("Please pick a future date/time.");
-      return;
-    }
+    if (selected < new Date()) { alert("Please pick a future date/time."); return; }
 
     setBusy(true);
     try {
       const iso = toISO(form.date, form.time);
-
-      // Optimistic UI
       const temp: Appt = {
         id: `temp-${crypto.randomUUID()}`,
         patient_id: patientId!,
@@ -228,7 +226,7 @@ export default function AppointmentsPage() {
 
       if (error) {
         alert(error.message);
-        setItems((prev) => prev.filter((r) => r.id !== temp.id)); // rollback
+        setItems((prev) => prev.filter((r) => r.id !== temp.id));
       } else {
         await loadAppointments();
         setIsBookingOpen(false);
@@ -286,16 +284,12 @@ export default function AppointmentsPage() {
     const prev = items;
     setItems((list) => list.filter((a) => a.id !== id));
     const { error } = await supabase.from("appointments").delete().eq("id", id).eq("patient_id", patientId);
-    if (error) {
-      alert(error.message);
-      setItems(prev); // rollback
-    }
+    if (error) { alert(error.message); setItems(prev); }
   }
 
   async function updateStatus(id: string, status: Appt["status"]) {
     const { error } = await supabase.from("appointments").update({ status }).eq("id", id).eq("patient_id", patientId);
-    if (error) alert(error.message);
-    else await loadAppointments();
+    if (error) alert(error.message); else await loadAppointments();
   }
 
   // === UI ===
@@ -339,16 +333,38 @@ export default function AppointmentsPage() {
                     <Label>Provider</Label>
                     <Input value={form.provider} onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value }))} placeholder="e.g., Dr. Sarah Johnson" />
                   </div>
+
+                  {/* Date + Time */}
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
+                    <div className="space-y-2 relative">
                       <Label>Date</Label>
-                      <Input
-                        type="date"
-                        min={todayStr}
-                        value={form.date}
-                        onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full justify-start"
+                        onClick={() => setOpenCreateCal((s) => !s)}
+                      >
+                        <CalendarIcon className="h-4 w-4 mr-2" />
+                        {form.date ? new Date(form.date).toLocaleDateString() : "Pick a date"}
+                      </Button>
+                      {openCreateCal && (
+                        <div className="absolute z-50 mt-2 rounded-2xl border bg-white shadow-lg">
+                          <DayPicker
+                            mode="single"
+                            selected={parseYmd(form.date)}
+                            onSelect={(d) => {
+                              if (!d) return;
+                              if (d < todayStart) return; // block past
+                              setForm((f) => ({ ...f, date: formatYmd(d) }));
+                              setOpenCreateCal(false);
+                            }}
+                            disabled={{ before: todayStart }}
+                            showOutsideDays
+                          />
+                        </div>
+                      )}
                     </div>
+
                     <div className="space-y-2">
                       <Label>Time</Label>
                       <Input
@@ -358,6 +374,7 @@ export default function AppointmentsPage() {
                       />
                     </div>
                   </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label>Duration (min)</Label>
@@ -414,6 +431,7 @@ export default function AppointmentsPage() {
             <TabsTrigger value="history">Appointment History</TabsTrigger>
           </TabsList>
 
+        {/* Upcoming */}
           <TabsContent value="upcoming" className="space-y-6">
             <div className="space-y-4">
               {upcoming.map((a) => {
@@ -457,6 +475,7 @@ export default function AppointmentsPage() {
             </div>
           </TabsContent>
 
+        {/* History */}
           <TabsContent value="history" className="space-y-6">
             <div className="space-y-4">
               {history.map((a) => {
@@ -507,21 +526,43 @@ export default function AppointmentsPage() {
               </Select>
             </div>
             <div className="space-y-2"><Label>Provider</Label><Input value={editForm.provider} onChange={(e) => setEditForm((f) => ({ ...f, provider: e.target.value }))} /></div>
+
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
+              <div className="space-y-2 relative">
                 <Label>Date</Label>
-                <Input
-                  type="date"
-                  min={todayStr}
-                  value={editForm.date}
-                  onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))}
-                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={() => setOpenEditCal((s) => !s)}
+                >
+                  <CalendarIcon className="h-4 w-4 mr-2" />
+                  {editForm.date ? new Date(editForm.date).toLocaleDateString() : "Pick a date"}
+                </Button>
+                {openEditCal && (
+                  <div className="absolute z-50 mt-2 rounded-2xl border bg-white shadow-lg">
+                    <DayPicker
+                      mode="single"
+                      selected={parseYmd(editForm.date)}
+                      onSelect={(d) => {
+                        if (!d) return;
+                        if (d < todayStart) return;
+                        setEditForm((f) => ({ ...f, date: formatYmd(d) }));
+                        setOpenEditCal(false);
+                      }}
+                      disabled={{ before: todayStart }}
+                      showOutsideDays
+                    />
+                  </div>
+                )}
               </div>
+
               <div className="space-y-2">
                 <Label>Time</Label>
                 <Input type="time" value={editForm.time} onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))} />
               </div>
             </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2"><Label>Duration (min)</Label><Input type="number" min={5} value={editForm.duration} onChange={(e) => setEditForm((f) => ({ ...f, duration: e.target.value }))} /></div>
               <div className="space-y-2"><Label>Location</Label><Input value={editForm.location} onChange={(e) => setEditForm((f) => ({ ...f, location: e.target.value }))} /></div>
