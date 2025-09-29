@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { JSX } from "react";
 import { useRouter } from "next/navigation";
 import { DayPicker } from "react-day-picker";
 import "react-day-picker/dist/style.css";
@@ -205,7 +206,7 @@ export default function AppointmentsPage() {
   const thisWeekCount = items.filter((a) => {
     const d = new Date(a.appointment_time);
     const start = new Date(); start.setHours(0,0,0,0);
-    const day = start.getDay(); const diff = (day === 0 ? -6 : 1) - day;
+    const day = start.getDay(); const diff = (day === 0 ? -6 : 1) - day; // Monday start
     start.setDate(start.getDate() + diff);
     const end = new Date(start); end.setDate(start.getDate() + 7);
     return d >= start && d < end;
@@ -217,8 +218,9 @@ export default function AppointmentsPage() {
     return Math.round((attended / total) * 100);
   })();
 
-  // ---- Smart checks (same as before, trimmed for brevity) ----
+  // ---- Smart checks (simple) ----
   const sortedUpcoming = [...upcoming].sort((x,y)=>+new Date(x.appointment_time)-+new Date(y.appointment_time));
+
   let overlapPair: { a: Appt; b: Appt } | undefined;
   for (let i=0;i<sortedUpcoming.length && !overlapPair;i++){
     for (let j=i+1;j<sortedUpcoming.length;j++){
@@ -226,6 +228,7 @@ export default function AppointmentsPage() {
       if (new Date(sortedUpcoming[j].appointment_time) >= endTime(sortedUpcoming[i])) break;
     }
   }
+
   const MIN_GAP = 10;
   let tightGap: { prev: Appt; next: Appt; gap: number } | undefined;
   for (let i=0;i<sortedUpcoming.length-1;i++){
@@ -233,15 +236,69 @@ export default function AppointmentsPage() {
     const gap = minutesBetween(endTime(prev), new Date(next.appointment_time));
     if (gap >= 0 && gap < MIN_GAP) { tightGap = { prev, next, gap }; break; }
   }
+
   const pendingOld = sortedUpcoming.find(a => a.status === "pending" && new Date(a.created_at) < new Date(Date.now() - 48*3600*1000));
-  const byDay = new Map<string, Appt[]>(); sortedUpcoming.forEach(a => { const k = new Date(a.appointment_time).toDateString(); byDay.set(k, [...(byDay.get(k)||[]), a]); });
+
+  const byDay = new Map<string, Appt[]>(); 
+  sortedUpcoming.forEach(a => { const k = new Date(a.appointment_time).toDateString(); byDay.set(k, [...(byDay.get(k)||[]), a]); });
   const heavy = [...byDay.entries()].find(([,list]) => list.length > 3);
+
   const EARLY = 10, LATE = 15; const nowTs = Date.now();
   const joinSoon = sortedUpcoming.find(a => a.is_virtual && ((new Date(a.appointment_time).getTime() - nowTs)/60000 <= EARLY) && ((nowTs - new Date(a.appointment_time).getTime())/60000 <= LATE));
 
-  // ---- Sweet Alerts visibility control ----
+  // ---- Build alert models (plain data) ----
+  type AlertModel = {
+    id: string;
+    variant: "default" | "destructive";
+    tone: "info" | "warn" | "ok";
+    title: string;
+    desc: string;
+    action: { kind: "join" | "edit" | "scheduled" | "rebalance" | "book"; apptId?: string } | null;
+  };
+
+  const alertModels: AlertModel[] = [];
+  if (joinSoon) alertModels.push({
+    id: `join-${joinSoon.id}`, variant: "default", tone: "ok",
+    title: `It's time to join "${joinSoon.title || "Virtual Appointment"}".`,
+    desc: `${fmtDate(joinSoon.appointment_time)} at ${fmtTime(joinSoon.appointment_time)}.`,
+    action: { kind: "join", apptId: joinSoon.id }
+  });
+  if (overlapPair) alertModels.push({
+    id: `overlap-${overlapPair.a.id}-${overlapPair.b.id}`, variant: "destructive", tone: "warn",
+    title: "You've got overlapping appointments.",
+    desc: `“${overlapPair.a.title || "Appt"}” overlaps with “${overlapPair.b.title || "Appt"}”. Review and reschedule.`,
+    action: { kind: "edit", apptId: overlapPair.a.id }
+  });
+  if (tightGap) alertModels.push({
+    id: `tightgap-${tightGap.prev.id}-${tightGap.next.id}`, variant: "default", tone: "warn",
+    title: "Tight turnaround between sessions.",
+    desc: `Only ${tightGap.gap} min between “${tightGap.prev.title || "Appt"}” and “${tightGap.next.title || "Appt"}”. Consider padding.`,
+    action: { kind: "edit", apptId: tightGap.next.id }
+  });
+  if (pendingOld) alertModels.push({
+    id: `pending-${pendingOld.id}`, variant: "default", tone: "info",
+    title: "Appointment request pending > 48h.",
+    desc: `“${pendingOld.title || "Appointment"}” is still pending. Update status if confirmed.`,
+    action: { kind: "scheduled", apptId: pendingOld.id }
+  });
+  if (heavy) {
+    const [day, list] = heavy;
+    alertModels.push({
+      id: `heavy-${day}`, variant: "default", tone: "info",
+      title: "Packed day detected.",
+      desc: `${list.length} sessions on ${day}. Consider moving one to reduce overload.`,
+      action: { kind: "rebalance" }
+    });
+  }
+  if (!sortedUpcoming.length) alertModels.push({
+    id: "noupcoming", variant: "default", tone: "info",
+    title: "No upcoming appointments.", desc: "Book your next session to stay on track.",
+    action: { kind: "book" }
+  });
+
+  // ---- Snooze / Dismiss ----
   const nowIso = new Date().toISOString();
-  function isVisible(id: string) { const until = snoozes[id]; return !until || until <= nowIso; }
+  function isVisible(id: string) { const until = snoozes[id]; if (dismissed.has(id)) return false; return !until || until <= nowIso; }
   function snooze(id: string, mins: number) { const until = new Date(Date.now() + mins*60000).toISOString(); setSnoozes(prev => ({ ...prev, [id]: until })); }
   function dismiss(id: string) { setDismissed(new Set([...dismissed, id])); }
 
@@ -320,7 +377,7 @@ export default function AppointmentsPage() {
 
   async function openEditById(id?: string) {
     const a = items.find(x => x.id === id);
-    if (a) await openEdit(a);
+    if (a) openEdit(a);
   }
 
   async function saveEdit() {
@@ -355,7 +412,7 @@ export default function AppointmentsPage() {
   }
 
   async function deleteAppt(id: string) {
-    const ans = await swalConfirm({ title: "Delete appointment?", text: "This action cannot be undone.", confirmText: "Delete", confirmColor: "#dc2626", icon: "warning" });
+    const ans = await swalConfirm({ title: "Delete appointment?", text: "This cannot be undone.", confirmText: "Delete", confirmColor: "#dc2626", icon: "warning" });
     if (!ans.isConfirmed) return;
 
     const prev = items;
@@ -366,7 +423,6 @@ export default function AppointmentsPage() {
   }
 
   async function updateStatus(id: string, status: Appt["status"]) {
-    // confirm cancellation only (why: destructive)
     if (status === "cancelled") {
       const ans = await swalConfirm({ title: "Cancel this appointment?", confirmText: "Cancel appointment", confirmColor: "#dc2626" });
       if (!ans.isConfirmed) return;
@@ -385,160 +441,51 @@ export default function AppointmentsPage() {
       <DashboardHeader patient={patient} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
         {/* Smart Alerts */}
-        <div className="space-y-3 mb-6">
-          {/* Join window */}
-          {(() => {
-            const id = "joinSoon";
-            const EARLY = 10, LATE = 15; const nowTs = Date.now();
-            const join = sortedUpcoming.find(a => a.is_virtual && ((new Date(a.appointment_time).getTime() - nowTs)/60000 <= EARLY) && ((nowTs - new Date(a.appointment_time).getTime())/60000 <= LATE));
-            if (!join || dismissed.has(id) || !isVisible(id)) return null;
-            return (
-              <Alert variant="default" key={id}>
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 className="h-5 w-5 mt-0.5" />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 font-medium"><Bell className="h-4 w-4" /><span>It's time to join "{join.title || "Virtual Appointment"}".</span></div>
-                    <AlertDescription className="text-sm text-gray-700">
-                      {fmtDate(join.appointment_time)} at {fmtTime(join.appointment_time)}.
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Button size="sm" onClick={()=>swalToast("Open your meeting link field", "info")}><Video className="h-4 w-4 mr-2" /> Join</Button>
-                        <Button size="sm" variant="ghost" onClick={()=>snooze(id,60)}>Snooze 1h</Button>
-                        <Button size="sm" variant="ghost" onClick={()=>dismiss(id)}>Dismiss</Button>
+        {alertModels.filter(a => isVisible(a.id)).length > 0 && (
+          <div className="space-y-3 mb-6">
+            {alertModels.filter(a => isVisible(a.id)).map((a) => {
+              const Icon = a.tone === "warn" ? AlertTriangle : a.tone === "ok" ? CheckCircle2 : Info;
+              return (
+                <Alert key={a.id} variant={a.variant}>
+                  <div className="flex items-start gap-3">
+                    <Icon className="h-5 w-5 mt-0.5" />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 font-medium">
+                        <Bell className="h-4 w-4" />
+                        <span>{a.title}</span>
                       </div>
-                    </AlertDescription>
+                      <AlertDescription className="text-sm text-gray-700">
+                        {a.desc}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {a.action?.kind === "join" && (
+                            <Button size="sm" onClick={()=>swalToast("Open your meeting link", "info")}><Video className="h-4 w-4 mr-2" /> Join</Button>
+                          )}
+                          {a.action?.kind === "edit" && (
+                            <Button size="sm" variant="outline" onClick={()=>openEditById(a.action?.apptId)}><Edit className="h-4 w-4 mr-2" /> Review</Button>
+                          )}
+                          {a.action?.kind === "scheduled" && a.action.apptId && (
+                            <Button size="sm" variant="outline" onClick={()=>updateStatus(a.action!.apptId!, "scheduled")}><CheckCircle2 className="h-4 w-4 mr-2" /> Mark scheduled</Button>
+                          )}
+                          {a.action?.kind === "rebalance" && (
+                            <Button size="sm" variant="outline" onClick={()=>setIsBookingOpen(true)}><CalendarIcon className="h-4 w-4 mr-2" /> Rebalance</Button>
+                          )}
+                          {a.action?.kind === "book" && (
+                            <Button size="sm" onClick={()=>setIsBookingOpen(true)}><Plus className="h-4 w-4 mr-2" /> Book now</Button>
+                          )}
+                          <Button size="sm" variant="ghost" onClick={()=>snooze(a.id, 60)}>Snooze 1h</Button>
+                          <Button size="sm" variant="ghost" onClick={()=>snooze(a.id, 60*24)}>Snooze 1d</Button>
+                          <Button size="sm" variant="ghost" onClick={()=>dismiss(a.id)}>Dismiss</Button>
+                        </div>
+                      </AlertDescription>
+                    </div>
                   </div>
-                </div>
-              </Alert>
-            );
-          })()}
-
-          {/* Overlap */}
-          {(() => {
-            if (!overlapPair) return null;
-            const id = `overlap-${overlapPair.a.id}-${overlapPair.b.id}`;
-            if (dismissed.has(id) || !isVisible(id)) return null;
-            return (
-              <Alert key={id} variant="destructive">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="h-5 w-5 mt-0.5" />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 font-medium"><Bell className="h-4 w-4" /><span>You've got overlapping appointments.</span></div>
-                    <AlertDescription className="text-sm text-gray-700">
-                      “{overlapPair.a.title || "Appt"}” overlaps with “{overlapPair.b.title || "Appt"}”.
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" onClick={()=>openEdit(overlapPair!.a)}><Edit className="h-4 w-4 mr-2" /> Review</Button>
-                        <Button size="sm" variant="ghost" onClick={()=>snooze(id,60*24)}>Snooze 1d</Button>
-                        <Button size="sm" variant="ghost" onClick={()=>dismiss(id)}>Dismiss</Button>
-                      </div>
-                    </AlertDescription>
-                  </div>
-                </div>
-              </Alert>
-            );
-          })()}
-
-          {/* Tight gap */}
-          {(() => {
-            if (!tightGap) return null;
-            const id = `tightgap-${tightGap.prev.id}-${tightGap.next.id}`;
-            if (dismissed.has(id) || !isVisible(id)) return null;
-            return (
-              <Alert key={id} variant="default">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="h-5 w-5 mt-0.5" />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 font-medium"><Bell className="h-4 w-4" /><span>Tight turnaround between sessions.</span></div>
-                    <AlertDescription className="text-sm text-gray-700">
-                      Only {tightGap.gap} min between “{tightGap.prev.title || "Appt"}” and “{tightGap.next.title || "Appt"}”.
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" onClick={()=>openEditById(tightGap!.next.id)}><Edit className="h-4 w-4 mr-2" /> Adjust next</Button>
-                        <Button size="sm" variant="ghost" onClick={()=>snooze(id,120)}>Snooze 2h</Button>
-                        <Button size="sm" variant="ghost" onClick={()=>dismiss(id)}>Dismiss</Button>
-                      </div>
-                    </AlertDescription>
-                  </div>
-                </div>
-              </Alert>
-            );
-          })()}
-
-          {/* Pending too long */}
-          {(() => {
-            if (!pendingOld) return null;
-            const id = `pending-${pendingOld.id}`;
-            if (dismissed.has(id) || !isVisible(id)) return null;
-            return (
-              <Alert key={id} variant="default">
-                <div className="flex items-start gap-3">
-                  <Info className="h-5 w-5 mt-0.5" />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 font-medium"><Bell className="h-4 w-4" /><span>Appointment request pending &gt; 48h.</span></div>
-                    <AlertDescription className="text-sm text-gray-700">
-                      “{pendingOld.title || "Appointment"}” is still pending.
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" onClick={()=>updateStatus(pendingOld.id, "scheduled")}><CheckCircle2 className="h-4 w-4 mr-2" /> Mark scheduled</Button>
-                        <Button size="sm" variant="ghost" onClick={()=>snooze(id,60*24)}>Snooze 1d</Button>
-                        <Button size="sm" variant="ghost" onClick={()=>dismiss(id)}>Dismiss</Button>
-                      </div>
-                    </AlertDescription>
-                  </div>
-                </div>
-              </Alert>
-            );
-          })()}
-
-          {/* Heavy day */}
-          {(() => {
-            if (!heavy) return null;
-            const [day, list] = heavy;
-            const id = `heavy-${day}`;
-            if (dismissed.has(id) || !isVisible(id)) return null;
-            return (
-              <Alert key={id} variant="default">
-                <div className="flex items-start gap-3">
-                  <Info className="h-5 w-5 mt-0.5" />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 font-medium"><Bell className="h-4 w-4" /><span>Packed day detected.</span></div>
-                    <AlertDescription className="text-sm text-gray-700">
-                      {list.length} sessions on {day}. Consider moving one.
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" onClick={()=>setIsBookingOpen(true)}><CalendarIcon className="h-4 w-4 mr-2" /> Rebalance</Button>
-                        <Button size="sm" variant="ghost" onClick={()=>snooze(id,60*24)}>Snooze 1d</Button>
-                        <Button size="sm" variant="ghost" onClick={()=>dismiss(id)}>Dismiss</Button>
-                      </div>
-                    </AlertDescription>
-                  </div>
-                </div>
-              </Alert>
-            );
-          })()}
-
-          {/* No upcoming */}
-          {(() => {
-            if (sortedUpcoming.length) return null;
-            const id = "noupcoming";
-            if (dismissed.has(id) || !isVisible(id)) return null;
-            return (
-              <Alert key={id} variant="default">
-                <div className="flex items-start gap-3">
-                  <Info className="h-5 w-5 mt-0.5" />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 font-medium"><Bell className="h-4 w-4" /><span>No upcoming appointments.</span></div>
-                    <AlertDescription className="text-sm text-gray-700">
-                      Book your next session to stay on track.
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Button size="sm" onClick={()=>setIsBookingOpen(true)}><Plus className="h-4 w-4 mr-2" /> Book now</Button>
-                        <Button size="sm" variant="ghost" onClick={()=>snooze(id,60*24*7)}>Snooze 1w</Button>
-                        <Button size="sm" variant="ghost" onClick={()=>dismiss(id)}>Dismiss</Button>
-                      </div>
-                    </AlertDescription>
-                  </div>
-                </div>
-              </Alert>
-            );
-          })()}
-        </div>
+                </Alert>
+              );
+            })}
+          </div>
+        )}
 
         {/* Header + Booking */}
         <div className="mb-8">
@@ -582,12 +529,7 @@ export default function AppointmentsPage() {
                           <DayPicker
                             mode="single"
                             selected={parseYmd(form.date)}
-                            onSelect={(d) => {
-                              if (!d) return;
-                              if (d < todayStart) return;
-                              setForm((f) => ({ ...f, date: formatYmd(d) }));
-                              setOpenCreateCal(false);
-                            }}
+                            onSelect={(d) => { if (!d || d < todayStart) return; setForm((f) => ({ ...f, date: formatYmd(d) })); setOpenCreateCal(false); }}
                             disabled={{ before: todayStart }}
                             showOutsideDays
                           />
@@ -651,7 +593,7 @@ export default function AppointmentsPage() {
                           {a.notes && <div className="mt-3 p-3 bg-gray-50 rounded-lg"><p className="text-sm text-gray-700">{a.notes}</p></div>}
                         </div>
                         <div className="flex gap-2 ml-4">
-                          {a.is_virtual && <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={()=>swalToast("Open your meeting link field", "info")}><Video className="h-4 w-4 mr-2" />Join</Button>}
+                          {a.is_virtual && <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={()=>swalToast("Open your meeting link", "info")}><Video className="h-4 w-4 mr-2" />Join</Button>}
                           <Button size="sm" variant="outline" onClick={() => openEdit(a)}><Edit className="h-4 w-4" /></Button>
                           <Button size="sm" variant="outline" onClick={() => updateStatus(a.id, "cancelled")}><XCircle className="h-4 w-4" /></Button>
                           <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700 bg-transparent" onClick={() => deleteAppt(a.id)}><Trash2 className="h-4 w-4" /></Button>
