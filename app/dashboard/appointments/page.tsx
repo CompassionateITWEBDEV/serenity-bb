@@ -164,7 +164,7 @@ export default function AppointmentsPage() {
   const { isAuthenticated, loading, patient, user } = useAuth();
   const router = useRouter();
 
-  // IMPORTANT: appointments.patient_id -> patients.user_id
+  // appointments.patient_id -> patients.user_id
   const patientId = isAuthenticated ? (patient?.user_id ?? user?.id ?? null) : null;
 
   const [isBookingOpen, setIsBookingOpen] = useState(false);
@@ -254,8 +254,19 @@ export default function AppointmentsPage() {
       </div>
     );
   }
-  
-  if (!isAuthenticated || !patientId || !patient) return null;
+
+  if (!isAuthenticated) return null;
+
+  if (!patientId) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4" />
+          <p className="text-gray-600">Preparing your dashboard…</p>
+        </div>
+      </div>
+    );
+  }
 
   /* Derived lists */
   const now = new Date();
@@ -425,7 +436,7 @@ export default function AppointmentsPage() {
       return;
     }
     
-    // Why: appointments.patient_id references patients.user_id
+    // Verify patient exists by user_id (FK target)
     const { data: patientCheck, error: patientError } = await supabase
       .from("patients")
       .select("user_id")
@@ -587,7 +598,16 @@ export default function AppointmentsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <DashboardHeader patient={patient} />
+      {patient ? (
+        <DashboardHeader patient={patient} />
+      ) : (
+        <div className="border-b bg-white">
+          <div className="max-w-7xl mx-auto p-4">
+            <h1 className="text-xl font-semibold">Appointments</h1>
+            <p className="text-sm text-gray-600">We’re syncing your profile…</p>
+          </div>
+        </div>
+      )}
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Smart Alerts */}
@@ -717,75 +737,75 @@ export default function AppointmentsPage() {
             <TabsTrigger value="history">Appointment History</TabsTrigger>
           </TabsList>
 
-        {/* Upcoming */}
-        <TabsContent value="upcoming" className="space-y-6">
-          <div className="space-y-4">
-            {upcoming.map((a) => {
-              const StatusIcon = getStatusIcon(a.status);
-              return (
-                <Card key={a.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-lg font-semibold">{a.title || "Appointment"}</h3>
-                          <Badge className={getTypeColor(a.type || undefined)}>{a.type || "other"}</Badge>
-                          <Badge variant="outline" className={getStatusColor(a.status)}><StatusIcon className="h-3 w-3 mr-1" />{a.status}</Badge>
+          {/* Upcoming */}
+          <TabsContent value="upcoming" className="space-y-6">
+            <div className="space-y-4">
+              {upcoming.map((a) => {
+                const StatusIcon = getStatusIcon(a.status);
+                return (
+                  <Card key={a.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-6">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className="text-lg font-semibold">{a.title || "Appointment"}</h3>
+                            <Badge className={getTypeColor(a.type || undefined)}>{a.type || "other"}</Badge>
+                            <Badge variant="outline" className={getStatusColor(a.status)}><StatusIcon className="h-3 w-3 mr-1" />{a.status}</Badge>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
+                            <div className="flex items-center gap-2"><User className="h-4 w-4" />{a.provider || "—"}</div>
+                            <div className="flex items-center gap-2"><CalendarIcon className="h-4 w-4" />{fmtDate(a.appointment_time)}</div>
+                            <div className="flex items-center gap-2"><Clock className="h-4 w-4" />{fmtTime(a.appointment_time)} ({a.duration_min ?? 0} min)</div>
+                            <div className="flex items-center gap-2">{a.is_virtual ? <Video className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}{a.location || (a.is_virtual ? "Virtual Meeting" : "—")}</div>
+                          </div>
+                          {a.notes && <div className="mt-3 p-3 bg-gray-50 rounded-lg"><p className="text-sm text-gray-700">{a.notes}</p></div>}
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
-                          <div className="flex items-center gap-2"><User className="h-4 w-4" />{a.provider || "—"}</div>
-                          <div className="flex items-center gap-2"><CalendarIcon className="h-4 w-4" />{fmtDate(a.appointment_time)}</div>
-                          <div className="flex items-center gap-2"><Clock className="h-4 w-4" />{fmtTime(a.appointment_time)} ({a.duration_min ?? 0} min)</div>
-                          <div className="flex items-center gap-2">{a.is_virtual ? <Video className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}{a.location || (a.is_virtual ? "Virtual Meeting" : "—")}</div>
+                        <div className="flex gap-2 ml-4">
+                          {a.is_virtual && <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={()=>swalToast("Open your meeting link", "info")}><Video className="h-4 w-4 mr-2" />Join</Button>}
+                          <Button size="sm" variant="outline" onClick={() => openEdit(a)}><Edit className="h-4 w-4" /></Button>
+                          <Button size="sm" variant="outline" onClick={() => updateStatus(a.id, "cancelled")}><XCircle className="h-4 w-4" /></Button>
+                          <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700 bg-transparent" onClick={() => deleteAppt(a.id)}><Trash2 className="h-4 w-4" /></Button>
                         </div>
-                        {a.notes && <div className="mt-3 p-3 bg-gray-50 rounded-lg"><p className="text-sm text-gray-700">{a.notes}</p></div>}
                       </div>
-                      <div className="flex gap-2 ml-4">
-                        {a.is_virtual && <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={()=>swalToast("Open your meeting link", "info")}><Video className="h-4 w-4 mr-2" />Join</Button>}
-                        <Button size="sm" variant="outline" onClick={() => openEdit(a)}><Edit className="h-4 w-4" /></Button>
-                        <Button size="sm" variant="outline" onClick={() => updateStatus(a.id, "cancelled")}><XCircle className="h-4 w-4" /></Button>
-                        <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700 bg-transparent" onClick={() => deleteAppt(a.id)}><Trash2 className="h-4 w-4" /></Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-            {upcoming.length === 0 && <div className="text-sm text-gray-500">No upcoming appointments.</div>}
-          </div>
-        </TabsContent>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+              {upcoming.length === 0 && <div className="text-sm text-gray-500">No upcoming appointments.</div>}
+            </div>
+          </TabsContent>
 
-        {/* History */}
-        <TabsContent value="history" className="space-y-6">
-          <div className="space-y-4">
-            {history.map((a) => {
-              const StatusIcon = getStatusIcon(a.status);
-              return (
-                <Card key={a.id} className="opacity-90">
-                  <CardContent className="p-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-lg font-semibold">{a.title || "Appointment"}</h3>
-                          <Badge className={getTypeColor(a.type || undefined)}>{a.type || "other"}</Badge>
-                          <Badge variant="outline" className={getStatusColor(a.status)}><StatusIcon className="h-3 w-3 mr-1" />{a.status}</Badge>
+          {/* History */}
+          <TabsContent value="history" className="space-y-6">
+            <div className="space-y-4">
+              {history.map((a) => {
+                const StatusIcon = getStatusIcon(a.status);
+                return (
+                  <Card key={a.id} className="opacity-90">
+                    <CardContent className="p-6">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className="text-lg font-semibold">{a.title || "Appointment"}</h3>
+                            <Badge className={getTypeColor(a.type || undefined)}>{a.type || "other"}</Badge>
+                            <Badge variant="outline" className={getStatusColor(a.status)}><StatusIcon className="h-3 w-3 mr-1" />{a.status}</Badge>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
+                            <div className="flex items-center gap-2"><User className="h-4 w-4" />{a.provider || "—"}</div>
+                            <div className="flex items-center gap-2"><CalendarIcon className="h-4 w-4" />{fmtDate(a.appointment_time)}</div>
+                            <div className="flex items-center gap-2"><Clock className="h-4 w-4" />{fmtTime(a.appointment_time)} ({a.duration_min ?? 0} min)</div>
+                            <div className="flex items-center gap-2"><MapPin className="h-4 w-4" />{a.location || "—"}</div>
+                          </div>
+                          {a.notes && <div className="mt-3 p-3 bg-gray-50 rounded-lg"><p className="text-sm text-gray-700">{a.notes}</p></div>}
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
-                          <div className="flex items-center gap-2"><User className="h-4 w-4" />{a.provider || "—"}</div>
-                          <div className="flex items-center gap-2"><CalendarIcon className="h-4 w-4" />{fmtDate(a.appointment_time)}</div>
-                          <div className="flex items-center gap-2"><Clock className="h-4 w-4" />{fmtTime(a.appointment_time)} ({a.duration_min ?? 0} min)</div>
-                          <div className="flex items-center gap-2"><MapPin className="h-4 w-4" />{a.location || "—"}</div>
-                        </div>
-                        {a.notes && <div className="mt-3 p-3 bg-gray-50 rounded-lg"><p className="text-sm text-gray-700">{a.notes}</p></div>}
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-            {history.length === 0 && <div className="text-sm text-gray-500">No appointment history.</div>}
-          </div>
-        </TabsContent>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+              {history.length === 0 && <div className="text-sm text-gray-500">No appointment history.</div>}
+            </div>
+          </TabsContent>
         </Tabs>
       </main>
 
