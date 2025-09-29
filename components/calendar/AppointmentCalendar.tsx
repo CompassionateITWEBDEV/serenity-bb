@@ -9,32 +9,32 @@ import { Video, MapPin, CheckCircle, XCircle } from "lucide-react";
 
 type Appt = {
   id: string;
-  appointment_time: string; // ISO
+  appointment_time: string;
   title: string | null;
   status: "scheduled" | "confirmed" | "pending" | "cancelled" | "completed";
   is_virtual: boolean | null;
 };
 
-type Props = {
-  appointments: Appt[];
-};
+type Props = { appointments: Appt[] };
 
 export default function AppointmentCalendar({ appointments }: Props) {
   const [selected, setSelected] = React.useState<Date>(startOfDay(new Date()));
 
-  const dayItems = React.useMemo(() => {
-    return appointments
-      .filter((a) => isSameDay(new Date(a.appointment_time), selected))
-      .sort((a, b) => new Date(a.appointment_time).getTime() - new Date(b.appointment_time).getTime());
-  }, [appointments, selected]);
+  const dayItems = React.useMemo(
+    () =>
+      appointments
+        .filter((a) => isSameDay(new Date(a.appointment_time), selected))
+        .sort((a, b) => +new Date(a.appointment_time) - +new Date(b.appointment_time)),
+    [appointments, selected]
+  );
 
   const dots = React.useMemo(() => {
-    const map = new Map<number, number>();
+    const m = new Map<number, number>();
     for (const a of appointments) {
-      const d = startOfDay(new Date(a.appointment_time)).getTime();
-      map.set(d, (map.get(d) || 0) + 1);
+      const ts = +startOfDay(new Date(a.appointment_time));
+      m.set(ts, (m.get(ts) || 0) + 1);
     }
-    return map;
+    return m;
   }, [appointments]);
 
   return (
@@ -45,14 +45,13 @@ export default function AppointmentCalendar({ appointments }: Props) {
             <Calendar
               selected={selected}
               onSelect={(d) => d && setSelected(d)}
-              // Why: Small dot indicator for days with events.
               components={{
-                DayContent: (props) => {
-                  const ts = startOfDay(props.date).getTime();
+                DayContent: ({ date }) => {
+                  const ts = +startOfDay(date);
                   const count = dots.get(ts) || 0;
                   return (
                     <div className="relative flex items-center justify-center w-10 h-10">
-                      <span>{props.date.getDate()}</span>
+                      <span>{date.getDate()}</span>
                       {count > 0 && (
                         <span className="absolute bottom-1 h-1.5 w-1.5 rounded-full bg-cyan-600" />
                       )}
@@ -90,9 +89,7 @@ export default function AppointmentCalendar({ appointments }: Props) {
                       </div>
                       <div className="flex items-center gap-2">
                         {a.is_virtual ? <Video className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
-                        <span className={`text-xs px-2 py-1 rounded-full ${status.cls}`}>
-                          {a.status}
-                        </span>
+                        <span className={`text-xs px-2 py-1 rounded-full ${status.cls}`}>{a.status}</span>
                       </div>
                     </li>
                   );
