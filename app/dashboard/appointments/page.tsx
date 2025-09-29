@@ -22,7 +22,7 @@ import {
   CheckCircle, XCircle, AlertCircle, Edit, Trash2,
   Bell, AlertTriangle, Info, CheckCircle2
 } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert"; // why: Local alert component doesn't export AlertTitle
 
 type Appt = {
   id: string;
@@ -232,7 +232,6 @@ export default function AppointmentsPage() {
       for (let j=i+1;j<sorted.length;j++){
         if (isOverlap(sorted[i], sorted[j])) list.push({ a: sorted[i], b: sorted[j] });
         else {
-          // once no overlap with j, further j might start even later; break if start past end
           const end = endTime(sorted[i]);
           const nextStart = new Date(sorted[j].appointment_time);
           if (nextStart >= end) break;
@@ -385,7 +384,7 @@ export default function AppointmentsPage() {
     }
 
     return arr;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinWindow, overlaps, tightGaps, longPending, heavyDays, upcoming.length]);
 
   // Apply snoozes & dismissals
@@ -531,9 +530,10 @@ export default function AppointmentsPage() {
                   <div className="flex items-start gap-3">
                     <Icon className="h-5 w-5 mt-0.5" />
                     <div className="flex-1">
-                      <AlertTitle className="flex items-center gap-2">
-                        <Bell className="h-4 w-4" /> {a.title}
-                      </AlertTitle>
+                      <div className="flex items-center gap-2 font-medium">
+                        <Bell className="h-4 w-4" />
+                        <span>{a.title}</span>
+                      </div>
                       <AlertDescription className="text-sm text-gray-700">
                         {a.desc}
                         <div className="mt-2 flex flex-wrap gap-2">
