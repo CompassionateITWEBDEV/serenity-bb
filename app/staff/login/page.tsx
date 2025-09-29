@@ -9,32 +9,26 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eye, EyeOff } from "lucide-react";
 
-/* reuse helpers per-file for simplicity */
-async function serenitySwalStaff(opts: {
-  title: string; text?: string; mood: "success"|"error"|"info";
-}) {
+/* SweetAlert themed to Serenity */
+async function serenitySwal(opts: { title: string; text?: string; mood: "success"|"error"|"info" }) {
   const Swal = (await import("sweetalert2")).default;
-  const palette = {
-    success: { bg: "linear-gradient(135deg,#f0fdfa,#ecfeff)", emoji: "💼✨" },
-    error:   { bg: "linear-gradient(135deg,#fff1f2,#fee2e2)", emoji: "🚫😕" },
-    info:    { bg: "linear-gradient(135deg,#eff6ff,#e0f2fe)", emoji: "🛠️😊" },
-  }[opts.mood];
-
+  const palette =
+    opts.mood === "success"
+      ? { emoji: "💙✨", bg: "linear-gradient(135deg,#f0fdfa,#ecfeff)" }
+      : opts.mood === "error"
+      ? { emoji: "🚫😕", bg: "linear-gradient(135deg,#fff1f2,#fee2e2)" }
+      : { emoji: "🛠️😊", bg: "linear-gradient(135deg,#eff6ff,#e0f2fe)" };
   return Swal.fire({
     title: opts.title,
     text: opts.text,
-    iconHtml: `<div style="font-size:32px;line-height:1">${palette.emoji}</div>`,
-    background: "#ffffff",
+    icon: undefined,
+    iconHtml: `<div style="font-size:32px">${palette.emoji}</div>`,
+    background: "#fff",
     color: "#0f172a",
     backdrop: palette.bg,
     confirmButtonColor: "#06b6d4",
-    showConfirmButton: true,
+    customClass: { popup: "rounded-2xl", confirmButton: "rounded-xl" },
     timer: opts.mood === "success" ? 1300 : undefined,
-    customClass: {
-      popup: "rounded-2xl shadow-xl",
-      title: "font-semibold",
-      confirmButton: "rounded-xl",
-    },
   });
 }
 
@@ -54,30 +48,15 @@ export default function StaffLoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-
       const body = await res.json().catch(() => ({}));
-
       if (!res.ok) {
-        await serenitySwalStaff({
-          title: "Staff login failed",
-          text: body?.error || "Please check your credentials.",
-          mood: "error",
-        });
+        await serenitySwal({ title: "Staff login failed", text: body?.error || "Check your credentials.", mood: "error" });
         return;
       }
-
-      await serenitySwalStaff({
-        title: "Welcome, team hero!",
-        text: "Let’s make today awesome ✨",
-        mood: "success",
-      });
+      await serenitySwal({ title: "Welcome, team hero!", text: "Let’s make today awesome ✨", mood: "success" });
       router.push("/staff/dashboard");
     } catch (err: any) {
-      await serenitySwalStaff({
-        title: "Unexpected error",
-        text: err?.message ?? "Please try again.",
-        mood: "error",
-      });
+      await serenitySwal({ title: "Unexpected error", text: err?.message ?? "Try again.", mood: "error" });
     } finally {
       setBusy(false);
     }
@@ -138,8 +117,17 @@ export default function StaffLoginPage() {
                 {busy ? "Signing in..." : "Sign In"}
               </Button>
 
-              <div className="text-center mt-2">
-                <Link href="/login" className="text-sm text-cyan-600 hover:underline">
+              {/* ✅ New: direct link to staff signup */}
+              <p className="text-center text-sm text-gray-600">
+                Need an account?{" "}
+                <Link href="/staff/signup" className="text-cyan-600 hover:text-cyan-700 hover:underline">
+                  Create Staff Account
+                </Link>
+              </p>
+
+              {/* Optional cross-link back to patient login */}
+              <div className="text-center">
+                <Link href="/login" className="text-xs text-gray-500 hover:underline">
                   ← Patient login
                 </Link>
               </div>
