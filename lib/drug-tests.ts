@@ -1,6 +1,6 @@
-import { supabase } from "./supabase/client";
-import type { StaffPatient } from "./patients";
-import { displayName } from "./patients";
+import { supabase } from "@/lib/supabase/client";
+import type { StaffPatient } from "@/lib/patients";
+import { displayName } from "@/lib/patients";
 
 export type TestStatus = "pending" | "completed" | "missed";
 export type DrugTestRow = {
@@ -21,6 +21,7 @@ export type DrugTest = {
 
 export async function listDrugTests(opts?: { q?: string; status?: TestStatus | "all"; limit?: number }): Promise<DrugTest[]> {
   const status = opts?.status && opts.status !== "all" ? opts.status : undefined;
+
   let query = supabase
     .from("drug_tests")
     .select("id,patient_id,status,scheduled_for,created_at,updated_at")
@@ -28,6 +29,7 @@ export async function listDrugTests(opts?: { q?: string; status?: TestStatus | "
     .limit(opts?.limit ?? 200);
 
   if (status) query = query.eq("status", status);
+
   const { data, error } = await query;
   if (error) throw error;
 
@@ -59,14 +61,24 @@ export async function listDrugTests(opts?: { q?: string; status?: TestStatus | "
 }
 
 export async function createDrugTest(input: { patientId: string; scheduledFor?: string | null }) {
-  const payload = {
-    patient_id: input.patientId,
-    scheduled_for: input.scheduledFor ?? null,
-    status: "pending" as const,
-  };
+  const payload = { patient_id: input.patientId, scheduled_for: input.scheduledFor ?? null, status: "pending" as const };
   const { data, error } = await supabase.from("drug_tests").insert(payload).select().single();
   if (error) throw error;
   return data as DrugTestRow;
+}
+
+export async function updateDrugTestStatus(id: string, status: TestStatus) {
+  const res = await fetch(`/api/drug-tests/${id}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(j?.error || `Failed to update status (${res.status})`);
+  }
+  const j = await res.json();
+  return j.data as { id: string; status: TestStatus };
 }
 
 export function subscribeDrugTests(onChange: () => void) {
