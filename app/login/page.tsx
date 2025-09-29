@@ -1,39 +1,88 @@
-"use client"
+"use client";
 
-import type React from "react"
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useAuth } from "@/hooks/use-auth"
-import { Eye, EyeOff, Heart, Shield } from "lucide-react"
+import type React from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/hooks/use-auth";
+import { Eye, EyeOff, Heart } from "lucide-react";
+
+/* Serenity SweetAlert helpers */
+async function serenitySwal(opts: {
+  title: string; text?: string; mood: "success"|"error"|"info";
+}) {
+  const Swal = (await import("sweetalert2")).default;
+  const palette = {
+    success: { bg: "linear-gradient(135deg,#ecfeff,#eef2ff)", emoji: "💙✨" },
+    error:   { bg: "linear-gradient(135deg,#fff1f2,#fee2e2)", emoji: "😅💤" },
+    info:    { bg: "linear-gradient(135deg,#f0fdfa,#e0f2fe)", emoji: "🌤️😊" },
+  }[opts.mood];
+
+  return Swal.fire({
+    title: opts.title,
+    text: opts.text,
+    icon: undefined,
+    iconHtml: `<div style="font-size:32px;line-height:1">${palette.emoji}</div>`,
+    background: "#ffffff",
+    color: "#0f172a",
+    backdrop: palette.bg,
+    confirmButtonColor: "#06b6d4",
+    showConfirmButton: true,
+    timer: opts.mood === "success" ? 1400 : undefined,
+    customClass: {
+      popup: "rounded-2xl shadow-xl",
+      title: "font-semibold",
+      confirmButton: "rounded-xl",
+    },
+  });
+}
+
+async function serenityToast(title: string, mood: "success"|"error"|"info") {
+  const Swal = (await import("sweetalert2")).default;
+  const emoji = mood === "success" ? "🎉"
+    : mood === "error" ? "⚠️"
+    : "✨";
+  const Toast = Swal.mixin({
+    toast: true,
+    position: "top-end",
+    showConfirmButton: false,
+    timer: 1800,
+    timerProgressBar: true,
+    customClass: { popup: "rounded-xl shadow-md" },
+  });
+  return Toast.fire({
+    title: `${emoji} ${title}`,
+    icon: undefined,
+  });
+}
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const { login, loading } = useAuth()
-  const router = useRouter()
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const { login, loading } = useAuth();
+  const router = useRouter();
 
-  // ✅ UPDATED LOGIN HANDLER
   async function onSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError(null)
+    e.preventDefault();
+    try {
+      const result = await login(email, password);
 
-    const result = await login(email, password)
+      if (!result.success) {
+        const msg = result.error ?? "Invalid email or password.";
+        await serenitySwal({ title: "Login failed", text: msg, mood: "error" });
+        return;
+      }
 
-    if (!result.success) {
-       setError(result.error ?? "Login failed");
-      return
+      await serenitySwal({ title: "Welcome back to Serenity!", text: "You’re in. Let’s keep the good vibes rolling 🌈", mood: "success" });
+      router.push("/dashboard");
+    } catch (err: any) {
+      await serenitySwal({ title: "Something went wrong", text: err?.message ?? "Please try again.", mood: "error" });
     }
-
-    // ✅ Go to dashboard if login succeeds
-    router.push("/dashboard")
   }
 
   return (
@@ -58,23 +107,7 @@ export default function LoginPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {/* ✅ Use our updated handler */}
             <form onSubmit={onSubmit} className="space-y-4">
-              {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              {error?.includes("offline mode") && (
-                <Alert className="border-amber-200 bg-amber-50">
-                  <Shield className="h-4 w-4 text-amber-600" />
-                  <AlertDescription className="text-amber-800">
-                    Backend not available. Using demo mode with local authentication.
-                  </AlertDescription>
-                </Alert>
-              )}
-
               <div className="space-y-2">
                 <Label htmlFor="email">Email Address</Label>
                 <Input
@@ -104,6 +137,7 @@ export default function LoginPage() {
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    aria-label="Toggle password visibility"
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -123,6 +157,7 @@ export default function LoginPage() {
                 type="submit"
                 className="w-full h-11 bg-cyan-600 hover:bg-cyan-700 text-white font-medium"
                 disabled={loading}
+                onClick={() => serenityToast("Signing you in…", "info")}
               >
                 {loading ? "Signing in..." : "Sign In"}
               </Button>
@@ -136,6 +171,12 @@ export default function LoginPage() {
                   className="text-cyan-600 hover:text-cyan-700 font-medium hover:underline"
                 >
                   Create an account
+                </Link>
+              </p>
+              <p className="text-xs text-gray-500 mt-2">
+                Are you staff?{" "}
+                <Link href="/staff/login" className="text-cyan-600 hover:text-cyan-700 hover:underline">
+                  Login as Staff
                 </Link>
               </p>
             </div>
@@ -152,5 +193,5 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }
