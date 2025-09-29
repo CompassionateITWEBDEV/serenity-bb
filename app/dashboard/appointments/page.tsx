@@ -114,11 +114,11 @@ function fmtTime(iso: string) { return new Date(iso).toLocaleTimeString([], { ho
 /* Avoid `as ...` in JSX */
 function toStatus(v: string): Appt["status"] {
   const allowed: Appt["status"][] = ["pending", "scheduled", "confirmed", "completed", "cancelled"];
-  return (allowed.includes(v as any) ? v : "scheduled") as Appt["status"];
+  return (allowed.includes(v as any) ? (v as Appt["status"]) : "scheduled");
 }
 function toType(v: string): NonNullable<Appt["type"]> {
   const allowed: NonNullable<Appt["type"]>[] = ["therapy", "group", "medical", "family", "assessment"];
-  return (allowed.includes(v as any) ? v : "therapy") as NonNullable<Appt["type"]>;
+  return (allowed.includes(v as any) ? (v as NonNullable<Appt["type"]>) : "therapy");
 }
 
 /* =============== Page =============== */
@@ -245,7 +245,7 @@ export default function AppointmentsPage() {
 
   const pendingOld = sortedUpcoming.find(a => a.status === "pending" && new Date(a.created_at) < new Date(Date.now() - 48*3600*1000));
 
-  const byDay = new Map<string, Appt[]>(); 
+  const byDay = new Map<string, Appt[]>();
   sortedUpcoming.forEach(a => { const k = new Date(a.appointment_time).toDateString(); byDay.set(k, [...(byDay.get(k)||[]), a]); });
   const heavyEntry = [...byDay.entries()].find(([,list]) => list.length > 3);
 
