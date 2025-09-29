@@ -20,6 +20,21 @@ import {
   Play,
 } from "lucide-react";
 
+function BackButton() {
+  const router = useRouter();
+  return (
+    <button
+      type="button"
+      onClick={() => router.push("/dashboard")} // explicit nav (vs. browser history)
+      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-colors text-sm"
+      aria-label="Back to dashboard"
+    >
+      <ArrowLeft className="h-4 w-4" />
+      Back to Dashboard
+    </button>
+  );
+}
+
 // GameStats Component
 function GameStats({ games }: { games: Array<{ completed: boolean; rating: number | null }> }) {
   const totalGames = games.length;
