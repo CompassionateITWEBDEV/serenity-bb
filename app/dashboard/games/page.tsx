@@ -1,11 +1,9 @@
-// app/dashboard/games/page.tsx
 "use client";
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
-
 import {
   Gamepad2,
   Brain,
@@ -18,14 +16,16 @@ import {
   Clock,
   Star,
   Play,
+  ArrowLeft,
 } from "lucide-react";
 
+// ---------------- Back Button ----------------
 function BackButton() {
   const router = useRouter();
   return (
     <button
       type="button"
-      onClick={() => router.push("/dashboard")} // explicit nav (vs. browser history)
+      onClick={() => router.push("/dashboard")} // explicit nav to dashboard
       className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-colors text-sm"
       aria-label="Back to dashboard"
     >
@@ -35,12 +35,16 @@ function BackButton() {
   );
 }
 
-// GameStats Component
-function GameStats({ games }: { games: Array<{ completed: boolean; rating: number | null }> }) {
+// ---------------- Stats ----------------
+function GameStats({
+  games,
+}: {
+  games: Array<{ completed: boolean; rating: number | null }>;
+}) {
   const totalGames = games.length;
-  const completedGames = games.filter(g => g.completed).length;
+  const completedGames = games.filter((g) => g.completed).length;
   const averageRating = games
-    .filter(g => g.rating !== null)
+    .filter((g) => g.rating !== null)
     .reduce((acc, g, _, arr) => acc + (g.rating || 0) / arr.length, 0);
 
   return (
@@ -56,7 +60,7 @@ function GameStats({ games }: { games: Array<{ completed: boolean; rating: numbe
           </div>
         </div>
       </div>
-      
+
       <div className="bg-white p-6 rounded-lg shadow-sm border">
         <div className="flex items-center gap-3">
           <div className="bg-green-100 p-3 rounded-lg">
@@ -68,7 +72,7 @@ function GameStats({ games }: { games: Array<{ completed: boolean; rating: numbe
           </div>
         </div>
       </div>
-      
+
       <div className="bg-white p-6 rounded-lg shadow-sm border">
         <div className="flex items-center gap-3">
           <div className="bg-yellow-100 p-3 rounded-lg">
@@ -86,73 +90,7 @@ function GameStats({ games }: { games: Array<{ completed: boolean; rating: numbe
   );
 }
 
-// GameCard Component
-function GameCard({ game }: { 
-  game: { 
-    id: string; 
-    title: string; 
-    genre: string; 
-    rating?: number; 
-    completed: boolean 
-  } 
-}) {
-  const gameData = games.find(g => g.id === game.id);
-  const IconComponent = gameData?.icon || Gamepad2;
-  
-  return (
-    <div className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 hover:scale-105 ${gameData?.borderColor || 'border-gray-200'}`}>
-      <div className="p-6">
-        <div className="flex items-start justify-between mb-4">
-          <div className={`p-3 rounded-lg ${gameData?.color || 'bg-gray-100 text-gray-600'}`}>
-            <IconComponent className="h-6 w-6" />
-          </div>
-          {gameData?.isNew && (
-            <span className="bg-green-100 text-green-800 text-xs font-medium px-2 py-1 rounded-full">
-              New
-            </span>
-          )}
-        </div>
-        
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">{game.title}</h3>
-        <p className="text-gray-600 text-sm mb-4 line-clamp-2">
-          {gameData?.description || "An engaging recovery game"}
-        </p>
-        
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <Clock className="h-4 w-4" />
-            <span>{gameData?.duration || "5-10 min"}</span>
-          </div>
-          <div className="text-sm text-gray-500">
-            {gameData?.difficulty || "Medium"}
-          </div>
-        </div>
-        
-        {gameData?.bestScore ? (
-          <div className="flex items-center justify-between mb-4 text-sm">
-            <span className="text-gray-600">Best Score:</span>
-            <span className="font-medium text-gray-900">{gameData.bestScore}</span>
-          </div>
-        ) : null}
-        
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-gray-500">
-            Last played: {gameData?.lastPlayed || "Never"}
-          </div>
-          <Link 
-            href={`/dashboard/games/${game.id}`}
-            className="inline-flex items-center gap-2 bg-cyan-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-cyan-700 transition-colors"
-          >
-            <Play className="h-4 w-4" />
-            Play
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Games data
+// ---------------- Data ----------------
 const games = [
   {
     id: "mindfulness-maze",
@@ -246,6 +184,87 @@ const games = [
   },
 ];
 
+// ---------------- Card ----------------
+function GameCard({
+  game,
+}: {
+  game: {
+    id: string;
+    title: string;
+    genre: string;
+    rating?: number;
+    completed: boolean;
+  };
+}) {
+  const gameData = games.find((g) => g.id === game.id);
+  const IconComponent = (gameData?.icon as React.ElementType) || Gamepad2;
+
+  return (
+    <div
+      className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 hover:scale-105 ${
+        gameData?.borderColor || "border-gray-200"
+      }`}
+    >
+      <div className="p-6">
+        <div className="flex items-start justify-between mb-4">
+          <div
+            className={`p-3 rounded-lg ${
+              gameData?.color || "bg-gray-100 text-gray-600"
+            }`}
+          >
+            <IconComponent className="h-6 w-6" />
+          </div>
+          {gameData?.isNew && (
+            <span className="bg-green-100 text-green-800 text-xs font-medium px-2 py-1 rounded-full">
+              New
+            </span>
+          )}
+        </div>
+
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">
+          {game.title}
+        </h3>
+        <p className="text-gray-600 text-sm mb-4 line-clamp-2">
+          {gameData?.description || "An engaging recovery game"}
+        </p>
+
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <Clock className="h-4 w-4" />
+            <span>{gameData?.duration || "5-10 min"}</span>
+          </div>
+          <div className="text-sm text-gray-500">
+            {gameData?.difficulty || "Medium"}
+          </div>
+        </div>
+
+        {gameData?.bestScore ? (
+          <div className="flex items-center justify-between mb-4 text-sm">
+            <span className="text-gray-600">Best Score:</span>
+            <span className="font-medium text-gray-900">
+              {gameData.bestScore}
+            </span>
+          </div>
+        ) : null}
+
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-500">
+            Last played: {gameData?.lastPlayed || "Never"}
+          </div>
+          <Link
+            href={`/dashboard/games/${game.id}`}
+            className="inline-flex items-center gap-2 bg-cyan-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-cyan-700 transition-colors"
+          >
+            <Play className="h-4 w-4" />
+            Play
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------- Page ----------------
 export default function GamesPage() {
   const { isAuthenticated, loading, patient } = useAuth();
   const router = useRouter();
@@ -267,7 +286,10 @@ export default function GamesPage() {
 
   if (!isAuthenticated || !patient) return null;
 
-  const statsInput = games.map(() => ({ completed: false, rating: null as number | null }));
+  const statsInput = games.map(() => ({
+    completed: false,
+    rating: null as number | null,
+  }));
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -281,12 +303,17 @@ export default function GamesPage() {
             </span>
           </Link>
           <div className="text-sm text-gray-600">
-            Welcome{patient?.firstName ? `, ${patient.firstName}` : ""}
+            {`Welcome${patient?.firstName ? `, ${patient.firstName}` : ""}`}
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Back */}
+        <div className="mb-4">
+          <BackButton />
+        </div>
+
         {/* Title */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
@@ -337,15 +364,47 @@ export default function GamesPage() {
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {[
-              { name: "Mindfulness", count: 2, color: "bg-purple-100 text-purple-700", href: "/dashboard/games?category=mindfulness" },
-              { name: "Emotional Wellness", count: 2, color: "bg-pink-100 text-pink-700", href: "/dashboard/games?category=emotional" },
-              { name: "Cognitive Training", count: 2, color: "bg-blue-100 text-blue-700", href: "/dashboard/games?category=cognitive" },
-              { name: "Stress Management", count: 1, color: "bg-yellow-100 text-yellow-700", href: "/dashboard/games?category=stress" },
-              { name: "Memory Training", count: 1, color: "bg-green-100 text-green-700", href: "/dashboard/games?category=memory" },
-              { name: "Positive Psychology", count: 1, color: "bg-emerald-100 text-emerald-700", href: "/dashboard/games?category=positive" },
+              {
+                name: "Mindfulness",
+                count: 2,
+                color: "bg-purple-100 text-purple-700",
+                href: "/dashboard/games?category=mindfulness",
+              },
+              {
+                name: "Emotional Wellness",
+                count: 2,
+                color: "bg-pink-100 text-pink-700",
+                href: "/dashboard/games?category=emotional",
+              },
+              {
+                name: "Cognitive Training",
+                count: 2,
+                color: "bg-blue-100 text-blue-700",
+                href: "/dashboard/games?category=cognitive",
+              },
+              {
+                name: "Stress Management",
+                count: 1,
+                color: "bg-yellow-100 text-yellow-700",
+                href: "/dashboard/games?category=stress",
+              },
+              {
+                name: "Memory Training",
+                count: 1,
+                color: "bg-green-100 text-green-700",
+                href: "/dashboard/games?category=memory",
+              },
+              {
+                name: "Positive Psychology",
+                count: 1,
+                color: "bg-emerald-100 text-emerald-700",
+                href: "/dashboard/games?category=positive",
+              },
             ].map((c) => (
               <Link key={c.name} href={c.href}>
-                <div className={`p-4 rounded-lg text-center cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 ${c.color}`}>
+                <div
+                  className={`p-4 rounded-lg text-center cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-105 ${c.color}`}
+                >
                   <div className="font-medium text-sm">{c.name}</div>
                   <div className="text-xs opacity-75 mt-1">{c.count} games</div>
                 </div>
