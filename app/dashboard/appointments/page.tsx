@@ -1,7 +1,6 @@
-// app/dashboard/appointments/page.tsx
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase/client";
@@ -19,10 +18,6 @@ import {
   Calendar as CalendarIcon, Clock, Plus, Video, MapPin, User,
   CheckCircle, XCircle, AlertCircle, Edit, Trash2
 } from "lucide-react";
-
-// NEW: calendar components
-import DatePicker from "@/components/forms/DatePicker";
-import AppointmentCalendar from "@/components/calendar/AppointmentCalendar";
 
 type Appt = {
   id: string;
@@ -82,7 +77,7 @@ export default function AppointmentsPage() {
     if (!loading && !isAuthenticated) router.push("/login");
   }, [isAuthenticated, loading, router]);
 
-  // Normalize local date+time → ISO (keeps the chosen local wall time)
+  // Normalize local date+time → ISO (keeps chosen local wall time)
   function toISO(date: string, time: string) {
     const [y, m, d] = date.split("-").map(Number);
     const [hh, mm] = time.split(":").map(Number);
@@ -110,7 +105,7 @@ export default function AppointmentsPage() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "appointments", filter: `patient_id=eq.${patientId}` },
-        () => loadAppointments() // Why: reflect external CRUD instantly
+        () => loadAppointments()
       )
       .subscribe();
     return () => ch.unsubscribe();
@@ -135,7 +130,7 @@ export default function AppointmentsPage() {
   const thisWeekCount = items.filter((a) => {
     const d = new Date(a.appointment_time);
     const start = new Date(); start.setHours(0,0,0,0);
-    const day = start.getDay(); const diff = (day === 0 ? -6 : 1) - day; // Monday start
+    const day = start.getDay(); const diff = (day === 0 ? -6 : 1) - day; // Monday as week start
     start.setDate(start.getDate() + diff);
     const end = new Date(start); end.setDate(start.getDate() + 7);
     return d >= start && d < end;
@@ -181,14 +176,15 @@ export default function AppointmentsPage() {
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
-  // Today 00:00 for disabling past days in DatePicker
+  // Today 00:00 + YYYY-MM-DD for <input min>
   const todayStart = (() => { const t = new Date(); t.setHours(0,0,0,0); return t; })();
+  const todayStr = todayStart.toISOString().slice(0, 10);
 
   // === CRUD ===
   async function createAppt() {
     if (!form.type || !form.date || !form.time) return;
 
-    // Prevent past bookings → otherwise it won't show in Upcoming
+    // Prevent past bookings (date+time)
     const selected = new Date(`${form.date}T${form.time}:00`);
     if (selected < new Date()) {
       alert("Please pick a future date/time.");
@@ -346,12 +342,11 @@ export default function AppointmentsPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label>Date</Label>
-                      <DatePicker
-                        value={form.date ? new Date(form.date) : undefined}
-                        onChange={(d) =>
-                          setForm((f) => ({ ...f, date: d ? d.toISOString().slice(0, 10) : "" }))
-                        }
-                        disabled={(d) => d < todayStart} // Why: prevent past days
+                      <Input
+                        type="date"
+                        min={todayStr}
+                        value={form.date}
+                        onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
                       />
                     </div>
                     <div className="space-y-2">
@@ -391,11 +386,6 @@ export default function AppointmentsPage() {
               </DialogContent>
             </Dialog>
           </div>
-        </div>
-
-        {/* NEW: Month calendar summary */}
-        <div className="mb-8">
-          <AppointmentCalendar appointments={items} />
         </div>
 
         {/* Stats */}
@@ -520,12 +510,11 @@ export default function AppointmentsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Date</Label>
-                <DatePicker
-                  value={editForm.date ? new Date(editForm.date) : undefined}
-                  onChange={(d) =>
-                    setEditForm((f) => ({ ...f, date: d ? d.toISOString().slice(0, 10) : "" }))
-                  }
-                  disabled={(d) => d < todayStart}
+                <Input
+                  type="date"
+                  min={todayStr}
+                  value={editForm.date}
+                  onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
