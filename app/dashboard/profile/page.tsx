@@ -12,7 +12,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Calendar, Phone, Mail, MapPin, Activity, Award, Target, TrendingUp, Edit, Save, X, CheckCircle, PlusCircle, Trash2 } from "lucide-react";
+import {
+  Calendar, Phone, Mail, MapPin, Activity, Award, Target, TrendingUp,
+  Edit, Save, X, CheckCircle
+} from "lucide-react";
 
 type PatientInfo = {
   id?: string;
@@ -213,48 +216,6 @@ export default function ProfilePage() {
     setStatus(null);
   }
 
-  // Simple CRUD helpers (examples)
-  async function createPatient() {
-    try {
-      const token = await getAccessToken();
-      const res = await fetch("/api/patients", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({
-          firstName: "New",
-          lastName: "Patient",
-          treatmentType: "Outpatient",
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      await fetchProfile();
-      setStatus({ type: "success", message: "Patient created." });
-      setTimeout(() => setStatus(null), 2000);
-    } catch (e) {
-      setStatus({ type: "error", message: e instanceof Error ? e.message : "Create failed." });
-    }
-  }
-
-  async function deletePatient() {
-    if (!patient?.id) return;
-    try {
-      const token = await getAccessToken();
-      const res = await fetch(`/api/patients/${patient.id}`, {
-        method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setPatient(makeEmptyPatient());
-      setAchievements([]);
-      setHealthMetrics([]);
-      setRecentActivity([]);
-      setStatus({ type: "success", message: "Patient deleted." });
-      setTimeout(() => setStatus(null), 2000);
-    } catch (e) {
-      setStatus({ type: "error", message: e instanceof Error ? e.message : "Delete failed." });
-    }
-  }
-
   if (loading) {
     return (
       <div className="container mx-auto p-6 max-w-6xl">
@@ -278,10 +239,7 @@ export default function ProfilePage() {
           <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
           <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={createPatient}><PlusCircle className="h-4 w-4 mr-2" />New Patient</Button>
-          <Button variant="destructive" onClick={deletePatient} disabled={!patient?.id}><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
-        </div>
+        {/* removed New Patient + Delete buttons */}
       </div>
 
       {(status || authExpired) && (
