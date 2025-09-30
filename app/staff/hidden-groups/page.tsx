@@ -69,8 +69,8 @@ export default function StaffHiddenGroupsPage() {
           <IconPill onClick={() => router.push("/staff/dashboard?tab=tests")} aria="Drug Tests"><TestTube2 className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/patient-inbox")} aria="Messages"><MessageSquare className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts"><RadioIcon className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/staff/patients")} aria="Patients"><Users className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/staff/settings")} aria="Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/clinician/patient")} aria="Patients"><Users className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/profile")} aria="Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
           <IconPill active aria="Hidden Groups"><EyeOff className="h-5 w-5" /></IconPill>
         </div>
 
