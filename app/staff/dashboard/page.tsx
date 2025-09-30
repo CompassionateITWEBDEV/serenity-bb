@@ -1,27 +1,22 @@
-// app/staff/dashboard/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
 import RandomDrugTestManager from "@/components/staff/RandomDrugTestManager";
 import IntakeQueue from "@/components/staff/IntakeQueue";
 import MobileDock from "@/components/staff/MobileDock";
 import ProfileSettings from "@/components/ProfileSettings";
-
 import {
   ShieldCheck, Activity, Search, Filter, LogOut,
-  Home as HomeIcon, TestTube2, MessageSquare, Users, Settings as SettingsIcon,
-  Radio as RadioIcon,        // broadcast (already present)
-  EyeOff,                    // <-- NEW: Hidden Groups icon
+  TestTube2, MessageSquare, Users, Settings as SettingsIcon,
+  Radio as RadioIcon, EyeOff,
 } from "lucide-react";
-
+import DashboardGlyph from "@/components/icons/DashboardGlyph";
 import type { DrugTest, TestStatus } from "@/lib/drug-tests";
 import { createDrugTest, listDrugTests, subscribeDrugTests } from "@/lib/drug-tests";
 import type { StaffPatient } from "@/lib/patients";
@@ -30,8 +25,8 @@ import { logout } from "@/lib/staff";
 
 const TEST_STATUS_META: Record<TestStatus, { label: string; cls: string }> = {
   completed: { label: "Completed", cls: "text-emerald-700 bg-emerald-50 border-emerald-200" },
-  missed:    { label: "Missed",    cls: "text-rose-700 bg-rose-50 border-rose-200" },
-  pending:   { label: "Pending",   cls: "text-amber-700 bg-amber-50 border-amber-200" },
+  missed: { label: "Missed", cls: "text-rose-700 bg-rose-50 border-rose-200" },
+  pending: { label: "Pending", cls: "text-amber-700 bg-amber-50 border-amber-200" },
 };
 function StatusChip({ status }: { status: TestStatus }) {
   const m = TEST_STATUS_META[status];
@@ -44,7 +39,6 @@ type View = "home" | "tests" | "settings";
 
 export default function StaffDashboardPage() {
   const router = useRouter();
-
   const [patients, setPatients] = useState<StaffPatient[]>([]);
   const [tests, setTests] = useState<DrugTest[]>([]);
   const [query, setQuery] = useState("");
@@ -54,11 +48,9 @@ export default function StaffDashboardPage() {
   useEffect(() => {
     (async () => {
       const [p, t] = await Promise.all([fetchPatients(), listDrugTests({})]);
-      setPatients(p);
-      setTests(t);
+      setPatients(p); setTests(t);
     })();
   }, []);
-
   useEffect(() => {
     const offP = subscribePatients(async () => setPatients(await fetchPatients(query)));
     const offT = subscribeDrugTests(async () =>
@@ -69,7 +61,7 @@ export default function StaffDashboardPage() {
 
   const filteredTests = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return tests.filter((t) => {
+    return tests.filter(t => {
       const bySearch = !q || t.patient.name.toLowerCase().includes(q) || (t.patient.email ?? "").toLowerCase().includes(q);
       const byStatus = filter === "all" || t.status === filter;
       return bySearch && byStatus;
@@ -77,16 +69,11 @@ export default function StaffDashboardPage() {
   }, [tests, query, filter]);
 
   async function onCreateTest() {
-    const m = patients[0];
-    if (!m) return;
+    const m = patients[0]; if (!m) return;
     await createDrugTest({ patientId: m.id, scheduledFor: null });
     setTests(await listDrugTests({ q: query, status: filter === "all" ? undefined : filter }));
   }
-
-  async function onLogout() {
-    await logout();
-    router.refresh();
-  }
+  async function onLogout() { await logout(); router.refresh(); }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -94,7 +81,8 @@ export default function StaffDashboardPage() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
-              <ShieldCheck className="h-5 w-5 text-cyan-600" />
+              {/* Figma-style dashboard mark */}
+              <DashboardGlyph className="h-5 w-5" />
             </div>
             <div>
               <h1 className="text-lg font-semibold">Staff Console</h1>
@@ -102,29 +90,25 @@ export default function StaffDashboardPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="gap-1">
-              <Activity className="h-3.5 w-3.5" /> Live
-            </Badge>
-            <Button variant="outline" size="sm" className="gap-1" onClick={onLogout}>
-              <LogOut className="h-4 w-4" /> Logout
-            </Button>
+            <Badge variant="secondary" className="gap-1"><Activity className="h-3.5 w-3.5" /> Live</Badge>
+            <Button variant="outline" size="sm" className="gap-1" onClick={onLogout}><LogOut className="h-4 w-4" /> Logout</Button>
           </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* Icon Row (added Hidden Groups) */}
         <div className="flex items-center gap-3">
-          <IconPill active={view === "home"} onClick={() => setView("home")} aria="Home"><HomeIcon className="h-5 w-5" /></IconPill>
+          <IconPill active={view === "home"} onClick={() => setView("home")} aria="Dashboard">
+            <DashboardGlyph className="h-5 w-5" />
+          </IconPill>
           <IconPill active={view === "tests"} onClick={() => setView("tests")} aria="Drug Tests"><TestTube2 className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/patient-inbox")} aria="Messages"><MessageSquare className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts"><RadioIcon className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups"><EyeOff className="h-5 w-5" /></IconPill> {/* NEW */}
+          <IconPill onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups"><EyeOff className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/patients")} aria="Patients"><Users className="h-5 w-5" /></IconPill>
-          <IconPill active={view === "settings"} onClick={() => setView("settings")} aria="Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
+          <IconPill active={view === "settings"} onClick={() => setView("settings")} aria="Settings"><Settings as={undefined} /></IconPill>
         </div>
 
-        {/* Search / Filter */}
         <div className="flex items-center justify-between gap-2">
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
