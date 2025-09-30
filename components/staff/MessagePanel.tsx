@@ -1,4 +1,3 @@
-// components/staff/MessagePanel.tsx
 import React, { useMemo, useState } from "react";
 
 export type MessageItem = {
@@ -14,6 +13,7 @@ type Props = {
   newLabel: string;
   items: MessageItem[];
   onNew?: () => void;
+  variant?: "web" | "mobile"; // web = desktop, no bottom dock
 };
 
 const IconWrap: React.FC<React.PropsWithChildren<{ title?: string; className?: string }>> = ({ title, className, children }) => (
@@ -28,11 +28,11 @@ const IconWrap: React.FC<React.PropsWithChildren<{ title?: string; className?: s
 );
 
 const Icons = {
-  phone:   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor"><path strokeWidth="2" d="M2 5a3 3 0 0 1 3-3h3l2 5-2 1a12 12 0 0 0 6 6l1-2 5 2v3a3 3 0 0 1-3 3h-1C9.8 20.5 3.5 14.2 2 7V5z"/></svg>,
+  phone:   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor"><path strokeWidth="2" d="M2 5a3 3 0 0 1 3-3h3l2 5-2 1a12 12 0 0 0 6 6l1-2 5 2v3a3 3 0 0 1-3 3h-1C9.82 20.5 3.5 14.18 2 7V5z"/></svg>,
   calendar:<svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2" strokeWidth="2"/><path d="M16 2v4M8 2v4M3 10h18" strokeWidth="2"/></svg>,
   chat:    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor"><path strokeWidth="2" d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z"/></svg>,
   mic:     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor"><rect x="9" y="2" width="6" height="12" rx="3" strokeWidth="2"/><path d="M5 10a7 7 0 0 0 14 0M12 19v3" strokeWidth="2"/></svg>,
-  bell:    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor"><path strokeWidth="2" d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0" strokeWidth="2"/></svg>,
+  bell:    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor"><path strokeWidth="2" d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0" strokeWidth="2"/></svg>,
   filter:  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor"><path strokeWidth="2" d="M3 5h18M7 12h10M10 19h4"/></svg>,
   search:  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7" strokeWidth="2"/><path d="M21 21l-4.3-4.3" strokeWidth="2"/></svg>,
   plus:    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor"><path strokeWidth="2" d="M12 5v14M5 12h14"/></svg>,
@@ -53,7 +53,7 @@ const StatusDot: React.FC<{ type?: "ok" | "dot" | "none" }> = ({ type }) => {
     : <div className="h-5 w-5 rounded-full bg-teal-400" />;
 };
 
-export default function MessagePanel({ title, newLabel, items, onNew }: Props) {
+export default function MessagePanel({ title, newLabel, items, onNew, variant = "mobile" }: Props) {
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -64,7 +64,7 @@ export default function MessagePanel({ title, newLabel, items, onNew }: Props) {
   }, [items, q]);
 
   return (
-    <div className="rounded-2xl p-4 space-y-4 bg-white/90 border border-slate-100 shadow-sm">
+    <div className={`rounded-2xl ${variant==="web" ? "p-5" : "p-4"} space-y-4 bg-white/95 border border-slate-100 shadow-sm`}>
       <div className="flex items-center justify-between">
         <div className="flex gap-2">
           <IconWrap title="Call">{Icons.phone}</IconWrap>
@@ -73,7 +73,7 @@ export default function MessagePanel({ title, newLabel, items, onNew }: Props) {
           <IconWrap title="Record">{Icons.mic}</IconWrap>
           <IconWrap title="Alerts">{Icons.bell}</IconWrap>
         </div>
-        <span className="text-slate-400">•</span>
+        <span className="text-slate-300">•</span>
       </div>
 
       <div className="flex items-center gap-2">
@@ -119,15 +119,17 @@ export default function MessagePanel({ title, newLabel, items, onNew }: Props) {
         )}
       </div>
 
-      {/* Mini bottom nav (static) */}
-      <div className="mt-2 rounded-2xl bg-white border border-slate-100 px-4">
-        <div className="flex justify-between py-3">
-          <IconWrap title="Messages" className="!h-10 !w-10">{Icons.inbox}</IconWrap>
-          <IconWrap title="Teams" className="!h-10 !w-10">{Icons.people}</IconWrap>
-          <IconWrap title="Home" className="!h-10 !w-10">{Icons.home}</IconWrap>
-          <IconWrap title="Settings" className="!h-10 !w-10">{Icons.settings}</IconWrap>
+      {/* Web variant: no bottom nav */}
+      {variant === "mobile" && (
+        <div className="mt-2 rounded-2xl bg-white border border-slate-100 px-4">
+          <div className="flex justify-between py-3">
+            <IconWrap title="Messages" className="!h-10 !w-10">{Icons.inbox}</IconWrap>
+            <IconWrap title="Teams" className="!h-10 !w-10">{Icons.people}</IconWrap>
+            <IconWrap title="Home" className="!h-10 !w-10">{Icons.home}</IconWrap>
+            <IconWrap title="Settings" className="!h-10 !w-10">{Icons.settings}</IconWrap>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
