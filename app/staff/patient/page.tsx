@@ -1,3 +1,4 @@
+// app/staff/patients/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -10,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Home, Search, Filter, UserRound, Users2, Stethoscope, Syringe, Phone, Clock,
-  ChevronRight, BadgeCheck, AlertCircle, MessageSquare, Bell, Settings
+  ChevronRight, BadgeCheck, AlertCircle, MessageSquare, Bell, Settings, TestTube2
 } from "lucide-react";
 
 /* Figma teal tokens */
@@ -59,10 +60,20 @@ type DBAppointment = {
   status: "scheduled"|"confirmed"|"pending"|"cancelled"|"completed";
   provider: string | null; type: string | null;
 };
+/* Drug Tests */
+type DBDrugTest = {
+  id: string;
+  patient_id: string;
+  status: "pending" | "completed" | "missed";
+  scheduled_for: string | null;
+};
+
 type Row = {
   id: string; name: string; phone?: string;
   next?: { at: string; provider?: string | null; status: DBAppointment["status"]; type?: string | null };
   status: VisitStatus;
+  test?: { status: DBDrugTest["status"]; at?: string | null };
+  hasPendingTest: boolean;
 };
 
 const fmtTime = (iso?: string) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—");
@@ -83,6 +94,22 @@ function VisitChip({ s }: { s: VisitStatus }) {
   );
 }
 
+function TestChip({ status, at }: { status: DBDrugTest["status"]; at?: string | null }) {
+  const map = {
+    pending: { bg: FIGMA.primary50, bd: FIGMA.primary, color: FIGMA.primary700, label: `Pending${at ? ` • ${fmtTime(at)}` : ""}` },
+    completed: { bg: "#ECFDF5", bd: "#A7F3D0", color: "#065F46", label: "Completed" },
+    missed: { bg: "#FEF2F2", bd: "#FCA5A5", color: "#991B1B", label: "Missed" },
+  } as const;
+  const s = map[status];
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border"
+      style={{ background: s.bg, borderColor: s.bd, color: s.color }}>
+      <TestTube2 className="h-3.5 w-3.5" />
+      Drug test: {s.label}
+    </span>
+  );
+}
+
 function CardDetailed({ r }: { r: Row }) {
   return (
     <Link href={`/staff/patient/${r.id}`} className="block rounded-2xl border bg-white p-4 relative hover:shadow-sm">
@@ -98,6 +125,7 @@ function CardDetailed({ r }: { r: Row }) {
               <VisitChip s={r.status} />
             </div>
             <div className="text-xs mt-0.5" style={{ color: FIGMA.gray500 }}>{r.phone || "—"}</div>
+
             <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-sm">
               <div className="flex items-center gap-2" style={{ color: FIGMA.gray500 }}>
                 <BadgeCheck className="h-4 w-4" style={{ color: FIGMA.primary700 }} />
@@ -115,6 +143,12 @@ function CardDetailed({ r }: { r: Row }) {
                 <Phone className="h-4 w-4" style={{ color: FIGMA.primary700 }} />
                 {r.phone ?? "—"}
               </div>
+              {/* Drug test line */}
+              {r.test ? (
+                <div className="sm:col-span-2">
+                  <TestChip status={r.test.status} at={r.test.at} />
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -142,7 +176,15 @@ function RowSummary({ r }: { r: Row }) {
         </div>
         <div>
           <div className="text-sm font-medium">{r.name}</div>
-          <div className="text-xs" style={{ color: FIGMA.gray500 }}>{r.next?.provider ?? "—"}</div>
+          <div className="text-xs flex items-center gap-2" style={{ color: FIGMA.gray500 }}>
+            {r.next?.provider ?? "—"}
+            {r.hasPendingTest && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-[2px] rounded-full text-[10px] border"
+                style={{ background: FIGMA.primary50, color: FIGMA.primary700, borderColor: FIGMA.primary }}>
+                <TestTube2 className="h-3 w-3" /> Test pending
+              </span>
+            )}
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -183,7 +225,8 @@ export default function StaffPatientsListPage() {
       const ids = (patients ?? []).map(p => p.user_id);
       if (ids.length === 0) { setRows([]); return; }
 
-      const fromIso = new Date(Date.now() - 7*24*3600*1000).toISOString(); // detect overdue
+      /* appointments */
+      const fromIso = new Date(Date.now() - 7*24*3600*1000).toISOString();
       const { data: appts, error: aErr } = await supabase
         .from("appointments")
         .select("id,patient_id,appointment_time,status,provider,type")
@@ -193,24 +236,48 @@ export default function StaffPatientsListPage() {
         .order("appointment_time", { ascending: true });
       if (aErr) throw aErr;
 
-      const byPatient = new Map<string, DBAppointment[]>();
-      (appts || []).forEach(a => byPatient.set(a.patient_id, [...(byPatient.get(a.patient_id)||[]), a]));
+      /* drug tests (last 30d + upcoming) */
+      const testsFrom = new Date(Date.now() - 30*24*3600*1000).toISOString();
+      const { data: tests, error: tErr } = await supabase
+        .from("drug_tests")
+        .select("id,patient_id,status,scheduled_for")
+        .in("patient_id", ids)
+        .gte("scheduled_for", testsFrom)
+        .order("scheduled_for", { ascending: true });
+      if (tErr) throw tErr;
+
+      const byPatientAppt = new Map<string, DBAppointment[]>();
+      (appts || []).forEach(a => byPatientAppt.set(a.patient_id, [...(byPatientAppt.get(a.patient_id)||[]), a]));
+
+      const byPatientTest = new Map<string, DBDrugTest[]>();
+      (tests || []).forEach(t => byPatientTest.set(t.patient_id, [...(byPatientTest.get(t.patient_id)||[]), t]));
 
       const merged: Row[] = (patients ?? []).map((p: DBPatient) => {
-        const list = (byPatient.get(p.user_id) || []).sort((a,b)=>+new Date(a.appointment_time)-+new Date(b.appointment_time));
+        const apptList = (byPatientAppt.get(p.user_id) || []).sort((a,b)=>+new Date(a.appointment_time)-+new Date(b.appointment_time));
         const now = new Date();
-
-        const future = list.find(a => new Date(a.appointment_time) >= now);
-        const pastPending = list.filter(a => new Date(a.appointment_time) < now).reverse()
+        const future = apptList.find(a => new Date(a.appointment_time) >= now);
+        const pastPending = apptList.filter(a => new Date(a.appointment_time) < now).reverse()
           .find(a => a.status === "pending" || a.status === "scheduled" || a.status === "confirmed");
-
         const next = future ? { at: future.appointment_time, provider: future.provider, status: future.status, type: future.type } : undefined;
 
-        let status: VisitStatus = "upcoming";
-        if (next && isToday(next.at)) status = "today";
-        if (!next && pastPending) status = "overdue";
+        let visitStatus: VisitStatus = "upcoming";
+        if (next && isToday(next.at)) visitStatus = "today";
+        if (!next && pastPending) visitStatus = "overdue";
 
-        return { id: p.user_id, name: toName(p), phone: p.phone_number ?? undefined, next, status };
+        const tList = (byPatientTest.get(p.user_id) || []).sort((a,b)=>+new Date(a.scheduled_for || 0)-+new Date(b.scheduled_for || 0));
+        const pending = tList.find(t => t.status === "pending");
+        const lastOrNextTest = pending || tList.at(-1);
+        const test = lastOrNextTest ? { status: lastOrNextTest.status, at: lastOrNextTest.scheduled_for } : undefined;
+
+        return {
+          id: p.user_id,
+          name: toName(p),
+          phone: p.phone_number ?? undefined,
+          next,
+          status: visitStatus,
+          test,
+          hasPendingTest: !!pending,
+        };
       });
 
       setRows(merged);
@@ -225,6 +292,7 @@ export default function StaffPatientsListPage() {
       .channel("staff_patients_live")
       .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, () => { void load(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "appointments" }, () => { void load(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "drug_tests" }, () => { void load(); }) // live on tests too
       .subscribe();
     unsubRef.current = ch;
     return () => { if (unsubRef.current) void unsubRef.current.unsubscribe(); };
@@ -262,7 +330,6 @@ export default function StaffPatientsListPage() {
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: FIGMA.gray400 }} />
                 <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name / provider" className="pl-8 h-9 w-56 rounded-full" />
               </div>
-              {/* Filter Dialog */}
               <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" onClick={() => setFilterOpen(true)}>
                 <Filter className="h-5 w-5" style={{ color: FIGMA.primary700 }} />
               </Button>
