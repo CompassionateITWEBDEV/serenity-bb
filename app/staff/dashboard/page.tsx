@@ -1,3 +1,4 @@
+// app/staff/dashboard/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -27,7 +28,7 @@ import {
   Settings as SettingsIcon,
   Radio as RadioIcon,
   EyeOff,
-  Bell, // <-- NEW
+  Bell,
 } from "lucide-react";
 
 import type { DrugTest, TestStatus } from "@/lib/drug-tests";
@@ -130,18 +131,13 @@ export default function StaffDashboardPage() {
           <IconPill onClick={() => router.push("/staff/patient-inbox")} aria="Messages"><MessageSquare className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts"><RadioIcon className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups"><EyeOff className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/notifications")} aria="Notifications"><Bell className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/clinician/dashboard")} aria="Clinicians"><Users className="h-5 w-5" /></IconPill>
 
-          {/* NEW: Notifications route */}
-          <IconPill onClick={() => router.push("/staff/notifications")} aria="Notifications">
-            <Bell className="h-5 w-5" />
+          {/* CHANGE: Settings now routes to /staff/profile */}
+          <IconPill onClick={() => router.push("/staff/profile")} aria="Settings">
+            <SettingsIcon className="h-5 w-5" />
           </IconPill>
-
-          {/* Clinicians link kept */}
-          <IconPill onClick={() => router.push("/clinician/dashboard")} aria="Clinicians">
-            <Users className="h-5 w-5" />
-          </IconPill>
-
-          <IconPill active={view === "settings"} onClick={() => setView("settings")} aria="Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
         </div>
 
         {/* Search / Filter */}
