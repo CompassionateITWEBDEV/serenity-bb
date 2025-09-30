@@ -1,3 +1,4 @@
+// app/staff/profile/page.tsx
 "use client";
 
 import { useRouter } from "next/navigation";
@@ -15,10 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
-/**
- * Profile Settings (staff) — Figma-like grouped settings list.
- * Routes for items are placeholders; swap with your real pages.
- */
+/** Profile Settings (staff) — routes delegate to /staff/settings/* */
 export default function StaffProfilePage() {
   const router = useRouter();
 
@@ -40,14 +38,7 @@ export default function StaffProfilePage() {
 
           <div className="mt-6 flex items-center gap-3">
             <div className="h-12 w-12 rounded-full overflow-hidden bg-white/20 ring-2 ring-white/40">
-              {/* replace with user's avatar if you have it */}
-              <Image
-                src="/avatars/1.png"
-                alt="Avatar"
-                width={48}
-                height={48}
-                className="h-full w-full object-cover"
-              />
+              <Image src="/avatars/1.png" alt="Avatar" width={48} height={48} className="h-full w-full object-cover" />
             </div>
             <div>
               <div className="text-base font-semibold leading-tight">James Anderson</div>
@@ -63,15 +54,31 @@ export default function StaffProfilePage() {
           {/* Account Setting */}
           <SectionTitle>Account Setting</SectionTitle>
           <ul className="divide-y">
-            <Row label="Personal Information" icon={<UserIcon className="h-5 w-5" />} onClick={() => router.push("/staff/profile/personal")} />
-            <Row label="Password & Security" icon={<Shield className="h-5 w-5" />} onClick={() => router.push("/staff/profile/security")} />
-            <Row label="Notification Preferences" icon={<Bell className="h-5 w-5" />} onClick={() => router.push("/staff/profile/notifications")} />
+            <Row
+              label="Personal Information"
+              icon={<UserIcon className="h-5 w-5" />}
+              onClick={() => router.push("/staff/settings/personal")}
+            />
+            <Row
+              label="Password & Security"
+              icon={<Shield className="h-5 w-5" />}
+              onClick={() => router.push("/staff/settings/security")}
+            />
+            <Row
+              label="Notification Preferences"
+              icon={<Bell className="h-5 w-5" />}
+              onClick={() => router.push("/staff/settings/notifications")}
+            />
           </ul>
 
           {/* Others Setting */}
           <SectionTitle>Others Setting</SectionTitle>
           <ul className="divide-y">
-            <Row label="Medication Callback Tracker" icon={<Pill className="h-5 w-5" />} onClick={() => router.push("/staff/profile/medications")} />
+            <Row
+              label="Medication Callback Tracker"
+              icon={<Pill className="h-5 w-5" />}
+              onClick={() => router.push("/staff/settings/medications")}
+            />
           </ul>
 
           {/* Support */}
