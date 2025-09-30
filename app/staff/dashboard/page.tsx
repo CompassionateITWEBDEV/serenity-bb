@@ -11,6 +11,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+// 🔗 NEW: use your separated components
+import RandomDrugTestManager from "@/components/staff/RandomDrugTestManager";
+import IntakeQueue from "@/components/staff/IntakeQueue";
+import MobileDock from "@/components/staff/MobileDock";
+
 import {
   Plus, ShieldCheck, Activity, CircleCheck, CircleX, Clock, AlertTriangle, Bell,
   Filter, Search, TestTube2, User2, LogOut, Settings, Users, Home as HomeIcon,
@@ -137,7 +142,6 @@ export default function StaffDashboardPage() {
   const [activeTab, setActiveTab] = useState<"home" | "tests" | "patients" | "settings">("home");
   const [homeMode, setHomeMode] = useState<"detailed" | "summary">("detailed");
 
-  /* load */
   useEffect(() => {
     (async () => {
       const [p, t] = await Promise.all([fetchPatients(), listDrugTests({})]);
@@ -157,16 +161,12 @@ export default function StaffDashboardPage() {
     })().catch((e: any) => serenitySwal({ title: "Load failed", text: e?.message, mood: "error" }));
   }, []);
 
-  /* realtime */
   useEffect(() => {
     const offPatients = subscribePatients(async () => setPatients(await fetchPatients(query)));
     const offTests = subscribeDrugTests(async () =>
       setTests(await listDrugTests({ q: query, status: filter === "all" ? undefined : filter }))
     );
-    return () => {
-      offPatients();
-      offTests();
-    };
+    return () => { offPatients(); offTests(); };
   }, [query, filter]);
 
   const filteredTests = useMemo(() => {
@@ -225,33 +225,20 @@ export default function StaffDashboardPage() {
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-8">
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
           <TabsList className="mb-4 flex flex-wrap">
-            <TabsTrigger value="home" className="gap-2">
-              <HomeIcon className="h-4 w-4" /> Home
-            </TabsTrigger>
-            <TabsTrigger value="tests" className="gap-2">
-              <TestTube2 className="h-4 w-4" /> Drug Tests
-            </TabsTrigger>
-            <TabsTrigger value="patients" className="gap-2">
-              <Users className="h-4 w-4" /> Patients
-            </TabsTrigger>
-            <TabsTrigger value="settings" className="gap-2">
-              <Settings className="h-4 w-4" /> Settings
-            </TabsTrigger>
+            <TabsTrigger value="home" className="gap-2"><HomeIcon className="h-4 w-4" /> Home</TabsTrigger>
+            <TabsTrigger value="tests" className="gap-2"><TestTube2 className="h-4 w-4" /> Drug Tests</TabsTrigger>
+            <TabsTrigger value="patients" className="gap-2"><Users className="h-4 w-4" /> Patients</TabsTrigger>
+            <TabsTrigger value="settings" className="gap-2"><Settings className="h-4 w-4" /> Settings</TabsTrigger>
           </TabsList>
 
-          {/* ======= HOME (Figma Detailed/Summary) ======= */}
-          <TabsContent value="home" className="space-y-4">
+          {/* ===== HOME ===== */}
+          <TabsContent value="home" className="space-y-6">
             {/* icon row + search/filter */}
             <div className="flex flex-col gap-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   {[HomeIcon, Users, Stethoscope, Bell, Settings].map((Icon, i) => (
-                    <div
-                      key={i}
-                      className={`h-10 w-10 rounded-full grid place-items-center ${
-                        i === 0 ? "bg-cyan-100 text-cyan-700" : "bg-slate-100 text-slate-500"
-                      }`}
-                    >
+                    <div key={i} className={`h-10 w-10 rounded-full grid place-items-center ${i===0 ? "bg-cyan-100 text-cyan-700" : "bg-slate-100 text-slate-500"}`}>
                       <Icon className="h-5 w-5" />
                     </div>
                   ))}
@@ -259,95 +246,67 @@ export default function StaffDashboardPage() {
                 <div className="flex items-center gap-2">
                   <div className="relative">
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <Input
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Search"
-                      className="pl-8 h-9 w-56 rounded-full bg-white"
-                    />
+                    <Input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="Search" className="pl-8 h-9 w-56 rounded-full bg-white" />
                   </div>
                   <Button variant="outline" className="h-9 rounded-full">
-                    <Filter className="h-4 w-4 mr-1 text-cyan-600" />
-                    Filter
+                    <Filter className="h-4 w-4 mr-1 text-cyan-600" /> Filter
                   </Button>
                 </div>
               </div>
 
-              {/* header row */}
               <div className="flex items-center justify-between text-sm">
-                <div className="text-slate-600">
-                  Patient <span className="text-slate-900 font-medium">({patients.length})</span>
-                </div>
+                <div className="text-slate-600">Patient <span className="text-slate-900 font-medium">({patients.length})</span></div>
                 <button className="text-cyan-600 hover:underline">New Patient Group</button>
-              </div>
-
-              {/* segmented control */}
-              <div className="bg-slate-100 rounded-full p-1 w-full flex max-w-xs">
-                <button
-                  onClick={() => setHomeMode("detailed")}
-                  className={`flex-1 h-9 rounded-full text-sm transition ${
-                    homeMode === "detailed" ? "bg-cyan-500 text-white shadow" : "text-slate-600"
-                  }`}
-                >
-                  Detailed
-                </button>
-                <button
-                  onClick={() => setHomeMode("summary")}
-                  className={`flex-1 h-9 rounded-full text-sm transition ${
-                    homeMode === "summary" ? "bg-cyan-500 text-white shadow" : "text-slate-600"
-                  }`}
-                >
-                  Summary
-                </button>
               </div>
             </div>
 
-            {/* lists */}
+            {/* 🔗 NEW: components placed here */}
+            <section>
+              <h3 className="text-lg font-semibold text-slate-800">Random Drug Test Manager</h3>
+              <Card className="mt-3 shadow-sm">
+                <CardContent className="p-3">
+                  <RandomDrugTestManager patients={patients} />
+                </CardContent>
+              </Card>
+            </section>
+
+            <section>
+              <h3 className="text-lg font-semibold text-slate-800">Real-Time Intake Queue</h3>
+              <p className="text-xs text-slate-500 -mt-1">Monitor patient progress across intake roles</p>
+              <IntakeQueue patients={patients} />
+            </section>
+
+            {/* Detailed/Summary toggle + lists (unchanged) */}
+            <div className="bg-slate-100 rounded-full p-1 w-full flex max-w-xs">
+              <button onClick={()=>setHomeMode("detailed")} className={`flex-1 h-9 rounded-full text-sm transition ${homeMode==="detailed"?"bg-cyan-500 text-white shadow":"text-slate-600"}`}>Detailed</button>
+              <button onClick={()=>setHomeMode("summary")} className={`flex-1 h-9 rounded-full text-sm transition ${homeMode==="summary"?"bg-cyan-500 text-white shadow":"text-slate-600"}`}>Summary</button>
+            </div>
+
             {homeMode === "detailed" ? (
               <div className="grid gap-3">
                 {patients.map((p, idx) => (
-                  <article
-                    key={p.id}
-                    className="rounded-2xl border bg-white shadow-sm px-4 py-3 relative overflow-hidden"
-                  >
-                    <div
-                      className={`absolute right-1 top-1 h-[92%] w-1.5 rounded-full ${
-                        idx % 2 ? "bg-cyan-400" : "bg-slate-300"
-                      }`}
-                    />
+                  <article key={p.id} className="rounded-2xl border bg-white shadow-sm px-4 py-3 relative overflow-hidden">
+                    <div className={`absolute right-1 top-1 h-[92%] w-1.5 rounded-full ${idx%2?"bg-cyan-400":"bg-slate-300"}`} />
                     <div className="flex items-start gap-3">
-                      <div className="h-10 w-10 rounded-full bg-cyan-100 text-cyan-700 grid place-items-center shrink-0">
-                        <HomeIcon className="h-5 w-5" />
-                      </div>
+                      <div className="h-10 w-10 rounded-full bg-cyan-100 text-cyan-700 grid place-items-center shrink-0"><HomeIcon className="h-5 w-5" /></div>
                       <div className="flex-1">
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <div className="font-medium leading-tight">{p.name}</div>
                             <div className="text-xs text-cyan-600">{p.email || "SN PT HHA"}</div>
                           </div>
-                          <div className="text-[10px] text-slate-500 text-right">
-                            Today · {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </div>
+                          <div className="text-[10px] text-slate-500 text-right">Today · {new Date().toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}</div>
                         </div>
-
                         <div className="mt-2 grid grid-cols-[18px_1fr] gap-y-1.5 gap-x-2 text-xs text-slate-600">
-                          <PhoneCall className="h-3.5 w-3.5 text-cyan-600 mt-0.5" />
-                          <span>{p.phone ?? "—"}</span>
-                          <Users className="h-3.5 w-3.5 text-cyan-600 mt-0.5" />
-                          <span>Dr. Maria Gonzalez</span>
-                          <Badge variant="secondary" className="justify-start w-min px-2 py-0 h-5 text-[10px]">
-                            Medicare NGS
-                          </Badge>
+                          <PhoneCall className="h-3.5 w-3.5 text-cyan-600 mt-0.5" /><span>{p.phone ?? "—"}</span>
+                          <Users className="h-3.5 w-3.5 text-cyan-600 mt-0.5" /><span>Dr. Maria Gonzalez</span>
+                          <Badge variant="secondary" className="justify-start w-min px-2 py-0 h-5 text-[10px]">Medicare NGS</Badge>
                         </div>
                       </div>
                     </div>
                     <div className="mt-2 flex justify-end gap-2">
-                      <Button variant="outline" size="icon" className="h-8 w-8">
-                        <MessageSquare className="h-4 w-4" />
-                      </Button>
-                      <Button variant="outline" size="icon" className="h-8 w-8">
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
+                      <Button variant="outline" size="icon" className="h-8 w-8"><MessageSquare className="h-4 w-4" /></Button>
+                      <Button variant="outline" size="icon" className="h-8 w-8"><ChevronRight className="h-4 w-4" /></Button>
                     </div>
                   </article>
                 ))}
@@ -358,15 +317,13 @@ export default function StaffDashboardPage() {
                   {patients.map((p) => (
                     <li key={p.id} className="px-4 py-3 flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-cyan-100 grid place-items-center text-cyan-700">
-                          <HomeIcon className="h-4 w-4" />
-                        </div>
+                        <div className="h-8 w-8 rounded-full bg-cyan-100 grid place-items-center text-cyan-700"><HomeIcon className="h-4 w-4" /></div>
                         <div>
                           <div className="text-sm font-medium">{p.name}</div>
                           <div className="text-xs text-cyan-600">{p.email || "SN PT HHA"}</div>
                         </div>
                       </div>
-                      <div className="text-[10px] text-slate-500">Today · {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+                      <div className="text-[10px] text-slate-500">Today · {new Date().toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}</div>
                     </li>
                   ))}
                 </ul>
@@ -374,35 +331,25 @@ export default function StaffDashboardPage() {
             )}
           </TabsContent>
 
-          {/* ======= DRUG TESTS ======= */}
+          {/* ===== DRUG TESTS / PATIENTS / SETTINGS (unchanged) ===== */}
           <TabsContent value="tests" className="space-y-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xl font-semibold tracking-tight">Random Drug Test Manager</h2>
-              <Button onClick={onCreateTest} className="gap-2">
-                <Plus className="h-4 w-4" /> New Test
-              </Button>
+              <Button onClick={onCreateTest} className="gap-2"><Plus className="h-4 w-4" /> New Test</Button>
             </div>
-
             <Card className="shadow-sm">
               <CardHeader className="pb-3">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-cyan-100 grid place-items-center">
-                      <TestTube2 className="h-4 w-4 text-cyan-700" />
-                    </div>
+                    <div className="h-8 w-8 rounded-full bg-cyan-100 grid place-items-center"><TestTube2 className="h-4 w-4 text-cyan-700" /></div>
                     <CardTitle className="text-base">Recent Tests</CardTitle>
                   </div>
                   <div className="flex gap-2">
                     <div className="relative">
                       <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                      <Input
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Search patient…"
-                        className="pl-8 h-9 w-48"
-                      />
+                      <Input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="Search patient…" className="pl-8 h-9 w-48" />
                     </div>
-                    <Select value={filter} onValueChange={(v) => setFilter(v as any)}>
+                    <Select value={filter} onValueChange={(v)=>setFilter(v as any)}>
                       <SelectTrigger className="h-9 w-36">
                         <Filter className="h-4 w-4 mr-1 text-slate-500" />
                         <SelectValue placeholder="Filter" />
@@ -417,21 +364,13 @@ export default function StaffDashboardPage() {
                   </div>
                 </div>
               </CardHeader>
-
               <CardContent className="space-y-3">
-                {filteredTests.length === 0 && (
-                  <div className="text-sm text-slate-500 py-6 text-center">No tests found.</div>
-                )}
+                {filteredTests.length === 0 && <div className="text-sm text-slate-500 py-6 text-center">No tests found.</div>}
                 <ul className="grid gap-3">
                   {filteredTests.map((t) => (
-                    <li
-                      key={t.id}
-                      className="rounded-xl border bg-white px-4 py-3 flex items-center justify-between"
-                    >
+                    <li key={t.id} className="rounded-xl border bg-white px-4 py-3 flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-full bg-slate-100 grid place-items-center">
-                          <User2 className="h-4 w-4 text-slate-600" />
-                        </div>
+                        <div className="h-9 w-9 rounded-full bg-slate-100 grid place-items-center"><User2 className="h-4 w-4 text-slate-600" /></div>
                         <div>
                           <div className="font-medium">{t.patient.name}</div>
                           <div className="text-xs text-slate-500">Scheduled: {fmtWhen(t.scheduledFor)}</div>
@@ -445,16 +384,13 @@ export default function StaffDashboardPage() {
             </Card>
           </TabsContent>
 
-          {/* ======= PATIENTS ======= */}
           <TabsContent value="patients">
             <section aria-labelledby="patients">
               <h2 id="patients" className="text-xl font-semibold tracking-tight mb-3">Patients</h2>
               <Card className="shadow-sm">
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-slate-100 grid place-items-center">
-                      <Users className="h-4 w-4 text-slate-700" />
-                    </div>
+                    <div className="h-8 w-8 rounded-full bg-slate-100 grid place-items-center"><Users className="h-4 w-4 text-slate-700" /></div>
                     <CardTitle className="text-base">All Subscribers</CardTitle>
                   </div>
                 </CardHeader>
@@ -481,7 +417,6 @@ export default function StaffDashboardPage() {
             </section>
           </TabsContent>
 
-          {/* ======= SETTINGS ======= */}
           <TabsContent value="settings">
             <section aria-labelledby="settings">
               <h2 id="settings" className="text-xl font-semibold tracking-tight mb-3 flex items-center gap-2">
@@ -493,24 +428,8 @@ export default function StaffDashboardPage() {
         </Tabs>
       </main>
 
-      {/* bottom nav (mobile) */}
-      <nav className="md:hidden fixed bottom-4 left-0 right-0">
-        <div className="mx-auto w-72 rounded-2xl bg-white/90 shadow-lg border flex items-center justify-around py-2">
-          <button className="p-2 text-slate-600" aria-label="Messages">💬</button>
-          <button className="p-2 text-slate-600" aria-label="Queue">📋</button>
-          <button
-            className="p-2 rounded-full bg-cyan-600 text-white"
-            aria-label="Home"
-            onClick={() => setActiveTab("home")}
-          >
-            🏠
-          </button>
-          <button className="p-2 text-slate-600" aria-label="Alerts">🔔</button>
-          <button className="p-2 text-slate-600" aria-label="Profile" onClick={() => setActiveTab("settings")}>
-            👤
-          </button>
-        </div>
-      </nav>
+      {/* 🔗 NEW: bottom dock component */}
+      <MobileDock />
     </div>
   );
 }
