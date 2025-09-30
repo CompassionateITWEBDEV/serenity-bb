@@ -66,7 +66,7 @@ export default function StaffBroadcastsPage() {
           <IconPill onClick={() => router.push("/staff/dashboard")} aria="Home"><HomeIcon className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/dashboard?tab=tests")} aria="Drug Tests"><TestTube2 className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/patient-inbox")} aria="Messages"><MessageSquare className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/staff/patients")} aria="Patients"><Users className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/clinician/patients")} aria="Patients"><Users className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/settings")} aria="Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
           <IconPill active aria="Broadcasts"><RadioIcon className="h-5 w-5" /></IconPill>
         </div>
