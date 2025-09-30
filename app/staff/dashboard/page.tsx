@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -10,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Plus, ShieldCheck, Activity, CircleCheck, CircleX, Clock, AlertTriangle,
-  Filter, Search, TestTube2, User2, LogOut
+  Filter, Search, TestTube2, User2, LogOut, Settings, Users
 } from "lucide-react";
 
 import ProfileSettings from "@/components/ProfileSettings";
@@ -79,6 +80,7 @@ async function serenityPromptNewTest(patients: StaffPatient[]) {
 }
 
 /* ======================= Helpers ======================= */
+type RoleStatusMap = Record<Role, RoleStatus>;
 function fmtWhen(iso?: string | null) {
   if (!iso) return "—";
   try { return new Date(iso).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return "—"; }
@@ -114,12 +116,11 @@ export default function StaffDashboardPage() {
 
   const [patients, setPatients] = useState<StaffPatient[]>([]);
   const [tests, setTests] = useState<DrugTest[]>([]);
-  const [intake, setIntake] = useState<{ id: string; patient: StaffPatient; roles: Record<Role, RoleStatus> }[]>([]);
+  const [intake, setIntake] = useState<{ id: string; patient: StaffPatient; roles: RoleStatusMap }[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | TestStatus>("all");
   const [activeTab, setActiveTab] = useState<"tests" | "patients" | "settings">("tests");
 
-  // Initial load (same UI, live data)
   useEffect(() => {
     (async () => {
       const [p, t] = await Promise.all([fetchPatients(), listDrugTests({})]);
@@ -139,7 +140,6 @@ export default function StaffDashboardPage() {
     })().catch((e: any) => serenitySwal({ title: "Load failed", text: e?.message, mood: "error" }));
   }, []);
 
-  // Realtime refresh
   useEffect(() => {
     const offPatients = subscribePatients(async () => setPatients(await fetchPatients(query)));
     const offTests = subscribeDrugTests(async () => setTests(await listDrugTests({ q: query, status: filter === "all" ? undefined : filter })));
@@ -173,7 +173,6 @@ export default function StaffDashboardPage() {
     router.refresh();
   }
 
-  /* ======================= UI matches your screenshot ======================= */
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Top bar */}
@@ -202,9 +201,18 @@ export default function StaffDashboardPage() {
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-8">
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
           <TabsList className="mb-4">
-            <TabsTrigger value="tests">Drug Tests</TabsTrigger>
-            <TabsTrigger value="patients">Patients</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
+            <TabsTrigger value="tests" className="gap-2">
+              <TestTube2 className="h-4 w-4" />
+              Drug Tests
+            </TabsTrigger>
+            <TabsTrigger value="patients" className="gap-2">
+              <Users className="h-4 w-4" />
+              Patients
+            </TabsTrigger>
+            <TabsTrigger value="settings" className="gap-2">
+              <Settings className="h-4 w-4" />
+              Settings
+            </TabsTrigger>
           </TabsList>
 
           {/* Random Drug Test Manager */}
@@ -274,7 +282,7 @@ export default function StaffDashboardPage() {
             </section>
           </TabsContent>
 
-          {/* Patients (Subscribers) */}
+          {/* Patients */}
           <TabsContent value="patients">
             <section aria-labelledby="patients">
               <h2 id="patients" className="text-xl font-semibold tracking-tight mb-3">Patients</h2>
@@ -282,7 +290,7 @@ export default function StaffDashboardPage() {
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-2">
                     <div className="h-8 w-8 rounded-full bg-slate-100 grid place-items-center">
-                      <User2 className="h-4 w-4 text-slate-700" />
+                      <Users className="h-4 w-4 text-slate-700" />
                     </div>
                     <CardTitle className="text-base">All Subscribers</CardTitle>
                   </div>
@@ -310,9 +318,14 @@ export default function StaffDashboardPage() {
             </section>
           </TabsContent>
 
-          {/* Settings (same UI) */}
+          {/* Settings */}
           <TabsContent value="settings">
-            <ProfileSettings />
+            <section aria-labelledby="settings">
+              <h2 id="settings" className="text-xl font-semibold tracking-tight mb-3 flex items-center gap-2">
+                <Settings className="h-5 w-5" /> Settings
+              </h2>
+              <ProfileSettings />
+            </section>
           </TabsContent>
         </Tabs>
       </main>
