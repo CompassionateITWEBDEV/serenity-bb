@@ -1,3 +1,4 @@
+// app/clinician/dashboard/page.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -13,10 +14,8 @@ import {
   Users,
   MessageSquare,
   Settings as SettingsIcon,
-  LogOut,
 } from "lucide-react";
 import MobileDock from "@/components/staff/MobileDock";
-import ProfileSettings from "@/components/ProfileSettings";
 import DashboardGlyph from "@/components/icons/DashboardGlyph";
 
 // --- local types/mocks (swap to API when ready)
@@ -37,12 +36,9 @@ const MOCKS: Clinician[] = [
   { id: "6", name: "Dr. John Lee", role: "Addiction Medicine Specialist", subtitle: "Clinicians/ Staff", avatar: "/avatars/6.png" },
 ];
 
-type View = "directory" | "settings";
-
 export default function ClinicianDashboardPage() {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<View>("directory");
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -55,19 +51,16 @@ export default function ClinicianDashboardPage() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
-              {/* Dashboard brand mark */}
               <DashboardGlyph className="h-5 w-5" />
             </div>
             <div>
               <h1 className="text-lg font-semibold">Clinician Console</h1>
-              <p className="text-xs text-slate-500">Directory & messaging</p>
+              <p className="text-xs text-slate-500">Directory &amp; messaging</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="gap-1">Live</Badge>
-            <Button variant="outline" size="sm" className="gap-1" onClick={() => router.push("/logout")}>
-              <LogOut className="h-4 w-4" /> Logout
-            </Button>
+            {/* Logout removed */}
           </div>
         </div>
       </header>
@@ -75,67 +68,72 @@ export default function ClinicianDashboardPage() {
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
         {/* Icon row */}
         <div className="flex items-center gap-3">
-          <IconPill active={view === "directory"} onClick={() => setView("directory")} aria="Dashboard">
+          <IconPill active aria="Dashboard">
             <DashboardGlyph className="h-5 w-5" />
           </IconPill>
-          <IconPill aria="Vitals" onClick={() => router.push("/clinician/vitals")}><HeartPulse className="h-5 w-5" /></IconPill>
-          <IconPill aria="Patients" onClick={() => router.push("/clinician/patients")}><Users className="h-5 w-5" /></IconPill>
-          <IconPill aria="Messages" onClick={() => router.push("/clinician/inbox")}><MessageSquare className="h-5 w-5" /></IconPill>
-          <IconPill active={view === "settings"} onClick={() => setView("settings")} aria="Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
+          <IconPill aria="Vitals" onClick={() => router.push("/clinician/vitals")}>
+            <HeartPulse className="h-5 w-5" />
+          </IconPill>
+          <IconPill aria="Patients" onClick={() => router.push("/clinician/patients")}>
+            <Users className="h-5 w-5" />
+          </IconPill>
+          {/* CONNECTED: Messages -> staff patient inbox */}
+          <IconPill aria="Messages" onClick={() => router.push("/staff/patient-inbox")}>
+            <MessageSquare className="h-5 w-5" />
+          </IconPill>
+          {/* CONNECTED: Settings -> staff profile hub */}
+          <IconPill aria="Settings" onClick={() => router.push("/staff/profile")}>
+            <SettingsIcon className="h-5 w-5" />
+          </IconPill>
         </div>
 
         {/* Search / Filter */}
-        {view === "directory" && (
-          <>
-            <div className="flex items-center justify-between gap-2">
-              <div className="relative">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search"
-                  className="pl-8 h-9 w-64 rounded-full"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" className="h-9 rounded-full">
-                  <Filter className="h-4 w-4 mr-1 text-cyan-600" /> Filter
-                </Button>
-                <span className="text-sm text-slate-600">Clinicians ({filtered.length})</span>
-              </div>
-            </div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search"
+              className="pl-8 h-9 w-64 rounded-full"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" className="h-9 rounded-full">
+              <Filter className="h-4 w-4 mr-1 text-cyan-600" /> Filter
+            </Button>
+            <span className="text-sm text-slate-600">Clinicians ({filtered.length})</span>
+          </div>
+        </div>
 
-            {/* Directory list */}
-            <Card className="shadow-sm">
-              <CardContent className="p-0">
-                <ul className="divide-y">
-                  {filtered.map((c) => (
-                    <li key={c.id} className="flex items-center gap-3 px-4 py-3">
-                      <div className="h-10 w-10 rounded-full bg-slate-200 overflow-hidden">
-                        {/* Why: keeps layout even if no avatar asset is present */}
-                        <img src={c.avatar} alt={c.name} className="h-full w-full object-cover" onError={(e)=>{(e.currentTarget as HTMLImageElement).style.display='none'}} />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{c.name}</div>
-                        <div className="text-xs text-slate-500 truncate">{c.role}</div>
-                      </div>
-                    </li>
-                  ))}
-                  {filtered.length === 0 && (
-                    <li className="px-4 py-8 text-center text-sm text-slate-500">No results.</li>
-                  )}
-                </ul>
-              </CardContent>
-            </Card>
-          </>
-        )}
-
-        {view === "settings" && (
-          <section>
-            <h2 className="text-xl font-semibold tracking-tight">Settings</h2>
-            <div className="mt-3"><ProfileSettings /></div>
-          </section>
-        )}
+        {/* Directory list */}
+        <Card className="shadow-sm">
+          <CardContent className="p-0">
+            <ul className="divide-y">
+              {filtered.map((c) => (
+                <li key={c.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="h-10 w-10 rounded-full bg-slate-200 overflow-hidden">
+                    <img
+                      src={c.avatar}
+                      alt={c.name}
+                      className="h-full w-full object-cover"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = "none";
+                      }}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{c.name}</div>
+                    <div className="text-xs text-slate-500 truncate">{c.role}</div>
+                  </div>
+                </li>
+              ))}
+              {filtered.length === 0 && (
+                <li className="px-4 py-8 text-center text-sm text-slate-500">No results.</li>
+              )}
+            </ul>
+          </CardContent>
+        </Card>
       </main>
 
       <MobileDock />
