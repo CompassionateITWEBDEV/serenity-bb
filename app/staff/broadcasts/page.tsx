@@ -39,7 +39,6 @@ export default function StaffBroadcastsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* header */}
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -63,7 +62,6 @@ export default function StaffBroadcastsPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* dashboard icon row */}
         <div className="flex items-center gap-3">
           <IconPill onClick={() => router.push("/staff/dashboard")} aria="Home"><HomeIcon className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/dashboard?tab=tests")} aria="Drug Tests"><TestTube2 className="h-5 w-5" /></IconPill>
@@ -80,7 +78,6 @@ export default function StaffBroadcastsPage() {
           </Button>
         </div>
 
-        {/* content */}
         <div className="grid">
           <Broadcasts onNew={() => console.log("new broadcast")} />
         </div>
