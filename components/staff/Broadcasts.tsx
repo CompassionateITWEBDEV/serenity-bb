@@ -2,28 +2,12 @@
 
 import React, { useMemo, useState } from "react";
 
-export type Broadcast = {
-  id: string;
-  title: string;           // e.g., "Everyone"
-  body: string;            // short description
-  timeLabel: string;       // e.g., "Yesterday – 04:37 AM"
-};
+export type Broadcast = { id: string; title: string; body: string; timeLabel: string; };
 
-type Props = {
-  items?: Broadcast[];
-  onNew?: () => void;
-  variant?: "web" | "mobile"; // web: no bottom dock
-};
+type Props = { items?: Broadcast[]; onNew?: () => void; variant?: "web" | "mobile"; };
 
 const IconBtn: React.FC<React.PropsWithChildren<{ title?: string }>> = ({ title, children }) => (
-  <button
-    type="button"
-    aria-label={title}
-    title={title}
-    className="h-8 w-8 rounded-full border border-slate-200 grid place-items-center hover:bg-slate-50 active:scale-[.98] transition"
-  >
-    {children}
-  </button>
+  <button aria-label={title} title={title} className="h-8 w-8 rounded-full border border-slate-200 grid place-items-center hover:bg-slate-50 active:scale-[.98] transition">{children}</button>
 );
 
 const Icons = {
@@ -42,12 +26,7 @@ const Icons = {
 };
 
 const SEED: Broadcast[] = [
-  {
-    id: "b1",
-    title: "Everyone",
-    body: "Broadcast for all staff members. Important updates and announcements will appear here.",
-    timeLabel: "Yesterday – 04:37 AM",
-  },
+  { id: "b1", title: "Everyone", body: "Broadcast for all staff members. Important updates and announcements will appear here.", timeLabel: "Yesterday – 04:37 AM" },
 ];
 
 export default function Broadcasts({ items = SEED, onNew, variant = "web" }: Props) {
@@ -56,14 +35,11 @@ export default function Broadcasts({ items = SEED, onNew, variant = "web" }: Pro
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return items;
-    return items.filter(b =>
-      (b.title + " " + b.body + " " + b.timeLabel).toLowerCase().includes(s)
-    );
+    return items.filter(b => (b.title + " " + b.body + " " + b.timeLabel).toLowerCase().includes(s));
   }, [items, q]);
 
   return (
     <section className="rounded-2xl bg-white/95 border border-slate-100 shadow-sm p-4 space-y-3">
-      {/* action strip */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <IconBtn title="Call">{Icons.phone}</IconBtn>
@@ -75,7 +51,6 @@ export default function Broadcasts({ items = SEED, onNew, variant = "web" }: Pro
         <span className="text-slate-400">•</span>
       </div>
 
-      {/* search + filter */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <span className="absolute left-3 top-2.5 text-slate-400">{Icons.search}</span>
@@ -89,15 +64,11 @@ export default function Broadcasts({ items = SEED, onNew, variant = "web" }: Pro
         <IconBtn title="Filter">{Icons.filter}</IconBtn>
       </div>
 
-      {/* title row */}
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold text-slate-700">Broadcasts</div>
-        <button onClick={onNew} className="text-sm text-cyan-600 hover:underline">
-          New Broadcast
-        </button>
+        <button onClick={onNew} className="text-sm text-cyan-600 hover:underline">New Broadcast</button>
       </div>
 
-      {/* list */}
       <ul className="space-y-3">
         {filtered.length === 0 ? (
           <li className="py-8 text-center text-slate-400 text-sm">No broadcasts</li>
@@ -121,7 +92,6 @@ export default function Broadcasts({ items = SEED, onNew, variant = "web" }: Pro
         )}
       </ul>
 
-      {/* optional mobile dock */}
       {variant === "mobile" && (
         <div className="mt-3 rounded-2xl bg-white border border-slate-100 px-4">
           <div className="flex justify-between py-3">
