@@ -14,7 +14,6 @@ import RandomDrugTestManager from "@/components/staff/RandomDrugTestManager";
 import IntakeQueue from "@/components/staff/IntakeQueue";
 import MobileDock from "@/components/staff/MobileDock";
 import ProfileSettings from "@/components/ProfileSettings";
-import MessagesBase from "@/components/staff/MessagesBase"; // <-- add this import
 
 import {
   ShieldCheck, Activity, Search, Filter, LogOut,
@@ -41,7 +40,7 @@ const fmtWhen = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
 
 /* ======================= Page ======================= */
-type View = "home" | "tests" | "messages" | "settings";
+type View = "home" | "tests" | "settings"; // removed "messages"
 
 export default function StaffDashboardPage() {
   const router = useRouter();
@@ -124,8 +123,12 @@ export default function StaffDashboardPage() {
         <div className="flex items-center gap-3">
           <IconPill active={view === "home"} onClick={() => setView("home")} aria="Home"><HomeIcon className="h-5 w-5" /></IconPill>
           <IconPill active={view === "tests"} onClick={() => setView("tests")} aria="Drug Tests"><TestTube2 className="h-5 w-5" /></IconPill>
-          {/* stays in-page: just toggles the 'messages' view */}
-          <IconPill active={view === "messages"} onClick={() => setView("messages")} aria="Messages"><MessageSquare className="h-5 w-5" /></IconPill>
+
+          {/* Navigate to separate page instead of toggling in-place */}
+          <IconPill onClick={() => router.push("/staff/messages")} aria="Messages">
+            <MessageSquare className="h-5 w-5" />
+          </IconPill>
+
           <IconPill onClick={() => router.push("/staff/patients")} aria="Patients"><Users className="h-5 w-5" /></IconPill>
           <IconPill active={view === "settings"} onClick={() => setView("settings")} aria="Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
         </div>
@@ -142,7 +145,7 @@ export default function StaffDashboardPage() {
           </div>
         </div>
 
-        {/* Views */}
+        {/* Views (messages removed) */}
         {view === "home" && (
           <>
             <section>
@@ -207,14 +210,6 @@ export default function StaffDashboardPage() {
                 </ul>
               </CardContent>
             </Card>
-          </section>
-        )}
-
-        {view === "messages" && (
-          <section>
-            <h2 className="text-xl font-semibold tracking-tight mb-3">Messages</h2>
-            {/* Render the base from components, no extra page */}
-            <MessagesBase />
           </section>
         )}
 
