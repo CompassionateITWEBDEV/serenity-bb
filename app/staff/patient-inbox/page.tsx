@@ -1,3 +1,4 @@
+// app/staff/patient-inbox/page.tsx
 "use client";
 
 import { useRouter } from "next/navigation";
@@ -61,13 +62,27 @@ export default function StaffPatientInboxPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* Dashboard icon row */}
+        {/* Icon row */}
         <div className="flex items-center gap-3">
-          <IconPill onClick={() => router.push("/staff/dashboard")} aria="Home"><HomeIcon className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/staff/dashboard?tab=tests")} aria="Drug Tests"><TestTube2 className="h-5 w-5" /></IconPill>
-          <IconPill active aria="Messages / Patient Inbox"><MessageSquare className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/staff/patients")} aria="Patients"><Users className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/staff/settings")} aria="Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/dashboard")} aria="Home">
+            <HomeIcon className="h-5 w-5" />
+          </IconPill>
+          <IconPill onClick={() => router.push("/staff/dashboard?tab=tests")} aria="Drug Tests">
+            <TestTube2 className="h-5 w-5" />
+          </IconPill>
+          <IconPill active aria="Messages / Patient Inbox">
+            <MessageSquare className="h-5 w-5" />
+          </IconPill>
+
+          {/* CHANGED: Patients -> clinician dashboard */}
+          <IconPill onClick={() => router.push("/clinician/dashboard")} aria="Clinicians">
+            <Users className="h-5 w-5" />
+          </IconPill>
+
+          {/* CHANGED: Settings -> staff profile (ProfileSettings) */}
+          <IconPill onClick={() => router.push("/staff/profile")} aria="Profile Settings">
+            <SettingsIcon className="h-5 w-5" />
+          </IconPill>
         </div>
 
         <div className="flex items-center justify-between">
