@@ -15,9 +15,18 @@ import MobileDock from "@/components/staff/MobileDock";
 import ProfileSettings from "@/components/ProfileSettings";
 
 import {
-  ShieldCheck, Activity, Search, Filter, LogOut,
-  Home as HomeIcon, TestTube2, MessageSquare, Users, Settings as SettingsIcon,
-  Radio as RadioIcon, EyeOff,
+  ShieldCheck,
+  Activity,
+  Search,
+  Filter,
+  LogOut,
+  Home as HomeIcon,
+  TestTube2,
+  MessageSquare,
+  Users,
+  Settings as SettingsIcon,
+  Radio as RadioIcon,
+  EyeOff,
 } from "lucide-react";
 
 import type { DrugTest, TestStatus } from "@/lib/drug-tests";
@@ -28,17 +37,28 @@ import { logout } from "@/lib/staff";
 
 const TEST_STATUS_META: Record<TestStatus, { label: string; cls: string }> = {
   completed: { label: "Completed", cls: "text-emerald-700 bg-emerald-50 border-emerald-200" },
-  missed:    { label: "Missed",    cls: "text-rose-700 bg-rose-50 border-rose-200" },
-  pending:   { label: "Pending",   cls: "text-amber-700 bg-amber-50 border-amber-200" },
+  missed: { label: "Missed", cls: "text-rose-700 bg-rose-50 border-rose-200" },
+  pending: { label: "Pending", cls: "text-amber-700 bg-amber-50 border-amber-200" },
 };
 
 function StatusChip({ status }: { status: TestStatus }) {
   const m = TEST_STATUS_META[status];
-  return <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs border ${m.cls}`}>{m.label}</span>;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs border ${m.cls}`}>
+      {m.label}
+    </span>
+  );
 }
 
 const fmtWhen = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+  iso
+    ? new Date(iso).toLocaleString([], {
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
 
 type View = "home" | "tests" | "settings";
 
@@ -64,13 +84,19 @@ export default function StaffDashboardPage() {
     const offT = subscribeDrugTests(async () =>
       setTests(await listDrugTests({ q: query, status: filter === "all" ? undefined : filter }))
     );
-    return () => { offP(); offT(); };
+    return () => {
+      offP();
+      offT();
+    };
   }, [query, filter]);
 
   const filteredTests = useMemo(() => {
     const q = query.trim().toLowerCase();
     return tests.filter((t) => {
-      const bySearch = !q || t.patient.name.toLowerCase().includes(q) || (t.patient.email ?? "").toLowerCase().includes(q);
+      const bySearch =
+        !q ||
+        t.patient.name.toLowerCase().includes(q) ||
+        (t.patient.email ?? "").toLowerCase().includes(q);
       const byStatus = filter === "all" || t.status === filter;
       return bySearch && byStatus;
     });
@@ -113,6 +139,7 @@ export default function StaffDashboardPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+        {/* Icon Row */}
         <div className="flex items-center gap-3">
           <IconPill active={view === "home"} onClick={() => setView("home")} aria="Home">
             <HomeIcon className="h-5 w-5" />
@@ -129,19 +156,27 @@ export default function StaffDashboardPage() {
           <IconPill onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups">
             <EyeOff className="h-5 w-5" />
           </IconPill>
-          <IconPill onClick={() => router.push("/staff/patients")} aria="Patients">
+
+          {/* Route to Clinicians dashboard (unchanged icon) */}
+          <IconPill onClick={() => router.push("/clinician/dashboard")} aria="Clinicians">
             <Users className="h-5 w-5" />
           </IconPill>
+
           <IconPill active={view === "settings"} onClick={() => setView("settings")} aria="Settings">
-            {/* FIX: use the imported SettingsIcon */}
             <SettingsIcon className="h-5 w-5" />
           </IconPill>
         </div>
 
+        {/* Search / Filter */}
         <div className="flex items-center justify-between gap-2">
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" className="pl-8 h-9 w-64 rounded-full" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search"
+              className="pl-8 h-9 w-64 rounded-full"
+            />
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" className="h-9 rounded-full">
@@ -156,7 +191,9 @@ export default function StaffDashboardPage() {
             <section>
               <h2 className="text-xl font-semibold tracking-tight">Random Drug Test Manager</h2>
               <Card className="mt-3 shadow-sm">
-                <CardContent className="p-4"><RandomDrugTestManager patients={patients} /></CardContent>
+                <CardContent className="p-4">
+                  <RandomDrugTestManager patients={patients} />
+                </CardContent>
               </Card>
             </section>
 
@@ -172,7 +209,9 @@ export default function StaffDashboardPage() {
           <section>
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold tracking-tight">Random Drug Test Manager</h2>
-              <Button onClick={onCreateTest} className="gap-2">+ New Test</Button>
+              <Button onClick={onCreateTest} className="gap-2">
+                + New Test
+              </Button>
             </div>
             <Card className="mt-3 shadow-sm">
               <CardHeader className="pb-3">
@@ -186,10 +225,17 @@ export default function StaffDashboardPage() {
                   <div className="flex gap-2">
                     <div className="relative">
                       <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                      <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search patient…" className="pl-8 h-9 w-48" />
+                      <Input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Search patient…"
+                        className="pl-8 h-9 w-48"
+                      />
                     </div>
                     <Select value={filter} onValueChange={(v) => setFilter(v as any)}>
-                      <SelectTrigger className="h-9 w-36"><SelectValue placeholder="Filter" /></SelectTrigger>
+                      <SelectTrigger className="h-9 w-36">
+                        <SelectValue placeholder="Filter" />
+                      </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All</SelectItem>
                         <SelectItem value="completed">Completed</SelectItem>
@@ -201,13 +247,20 @@ export default function StaffDashboardPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
-                {filteredTests.length === 0 && <div className="text-sm text-slate-500 py-6 text-center">No tests yet.</div>}
+                {filteredTests.length === 0 && (
+                  <div className="text-sm text-slate-500 py-6 text-center">No tests yet.</div>
+                )}
                 <ul className="grid gap-3">
                   {filteredTests.map((t) => (
-                    <li key={t.id} className="rounded-xl border bg-white px-4 py-3 flex items-center justify-between">
+                    <li
+                      key={t.id}
+                      className="rounded-xl border bg-white px-4 py-3 flex items-center justify-between"
+                    >
                       <div>
                         <div className="font-medium">{t.patient.name}</div>
-                        <div className="text-xs text-slate-500">Scheduled: {fmtWhen(t.scheduledFor)}</div>
+                        <div className="text-xs text-slate-500">
+                          Scheduled: {fmtWhen(t.scheduledFor)}
+                        </div>
                       </div>
                       <StatusChip status={t.status} />
                     </li>
@@ -221,7 +274,9 @@ export default function StaffDashboardPage() {
         {view === "settings" && (
           <section>
             <h2 className="text-xl font-semibold tracking-tight">Settings</h2>
-            <div className="mt-3"><ProfileSettings /></div>
+            <div className="mt-3">
+              <ProfileSettings />
+            </div>
           </section>
         )}
       </main>
@@ -232,16 +287,27 @@ export default function StaffDashboardPage() {
 }
 
 function IconPill({
-  children, active, onClick, aria,
-}: { children: React.ReactNode; active?: boolean; onClick?: () => void; aria: string }) {
+  children,
+  active,
+  onClick,
+  aria,
+}: {
+  children: React.ReactNode;
+  active?: boolean;
+  onClick?: () => void;
+  aria: string;
+}) {
   return (
     <button
       type="button"
       aria-label={aria}
       onClick={onClick}
       className={`h-10 w-10 rounded-full grid place-items-center transition
-        ${active ? "bg-cyan-100 text-cyan-700 ring-2 ring-cyan-300"
-                 : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+        ${
+          active
+            ? "bg-cyan-100 text-cyan-700 ring-2 ring-cyan-300"
+            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+        }`}
     >
       {children}
     </button>
