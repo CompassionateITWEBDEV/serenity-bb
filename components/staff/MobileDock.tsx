@@ -1,31 +1,29 @@
 "use client";
-
-import { MessageSquare, Users, Home as HomeIcon, Bell, Settings } from "lucide-react";
+import { useRouter, usePathname } from "next/navigation";
+import { MessageSquare } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export default function MobileDock() {
-  return (
-    <div className="fixed bottom-4 left-0 right-0 flex justify-center md:hidden pointer-events-none">
-      <div className="pointer-events-auto w-[320px] rounded-3xl bg-white border shadow-xl px-4 py-2 flex items-center justify-between">
-        <DockBtn Icon={MessageSquare} label="Chat" />
-        <DockBtn Icon={Users} label="Groups" />
-        <DockBtn Icon={HomeIcon} label="Home" prominent />
-        <DockBtn Icon={Bell} label="Alerts" />
-        <DockBtn Icon={Settings} label="Settings" />
-      </div>
-    </div>
-  );
-}
+  const router = useRouter();
+  const pathname = usePathname();
+  const isMessages = pathname?.startsWith("/staff/messages");
 
-function DockBtn({ Icon, label, prominent }: { Icon: any; label: string; prominent?: boolean }) {
   return (
-    <button
-      className={`grid place-items-center ${
-        prominent ? "h-11 w-11 rounded-full text-white bg-cyan-600" : "h-9 w-9 rounded-full bg-slate-100 text-slate-600"
-      }`}
-      aria-label={label}
-      title={label}
-    >
-      <Icon className={prominent ? "h-5 w-5" : "h-4 w-4"} />
-    </button>
+    <nav className="fixed bottom-3 inset-x-0 mx-auto max-w-md bg-white/90 rounded-2xl shadow border px-4 py-2 flex justify-between">
+      {/* ...other buttons... */}
+
+      <Button
+        type="button"
+        variant={isMessages ? "secondary" : "ghost"}
+        className="h-10 w-10 rounded-full"
+        onClick={() => router.push("/staff/messages")}
+        aria-label="Messages"
+        title="Messages"
+      >
+        <MessageSquare className="h-5 w-5" />
+      </Button>
+
+      {/* ...other buttons... */}
+    </nav>
   );
 }
