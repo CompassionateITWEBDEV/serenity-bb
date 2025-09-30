@@ -1,13 +1,32 @@
-// app/staff/patient-inbox/page.tsx
 "use client";
 
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck, Activity, LogOut, ArrowLeft } from "lucide-react";
+import {
+  ShieldCheck, Activity, LogOut, ArrowLeft,
+  Home as HomeIcon, TestTube2, MessageSquare, Users, Settings as SettingsIcon
+} from "lucide-react";
 
 import PatientInbox from "@/components/staff/PatientInbox";
 import { logout } from "@/lib/staff";
+
+function IconPill({
+  children, active, onClick, aria,
+}: { children: React.ReactNode; active?: boolean; onClick?: () => void; aria: string }) {
+  return (
+    <button
+      type="button"
+      aria-label={aria}
+      onClick={onClick}
+      className={`h-10 w-10 rounded-full grid place-items-center transition
+        ${active ? "bg-cyan-100 text-cyan-700 ring-2 ring-cyan-300"
+                 : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+    >
+      {children}
+    </button>
+  );
+}
 
 export default function StaffPatientInboxPage() {
   const router = useRouter();
@@ -41,7 +60,16 @@ export default function StaffPatientInboxPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-6 space-y-4">
+      <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+        {/* Dashboard icon row */}
+        <div className="flex items-center gap-3">
+          <IconPill onClick={() => router.push("/staff/dashboard")} aria="Home"><HomeIcon className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/dashboard?tab=tests")} aria="Drug Tests"><TestTube2 className="h-5 w-5" /></IconPill>
+          <IconPill active aria="Messages / Patient Inbox"><MessageSquare className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/patients")} aria="Patients"><Users className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/settings")} aria="Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
+        </div>
+
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Patient Inbox</h2>
           <Button variant="ghost" size="sm" className="gap-2" onClick={() => router.push("/staff/dashboard")}>
