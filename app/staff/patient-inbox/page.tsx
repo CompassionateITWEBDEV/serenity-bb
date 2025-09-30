@@ -5,16 +5,29 @@ import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  ShieldCheck, Activity, LogOut, ArrowLeft,
-  Home as HomeIcon, TestTube2, MessageSquare, Users, Settings as SettingsIcon
+  ShieldCheck,
+  Activity,
+  ArrowLeft,
+  Home as HomeIcon,
+  TestTube2,
+  MessageSquare,
+  Users,
+  Settings as SettingsIcon,
 } from "lucide-react";
 
 import PatientInbox from "@/components/staff/PatientInbox";
-import { logout } from "@/lib/staff";
 
 function IconPill({
-  children, active, onClick, aria,
-}: { children: React.ReactNode; active?: boolean; onClick?: () => void; aria: string }) {
+  children,
+  active,
+  onClick,
+  aria,
+}: {
+  children: React.ReactNode;
+  active?: boolean;
+  onClick?: () => void;
+  aria: string;
+}) {
   return (
     <button
       type="button"
@@ -31,11 +44,6 @@ function IconPill({
 
 export default function StaffPatientInboxPage() {
   const router = useRouter();
-
-  async function onLogout() {
-    await logout();
-    router.refresh();
-  }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -54,9 +62,7 @@ export default function StaffPatientInboxPage() {
             <Badge variant="secondary" className="gap-1">
               <Activity className="h-3.5 w-3.5" /> Live
             </Badge>
-            <Button variant="outline" size="sm" className="gap-1" onClick={onLogout}>
-              <LogOut className="h-4 w-4" /> Logout
-            </Button>
+            {/* Logout removed */}
           </div>
         </div>
       </header>
@@ -73,13 +79,9 @@ export default function StaffPatientInboxPage() {
           <IconPill active aria="Messages / Patient Inbox">
             <MessageSquare className="h-5 w-5" />
           </IconPill>
-
-          {/* CHANGED: Patients -> clinician dashboard */}
           <IconPill onClick={() => router.push("/clinician/dashboard")} aria="Clinicians">
             <Users className="h-5 w-5" />
           </IconPill>
-
-          {/* CHANGED: Settings -> staff profile (ProfileSettings) */}
           <IconPill onClick={() => router.push("/staff/profile")} aria="Profile Settings">
             <SettingsIcon className="h-5 w-5" />
           </IconPill>
@@ -87,7 +89,12 @@ export default function StaffPatientInboxPage() {
 
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Patient Inbox</h2>
-          <Button variant="ghost" size="sm" className="gap-2" onClick={() => router.push("/staff/dashboard")}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={() => router.push("/staff/dashboard")}
+          >
             <ArrowLeft className="h-4 w-4" /> Back to Dashboard
           </Button>
         </div>
