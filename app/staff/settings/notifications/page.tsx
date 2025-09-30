@@ -19,7 +19,7 @@ export default function StaffSettingsNotificationPrefsPage() {
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
         <div className="max-w-md mx-auto px-4 py-3 flex items-center gap-3">
           <button
-            onClick={() => router.push("/staff/settings")}
+            onClick={() => router.push("/staff/dashboard")}
             className="h-9 w-9 rounded-full bg-slate-100 grid place-items-center"
             aria-label="Back"
           >
