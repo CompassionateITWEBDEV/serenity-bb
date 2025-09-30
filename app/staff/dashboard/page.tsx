@@ -17,6 +17,7 @@ import ProfileSettings from "@/components/ProfileSettings";
 import {
   ShieldCheck, Activity, Search, Filter, LogOut,
   Home as HomeIcon, TestTube2, MessageSquare, Users, Settings as SettingsIcon,
+  Radio as RadioIcon, // <-- NEW
 } from "lucide-react";
 
 import type { DrugTest, TestStatus } from "@/lib/drug-tests";
@@ -110,16 +111,12 @@ export default function StaffDashboardPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* Icon Row */}
+        {/* Icon Row: now includes Broadcast */}
         <div className="flex items-center gap-3">
           <IconPill active={view === "home"} onClick={() => setView("home")} aria="Home"><HomeIcon className="h-5 w-5" /></IconPill>
           <IconPill active={view === "tests"} onClick={() => setView("tests")} aria="Drug Tests"><TestTube2 className="h-5 w-5" /></IconPill>
-
-          {/* Messages icon -> Patient Inbox page */}
-          <IconPill onClick={() => router.push("/staff/patient-inbox")} aria="Patient Inbox">
-            <MessageSquare className="h-5 w-5" />
-          </IconPill>
-
+          <IconPill onClick={() => router.push("/staff/patient-inbox")} aria="Messages"><MessageSquare className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts"><RadioIcon className="h-5 w-5" /></IconPill> {/* NEW */}
           <IconPill onClick={() => router.push("/staff/patients")} aria="Patients"><Users className="h-5 w-5" /></IconPill>
           <IconPill active={view === "settings"} onClick={() => setView("settings")} aria="Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
         </div>
