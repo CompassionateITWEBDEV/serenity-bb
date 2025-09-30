@@ -13,6 +13,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Eye, EyeOff, UserPlus, AlertTriangle } from "lucide-react";
 import { supabase } from "@/lib/supabase-browser";
 
+/* SweetAlert2 (why: friendly welcome modal) */
+import Swal from "sweetalert2";
+import "sweetalert2/dist/sweetalert2.min.css";
+
 export default function SignupPage() {
   const [formData, setFormData] = useState({
     firstName: "",
@@ -33,9 +37,8 @@ export default function SignupPage() {
   const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
 
-  const handleInputChange = (field: string, value: string) => {
+  const handleInputChange = (field: string, value: string) =>
     setFormData((prev) => ({ ...prev, [field]: value }));
-  };
 
   const backendMissing =
     !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -55,14 +58,13 @@ export default function SignupPage() {
 
     setSubmitting(true);
     try {
-      // Shape payload to match our API route
       const payload = {
         firstName: formData.firstName,
         lastName: formData.lastName,
         email: formData.email,
         password: formData.password,
         phone: formData.phoneNumber,
-        dateOfBirth: formData.dateOfBirth, // yyyy-mm-dd
+        dateOfBirth: formData.dateOfBirth,
         emergencyName: formData.emergencyContactName,
         emergencyPhone: formData.emergencyContactPhone,
         emergencyRelationship: formData.emergencyContactRelationship,
@@ -78,7 +80,6 @@ export default function SignupPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Signup failed");
 
-      // Auto-login the new user (creates client session)
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
@@ -88,13 +89,36 @@ export default function SignupPage() {
       if (typeof window !== "undefined") {
         const gtag = (window as any).gtag;
         if (typeof gtag === "function") {
-          gtag("set", {
-            user_id: data.uid,
-            user_properties: { role: "patient" },
-          });
+          gtag("set", { user_id: data.uid, user_properties: { role: "patient" } });
           gtag("event", "sign_up", { method: "email" });
         }
       }
+
+      // Sweet welcome; wait for user before navigating
+      await Swal.fire({
+        title: `Welcome, ${formData.firstName || "friend"}! 🎉`,
+        html: `
+          <div style="display:grid;gap:12px;justify-items:center">
+            <div style="font-size:15px;color:#374151">
+              We're glad you're here. Our care team is ready to help.
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;justify-content:center">
+              <div style="width:56px;height:56px;border-radius:9999px;display:flex;align-items:center;justify-content:center;background:#E0F2FE;font-size:28px">👩‍⚕️</div>
+              <div style="width:56px;height:56px;border-radius:9999px;display:flex;align-items:center;justify-content:center;background:#EDE9FE;font-size:28px">🧑‍⚕️</div>
+              <div style="width:56px;height:56px;border-radius:9999px;display:flex;align-items:center;justify-content:center;background:#DCFCE7;font-size:28px">👨‍⚕️</div>
+            </div>
+            <div style="font-size:13px;color:#6B7280">
+              Your Serenity nurses are here to welcome you.
+            </div>
+          </div>
+        `,
+        confirmButtonText: "Go to dashboard",
+        confirmButtonColor: "#0891B2", // matches brand cyan
+        width: 520,
+        backdrop: true,
+        allowOutsideClick: false,
+        icon: "success",
+      });
 
       router.push("/dashboard");
     } catch (err: any) {
@@ -118,7 +142,7 @@ export default function SignupPage() {
           <p className="text-gray-600">Start your recovery journey with us today</p>
         </div>
 
-        {/* Show the warning only when env is missing */}
+        {/* Only show when env is missing */}
         {backendMissing && (
           <Alert variant="warning" className="mb-6">
             <AlertTriangle className="h-4 w-4" />
@@ -305,6 +329,7 @@ export default function SignupPage() {
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                        aria-label="Toggle password visibility"
                       >
                         {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
@@ -326,6 +351,7 @@ export default function SignupPage() {
                         type="button"
                         onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                        aria-label="Toggle confirm password visibility"
                       >
                         {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
