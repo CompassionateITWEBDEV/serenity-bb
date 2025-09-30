@@ -4,7 +4,8 @@
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
-  ChevronLeft, ChevronRight,
+  ChevronLeft,
+  ChevronRight,
   User as UserIcon,
   Shield,
   Bell,
@@ -16,13 +17,22 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
-/** Profile Settings (staff) — routes delegate to /staff/settings/* */
+/**
+ * Staff Profile Settings hub.
+ * Routes:
+ * - /staff/settings/personal
+ * - /staff/settings/security
+ * - /staff/settings/notifications
+ * - /staff/settings/medications
+ * - /help/faq
+ * - /terms
+ */
 export default function StaffProfilePage() {
   const router = useRouter();
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Teal Hero */}
+      {/* Teal hero */}
       <div className="bg-cyan-500 text-white">
         <div className="max-w-md mx-auto px-4 pt-4 pb-20 relative">
           <button
@@ -38,7 +48,13 @@ export default function StaffProfilePage() {
 
           <div className="mt-6 flex items-center gap-3">
             <div className="h-12 w-12 rounded-full overflow-hidden bg-white/20 ring-2 ring-white/40">
-              <Image src="/avatars/1.png" alt="Avatar" width={48} height={48} className="h-full w-full object-cover" />
+              <Image
+                src="/avatars/1.png"
+                alt="Avatar"
+                width={48}
+                height={48}
+                className="h-full w-full object-cover"
+              />
             </div>
             <div>
               <div className="text-base font-semibold leading-tight">James Anderson</div>
@@ -48,7 +64,7 @@ export default function StaffProfilePage() {
         </div>
       </div>
 
-      {/* White card body with rounded top */}
+      {/* Body */}
       <main className="max-w-md mx-auto -mt-12 px-4 pb-10">
         <Card className="rounded-3xl pt-4 overflow-hidden">
           {/* Account Setting */}
@@ -84,13 +100,21 @@ export default function StaffProfilePage() {
           {/* Support */}
           <SectionTitle>Support</SectionTitle>
           <ul className="divide-y">
-            <Row label="Help Center" icon={<HelpCircle className="h-5 w-5" />} onClick={() => router.push("/help")} />
-            <Row label="Terms & Conditions" icon={<FileText className="h-5 w-5" />} onClick={() => router.push("/terms")} />
+            <Row
+              label="Help Center"
+              icon={<HelpCircle className="h-5 w-5" />}
+              onClick={() => router.push("/help/faq")}
+            />
+            <Row
+              label="Terms & Conditions"
+              icon={<FileText className="h-5 w-5" />}
+              onClick={() => router.push("/terms")}
+            />
             <Row
               label="Logout"
               icon={<LogOut className="h-5 w-5" />}
               destructive
-              onClick={() => router.push("/staff/login")} // replace with real logout flow if needed
+              onClick={() => router.push("/staff/login")}
             />
           </ul>
 
