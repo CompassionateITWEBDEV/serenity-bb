@@ -20,7 +20,6 @@ import {
   Activity,
   Search,
   Filter,
-  LogOut,
   Home as HomeIcon,
   TestTube2,
   MessageSquare,
@@ -35,7 +34,6 @@ import type { DrugTest, TestStatus } from "@/lib/drug-tests";
 import { createDrugTest, listDrugTests, subscribeDrugTests } from "@/lib/drug-tests";
 import type { StaffPatient } from "@/lib/patients";
 import { fetchPatients, subscribePatients } from "@/lib/patients";
-import { logout } from "@/lib/staff";
 
 const TEST_STATUS_META: Record<TestStatus, { label: string; cls: string }> = {
   completed: { label: "Completed", cls: "text-emerald-700 bg-emerald-50 border-emerald-200" },
@@ -94,11 +92,6 @@ export default function StaffDashboardPage() {
     setTests(await listDrugTests({ q: query, status: filter === "all" ? undefined : filter }));
   }
 
-  async function onLogout() {
-    await logout();
-    router.refresh();
-  }
-
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
@@ -116,9 +109,7 @@ export default function StaffDashboardPage() {
             <Badge variant="secondary" className="gap-1">
               <Activity className="h-3.5 w-3.5" /> Live
             </Badge>
-            <Button variant="outline" size="sm" className="gap-1" onClick={onLogout}>
-              <LogOut className="h-4 w-4" /> Logout
-            </Button>
+            {/* Logout button removed per request */}
           </div>
         </div>
       </header>
@@ -133,11 +124,7 @@ export default function StaffDashboardPage() {
           <IconPill onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups"><EyeOff className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/notifications")} aria="Notifications"><Bell className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/clinician/dashboard")} aria="Clinicians"><Users className="h-5 w-5" /></IconPill>
-
-          {/* CHANGE: Settings now routes to /staff/profile */}
-          <IconPill onClick={() => router.push("/staff/profile")} aria="Settings">
-            <SettingsIcon className="h-5 w-5" />
-          </IconPill>
+          <IconPill onClick={() => router.push("/staff/profile")} aria="Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
         </div>
 
         {/* Search / Filter */}
