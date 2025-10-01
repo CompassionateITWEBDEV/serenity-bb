@@ -1,4 +1,4 @@
-import { supabase, getAuthUser, subscribeToTable } from "@/lib/supabase-browser";
+import { supabase, subscribeToTable } from "@/lib/supabase-browser";
 
 export type TestStatus = "pending" | "completed" | "missed";
 
@@ -7,79 +7,62 @@ export type DrugTest = {
   status: TestStatus;
   scheduledFor: string | null;
   createdAt: string;
-  patient: {
-    id: string;
-    name: string;
-    email: string | null;
-  };
+  patient: { id: string; name: string; email: string | null };
 };
 
-type ListOpts = { q?: string; status?: TestStatus };
-
-function coalesceName(row: any): string {
-  const fullName =
+function shape(row: any): DrugTest {
+  const name =
     row?.patients?.full_name ??
-    `${row?.patients?.first_name ?? ""} ${row?.patients?.last_name ?? ""}`.trim();
-  return fullName && fullName.length > 0 ? fullName : "Unknown";
-}
-
-function shapeTest(row: any): DrugTest {
+    `${row?.patients?.first_name ?? ""} ${row?.patients?.last_name ?? ""}`.trim() ||
+    "Unknown";
   return {
     id: row.id,
     status: row.status,
-    scheduledFor: row.scheduled_for,
+    scheduledFor: row.scheduled_for ?? null,
     createdAt: row.created_at,
     patient: {
       id: row.patients?.user_id ?? row.patient_id,
-      name: coalesceName(row),
+      name,
       email: row.patients?.email ?? null,
     },
   };
 }
 
 export async function createDrugTest(input: { patientId: string; scheduledFor: string | null }) {
-  const user = await getAuthUser();
-  if (!user) throw new Error("Not authenticated.");
-
-  const payload = {
-    patient_id: input.patientId,
-    scheduled_for: input.scheduledFor,
-    created_by: user.id, // trigger will also set; explicit keeps intent clear
-    status: "pending" as const,
-  };
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) throw new Error("Not authenticated.");
 
   const { data, error } = await supabase
     .from("drug_tests")
-    .insert(payload)
+    .insert({
+      patient_id: input.patientId,
+      scheduled_for: input.scheduledFor,
+      created_by: auth.user.id,
+      status: "pending",
+    })
     .select(
-      `
-      id, status, scheduled_for, created_at, patient_id,
-      patients:patient_id ( user_id, full_name, first_name, last_name, email )
-    `
+      `id, status, scheduled_for, created_at, patient_id,
+       patients:patient_id ( user_id, full_name, first_name, last_name, email )`
     )
     .single();
 
   if (error) throw new Error(error.message);
-  return shapeTest(data);
+  return shape(data);
 }
 
-export async function listDrugTests(opts: ListOpts) {
+export async function listDrugTests(opts: { q?: string; status?: TestStatus }) {
   let q = supabase
     .from("drug_tests")
     .select(
-      `
-      id, status, scheduled_for, created_at, patient_id,
-      patients:patient_id ( user_id, full_name, first_name, last_name, email )
-      `
+      `id, status, scheduled_for, created_at, patient_id,
+       patients:patient_id ( user_id, full_name, first_name, last_name, email )`
     )
     .order("created_at", { ascending: false });
 
   if (opts.status) q = q.eq("status", opts.status);
-
   const { data, error } = await q;
   if (error) throw new Error(error.message);
-
-  const rows = (data ?? []).map(shapeTest);
+  const rows = (data ?? []).map(shape);
   if (!opts.q) return rows;
 
   const needle = opts.q.trim().toLowerCase();
@@ -90,12 +73,12 @@ export async function listDrugTests(opts: ListOpts) {
   });
 }
 
-export function subscribeDrugTests(onChange: () => void) {
-  // Fire on any INSERT/UPDATE/DELETE
+export function subscribeDrugTests(onEvent: (evt: { type: "INSERT" | "UPDATE" | "DELETE"; row: any }) => void) {
   return subscribeToTable({
     table: "drug_tests",
-    onInsert: () => onChange(),
-    onUpdate: () => onChange(),
-    onDelete: () => onChange(),
+    event: "*",
+    onInsert: (row) => onEvent({ type: "INSERT", row }),
+    onUpdate: (row) => onEvent({ type: "UPDATE", row }),
+    onDelete: (row) => onEvent({ type: "DELETE", row }),
   });
 }
