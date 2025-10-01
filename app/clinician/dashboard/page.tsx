@@ -14,6 +14,11 @@ import {
   Users,
   MessageSquare,
   Settings as SettingsIcon,
+  Home as HomeIcon,
+  TestTube2,
+  Radio as RadioIcon,
+  EyeOff,
+  Bell,
 } from "lucide-react";
 import MobileDock from "@/components/staff/MobileDock";
 import DashboardGlyph from "@/components/icons/DashboardGlyph";
@@ -42,7 +47,9 @@ export default function ClinicianDashboardPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return MOCKS.filter((c) => !q || c.name.toLowerCase().includes(q) || c.role.toLowerCase().includes(q));
+    return MOCKS.filter(
+      (c) => !q || c.name.toLowerCase().includes(q) || c.role.toLowerCase().includes(q),
+    );
   }, [query]);
 
   return (
@@ -60,7 +67,6 @@ export default function ClinicianDashboardPage() {
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="gap-1">Live</Badge>
-            {/* Logout removed */}
           </div>
         </div>
       </header>
@@ -68,22 +74,49 @@ export default function ClinicianDashboardPage() {
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
         {/* Icon row */}
         <div className="flex items-center gap-3">
-          <IconPill active aria="Dashboard">
-            <DashboardGlyph className="h-5 w-5" />
+          {/* --- CORE STAFF ICONS (consistent with staff/dashboard & patient-inbox) --- */}
+          <IconPill aria="Home" onClick={() => router.push("/staff/dashboard")}>
+            <HomeIcon className="h-5 w-5" />
           </IconPill>
+
+          <IconPill aria="Drug Tests" onClick={() => router.push("/staff/dashboard?tab=tests")}>
+            <TestTube2 className="h-5 w-5" />
+          </IconPill>
+
+          <IconPill aria="Messages / Patient Inbox" onClick={() => router.push("/staff/patient-inbox")}>
+            <MessageSquare className="h-5 w-5" />
+          </IconPill>
+
+          <IconPill aria="Broadcasts" onClick={() => router.push("/staff/broadcasts")}>
+            <RadioIcon className="h-5 w-5" />
+          </IconPill>
+
+          <IconPill aria="Hidden Groups" onClick={() => router.push("/staff/hidden-groups")}>
+            <EyeOff className="h-5 w-5" />
+          </IconPill>
+
+          <IconPill aria="Notifications" onClick={() => router.push("/staff/notifications")}>
+            <Bell className="h-5 w-5" />
+          </IconPill>
+
+          {/* This page corresponds to Clinicians in the staff row */}
+          <IconPill aria="Clinicians" active onClick={() => router.push("/clinician/dashboard")}>
+            <Users className="h-5 w-5" />
+          </IconPill>
+
+          <IconPill aria="Profile Settings" onClick={() => router.push("/staff/profile")}>
+            <SettingsIcon className="h-5 w-5" />
+          </IconPill>
+
+          {/* Divider then clinician-only extras (kept) */}
+          <span aria-hidden className="mx-1 h-5 w-px bg-slate-300" />
+
           <IconPill aria="Vitals" onClick={() => router.push("/clinician/vitals")}>
             <HeartPulse className="h-5 w-5" />
           </IconPill>
+
           <IconPill aria="Patients" onClick={() => router.push("/clinician/patients")}>
             <Users className="h-5 w-5" />
-          </IconPill>
-          {/* CONNECTED: Messages -> staff patient inbox */}
-          <IconPill aria="Messages" onClick={() => router.push("/staff/patient-inbox")}>
-            <MessageSquare className="h-5 w-5" />
-          </IconPill>
-          {/* CONNECTED: Settings -> staff profile hub */}
-          <IconPill aria="Settings" onClick={() => router.push("/staff/profile")}>
-            <SettingsIcon className="h-5 w-5" />
           </IconPill>
         </div>
 
@@ -142,12 +175,19 @@ export default function ClinicianDashboardPage() {
 }
 
 function IconPill({
-  children, active, onClick, aria,
-}: { children: React.ReactNode; active?: boolean; onClick?: () => void; aria: string }) {
+  children, active, onClick, aria, title,
+}: {
+  children: React.ReactNode;
+  active?: boolean;
+  onClick?: () => void;
+  aria: string;
+  title?: string;
+}) {
   return (
     <button
       type="button"
       aria-label={aria}
+      title={title}
       onClick={onClick}
       className={`h-10 w-10 rounded-full grid place-items-center transition
         ${active ? "bg-cyan-100 text-cyan-700 ring-2 ring-cyan-300"
