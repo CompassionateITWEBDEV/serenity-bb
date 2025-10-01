@@ -1,5 +1,4 @@
-// File: /lib/drug-tests.ts
-import { supabase } from "./supabase/browser";
+import { supabase, getAuthUser, subscribeToTable } from "@/lib/supabase-browser";
 
 export type TestStatus = "pending" | "completed" | "missed";
 
@@ -21,10 +20,7 @@ function coalesceName(row: any): string {
   const fullName =
     row?.patients?.full_name ??
     `${row?.patients?.first_name ?? ""} ${row?.patients?.last_name ?? ""}`.trim();
-
-  // why: avoid mixing ?? with ||; also reject empty strings
-  if (fullName && fullName.length > 0) return fullName;
-  return "Unknown";
+  return fullName && fullName.length > 0 ? fullName : "Unknown";
 }
 
 function shapeTest(row: any): DrugTest {
@@ -41,17 +37,14 @@ function shapeTest(row: any): DrugTest {
   };
 }
 
-/**
- * Create a drug test row; requires authenticated user.
- */
 export async function createDrugTest(input: { patientId: string; scheduledFor: string | null }) {
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) throw new Error("Not authenticated.");
+  const user = await getAuthUser();
+  if (!user) throw new Error("Not authenticated.");
 
   const payload = {
     patient_id: input.patientId,
     scheduled_for: input.scheduledFor,
-    created_by: auth.user.id,
+    created_by: user.id, // trigger will also set; explicit keeps intent clear
     status: "pending" as const,
   };
 
@@ -98,16 +91,11 @@ export async function listDrugTests(opts: ListOpts) {
 }
 
 export function subscribeDrugTests(onChange: () => void) {
-  const channel = supabase
-    .channel("rt-drug-tests")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "drug_tests" },
-      () => onChange()
-    )
-    .subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
+  // Fire on any INSERT/UPDATE/DELETE
+  return subscribeToTable({
+    table: "drug_tests",
+    onInsert: () => onChange(),
+    onUpdate: () => onChange(),
+    onDelete: () => onChange(),
+  });
 }
