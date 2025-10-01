@@ -3,7 +3,6 @@
 import * as React from "react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogTrigger,
@@ -13,6 +12,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { CalendarCard } from "@/components/ui/calendar";
+import TimeSlotPicker from "@/components/ui/TimeSlotPicker"; // <-- added path
 import type { StaffPatient } from "@/lib/patients";
 
 type Props = {
@@ -24,13 +24,13 @@ export default function RandomDrugTestManager({ patients, onCreate }: Props) {
   const [open, setOpen] = useState(false);
   const [patientId, setPatientId] = useState<string>(patients[0]?.id ?? "");
   const [date, setDate] = useState<Date | undefined>(undefined);
-  const [time, setTime] = useState<string>(""); // "HH:MM"
+  const [slot, setSlot] = useState<string | undefined>(undefined); // "HH:MM"
 
   function toIsoOrNull(): string | null {
     if (!date) return null;
     const d = new Date(date);
-    if (time) {
-      const [hh, mm] = time.split(":").map(Number);
+    if (slot) {
+      const [hh, mm] = slot.split(":").map(Number);
       d.setHours(hh || 0, mm || 0, 0, 0);
     }
     return d.toISOString();
@@ -69,15 +69,20 @@ export default function RandomDrugTestManager({ patients, onCreate }: Props) {
               </select>
             </div>
 
-            {/* Schedule For (Calendar + optional time) */}
+            {/* Schedule For (Calendar + Time Slots) */}
             <div className="mt-5 space-y-1.5">
               <label className="text-sm font-medium text-slate-700">Schedule For</label>
-              <div className="grid gap-3 md:grid-cols-[1fr,180px]">
+              <div className="grid gap-3 md:grid-cols-[1fr,220px]">
                 <CalendarCard value={date} onChange={setDate} />
-                <div className="md:self-end">
-                  <label className="mb-1 block text-xs font-medium text-slate-500">Time (optional)</label>
-                  <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="h-10" />
-                  <p className="mt-2 text-xs text-slate-500">Pick a date, then set time.</p>
+                <div className="md:self-stretch">
+                  <TimeSlotPicker
+                    date={date}
+                    value={slot}
+                    onChange={setSlot}
+                    intervalMinutes={30}
+                    startHour={8}
+                    endHour={20}
+                  />
                 </div>
               </div>
             </div>
