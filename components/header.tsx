@@ -23,7 +23,7 @@ export function Header() {
           <div className="flex items-center">
             <Link
               href="/"
-              className="flex items-center space-x-2 text-2xl font-serif font-bold text-cyan-600 hover:text-indigo-500 transition-colors"
+              className="flex items-center space-x-2 text-2xl font-serif font-bold text-cyan-800 hover:text-indigo-700 transition-colors"
               aria-label="Serenity Rehabilitation Center Home"
             >
               <Heart className="h-10 w-10" />
