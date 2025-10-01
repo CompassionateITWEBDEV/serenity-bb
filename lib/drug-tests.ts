@@ -1,90 +1,102 @@
-import { supabase } from "@/lib/supabase/client";
-import type { StaffPatient } from "@/lib/patients";
-import { displayName } from "@/lib/patients";
+import { supabase } from "./supabase/browser";
 
 export type TestStatus = "pending" | "completed" | "missed";
-export type DrugTestRow = {
-  id: string;
-  patient_id: string;
-  created_by: string | null;
-  status: TestStatus;
-  scheduled_for: string | null;
-  created_at: string;
-  updated_at: string;
-};
+
 export type DrugTest = {
   id: string;
-  patient: StaffPatient;
   status: TestStatus;
-  scheduledFor?: string | null;
+  scheduledFor: string | null;
+  createdAt: string;
+  patient: {
+    id: string;
+    name: string;
+    email: string | null;
+  };
 };
 
-export async function listDrugTests(opts?: { q?: string; status?: TestStatus | "all"; limit?: number }): Promise<DrugTest[]> {
-  const status = opts?.status && opts.status !== "all" ? opts.status : undefined;
+type ListOpts = { q?: string; status?: TestStatus };
 
-  let query = supabase
+function shapeTest(row: any): DrugTest {
+  return {
+    id: row.id,
+    status: row.status,
+    scheduledFor: row.scheduled_for,
+    createdAt: row.created_at,
+    patient: {
+      id: row.patients?.user_id ?? row.patient_id,
+      name: row.patients?.full_name ?? `${row.patients?.first_name ?? ""} ${row.patients?.last_name ?? ""}`.trim() || "Unknown",
+      email: row.patients?.email ?? null,
+    },
+  };
+}
+
+/**
+ * Why: enforce creating user identity for RLS policies.
+ */
+export async function createDrugTest(input: { patientId: string; scheduledFor: string | null }) {
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) throw new Error("Not authenticated.");
+
+  const payload = {
+    patient_id: input.patientId,
+    scheduled_for: input.scheduledFor,
+    created_by: auth.user.id, // harmless if DB trigger auto-fills; required otherwise
+    status: "pending" as const,
+  };
+
+  const { data, error } = await supabase
     .from("drug_tests")
-    .select("id,patient_id,status,scheduled_for,created_at,updated_at")
-    .order("created_at", { ascending: false })
-    .limit(opts?.limit ?? 200);
+    .insert(payload)
+    .select(
+      `
+      id, status, scheduled_for, created_at, patient_id,
+      patients:patient_id ( user_id, full_name, first_name, last_name, email )
+    `
+    )
+    .single();
 
-  if (status) query = query.eq("status", status);
-
-  const { data, error } = await query;
-  if (error) throw error;
-
-  const ids = Array.from(new Set((data ?? []).map((r: any) => r.patient_id)));
-  if (!ids.length) return [];
-
-  const { data: pats, error: pErr } = await supabase
-    .from("patients")
-    .select("user_id,full_name,first_name,last_name,email,created_at")
-    .in("user_id", ids);
-  if (pErr) throw pErr;
-
-  const byId = new Map<string, StaffPatient>(
-    (pats ?? []).map((p: any) => [p.user_id, { id: p.user_id, name: displayName(p), email: p.email, created_at: p.created_at }])
-  );
-
-  let rows: DrugTest[] = (data ?? []).map((r: any) => ({
-    id: r.id,
-    patient: byId.get(r.patient_id) ?? { id: r.patient_id, name: "Unknown" },
-    status: r.status,
-    scheduledFor: r.scheduled_for,
-  }));
-
-  if (opts?.q?.trim()) {
-    const q = opts.q.trim().toLowerCase();
-    rows = rows.filter((t) => t.patient.name.toLowerCase().includes(q) || (t.patient.email ?? "").toLowerCase().includes(q));
-  }
-  return rows;
+  if (error) throw new Error(error.message);
+  return shapeTest(data);
 }
 
-export async function createDrugTest(input: { patientId: string; scheduledFor?: string | null }) {
-  const payload = { patient_id: input.patientId, scheduled_for: input.scheduledFor ?? null, status: "pending" as const };
-  const { data, error } = await supabase.from("drug_tests").insert(payload).select().single();
-  if (error) throw error;
-  return data as DrugTestRow;
-}
+export async function listDrugTests(opts: ListOpts) {
+  let q = supabase
+    .from("drug_tests")
+    .select(
+      `
+      id, status, scheduled_for, created_at, patient_id,
+      patients:patient_id ( user_id, full_name, first_name, last_name, email )
+      `
+    )
+    .order("created_at", { ascending: false });
 
-export async function updateDrugTestStatus(id: string, status: TestStatus) {
-  const res = await fetch(`/api/drug-tests/${id}/status`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
+  if (opts.status) q = q.eq("status", opts.status);
+
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []).map(shapeTest);
+  if (!opts.q) return rows;
+
+  const needle = opts.q.trim().toLowerCase();
+  return rows.filter((r) => {
+    const name = r.patient.name.toLowerCase();
+    const email = (r.patient.email ?? "").toLowerCase();
+    return name.includes(needle) || email.includes(needle);
   });
-  if (!res.ok) {
-    const j = await res.json().catch(() => ({}));
-    throw new Error(j?.error || `Failed to update status (${res.status})`);
-  }
-  const j = await res.json();
-  return j.data as { id: string; status: TestStatus };
 }
 
+/**
+ * Why: use Postgres Changes for low-latency updates across tabs/devices.
+ */
 export function subscribeDrugTests(onChange: () => void) {
-  const chan = supabase
-    .channel("drug_tests.realtime")
-    .on("postgres_changes", { event: "*", schema: "public", table: "drug_tests" }, onChange)
+  const channel = supabase
+    .channel("rt-drug-tests")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "drug_tests" },
+      () => onChange()
+    )
     .subscribe();
-  return () => supabase.removeChannel(chan);
+  return () => { supabase.removeChannel(channel); };
 }
