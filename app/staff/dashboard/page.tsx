@@ -1,6 +1,7 @@
+// path: app/staff/dashboard/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -59,7 +60,7 @@ export default function StaffDashboardPage() {
   const [filter, setFilter] = useState<"all" | TestStatus>("all");
   const [view, setView] = useState<View>("home");
 
-  // Initial load (no realtime yet)
+  // initial load
   useEffect(() => {
     (async () => {
       const [p, t] = await Promise.all([fetchPatients(), listDrugTests({})]);
@@ -68,75 +69,17 @@ export default function StaffDashboardPage() {
     })();
   }, []);
 
-  // Realtime subscriptions (subscribe once)
+  // realtime: re-fetch when either table changes
   useEffect(() => {
-    // Patients stream: upsert/remove in memory
-    const offP = subscribePatients((evt) => {
-      if (evt.type === "INSERT" || evt.type === "UPDATE") {
-        setPatients((curr) => {
-          const idx = curr.findIndex((x) => x.id === evt.row.id || x.id === evt.row.user_id);
-          const next: StaffPatient = {
-            id: evt.row.user_id ?? evt.row.id,
-            name: evt.row.full_name ?? `${evt.row.first_name ?? ""} ${evt.row.last_name ?? ""}`.trim() || "Unknown",
-            email: evt.row.email ?? null,
-          };
-          if (idx === -1) return [next, ...curr];
-          const clone = curr.slice();
-          clone[idx] = next;
-          return clone;
-        });
-      } else if (evt.type === "DELETE") {
-        setPatients((curr) => curr.filter((x) => x.id !== evt.row.user_id && x.id !== evt.row.id));
-      }
-    });
-
-    // Drug tests stream: upsert/remove in memory
-    const offT = subscribeDrugTests((evt) => {
-      if (evt.type === "INSERT" || evt.type === "UPDATE") {
-        const r = evt.row;
-        setTests((curr) => {
-          const idx = curr.findIndex((x) => x.id === r.id);
-          const patient = patients.find((p) => p.id === (r.patient_id ?? r.patient?.id));
-          const shaped: DrugTest = {
-            id: r.id,
-            status: r.status,
-            scheduledFor: r.scheduled_for ?? r.scheduledFor ?? null,
-            createdAt: r.created_at ?? r.createdAt ?? new Date().toISOString(),
-            patient: patient ?? {
-              id: r.patient_id,
-              name:
-                r.patients?.full_name ??
-                `${r.patients?.first_name ?? ""} ${r.patients?.last_name ?? ""}`.trim() ||
-                "Unknown",
-              email: r.patients?.email ?? null,
-            },
-          };
-          if (idx === -1) return [shaped, ...curr];
-          const clone = curr.slice();
-          clone[idx] = shaped;
-          return clone;
-        });
-      } else if (evt.type === "DELETE") {
-        setTests((curr) => curr.filter((x) => x.id !== evt.row.id));
-      }
-    });
-
+    const offP = subscribePatients(async () => setPatients(await fetchPatients(query)));
+    const offT = subscribeDrugTests(async () =>
+      setTests(await listDrugTests({ q: query, status: filter === "all" ? undefined : filter }))
+    );
     return () => {
       offP();
       offT();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patients.length]); // subscribe once; patients length in deps to satisfy linter without resubscribing on each state change
-
-  // Server-filtered refresh when query/status changes
-  const refreshTests = useCallback(async () => {
-    setTests(await listDrugTests({ q: query, status: filter === "all" ? undefined : filter }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, filter]);
-
-  useEffect(() => {
-    refreshTests().catch(() => {});
-  }, [refreshTests]);
 
   const filteredTests = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -158,7 +101,11 @@ export default function StaffDashboardPage() {
     });
   }
 
-  // Button on the "Tests" tab
+  async function refreshTests() {
+    setTests(await listDrugTests({ q: query, status: filter === "all" ? undefined : filter }));
+  }
+
+  // "Tests" tab quick-create
   async function onCreateTest() {
     const m = patients[0];
     if (!m) {
@@ -167,16 +114,18 @@ export default function StaffDashboardPage() {
     }
     try {
       await createDrugTest({ patientId: m.id, scheduledFor: null });
+      await refreshTests();
       await sweetAlert({ icon: "success", title: "Test created", text: `A new test was created for ${m.name}.` });
     } catch (err: any) {
       await sweetAlert({ icon: "error", title: "Failed to create test", text: err?.message ?? "Please try again." });
     }
   }
 
-  // Handler for the modal component (date/time aware)
+  // Modal create handler
   async function handleModalCreate(payload: { patientId: string; scheduledFor: string | null }) {
     try {
       await createDrugTest({ patientId: payload.patientId, scheduledFor: payload.scheduledFor });
+      await refreshTests();
       const who = patients.find((p) => p.id === payload.patientId)?.name ?? "patient";
       const when = payload.scheduledFor ? fmtWhen(payload.scheduledFor) : "unscheduled";
       await sweetAlert({ icon: "success", title: "Test created", text: `${who} • ${when}` });
@@ -207,7 +156,7 @@ export default function StaffDashboardPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
-        {/* Icon Row (larger, comfy) */}
+        {/* Icon Row */}
         <div className="flex items-center gap-4">
           <IconPill size="lg" active={view === "home"} onClick={() => setView("home")} aria="Home">
             <HomeIcon className="h-6 w-6" />
@@ -373,38 +322,4 @@ function IconPill({
       {children}
     </button>
   );
-}
-ts
-Copy code
-// path: lib/patients.ts  — expose richer realtime payload for the page above
-import { supabase, subscribeToTable } from "@/lib/supabase-browser";
-
-export type StaffPatient = { id: string; name: string; email: string | null };
-
-function shape(r: any): StaffPatient {
-  const n = r?.full_name ?? `${r?.first_name ?? ""} ${r?.last_name ?? ""}`.trim();
-  return { id: r.user_id, name: n && n.length ? n : "Unknown", email: r.email ?? null };
-}
-
-export async function fetchPatients(q?: string) {
-  const { data, error } = await supabase
-    .from("patients")
-    .select("user_id, full_name, first_name, last_name, email")
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  const rows = (data ?? []).map(shape);
-  if (!q) return rows;
-  const needle = q.trim().toLowerCase();
-  return rows.filter((p) => p.name.toLowerCase().includes(needle) || (p.email ?? "").toLowerCase().includes(needle));
-}
-
-export function subscribePatients(onEvent: (evt: { type: "INSERT" | "UPDATE" | "DELETE"; row: any }) => void) {
-  const off = subscribeToTable({
-    table: "patients",
-    event: "*",
-    onInsert: (row) => onEvent({ type: "INSERT", row }),
-    onUpdate: (row) => onEvent({ type: "UPDATE", row }),
-    onDelete: (row) => onEvent({ type: "DELETE", row }),
-  });
-  return off;
 }
