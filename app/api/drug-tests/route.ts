@@ -19,7 +19,9 @@ function json(data: any, status = 200, headers: Record<string, string> = {}) {
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anon) return json({ error: "Supabase env missing" }, 500, { "x-debug": "env-missing" });
+  if (!url || !anon) {
+    return json({ error: "Supabase env missing" }, 500, { "x-debug": "env-missing" });
+  }
 
   // Validate body
   let body: z.infer<typeof Body>;
@@ -30,7 +32,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    // 1) Try cookie-bound anon client
+    // Try cookie-bound anon client first
     const jar = cookies();
     const supaCookie = createServerClient(url, anon, {
       cookies: {
@@ -39,10 +41,12 @@ export async function POST(req: Request) {
         remove: (n, o) => jar.set({ name: n, value: "", ...o, maxAge: 0 }),
       },
     });
-    let { data: cookieAuth, error: cookieErr } = await supaCookie.auth.getUser();
-    if (cookieErr) return json({ error: cookieErr.message }, 500, { "x-debug": "cookie-getUser-error" });
+    const { data: cookieAuth, error: cookieErr } = await supaCookie.auth.getUser();
+    if (cookieErr) {
+      return json({ error: cookieErr.message }, 500, { "x-debug": "cookie-getUser-error" });
+    }
 
-    // 2) If cookie missing, try Authorization bearer header
+    // If cookie missing, try Authorization bearer header
     const bearer = req.headers.get("authorization"); // "Bearer <jwt>"
     let headerAuth: typeof cookieAuth | null = null;
     if (!cookieAuth?.user && bearer?.startsWith("Bearer ")) {
@@ -56,9 +60,12 @@ export async function POST(req: Request) {
     }
 
     const authed = cookieAuth?.user ?? headerAuth?.user;
-    if (!authed) return json({ error: "Auth session missing!" }, 401, { "x-debug": "no-session" });
+    if (!authed) {
+      // Important for your UI: we surface why the route refused the call.
+      return json({ error: "Auth session missing!" }, 401, { "x-debug": "no-session" });
+    }
 
-    // 3) Staff check using the same style of client that worked
+    // Staff check using the same client that worked
     const staffClient =
       headerAuth?.user
         ? createSbClient(url, anon, {
@@ -74,9 +81,11 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (staffErr) return json({ error: staffErr.message }, 500, { "x-debug": "staff-query-error" });
-    if (!staffRow || staffRow.active === false) return json({ error: "Forbidden" }, 403, { "x-debug": "not-staff" });
+    if (!staffRow || staffRow.active === false) {
+      return json({ error: "Forbidden" }, 403, { "x-debug": "not-staff" });
+    }
 
-    // 4) Insert via service role
+    // Insert via service role
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
     if (!serviceKey) return json({ error: "Service role key not configured" }, 500, { "x-debug": "service-role-missing" });
 
@@ -100,7 +109,6 @@ export async function POST(req: Request) {
 
     return json({ data }, 200, { "x-debug": "ok" });
   } catch (e: any) {
-    // Never throw raw – always respond JSON with debug
     return json({ error: e?.message ?? "Unexpected error" }, 500, { "x-debug": "unhandled" });
   }
 }
