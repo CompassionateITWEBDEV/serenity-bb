@@ -75,7 +75,7 @@ export default function ClinicianPatientsPage() {
             <PatientsGlyph className="h-5 w-5" />
           </CircleIconButton>
 
-          <CircleIconButton aria="Inbox" onClick={() => router.push("/clinician/inbox")}>
+          <CircleIconButton aria="Inbox" onClick={() => router.push("/staff/patient-inbox")}>
             <MessageSquare className="h-5 w-5" />
           </CircleIconButton>
 
