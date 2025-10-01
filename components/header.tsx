@@ -1,119 +1,112 @@
-// File: app/components/header.tsx
+// app/components/header.tsx (or wherever this lives)
 "use client";
 
-import * as React from "react";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/use-auth";
+import { Heart } from "lucide-react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-
-type NavItem = { label: string; href: string };
-
-const NAV_ITEMS: NavItem[] = [
-  { label: "HOME", href: "/" },
-  { label: "CONTACT", href: "/contact" },
-  { label: "BLOG", href: "/blog" },
-  { label: "SUPPORT", href: "/support" },
-  { label: "ABOUT", href: "/about" },
-];
 
 export function Header() {
-  const pathname = usePathname();
-  const [open, setOpen] = React.useState(false);
+  const { isAuthenticated, logout } = useAuth(); // assumes your hook exposes these
+  const router = useRouter();
 
-  const isActive = (href: string) =>
-    href === "/"
-      ? pathname === "/"
-      : pathname.startsWith(href);
+  const handleLogout = () => {
+    logout(); // WHY: Use your existing logout path (keeps current behavior)
+    router.push("/");
+  };
 
   return (
-    <header className="relative z-50">
-      {/* Top bar */}
-      <div
-        className="w-full"
-        style={{ backgroundColor: "#6ADAB8" /* mint to match screenshot */ }}
-      >
-        <div className="mx-auto max-w-7xl px-4">
-          <div className="flex h-14 items-center justify-between">
-            {/* Left: brand */}
+    <header className="bg-white shadow-sm border-b">
+      <div className="max-w-9xl mx-auto px-5 sm:px-6 lg:px-8 border-b border-slate-300">
+        <div className="flex items-center justify-between h-16 pt-px">
+          <div className="flex items-center">
             <Link
               href="/"
-              className="text-sm font-semibold tracking-[0.2em] text-black"
-              aria-label="SPRING Home"
+              className="flex items-center space-x-2 text-2xl font-serif font-bold text-cyan-600 hover:text-indigo-500 transition-colors"
+              aria-label="Serenity Rehabilitation Center Home"
             >
-              SPRING
+              <Heart className="h-10 w-10" />
+              <span>Serenity Rehabilitation Center</span>
+            </Link>
+          </div>
+
+          {/* Desktop nav */}
+          <nav className="hidden md:flex items-center space-x-8">
+            <Link href="/services" className="text-gray-600 hover:text-cyan-600 transition-colors">
+              Services
+            </Link>
+            <Link href="/about" className="text-gray-600 hover:text-cyan-600 transition-colors">
+              About
+            </Link>
+            <Link href="/blog" className="text-gray-600 hover:text-cyan-600 transition-colors">
+              Blog
+            </Link>
+            <Link href="/contact" className="text-gray-600 hover:text-cyan-600 transition-colors">
+              Contact
             </Link>
 
-            {/* Center: desktop nav */}
-            <nav className="hidden md:flex items-center gap-8">
-              {NAV_ITEMS.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={[
-                    "text-[13px] tracking-wide transition-colors",
-                    "hover:text-black/70",
-                    isActive(item.href) ? "font-semibold text-black" : "text-black/70",
-                  ].join(" ")}
-                >
-                  {item.label}
+            {isAuthenticated ? (
+              <div className="flex items-center space-x-3">
+                {/* Keep Patient Login visible if you want quick switch; remove if not needed */}
+                <Link href="/login">
+                  <Button
+                    variant="outline"
+                    className="border-cyan-600 text-cyan-600 hover:bg-cyan-50 bg-transparent"
+                  >
+                    Patient Login
+                  </Button>
                 </Link>
-              ))}
-            </nav>
 
-            {/* Right: CTA (desktop) */}
-            <div className="hidden md:block">
-              <Link
-                href="/get-started"
-                className="inline-flex items-center gap-2 rounded-md border border-[#1E50FF] bg-[#1E50FF] px-4 py-2 text-xs font-semibold text-white shadow-sm transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                Get Start
-              </Link>
-            </div>
+                {/* NEW: Staff Login */}
+                <Link href="/staff/login">
+                  <Button
+                    variant="outline"
+                    className="border-slate-300 text-slate-700 hover:bg-slate-50 bg-transparent"
+                  >
+                    Staff Login
+                  </Button>
+                </Link>
 
-            {/* Mobile hamburger */}
-            <button
-              className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-md border border-black/20 text-black"
-              aria-label="Toggle menu"
-              onClick={() => setOpen((v) => !v)}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="2" />
-              </svg>
-            </button>
-          </div>
+                <Button
+                  onClick={handleLogout}
+                  variant="ghost"
+                  className="text-gray-600 hover:text-cyan-600"
+                >
+                  Logout
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-3">
+                <Link href="/login">
+                  <Button
+                    variant="outline"
+                    className="border-cyan-600 text-cyan-600 hover:bg-cyan-50 bg-transparent"
+                  >
+                    Patient Login
+                  </Button>
+                </Link>
+
+                {/* NEW: Staff Login */}
+                <Link href="/staff/login">
+                  <Button
+                    variant="outline"
+                    className="border-slate-300 text-slate-700 hover:bg-slate-50 bg-transparent"
+                  >
+                    Staff Login
+                  </Button>
+                </Link>
+
+                <Link href="/intake">
+                  <Button className="bg-cyan-600 hover:bg-indigo-500 text-white transition-colors">
+                    Get Help Now
+                  </Button>
+                </Link>
+              </div>
+            )}
+          </nav>
         </div>
-        {/* Thin divider line under header (matches screenshot) */}
-        <div className="h-px w-full bg-black/70" />
       </div>
-
-      {/* Mobile panel */}
-      {open && (
-        <div className="md:hidden border-b border-black/70" style={{ backgroundColor: "#6ADAB8" }}>
-          <div className="mx-auto max-w-7xl px-4 py-3">
-            <nav className="flex flex-col">
-              {NAV_ITEMS.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setOpen(false)}
-                  className={[
-                    "py-2 text-sm tracking-wide",
-                    isActive(item.href) ? "font-semibold text-black" : "text-black/80",
-                  ].join(" ")}
-                >
-                  {item.label}
-                </Link>
-              ))}
-              <Link
-                href="/get-started"
-                onClick={() => setOpen(false)}
-                className="mt-2 inline-flex w-full items-center justify-center rounded-md border border-[#1E50FF] bg-[#1E50FF] px-4 py-2 text-sm font-semibold text-white shadow-sm"
-              >
-                Get Start
-              </Link>
-            </nav>
-          </div>
-        </div>
-      )}
     </header>
   );
 }
