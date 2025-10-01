@@ -9,16 +9,14 @@ export type DrugTest = {
   patient: { id: string; name: string; email: string | null };
 };
 
-// Avoid mixing ?? with || by computing deterministically.
 function personName(row: any): string {
   const full = row?.patients?.full_name;
-  if (full && String(full).trim().length > 0) return String(full).trim();
+  if (full && String(full).trim()) return String(full).trim();
   const first = row?.patients?.first_name ?? "";
   const last = row?.patients?.last_name ?? "";
   const combo = `${first} ${last}`.trim();
-  return combo.length > 0 ? combo : "Unknown";
+  return combo || "Unknown";
 }
-
 function shape(row: any): DrugTest {
   return {
     id: row.id,
@@ -34,12 +32,19 @@ function shape(row: any): DrugTest {
 }
 
 export async function createDrugTest(input: { patientId: string; scheduledFor: string | null }) {
+  const { data: sess } = await supabase.auth.getSession();
+  const token = sess?.session?.access_token;
+
   const res = await fetch("/api/drug-tests", {
     method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    credentials: "include", // send cookies if any
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}), // <-- important
+    },
     body: JSON.stringify(input),
   });
+
   let json: any = null;
   try { json = await res.json(); } catch {}
   if (!res.ok) {
