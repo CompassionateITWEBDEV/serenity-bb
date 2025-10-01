@@ -1,3 +1,4 @@
+// File: /lib/drug-tests.ts
 import { supabase } from "./supabase/browser";
 
 export type TestStatus = "pending" | "completed" | "missed";
@@ -16,6 +17,16 @@ export type DrugTest = {
 
 type ListOpts = { q?: string; status?: TestStatus };
 
+function coalesceName(row: any): string {
+  const fullName =
+    row?.patients?.full_name ??
+    `${row?.patients?.first_name ?? ""} ${row?.patients?.last_name ?? ""}`.trim();
+
+  // why: avoid mixing ?? with ||; also reject empty strings
+  if (fullName && fullName.length > 0) return fullName;
+  return "Unknown";
+}
+
 function shapeTest(row: any): DrugTest {
   return {
     id: row.id,
@@ -24,14 +35,14 @@ function shapeTest(row: any): DrugTest {
     createdAt: row.created_at,
     patient: {
       id: row.patients?.user_id ?? row.patient_id,
-      name: row.patients?.full_name ?? `${row.patients?.first_name ?? ""} ${row.patients?.last_name ?? ""}`.trim() || "Unknown",
+      name: coalesceName(row),
       email: row.patients?.email ?? null,
     },
   };
 }
 
 /**
- * Why: enforce creating user identity for RLS policies.
+ * Create a drug test row; requires authenticated user.
  */
 export async function createDrugTest(input: { patientId: string; scheduledFor: string | null }) {
   const { data: auth } = await supabase.auth.getUser();
@@ -40,7 +51,7 @@ export async function createDrugTest(input: { patientId: string; scheduledFor: s
   const payload = {
     patient_id: input.patientId,
     scheduled_for: input.scheduledFor,
-    created_by: auth.user.id, // harmless if DB trigger auto-fills; required otherwise
+    created_by: auth.user.id,
     status: "pending" as const,
   };
 
@@ -86,9 +97,6 @@ export async function listDrugTests(opts: ListOpts) {
   });
 }
 
-/**
- * Why: use Postgres Changes for low-latency updates across tabs/devices.
- */
 export function subscribeDrugTests(onChange: () => void) {
   const channel = supabase
     .channel("rt-drug-tests")
@@ -98,5 +106,8 @@ export function subscribeDrugTests(onChange: () => void) {
       () => onChange()
     )
     .subscribe();
-  return () => { supabase.removeChannel(channel); };
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }
