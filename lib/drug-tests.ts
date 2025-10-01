@@ -9,10 +9,16 @@ export type DrugTest = {
   patient: { id: string; name: string; email: string | null };
 };
 
-function coalesceName(row: any): string {
-  const full = row?.patients?.full_name ?? `${row?.patients?.first_name ?? ""} ${row?.patients?.last_name ?? ""}`.trim();
-  return full && full.length > 0 ? full : "Unknown";
+// Avoid mixing ?? with || by computing deterministically.
+function personName(row: any): string {
+  const full = row?.patients?.full_name;
+  if (full && String(full).trim().length > 0) return String(full).trim();
+  const first = row?.patients?.first_name ?? "";
+  const last = row?.patients?.last_name ?? "";
+  const combo = `${first} ${last}`.trim();
+  return combo.length > 0 ? combo : "Unknown";
 }
+
 function shape(row: any): DrugTest {
   return {
     id: row.id,
@@ -20,22 +26,27 @@ function shape(row: any): DrugTest {
     scheduledFor: row.scheduled_for ?? null,
     createdAt: row.created_at,
     patient: {
-      id: row.patients?.user_id ?? row.patient_id,
-      name: coalesceName(row),
-      email: row.patients?.email ?? null,
+      id: row?.patients?.user_id ?? row.patient_id,
+      name: personName(row),
+      email: row?.patients?.email ?? null,
     },
   };
 }
 
-/** Server-backed creation so it works even when browser session is missing. */
 export async function createDrugTest(input: { patientId: string; scheduledFor: string | null }) {
   const res = await fetch("/api/drug-tests", {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json?.error ?? "Failed to create");
+  let json: any = null;
+  try { json = await res.json(); } catch {}
+  if (!res.ok) {
+    const err: any = new Error(json?.error ?? `Failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
   return shape(json.data);
 }
 
@@ -53,9 +64,9 @@ export async function listDrugTests(opts: { q?: string; status?: TestStatus }) {
   if (error) throw new Error(error.message);
 
   const rows = (data ?? []).map(shape);
-  if (!opts.q) return rows;
+  const needle = (opts.q ?? "").trim().toLowerCase();
+  if (!needle) return rows;
 
-  const needle = opts.q.trim().toLowerCase();
   return rows.filter((r) => {
     const name = r.patient.name.toLowerCase();
     const email = (r.patient.email ?? "").toLowerCase();
@@ -65,12 +76,8 @@ export async function listDrugTests(opts: { q?: string; status?: TestStatus }) {
 
 export function subscribeDrugTests(onChange: () => void) {
   const ch = supabase
-    .channel("rt-drug-tests")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "drug_tests" },
-      () => onChange()
-    )
+    .channel("rt_drug_tests")
+    .on("postgres_changes", { event: "*", schema: "public", table: "drug_tests" }, () => onChange())
     .subscribe();
-  return () => { supabase.removeChannel(ch); };
+  return () => supabase.removeChannel(ch);
 }
