@@ -1,3 +1,4 @@
+// app/clinician/patients/page.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -6,7 +7,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Search, MessageSquare, Settings as SettingsIcon } from "lucide-react";
+import {
+  Search,
+  MessageSquare,
+  Settings as SettingsIcon,
+  Home as HomeIcon,
+  TestTube2,
+  Radio as RadioIcon,
+  EyeOff,
+  Bell,
+  Stethoscope,
+  HeartPulse,
+  Users,
+} from "lucide-react";
 import PatientsGlyph from "@/components/icons/PatientsGlyph";
 
 // --- local types/mocks (swap to API later)
@@ -37,7 +50,7 @@ export default function ClinicianPatientsPage() {
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return MOCKS.filter(p => !s || p.name.toLowerCase().includes(s));
+    return MOCKS.filter((p) => !s || p.name.toLowerCase().includes(s));
   }, [q]);
 
   return (
@@ -59,32 +72,54 @@ export default function ClinicianPatientsPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* Icon Row — dashboard icon routes to /clinician/dashboard */}
+        {/* Icon row — CONSISTENT with staff & clinician dashboards */}
         <div className="flex items-center gap-3">
-          <CircleIconButton
-            aria="Dashboard"
-            onClick={() => router.push("/clinician/dashboard")}
-          >
-            {/* use the same PatientsGlyph but with a ring to highlight route button style */}
-            <div className="h-5 w-5 rounded-full ring-2 ring-cyan-300 grid place-items-center">
-              <span className="block h-2 w-2 rounded-full bg-cyan-500" />
-            </div>
+          {/* --- CORE STAFF ICONS --- */}
+          <CircleIconButton aria="Home" onClick={() => router.push("/staff/dashboard")}>
+            <HomeIcon className="h-5 w-5" />
           </CircleIconButton>
 
-          <CircleIconButton active aria="Patients">
-            <PatientsGlyph className="h-5 w-5" />
+          <CircleIconButton aria="Drug Tests" onClick={() => router.push("/staff/dashboard?tab=tests")}>
+            <TestTube2 className="h-5 w-5" />
           </CircleIconButton>
 
-          <CircleIconButton aria="Inbox" onClick={() => router.push("/staff/patient-inbox")}>
+          <CircleIconButton aria="Messages / Patient Inbox" onClick={() => router.push("/staff/patient-inbox")}>
             <MessageSquare className="h-5 w-5" />
           </CircleIconButton>
 
+          <CircleIconButton aria="Broadcasts" onClick={() => router.push("/staff/broadcasts")}>
+            <RadioIcon className="h-5 w-5" />
+          </CircleIconButton>
+
+          <CircleIconButton aria="Hidden Groups" onClick={() => router.push("/staff/hidden-groups")}>
+            <EyeOff className="h-5 w-5" />
+          </CircleIconButton>
+
+          <CircleIconButton aria="Notifications" onClick={() => router.push("/staff/notifications")}>
+            <Bell className="h-5 w-5" />
+          </CircleIconButton>
+
+          <CircleIconButton aria="Clinicians" onClick={() => router.push("/clinician/dashboard")}>
+            <Stethoscope className="h-5 w-5" />
+          </CircleIconButton>
+
           <CircleIconButton
-            aria="Settings"
+            aria="Profile Settings"
             active={view === "settings"}
             onClick={() => setView("settings")}
           >
             <SettingsIcon className="h-5 w-5" />
+          </CircleIconButton>
+
+          {/* --- CLINICIAN-ONLY EXTRAS --- */}
+          <span aria-hidden className="mx-1 h-5 w-px bg-slate-300" />
+
+          <CircleIconButton aria="Vitals" onClick={() => router.push("/clinician/vitals")}>
+            <HeartPulse className="h-5 w-5" />
+          </CircleIconButton>
+
+          <CircleIconButton aria="Patients" active>
+            <Users className="h-5 w-5" />
           </CircleIconButton>
         </div>
 
@@ -161,11 +196,8 @@ function CircleIconButton({
       aria-label={aria}
       onClick={onClick}
       className={`h-10 w-10 rounded-full grid place-items-center transition
-        ${
-          active
-            ? "bg-cyan-100 text-cyan-700 ring-2 ring-cyan-300"
-            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-        }`}
+        ${active ? "bg-cyan-100 text-cyan-700 ring-2 ring-cyan-300"
+                 : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
     >
       {children}
     </button>
