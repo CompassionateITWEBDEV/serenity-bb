@@ -1,3 +1,4 @@
+// app/staff/dashboard/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -84,11 +85,48 @@ export default function StaffDashboardPage() {
     });
   }, [tests, query, filter]);
 
+  async function sweetAlert(opts: { icon: "success" | "error"; title: string; text?: string }) {
+    const Swal = (await import("sweetalert2")).default;
+    return Swal.fire({
+      icon: opts.icon,
+      title: opts.title,
+      text: opts.text,
+      confirmButtonColor: "#06b6d4", // cyan-500
+      buttonsStyling: true,
+    });
+  }
+
+  async function refreshTests() {
+    setTests(await listDrugTests({ q: query, status: filter === "all" ? undefined : filter }));
+  }
+
+  // Button on the "Tests" tab
   async function onCreateTest() {
     const m = patients[0];
-    if (!m) return;
-    await createDrugTest({ patientId: m.id, scheduledFor: null });
-    setTests(await listDrugTests({ q: query, status: filter === "all" ? undefined : filter }));
+    if (!m) {
+      await sweetAlert({ icon: "error", title: "No patients available", text: "Add a patient before creating a test." });
+      return;
+    }
+    try {
+      await createDrugTest({ patientId: m.id, scheduledFor: null });
+      await refreshTests();
+      await sweetAlert({ icon: "success", title: "Test created", text: `A new test was created for ${m.name}.` });
+    } catch (err: any) {
+      await sweetAlert({ icon: "error", title: "Failed to create test", text: err?.message ?? "Please try again." });
+    }
+  }
+
+  // Handler for the modal component (date/time aware)
+  async function handleModalCreate(payload: { patientId: string; scheduledFor: string | null }) {
+    try {
+      await createDrugTest({ patientId: payload.patientId, scheduledFor: payload.scheduledFor });
+      await refreshTests();
+      const who = patients.find(p => p.id === payload.patientId)?.name ?? "patient";
+      const when = payload.scheduledFor ? fmtWhen(payload.scheduledFor) : "unscheduled";
+      await sweetAlert({ icon: "success", title: "Test created", text: `${who} • ${when}` });
+    } catch (err: any) {
+      await sweetAlert({ icon: "error", title: "Failed to create test", text: err?.message ?? "Please try again." });
+    }
   }
 
   return (
@@ -166,7 +204,11 @@ export default function StaffDashboardPage() {
               <h2 className="text-xl font-semibold tracking-tight">Random Drug Test Manager</h2>
               <Card className="mt-4 shadow-sm">
                 <CardContent className="p-5">
-                  <RandomDrugTestManager patients={patients} />
+                  {/* Pass onCreate to show SweetAlert and refresh data */}
+                  <RandomDrugTestManager
+                    patients={patients}
+                    onCreate={handleModalCreate}
+                  />
                 </CardContent>
               </Card>
             </section>
@@ -262,9 +304,9 @@ function IconPill({
   size?: "sm" | "md" | "lg";
 }) {
   const sizeMap = {
-    sm: "h-10 w-10 text-[20px]", // 40px
-    md: "h-11 w-11 text-[22px]", // 44px
-    lg: "h-12 w-12 text-[24px]", // 48px
+    sm: "h-10 w-10 text-[20px]",
+    md: "h-11 w-11 text-[22px]",
+    lg: "h-12 w-12 text-[24px]",
   } as const;
 
   return (
@@ -276,7 +318,6 @@ function IconPill({
         ${active ? "bg-cyan-100 text-cyan-700 ring-2 ring-cyan-300"
                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
     >
-      {/* WHY: children icons still get explicit h/w so text size won’t distort them */}
       {children}
     </button>
   );
