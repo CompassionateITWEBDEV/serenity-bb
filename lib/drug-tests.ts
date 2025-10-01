@@ -1,88 +1,133 @@
-import { supabase } from "@/lib/supabase-browser";
+import type { PostgrestError } from "@supabase/supabase-js";
+import { supabase, getAccessToken } from "./supabase-browser";
 
+/** Narrow status union used throughout the UI. */
 export type TestStatus = "pending" | "completed" | "missed";
+
 export type DrugTest = {
   id: string;
   status: TestStatus;
-  scheduledFor: string | null;
-  createdAt: string;
-  patient: { id: string; name: string; email: string | null };
+  scheduledFor: string | null; // ISO
+  createdAt: string; // ISO
+  patientId: string;
+  patient: { id: string; name: string; email?: string | null };
 };
 
-function personName(row: any): string {
-  const full = row?.patients?.full_name;
-  if (full && String(full).trim()) return String(full).trim();
-  const first = row?.patients?.first_name ?? "";
-  const last = row?.patients?.last_name ?? "";
-  const combo = `${first} ${last}`.trim();
-  return combo || "Unknown";
-}
-function shape(row: any): DrugTest {
+type ListOptions = { q?: string; status?: TestStatus };
+
+/** Map DB rows → UI shape. */
+function mapRow(row: any): DrugTest {
+  const p =
+    row.patients ??
+    row.patient ??
+    {
+      user_id: row.patient_id,
+      full_name: null,
+      first_name: null,
+      last_name: null,
+      email: null,
+    };
+
+  const name =
+    p.full_name ||
+    [p.first_name, p.last_name].filter(Boolean).join(" ").trim() ||
+    "Unknown";
+
   return {
     id: row.id,
-    status: row.status,
-    scheduledFor: row.scheduled_for ?? null,
+    status: row.status as TestStatus,
+    scheduledFor: row.scheduled_for,
     createdAt: row.created_at,
-    patient: {
-      id: row?.patients?.user_id ?? row.patient_id,
-      name: personName(row),
-      email: row?.patients?.email ?? null,
-    },
+    patientId: row.patient_id,
+    patient: { id: p.user_id, name, email: p.email ?? null },
   };
 }
 
-export async function createDrugTest(input: { patientId: string; scheduledFor: string | null }) {
-  const { data: sess } = await supabase.auth.getSession();
-  const token = sess?.session?.access_token;
+/** Read tests, optional search/status filter (client-side filter keeps SQL simple). */
+export async function listDrugTests(opts: ListOptions): Promise<DrugTest[]> {
+  const sel = `
+    id, status, scheduled_for, created_at, patient_id,
+    patients:patient_id ( user_id, full_name, first_name, last_name, email )
+  `;
+  const { data, error } = await supabase
+    .from("drug_tests")
+    .select(sel)
+    .order("created_at", { ascending: false });
+
+  if (error) throw decorate(error);
+
+  let items = (data ?? []).map(mapRow);
+
+  if (opts.status) items = items.filter((t) => t.status === opts.status);
+  if (opts.q?.trim()) {
+    const q = opts.q.trim().toLowerCase();
+    items = items.filter(
+      (t) =>
+        t.patient.name.toLowerCase().includes(q) ||
+        (t.patient.email ?? "").toLowerCase().includes(q)
+    );
+  }
+  return items;
+}
+
+/** Realtime subscription to drug_tests changes. Returns an unsubscribe fn. */
+export function subscribeDrugTests(onChange: () => void): () => void {
+  const ch = supabase
+    .channel("realtime:drug_tests")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "drug_tests" },
+      () => onChange()
+    )
+    .subscribe();
+
+  return () => {
+    try {
+      supabase.removeChannel(ch);
+    } catch {
+      /* no-op */
+    }
+  };
+}
+
+/** Create a test by calling our API with a Bearer token (fixes 'Auth session missing!'). */
+export async function createDrugTest(args: { patientId: string; scheduledFor: string | null }): Promise<DrugTest> {
+  const token = await getAccessToken();
+  if (!token) {
+    const err = new Error("Not signed in") as any;
+    err.status = 401;
+    throw err;
+  }
 
   const res = await fetch("/api/drug-tests", {
     method: "POST",
-    credentials: "include", // send cookies if any
     headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}), // <-- important
+      "content-type": "application/json",
+      Authorization: `Bearer ${token}`, // <-- crucial for your route
     },
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      patientId: args.patientId,
+      scheduledFor: args.scheduledFor, // must be ISO string or null per Zod
+    }),
   });
 
-  let json: any = null;
-  try { json = await res.json(); } catch {}
+  const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err: any = new Error(json?.error ?? `Failed (${res.status})`);
-    err.status = res.status;
-    throw err;
+    const e: any = new Error(json?.error ?? `Request failed (${res.status})`);
+    e.status = res.status;
+    e.debug = res.headers.get("x-debug") ?? null;
+    throw e;
   }
-  return shape(json.data);
+
+  // Shape: { data: { id, status, scheduled_for, created_at, patient_id, patients: {...} } }
+  return mapRow(json.data);
 }
 
-export async function listDrugTests(opts: { q?: string; status?: TestStatus }) {
-  let q = supabase
-    .from("drug_tests")
-    .select(
-      `id, status, scheduled_for, created_at, patient_id,
-       patients:patient_id ( user_id, full_name, first_name, last_name, email )`
-    )
-    .order("created_at", { ascending: false });
-
-  if (opts.status) q = q.eq("status", opts.status);
-  const { data, error } = await q;
-  if (error) throw new Error(error.message);
-
-  const rows = (data ?? []).map(shape);
-  const needle = (opts.q ?? "").trim().toLowerCase();
-  if (!needle) return rows;
-
-  return rows.filter((r) => {
-    const name = r.patient.name.toLowerCase();
-    const email = (r.patient.email ?? "").toLowerCase();
-    return name.includes(needle) || email.includes(needle);
-  });
-}
-
-export function subscribeDrugTests(onChange: () => void) {
-  const ch = supabase
-    .channel("rt_drug_tests")
-    .on("postgres_changes", { event: "*", schema: "public", table: "drug_tests" }, () => onChange())
-    .subscribe();
-  return () => supabase.removeChannel(ch);
+/** Uniform error for PostgrestError. */
+function decorate(error: PostgrestError): Error {
+  const e: any = new Error(error.message);
+  e.hint = error.hint;
+  e.details = error.details;
+  e.code = error.code;
+  return e;
 }
