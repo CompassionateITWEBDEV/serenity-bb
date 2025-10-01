@@ -1,9 +1,12 @@
+// File: /lib/supabase/server.ts
 import { cookies } from "next/headers";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient as createSbClient, type SupabaseClient } from "@supabase/supabase-js";
 
+// Tip: replace `unknown` with your generated Database type if available.
 type Db = unknown;
 
+/** Default server-bound client (cookie-based auth) */
 export default function supabaseServer(): SupabaseClient<Db> {
   const cookieStore = cookies();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -14,15 +17,22 @@ export default function supabaseServer(): SupabaseClient<Db> {
     cookies: {
       get: (name: string) => cookieStore.get(name)?.value,
       set: (name: string, value: string, options: CookieOptions) => {
-        try { cookieStore.set({ name, value, ...options }); } catch { /* no-op */ }
+        try { cookieStore.set({ name, value, ...options }); } catch { /* noop for edge strict mode */ }
       },
       remove: (name: string, options: CookieOptions) => {
-        try { cookieStore.set({ name, value: "", ...options, maxAge: 0 }); } catch { /* no-op */ }
+        try { cookieStore.set({ name, value: "", ...options, maxAge: 0 }); } catch { /* noop */ }
       },
     },
+    db: { schema: "public" },
   });
 }
 
+/** Named export expected by your route handlers */
+export function getServerSupabase(): SupabaseClient<Db> {
+  return supabaseServer();
+}
+
+/** Create a client bound to a bearer token (e.g. webhooks) */
 export function supabaseForToken(token?: string | null): SupabaseClient<Db> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -35,6 +45,7 @@ export function supabaseForToken(token?: string | null): SupabaseClient<Db> {
 }
 
 let _admin: SupabaseClient<Db> | null = null;
+/** Service-role client (bypasses RLS). Use server-only. */
 export function supabaseAdmin(): SupabaseClient<Db> {
   if (_admin) return _admin;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -44,6 +55,7 @@ export function supabaseAdmin(): SupabaseClient<Db> {
   return _admin;
 }
 
+/** Assert envs early in server boot paths */
 export function assertServerEnv(): void {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) throw new Error("NEXT_PUBLIC_SUPABASE_URL not set");
   if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) throw new Error("NEXT_PUBLIC_SUPABASE_ANON_KEY not set");
@@ -52,6 +64,8 @@ export function assertServerEnv(): void {
   }
 }
 
+/** Aliases kept for compatibility with your other imports */
 export const createClient = supabaseServer;
 export const createServiceRoleClient = supabaseAdmin;
+
 export type { SupabaseClient } from "@supabase/supabase-js";
