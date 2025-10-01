@@ -2,7 +2,6 @@ import type { PostgrestError } from "@supabase/supabase-js";
 import { supabase, getAccessToken } from "@/lib/supabase-browser";
 
 export type TestStatus = "pending" | "completed" | "missed";
-
 export type DrugTest = {
   id: string;
   status: TestStatus;
@@ -17,9 +16,7 @@ type ListOptions = { q?: string; status?: TestStatus };
 function mapRow(row: any): DrugTest {
   const p =
     row.patients ??
-    row.patient ?? {
-      user_id: row.patient_id, full_name: null, first_name: null, last_name: null, email: null,
-    };
+    row.patient ?? { user_id: row.patient_id, full_name: null, first_name: null, last_name: null, email: null };
 
   const name = p.full_name || [p.first_name, p.last_name].filter(Boolean).join(" ").trim() || "Unknown";
 
@@ -39,7 +36,7 @@ export async function listDrugTests(opts: ListOptions): Promise<DrugTest[]> {
     patients:patient_id ( user_id, full_name, first_name, last_name, email )
   `;
   const { data, error } = await supabase.from("drug_tests").select(sel).order("created_at", { ascending: false });
-  if (error) throw decorate(error);
+  if (error) throw pgErr(error);
 
   let items = (data ?? []).map(mapRow);
   if (opts.status) items = items.filter((t) => t.status === opts.status);
@@ -60,7 +57,7 @@ export function subscribeDrugTests(onChange: () => void): () => void {
 
 export async function createDrugTest(args: { patientId: string; scheduledFor: string | null }): Promise<DrugTest> {
   const token = await getAccessToken();
-  if (!token) { const e: any = new Error("Not signed in"); e.status = 401; e.debug = "no-session"; throw e; }
+  if (!token) { const e: any = new Error("Not signed in on this site"); e.status = 401; e.debug = "no-session"; throw e; }
 
   const res = await fetch("/api/drug-tests", {
     method: "POST",
@@ -69,28 +66,11 @@ export async function createDrugTest(args: { patientId: string; scheduledFor: st
   });
 
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) { const e: any = new Error(json?.error ?? `Request failed (${res.status})`); e.status = res.status; e.debug = res.headers.get("x-debug"); throw e; }
+  if (!res.ok) { const e: any = new Error(json?.error ?? `HTTP ${res.status}`); e.status = res.status; e.debug = res.headers.get("x-debug"); throw e; }
   return mapRow(json.data);
 }
 
-// NEW: update via PATCH route; attaches Bearer and surfaces x-debug
-export async function updateDrugTestStatus(id: string, status: TestStatus) {
-  const token = await getAccessToken();
-  if (!token) { const e: any = new Error("Not signed in"); e.status = 401; e.debug = "no-session"; throw e; }
-
-  const res = await fetch(`/api/drug-tests/status/${id}`, {
-    method: "PATCH",
-    headers: { "content-type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ status }),
-  });
-
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) { const e: any = new Error(json?.error ?? `Request failed (${res.status})`); e.status = res.status; e.debug = res.headers.get("x-debug"); throw e; }
-  return json.data as { id: string; status: TestStatus };
-}
-
-function decorate(error: PostgrestError): Error {
-  const e: any = new Error(error.message);
-  e.hint = error.hint; e.details = error.details; e.code = error.code;
+function pgErr(err: PostgrestError): Error {
+  const e: any = new Error(err.message);
+  e.code = err.code; e.details = err.details; e.hint = err.hint;
   return e;
-}
