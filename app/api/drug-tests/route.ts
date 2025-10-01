@@ -1,4 +1,3 @@
-// File: app/api/drug-tests/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
@@ -27,7 +26,6 @@ export async function POST(req: Request) {
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anon) return json({ error: "Supabase env missing" }, 500, { "x-debug": "env-missing" });
 
-  // 1) Validate body
   let body: z.infer<typeof Body>;
   try {
     body = Body.parse(await req.json());
@@ -36,7 +34,6 @@ export async function POST(req: Request) {
   }
 
   try {
-    // 2) Cookie-bound client (same project as client code)
     const jar = cookies();
     const supaCookie = createServerClient(url, anon, {
       cookies: {
@@ -48,7 +45,6 @@ export async function POST(req: Request) {
     const { data: cookieAuth, error: cookieErr } = await supaCookie.auth.getUser();
     if (cookieErr) return json({ error: cookieErr.message }, 500, { "x-debug": "cookie-getUser-error" });
 
-    // 3) Fallback to Bearer (case-insensitive "Bearer ")
     const authz = req.headers.get("authorization") ?? req.headers.get("Authorization");
     let headerAuth: typeof cookieAuth | null = null;
     if (!cookieAuth?.user && authz?.toLowerCase().startsWith("bearer ")) {
@@ -64,7 +60,6 @@ export async function POST(req: Request) {
     const authed = cookieAuth?.user ?? headerAuth?.user;
     if (!authed) return json({ error: "Auth session missing!" }, 401, { "x-debug": "no-session" });
 
-    // 4) Staff check using the client that authenticated
     const staffClient =
       headerAuth?.user
         ? createSbClient(url, anon, {
@@ -82,7 +77,6 @@ export async function POST(req: Request) {
     if (staffErr) return json({ error: staffErr.message }, 500, { "x-debug": "staff-query-error" });
     if (!staffRow || staffRow.active === false) return json({ error: "Forbidden" }, 403, { "x-debug": "not-staff" });
 
-    // 5) Insert via service role (bypass RLS)
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
     if (!serviceKey) return json({ error: "Service role key not configured" }, 500, { "x-debug": "service-role-missing" });
 
@@ -103,7 +97,6 @@ export async function POST(req: Request) {
       .single();
 
     if (error) return json({ error: error.message }, 400, { "x-debug": "insert-error" });
-
     return json({ data }, 200, { "x-debug": "ok" });
   } catch (e: any) {
     return json({ error: e?.message ?? "Unexpected error" }, 500, { "x-debug": "unhandled" });
