@@ -11,6 +11,9 @@ import {
   Home as HomeIcon,
   TestTube2,
   MessageSquare,
+  Radio as RadioIcon,
+  EyeOff,
+  Bell,
   Users,
   Settings as SettingsIcon,
 } from "lucide-react";
@@ -33,9 +36,11 @@ function IconPill({
       type="button"
       aria-label={aria}
       onClick={onClick}
-      className={`h-10 w-10 rounded-full grid place-items-center transition
-        ${active ? "bg-cyan-100 text-cyan-700 ring-2 ring-cyan-300"
-                 : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+      className={`h-10 w-10 rounded-full grid place-items-center transition ${
+        active
+          ? "bg-cyan-100 text-cyan-700 ring-2 ring-cyan-300"
+          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+      }`}
     >
       {children}
     </button>
@@ -62,47 +67,45 @@ export default function StaffPatientInboxPage() {
             <Badge variant="secondary" className="gap-1">
               <Activity className="h-3.5 w-3.5" /> Live
             </Badge>
-            {/* Logout removed */}
           </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* Icon row */}
-       <div className="flex items-center gap-3">
-      <IconPill onClick={() => router.push("/staff/dashboard")} aria="Home">
-        <HomeIcon className="h-5 w-5" />
-      </IconPill>
+        {/* Icon row (now consistent with /staff/dashboard) */}
+        <div className="flex items-center gap-3">
+          <IconPill onClick={() => router.push("/staff/dashboard")} aria="Home">
+            <HomeIcon className="h-5 w-5" />
+          </IconPill>
 
-      <IconPill onClick={() => router.push("/staff/dashboard?tab=tests")} aria="Drug Tests">
-        <TestTube2 className="h-5 w-5" />
-      </IconPill>
+          <IconPill onClick={() => router.push("/staff/dashboard?tab=tests")} aria="Drug Tests">
+            <TestTube2 className="h-5 w-5" />
+          </IconPill>
 
-      <IconPill active aria="Messages / Patient Inbox">
-        <MessageSquare className="h-5 w-5" />
-      </IconPill>
+          <IconPill active aria="Messages / Patient Inbox">
+            <MessageSquare className="h-5 w-5" />
+          </IconPill>
 
-      <IconPill onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts">
-        <RadioIcon className="h-5 w-5" />
-      </IconPill>
+          <IconPill onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts">
+            <RadioIcon className="h-5 w-5" />
+          </IconPill>
 
-      <IconPill onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups">
-        <EyeOff className="h-5 w-5" />
-      </IconPill>
+          <IconPill onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups">
+            <EyeOff className="h-5 w-5" />
+          </IconPill>
 
-      <IconPill onClick={() => router.push("/staff/notifications")} aria="Notifications">
-        <Bell className="h-5 w-5" />
-      </IconPill>
+          <IconPill onClick={() => router.push("/staff/notifications")} aria="Notifications">
+            <Bell className="h-5 w-5" />
+          </IconPill>
 
-      <IconPill onClick={() => router.push("/clinician/dashboard")} aria="Clinicians">
-        <Users className="h-5 w-5" />
-      </IconPill>
+          <IconPill onClick={() => router.push("/clinician/dashboard")} aria="Clinicians">
+            <Users className="h-5 w-5" />
+          </IconPill>
 
-      <IconPill onClick={() => router.push("/staff/profile")} aria="Profile Settings">
-        <SettingsIcon className="h-5 w-5" />
-      </IconPill>
-    </div>
-
+          <IconPill onClick={() => router.push("/staff/profile")} aria="Profile Settings">
+            <SettingsIcon className="h-5 w-5" />
+          </IconPill>
+        </div>
 
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Patient Inbox</h2>
