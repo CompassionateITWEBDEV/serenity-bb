@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -29,11 +29,11 @@ import {
   Bell,
 } from "lucide-react";
 
-import { supabase } from "@/lib/supabase-browser"; // ← auth session source
 import type { DrugTest, TestStatus } from "@/lib/drug-tests";
 import { createDrugTest, listDrugTests, subscribeDrugTests } from "@/lib/drug-tests";
 import type { StaffPatient } from "@/lib/patients";
 import { fetchPatients, subscribePatients } from "@/lib/patients";
+import { supabase } from "@/lib/supabase-browser";
 
 const TEST_STATUS_META: Record<TestStatus, { label: string; cls: string }> = {
   completed: { label: "Completed", cls: "text-emerald-700 bg-emerald-50 border-emerald-200" },
@@ -61,41 +61,11 @@ export default function StaffDashboardPage() {
   const [filter, setFilter] = useState<"all" | TestStatus>("all");
   const [view, setView] = useState<View>("home");
 
-  // SweetAlert wrapper
-  async function sweetAlert(opts: { icon: "success" | "error" | "info" | "warning"; title: string; text?: string }) {
-    const Swal = (await import("sweetalert2")).default;
-    return Swal.fire({
-      icon: opts.icon,
-      title: opts.title,
-      text: opts.text,
-      confirmButtonColor: "#06b6d4",
-      buttonsStyling: true,
-    });
-  }
-
-  // Require auth before writes; show dialog + redirect if missing
-  const ensureAuthed = useCallback(async () => {
-    const { data } = await supabase.auth.getUser();
-    if (!data?.user) {
-      await sweetAlert({
-        icon: "error",
-        title: "Sign in required",
-        text: "Please sign in to create a drug test.",
-      });
-      router.push("/staff/login?redirect=/staff/dashboard");
-      return false;
-    }
-    return true;
-  }, [router]);
-
-  // Track session (mount + changes)
+  // Session watch (for banner button state only—API still enforces server-side)
   useEffect(() => {
-    let unsub = supabase.auth.onAuthStateChange((_e, session) => setAuthed(!!session?.user));
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      setAuthed(!!data?.user);
-    })();
-    return () => { unsub.data.subscription.unsubscribe(); };
+    const sub = supabase.auth.onAuthStateChange((_e, session) => setAuthed(!!session?.user));
+    supabase.auth.getUser().then(({ data }) => setAuthed(!!data?.user));
+    return () => sub.data.subscription.unsubscribe();
   }, []);
 
   // initial load
@@ -107,7 +77,7 @@ export default function StaffDashboardPage() {
     })();
   }, []);
 
-  // realtime: re-fetch when either table changes
+  // realtime re-fetch
   useEffect(() => {
     const offP = subscribePatients(async () => setPatients(await fetchPatients(query)));
     const offT = subscribeDrugTests(async () =>
@@ -125,13 +95,23 @@ export default function StaffDashboardPage() {
     });
   }, [tests, query, filter]);
 
+  async function sweetAlert(opts: { icon: "success" | "error" | "info" | "warning"; title: string; text?: string }) {
+    const Swal = (await import("sweetalert2")).default;
+    return Swal.fire({
+      icon: opts.icon,
+      title: opts.title,
+      text: opts.text,
+      confirmButtonColor: "#06b6d4",
+      buttonsStyling: true,
+    });
+  }
+
   async function refreshTests() {
     setTests(await listDrugTests({ q: query, status: filter === "all" ? undefined : filter }));
   }
 
-  // Button on the "Tests" tab
+  // "Tests" tab quick-create
   async function onCreateTest() {
-    if (!(await ensureAuthed())) return;
     const m = patients[0];
     if (!m) {
       await sweetAlert({ icon: "error", title: "No patients available", text: "Add a patient before creating a test." });
@@ -142,16 +122,18 @@ export default function StaffDashboardPage() {
       await refreshTests();
       await sweetAlert({ icon: "success", title: "Test created", text: `A new test was created for ${m.name}.` });
     } catch (err: any) {
-      await sweetAlert({ icon: "error", title: "Failed to create test", text: err?.message ?? "Please try again." });
-      if (/not authenticated/i.test(String(err?.message))) {
+      const status = Number(err?.status || 0);
+      if (status === 401 || status === 403) {
+        await sweetAlert({ icon: "error", title: "Sign in required", text: "Please sign in with a staff account." });
         router.push("/staff/login?redirect=/staff/dashboard");
+        return;
       }
+      await sweetAlert({ icon: "error", title: "Failed to create test", text: err?.message ?? "Please try again." });
     }
   }
 
-  // Handler for the modal component (date/time aware)
+  // Modal create handler (date/time aware)
   async function handleModalCreate(payload: { patientId: string; scheduledFor: string | null }) {
-    if (!(await ensureAuthed())) return;
     try {
       await createDrugTest({ patientId: payload.patientId, scheduledFor: payload.scheduledFor });
       await refreshTests();
@@ -159,10 +141,13 @@ export default function StaffDashboardPage() {
       const when = payload.scheduledFor ? fmtWhen(payload.scheduledFor) : "unscheduled";
       await sweetAlert({ icon: "success", title: "Test created", text: `${who} • ${when}` });
     } catch (err: any) {
-      await sweetAlert({ icon: "error", title: "Failed to create test", text: err?.message ?? "Please try again." });
-      if (/not authenticated/i.test(String(err?.message))) {
+      const status = Number(err?.status || 0);
+      if (status === 401 || status === 403) {
+        await sweetAlert({ icon: "error", title: "Sign in required", text: "Please sign in with a staff account." });
         router.push("/staff/login?redirect=/staff/dashboard");
+        return;
       }
+      await sweetAlert({ icon: "error", title: "Failed to create test", text: err?.message ?? "Please try again." });
     }
   }
 
@@ -263,9 +248,7 @@ export default function StaffDashboardPage() {
           <section>
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold tracking-tight">Random Drug Test Manager</h2>
-              <Button onClick={onCreateTest} className="h-10 px-4 gap-2" disabled={!authed}>
-                + New Test
-              </Button>
+              <Button onClick={onCreateTest} className="h-10 px-4 gap-2">+ New Test</Button>
             </div>
             <Card className="mt-4 shadow-sm">
               <CardHeader className="pb-3">
