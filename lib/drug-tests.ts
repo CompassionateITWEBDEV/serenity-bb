@@ -1,4 +1,4 @@
-import { supabase, subscribeToTable } from "@/lib/supabase-browser";
+import { supabase } from "@/lib/supabase-browser";
 
 export type TestStatus = "pending" | "completed" | "missed";
 
@@ -7,14 +7,24 @@ export type DrugTest = {
   status: TestStatus;
   scheduledFor: string | null;
   createdAt: string;
-  patient: { id: string; name: string; email: string | null };
+  patient: {
+    id: string;
+    name: string;
+    email: string | null;
+  };
 };
 
-function shape(row: any): DrugTest {
-  const name =
+type ListOpts = { q?: string; status?: TestStatus };
+
+function coalesceName(row: any): string {
+  const full =
     row?.patients?.full_name ??
-    `${row?.patients?.first_name ?? ""} ${row?.patients?.last_name ?? ""}`.trim() ||
-    "Unknown";
+    `${row?.patients?.first_name ?? ""} ${row?.patients?.last_name ?? ""}`.trim();
+  // avoid mixing ?? with ||; also handle empty string
+  return full && full.length > 0 ? full : "Unknown";
+}
+
+function shape(row: any): DrugTest {
   return {
     id: row.id,
     status: row.status,
@@ -22,7 +32,7 @@ function shape(row: any): DrugTest {
     createdAt: row.created_at,
     patient: {
       id: row.patients?.user_id ?? row.patient_id,
-      name,
+      name: coalesceName(row),
       email: row.patients?.email ?? null,
     },
   };
@@ -30,7 +40,7 @@ function shape(row: any): DrugTest {
 
 export async function createDrugTest(input: { patientId: string; scheduledFor: string | null }) {
   const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) throw new Error("Not authenticated.");
+  if (!auth?.user) throw new Error("Not authenticated.");
 
   const { data, error } = await supabase
     .from("drug_tests")
@@ -50,7 +60,7 @@ export async function createDrugTest(input: { patientId: string; scheduledFor: s
   return shape(data);
 }
 
-export async function listDrugTests(opts: { q?: string; status?: TestStatus }) {
+export async function listDrugTests(opts: ListOpts) {
   let q = supabase
     .from("drug_tests")
     .select(
@@ -60,8 +70,10 @@ export async function listDrugTests(opts: { q?: string; status?: TestStatus }) {
     .order("created_at", { ascending: false });
 
   if (opts.status) q = q.eq("status", opts.status);
+
   const { data, error } = await q;
   if (error) throw new Error(error.message);
+
   const rows = (data ?? []).map(shape);
   if (!opts.q) return rows;
 
@@ -73,12 +85,18 @@ export async function listDrugTests(opts: { q?: string; status?: TestStatus }) {
   });
 }
 
-export function subscribeDrugTests(onEvent: (evt: { type: "INSERT" | "UPDATE" | "DELETE"; row: any }) => void) {
-  return subscribeToTable({
-    table: "drug_tests",
-    event: "*",
-    onInsert: (row) => onEvent({ type: "INSERT", row }),
-    onUpdate: (row) => onEvent({ type: "UPDATE", row }),
-    onDelete: (row) => onEvent({ type: "DELETE", row }),
-  });
+/** Realtime: invoke onChange on any INSERT/UPDATE/DELETE. */
+export function subscribeDrugTests(onChange: () => void) {
+  const ch = supabase
+    .channel("rt-drug-tests")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "drug_tests" },
+      () => onChange()
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(ch);
+  };
 }
