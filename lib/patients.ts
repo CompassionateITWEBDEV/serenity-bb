@@ -1,22 +1,10 @@
 import { supabase, subscribeToTable } from "@/lib/supabase-browser";
 
-export type StaffPatient = {
-  id: string;          // patients.user_id
-  name: string;
-  email: string | null;
-};
+export type StaffPatient = { id: string; name: string; email: string | null };
 
-function buildName(r: any): string {
-  const full = r?.full_name ?? `${r?.first_name ?? ""} ${r?.last_name ?? ""}`.trim();
-  return full && full.length > 0 ? full : "Unknown";
-}
-
-function shapePatient(r: any): StaffPatient {
-  return {
-    id: r.user_id,
-    name: buildName(r),
-    email: r.email ?? null,
-  };
+function shape(r: any): StaffPatient {
+  const n = r?.full_name ?? `${r?.first_name ?? ""} ${r?.last_name ?? ""}`.trim();
+  return { id: r.user_id, name: n && n.length ? n : "Unknown", email: r.email ?? null };
 }
 
 export async function fetchPatients(q?: string) {
@@ -24,20 +12,20 @@ export async function fetchPatients(q?: string) {
     .from("patients")
     .select("user_id, full_name, first_name, last_name, email")
     .order("created_at", { ascending: false });
-
   if (error) throw new Error(error.message);
-  const rows = (data ?? []).map(shapePatient);
+  const rows = (data ?? []).map(shape);
   if (!q) return rows;
-
   const needle = q.trim().toLowerCase();
   return rows.filter((p) => p.name.toLowerCase().includes(needle) || (p.email ?? "").toLowerCase().includes(needle));
 }
 
-export function subscribePatients(onChange: () => void) {
-  return subscribeToTable({
+export function subscribePatients(onEvent: (evt: { type: "INSERT" | "UPDATE" | "DELETE"; row: any }) => void) {
+  const off = subscribeToTable({
     table: "patients",
-    onInsert: () => onChange(),
-    onUpdate: () => onChange(),
-    onDelete: () => onChange(),
+    event: "*",
+    onInsert: (row) => onEvent({ type: "INSERT", row }),
+    onUpdate: (row) => onEvent({ type: "UPDATE", row }),
+    onDelete: (row) => onEvent({ type: "DELETE", row }),
   });
+  return off;
 }
