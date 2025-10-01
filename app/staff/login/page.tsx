@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eye, EyeOff } from "lucide-react";
+import { supabase } from "@/lib/supabase-browser";
 
 async function serenitySwal(opts: { title: string; text?: string; mood: "success"|"error"|"info" }) {
   const Swal = (await import("sweetalert2")).default;
@@ -27,7 +28,7 @@ async function serenitySwal(opts: { title: string; text?: string; mood: "success
     backdrop: theme.backdrop,
     confirmButtonColor: "#2563eb",
     customClass: { popup: "rounded-2xl", confirmButton: "rounded-xl" },
-    timer: opts.mood === "success" ? 1300 : undefined,
+    timer: opts.mood === "success" ? 1200 : undefined,
   });
 }
 
@@ -48,10 +49,20 @@ export default function StaffLoginPage() {
         body: JSON.stringify({ email, password }),
       });
       const body = await res.json().catch(() => ({}));
+
       if (!res.ok) {
         await serenitySwal({ title: "Staff login failed", text: body?.error || "Check your credentials.", mood: "error" });
         return;
       }
+
+      // 🔑 Sync browser Supabase client so API calls have a JWT
+      if (body?.session?.access_token && body?.session?.refresh_token) {
+        await supabase.auth.setSession({
+          access_token: body.session.access_token,
+          refresh_token: body.session.refresh_token,
+        });
+      }
+
       await serenitySwal({ title: "Welcome, team hero!", text: "Let’s make today awesome ✨", mood: "success" });
       router.push("/staff/dashboard");
     } catch (err: any) {
@@ -78,15 +89,7 @@ export default function StaffLoginPage() {
             <form onSubmit={onSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Work Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="name@company.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="h-11"
-                />
+                <Input id="email" type="email" placeholder="name@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required className="h-11" />
               </div>
 
               <div className="space-y-2">
@@ -122,11 +125,8 @@ export default function StaffLoginPage() {
                   Create Staff Account
                 </Link>
               </p>
-
               <div className="text-center">
-                <Link href="/login" className="text-xs text-gray-500 hover:underline">
-                  ← Patient login
-                </Link>
+                <Link href="/login" className="text-xs text-gray-500 hover:underline">← Patient login</Link>
               </div>
             </form>
           </CardContent>
