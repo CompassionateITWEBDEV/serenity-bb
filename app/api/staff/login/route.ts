@@ -1,4 +1,3 @@
-// File: app/api/staff/login/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
@@ -29,9 +28,8 @@ export async function POST(req: Request) {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  // SSR client bound to Next cookies – this sets auth cookies on response
   const jar = cookies();
-  const supa = createServerClient(url, anon, {
+  const supaSSR = createServerClient(url, anon, {
     cookies: {
       get: (n) => jar.get(n)?.value,
       set: (n, v, o) => jar.set({ name: n, value: v, ...o }),
@@ -39,30 +37,20 @@ export async function POST(req: Request) {
     },
   });
 
-  // 1) Sign in
-  const sign = await supa.auth.signInWithPassword({ email: body.email, password: body.password });
-  if (sign.error || !sign.data?.user || !sign.data?.session) {
-    return json({ error: sign.error?.message ?? "Invalid credentials" }, 401, { "x-debug": "signin-failed" });
+  // Sign in (SSR adapter writes auth cookies)
+  const r = await supaSSR.auth.signInWithPassword({ email: body.email, password: body.password });
+  if (r.error || !r.data?.user || !r.data?.session) {
+    return json({ error: r.error?.message ?? "Invalid credentials" }, 401, { "x-debug": "signin-failed" });
   }
+  const { user, session } = r.data;
 
-  const user = sign.data.user;
-  const session = sign.data.session;
-
-  // 2) Staff check (DB first, then metadata role fallback)
+  // Staff check (DB preferred; fallback to metadata)
   let isStaff = false;
-
-  // Use a header-bound anon client so RLS sees this user
-  const headerClient = createSbClient(url, anon, {
+  const supaHeader = createSbClient(url, anon, {
     global: { headers: { Authorization: `Bearer ${session.access_token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
-
-  const staffRes = await headerClient
-    .from("staff")
-    .select("user_id, active")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
+  const staffRes = await supaHeader.from("staff").select("user_id,active").eq("user_id", user.id).maybeSingle();
   if (!staffRes.error && staffRes.data?.active === true) {
     isStaff = true;
   } else {
@@ -72,14 +60,11 @@ export async function POST(req: Request) {
       null;
     if (role === "staff") isStaff = true;
   }
-
   if (!isStaff) {
-    // Cleanly drop cookies/session if not staff
-    try { await supa.auth.signOut(); } catch {}
+    try { await supaSSR.auth.signOut(); } catch {}
     return json({ error: "Not authorized as staff" }, 403, { "x-debug": "not-staff" });
   }
 
-  // 3) Success – cookies set; return compact session so client can set its JS client too
   return json(
     {
       ok: true,
