@@ -1,7 +1,5 @@
-// path: lib/supabase-browser.ts
 import { createClient, type SupabaseClient, type Session, type User } from "@supabase/supabase-js";
 
-// Why: allow UI to render even if envs are missing; show banner instead of crashing.
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -14,10 +12,11 @@ declare global {
 
 function createBrowserClient(): SupabaseClient {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    // Soft fallback; operations will fail gracefully. UI can gate using supaEnvOk.
+    // Soft fallback; lets UI render. Real calls will 401/404 as expected.
     // @ts-expect-error placeholder init for DX
     return createClient("http://localhost", "anon", {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      db: { schema: "public" },
     });
   }
   return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -26,6 +25,7 @@ function createBrowserClient(): SupabaseClient {
       autoRefreshToken: true,
       detectSessionInUrl: true,
     },
+    db: { schema: "public" },
     global: process.env.NEXT_PUBLIC_SUPABASE_DEBUG ? { headers: { "x-supabase-debug": "1" } } : undefined,
   });
 }
@@ -35,44 +35,27 @@ export const supabase: SupabaseClient =
   globalThis.__SUPABASE_BROWSER__ ?? (globalThis.__SUPABASE_BROWSER__ = createBrowserClient());
 
 // Hard guard for code paths that must not run without valid envs.
-export function requireSupabaseEnv(): asserts SUPABASE_URL is string {
+export function requireSupabaseEnv(): asserts supaEnvOk is true {
   if (!supaEnvOk) {
-    throw new Error(
-      "Supabase env missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel."
-    );
+    throw new Error("Supabase env missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel.");
   }
 }
 
 // Convenience auth helpers
 export async function getAuthSession(): Promise<Session | null> {
   const { data, error } = await supabase.auth.getSession();
-  if (error) {
-    // eslint-disable-next-line no-console
-    console.warn("supabase.auth.getSession:", error.message);
-  }
+  if (error) console.warn("supabase.auth.getSession:", error.message);
   return data?.session ?? null;
 }
 
 export async function getAuthUser(): Promise<User | null> {
   const { data, error } = await supabase.auth.getUser();
-  if (error) {
-    // eslint-disable-next-line no-console
-    console.warn("supabase.auth.getUser:", error.message);
-  }
+  if (error) console.warn("supabase.auth.getUser:", error.message);
   return data?.user ?? null;
 }
 
 /**
- * Realtime helper.
- * Example:
- *  const off = subscribeToTable<GameSession>({
- *    table: "game_sessions",
- *    filter: `patient_id=eq.${patientId}`,
- *    onInsert: row => setRows(r => [row, ...r]),
- *    onUpdate: row => setRows(r => r.map(x => x.id === row.id ? row : x)),
- *    onDelete: row => setRows(r => r.filter(x => x.id !== row.id)),
- *  });
- *  return () => off();
+ * Realtime helper (Postgres Changes).
  */
 export function subscribeToTable<T = unknown>(opts: {
   table: string;
@@ -84,7 +67,6 @@ export function subscribeToTable<T = unknown>(opts: {
   onDelete?: (row: T) => void;
 }): () => void {
   if (!supaEnvOk) {
-    // eslint-disable-next-line no-console
     console.warn("subscribeToTable skipped: Supabase env not set.");
     return () => {};
   }
