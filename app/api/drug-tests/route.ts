@@ -1,3 +1,4 @@
+// File: app/api/drug-tests/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
@@ -12,18 +13,21 @@ const Body = z.object({
 function json(data: any, status = 200, headers: Record<string, string> = {}) {
   return new NextResponse(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json", ...headers },
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+      "vary": "authorization, cookie",
+      ...headers,
+    },
   });
 }
 
 export async function POST(req: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anon) {
-    return json({ error: "Supabase env missing" }, 500, { "x-debug": "env-missing" });
-  }
+  if (!url || !anon) return json({ error: "Supabase env missing" }, 500, { "x-debug": "env-missing" });
 
-  // Validate body
+  // 1) Validate body
   let body: z.infer<typeof Body>;
   try {
     body = Body.parse(await req.json());
@@ -32,7 +36,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Try cookie-bound anon client first
+    // 2) Cookie-bound client (same project as client code)
     const jar = cookies();
     const supaCookie = createServerClient(url, anon, {
       cookies: {
@@ -42,16 +46,14 @@ export async function POST(req: Request) {
       },
     });
     const { data: cookieAuth, error: cookieErr } = await supaCookie.auth.getUser();
-    if (cookieErr) {
-      return json({ error: cookieErr.message }, 500, { "x-debug": "cookie-getUser-error" });
-    }
+    if (cookieErr) return json({ error: cookieErr.message }, 500, { "x-debug": "cookie-getUser-error" });
 
-    // If cookie missing, try Authorization bearer header
-    const bearer = req.headers.get("authorization"); // "Bearer <jwt>"
+    // 3) Fallback to Bearer (case-insensitive "Bearer ")
+    const authz = req.headers.get("authorization") ?? req.headers.get("Authorization");
     let headerAuth: typeof cookieAuth | null = null;
-    if (!cookieAuth?.user && bearer?.startsWith("Bearer ")) {
+    if (!cookieAuth?.user && authz?.toLowerCase().startsWith("bearer ")) {
       const supaHeader = createSbClient(url, anon, {
-        global: { headers: { Authorization: bearer } },
+        global: { headers: { Authorization: authz } },
         auth: { persistSession: false, autoRefreshToken: false },
       });
       const r = await supaHeader.auth.getUser();
@@ -60,16 +62,13 @@ export async function POST(req: Request) {
     }
 
     const authed = cookieAuth?.user ?? headerAuth?.user;
-    if (!authed) {
-      // Important for your UI: we surface why the route refused the call.
-      return json({ error: "Auth session missing!" }, 401, { "x-debug": "no-session" });
-    }
+    if (!authed) return json({ error: "Auth session missing!" }, 401, { "x-debug": "no-session" });
 
-    // Staff check using the same client that worked
+    // 4) Staff check using the client that authenticated
     const staffClient =
       headerAuth?.user
         ? createSbClient(url, anon, {
-            global: { headers: { Authorization: bearer! } },
+            global: { headers: { Authorization: authz! } },
             auth: { persistSession: false, autoRefreshToken: false },
           })
         : supaCookie;
@@ -81,11 +80,9 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (staffErr) return json({ error: staffErr.message }, 500, { "x-debug": "staff-query-error" });
-    if (!staffRow || staffRow.active === false) {
-      return json({ error: "Forbidden" }, 403, { "x-debug": "not-staff" });
-    }
+    if (!staffRow || staffRow.active === false) return json({ error: "Forbidden" }, 403, { "x-debug": "not-staff" });
 
-    // Insert via service role
+    // 5) Insert via service role (bypass RLS)
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
     if (!serviceKey) return json({ error: "Service role key not configured" }, 500, { "x-debug": "service-role-missing" });
 
