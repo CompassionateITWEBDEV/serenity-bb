@@ -1,41 +1,38 @@
-import { supabase } from "@/lib/supabase/client";
+import { supabase } from "./supabase/browser";
 
-export type StaffPatient = { id: string; name: string; email?: string | null; created_at?: string };
+export type StaffPatient = {
+  id: string;          // patients.user_id
+  name: string;
+  email: string | null;
+};
 
-export function displayName(p: { full_name?: string | null; first_name?: string | null; last_name?: string | null }) {
-  const full = (p.full_name ?? "").trim();
-  if (full) return full;
-  const combo = [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
-  return combo || "Unnamed Patient";
+function shapePatient(r: any): StaffPatient {
+  const name = r.full_name ?? `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() || "Unknown";
+  return { id: r.user_id, name, email: r.email ?? null };
 }
 
-export async function fetchPatients(q?: string, limit = 500): Promise<StaffPatient[]> {
-  let query = supabase
+export async function fetchPatients(q?: string) {
+  const { data, error } = await supabase
     .from("patients")
-    .select("user_id,full_name,first_name,last_name,email,created_at")
-    .order("created_at", { ascending: false })
-    .limit(limit);
+    .select("user_id, full_name, first_name, last_name, email")
+    .order("created_at", { ascending: false });
 
-  if (q?.trim()) {
-    const like = `%${q.trim()}%`;
-    query = query.or(`full_name.ilike.${like},first_name.ilike.${like},last_name.ilike.${like},email.ilike.${like}`);
-  }
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []).map(shapePatient);
+  if (!q) return rows;
 
-  const { data, error } = await query;
-  if (error) throw error;
-
-  return (data ?? []).map((p: any) => ({
-    id: p.user_id,
-    name: displayName(p),
-    email: p.email,
-    created_at: p.created_at,
-  }));
+  const needle = q.trim().toLowerCase();
+  return rows.filter((p) => p.name.toLowerCase().includes(needle) || (p.email ?? "").toLowerCase().includes(needle));
 }
 
 export function subscribePatients(onChange: () => void) {
-  const chan = supabase
-    .channel("patients.realtime")
-    .on("postgres_changes", { event: "*", schema: "public", table: "patients" }, onChange)
+  const ch = supabase
+    .channel("rt-patients")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "patients" },
+      () => onChange()
+    )
     .subscribe();
-  return () => supabase.removeChannel(chan);
+  return () => { supabase.removeChannel(ch); };
 }
