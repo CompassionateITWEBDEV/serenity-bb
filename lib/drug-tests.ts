@@ -1,29 +1,18 @@
 import { supabase } from "@/lib/supabase-browser";
 
 export type TestStatus = "pending" | "completed" | "missed";
-
 export type DrugTest = {
   id: string;
   status: TestStatus;
   scheduledFor: string | null;
   createdAt: string;
-  patient: {
-    id: string;
-    name: string;
-    email: string | null;
-  };
+  patient: { id: string; name: string; email: string | null };
 };
 
-type ListOpts = { q?: string; status?: TestStatus };
-
 function coalesceName(row: any): string {
-  const full =
-    row?.patients?.full_name ??
-    `${row?.patients?.first_name ?? ""} ${row?.patients?.last_name ?? ""}`.trim();
-  // avoid mixing ?? with ||; also handle empty string
+  const full = row?.patients?.full_name ?? `${row?.patients?.first_name ?? ""} ${row?.patients?.last_name ?? ""}`.trim();
   return full && full.length > 0 ? full : "Unknown";
 }
-
 function shape(row: any): DrugTest {
   return {
     id: row.id,
@@ -38,29 +27,19 @@ function shape(row: any): DrugTest {
   };
 }
 
+/** Server-backed creation so it works even when browser session is missing. */
 export async function createDrugTest(input: { patientId: string; scheduledFor: string | null }) {
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth?.user) throw new Error("Not authenticated.");
-
-  const { data, error } = await supabase
-    .from("drug_tests")
-    .insert({
-      patient_id: input.patientId,
-      scheduled_for: input.scheduledFor,
-      created_by: auth.user.id,
-      status: "pending",
-    })
-    .select(
-      `id, status, scheduled_for, created_at, patient_id,
-       patients:patient_id ( user_id, full_name, first_name, last_name, email )`
-    )
-    .single();
-
-  if (error) throw new Error(error.message);
-  return shape(data);
+  const res = await fetch("/api/drug-tests", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json?.error ?? "Failed to create");
+  return shape(json.data);
 }
 
-export async function listDrugTests(opts: ListOpts) {
+export async function listDrugTests(opts: { q?: string; status?: TestStatus }) {
   let q = supabase
     .from("drug_tests")
     .select(
@@ -70,7 +49,6 @@ export async function listDrugTests(opts: ListOpts) {
     .order("created_at", { ascending: false });
 
   if (opts.status) q = q.eq("status", opts.status);
-
   const { data, error } = await q;
   if (error) throw new Error(error.message);
 
@@ -85,7 +63,6 @@ export async function listDrugTests(opts: ListOpts) {
   });
 }
 
-/** Realtime: invoke onChange on any INSERT/UPDATE/DELETE. */
 export function subscribeDrugTests(onChange: () => void) {
   const ch = supabase
     .channel("rt-drug-tests")
@@ -95,8 +72,5 @@ export function subscribeDrugTests(onChange: () => void) {
       () => onChange()
     )
     .subscribe();
-
-  return () => {
-    supabase.removeChannel(ch);
-  };
+  return () => { supabase.removeChannel(ch); };
 }
