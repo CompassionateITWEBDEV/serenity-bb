@@ -1,14 +1,27 @@
+// File: /lib/patients.ts
 import { supabase } from "./supabase/browser";
 
 export type StaffPatient = {
-  id: string;          // patients.user_id
+  id: string;
   name: string;
   email: string | null;
 };
 
+function buildName(r: any): string {
+  const full =
+    r?.full_name ??
+    `${r?.first_name ?? ""} ${r?.last_name ?? ""}`.trim();
+  // why: avoid `??` + `||`, and also handle empty strings
+  if (full && full.length > 0) return full;
+  return "Unknown";
+}
+
 function shapePatient(r: any): StaffPatient {
-  const name = r.full_name ?? `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() || "Unknown";
-  return { id: r.user_id, name, email: r.email ?? null };
+  return {
+    id: r.user_id,
+    name: buildName(r),
+    email: r.email ?? null,
+  };
 }
 
 export async function fetchPatients(q?: string) {
@@ -22,7 +35,11 @@ export async function fetchPatients(q?: string) {
   if (!q) return rows;
 
   const needle = q.trim().toLowerCase();
-  return rows.filter((p) => p.name.toLowerCase().includes(needle) || (p.email ?? "").toLowerCase().includes(needle));
+  return rows.filter((p) => {
+    const name = p.name.toLowerCase();
+    const email = (p.email ?? "").toLowerCase();
+    return name.includes(needle) || email.includes(needle);
+  });
 }
 
 export function subscribePatients(onChange: () => void) {
