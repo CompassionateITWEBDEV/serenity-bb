@@ -1,3 +1,4 @@
+// File: app/staff/dashboard/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -61,11 +62,14 @@ export default function StaffDashboardPage() {
   const [filter, setFilter] = useState<"all" | TestStatus>("all");
   const [view, setView] = useState<View>("home");
 
-  // Session watch (for banner button state only—API still enforces server-side)
+  // Session watch (used for button states; server still enforces auth)
   useEffect(() => {
-    const sub = supabase.auth.onAuthStateChange((_e, session) => setAuthed(!!session?.user));
-    supabase.auth.getUser().then(({ data }) => setAuthed(!!data?.user));
-    return () => sub.data.subscription.unsubscribe();
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      setAuthed(!!data.session?.user);
+    })();
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => setAuthed(!!session?.user));
+    return () => sub.subscription.unsubscribe();
   }, []);
 
   // initial load
@@ -97,13 +101,7 @@ export default function StaffDashboardPage() {
 
   async function sweetAlert(opts: { icon: "success" | "error" | "info" | "warning"; title: string; text?: string }) {
     const Swal = (await import("sweetalert2")).default;
-    return Swal.fire({
-      icon: opts.icon,
-      title: opts.title,
-      text: opts.text,
-      confirmButtonColor: "#06b6d4",
-      buttonsStyling: true,
-    });
+    return Swal.fire({ icon: opts.icon, title: opts.title, text: opts.text, confirmButtonColor: "#06b6d4", buttonsStyling: true });
   }
 
   async function refreshTests() {
@@ -175,47 +173,24 @@ export default function StaffDashboardPage() {
       <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
         {/* Icon Row */}
         <div className="flex items-center gap-4">
-          <IconPill size="lg" active={view === "home"} onClick={() => setView("home")} aria="Home">
-            <HomeIcon className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" active={view === "tests"} onClick={() => setView("tests")} aria="Drug Tests">
-            <TestTube2 className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/patient-inbox")} aria="Messages">
-            <MessageSquare className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts">
-            <RadioIcon className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups">
-            <EyeOff className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/notifications")} aria="Notifications">
-            <Bell className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/clinician/dashboard")} aria="Clinicians">
-            <Users className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/profile")} aria="Settings">
-            <SettingsIcon className="h-6 w-6" />
-          </IconPill>
+          <IconPill size="lg" active={view === "home"} onClick={() => setView("home")} aria="Home"><HomeIcon className="h-6 w-6" /></IconPill>
+          <IconPill size="lg" active={view === "tests"} onClick={() => setView("tests")} aria="Drug Tests"><TestTube2 className="h-6 w-6" /></IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/patient-inbox")} aria="Messages"><MessageSquare className="h-6 w-6" /></IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts"><RadioIcon className="h-6 w-6" /></IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups"><EyeOff className="h-6 w-6" /></IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/notifications")} aria="Notifications"><Bell className="h-6 w-6" /></IconPill>
+          <IconPill size="lg" onClick={() => router.push("/clinician/dashboard")} aria="Clinicians"><Users className="h-6 w-6" /></IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/profile")} aria="Settings"><SettingsIcon className="h-6 w-6" /></IconPill>
         </div>
 
         {/* Search / Filter */}
         <div className="flex items-center justify-between gap-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search"
-              className="pl-10 h-10 w-72 rounded-full"
-            />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" className="pl-10 h-10 w-72 rounded-full" />
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" className="h-10 rounded-full px-4">
-              <Filter className="h-5 w-5 mr-2 text-cyan-600" /> Filter
-            </Button>
+            <Button variant="outline" className="h-10 rounded-full px-4"><Filter className="h-5 w-5 mr-2 text-cyan-600" /> Filter</Button>
             <span className="text-sm text-slate-600">Patient ({patients.length})</span>
           </div>
         </div>
@@ -227,11 +202,7 @@ export default function StaffDashboardPage() {
               <Card className="mt-4 shadow-sm">
                 <CardContent className="p-5">
                   <RandomDrugTestManager patients={patients} onCreate={handleModalCreate} />
-                  {!authed && (
-                    <p className="text-xs text-amber-700 mt-3">
-                      You’re not signed in. Creating a test will prompt sign-in.
-                    </p>
-                  )}
+                  {/* Removed the “You’re not signed in …” notice */}
                 </CardContent>
               </Card>
             </section>
@@ -262,12 +233,7 @@ export default function StaffDashboardPage() {
                   <div className="flex gap-3">
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
-                      <Input
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Search patient…"
-                        className="pl-10 h-10 w-56"
-                      />
+                      <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search patient…" className="pl-10 h-10 w-56" />
                     </div>
                     <Select value={filter} onValueChange={(v) => setFilter(v as any)}>
                       <SelectTrigger className="h-10 w-40"><SelectValue placeholder="Filter" /></SelectTrigger>
