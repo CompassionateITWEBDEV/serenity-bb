@@ -1,4 +1,3 @@
-// app/staff/dashboard/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -95,13 +94,13 @@ export default function StaffDashboardPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
+            <div className="h-10 w-10 rounded-full bg-cyan-100 grid place-items-center">
               <ShieldCheck className="h-5 w-5 text-cyan-600" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold">Staff Console</h1>
+              <h1 className="text-xl font-semibold">Staff Console</h1>
               <p className="text-xs text-slate-500">Care operations at a glance</p>
             </div>
           </div>
@@ -109,32 +108,54 @@ export default function StaffDashboardPage() {
             <Badge variant="secondary" className="gap-1">
               <Activity className="h-3.5 w-3.5" /> Live
             </Badge>
-            {/* Logout button removed per request */}
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* Icon Row */}
-        <div className="flex items-center gap-3">
-          <IconPill active={view === "home"} onClick={() => setView("home")} aria="Home"><HomeIcon className="h-5 w-5" /></IconPill>
-          <IconPill active={view === "tests"} onClick={() => setView("tests")} aria="Drug Tests"><TestTube2 className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/staff/patient-inbox")} aria="Messages"><MessageSquare className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts"><RadioIcon className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups"><EyeOff className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/staff/notifications")} aria="Notifications"><Bell className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/clinician/dashboard")} aria="Clinicians"><Users className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/staff/profile")} aria="Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
+      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+        {/* Icon Row (larger, comfy) */}
+        <div className="flex items-center gap-4">
+          <IconPill size="lg" active={view === "home"} onClick={() => setView("home")} aria="Home">
+            <HomeIcon className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" active={view === "tests"} onClick={() => setView("tests")} aria="Drug Tests">
+            <TestTube2 className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/patient-inbox")} aria="Messages">
+            <MessageSquare className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts">
+            <RadioIcon className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups">
+            <EyeOff className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/notifications")} aria="Notifications">
+            <Bell className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" onClick={() => router.push("/clinician/dashboard")} aria="Clinicians">
+            <Users className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/profile")} aria="Settings">
+            <SettingsIcon className="h-6 w-6" />
+          </IconPill>
         </div>
 
-        {/* Search / Filter */}
-        <div className="flex items-center justify-between gap-2">
+        {/* Search / Filter (roomier controls) */}
+        <div className="flex items-center justify-between gap-3">
           <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" className="pl-8 h-9 w-64 rounded-full" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search"
+              className="pl-10 h-10 w-72 rounded-full"
+            />
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" className="h-9 rounded-full"><Filter className="h-4 w-4 mr-1 text-cyan-600" /> Filter</Button>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" className="h-10 rounded-full px-4">
+              <Filter className="h-5 w-5 mr-2 text-cyan-600" /> Filter
+            </Button>
             <span className="text-sm text-slate-600">Patient ({patients.length})</span>
           </div>
         </div>
@@ -143,8 +164,10 @@ export default function StaffDashboardPage() {
           <>
             <section>
               <h2 className="text-xl font-semibold tracking-tight">Random Drug Test Manager</h2>
-              <Card className="mt-3 shadow-sm">
-                <CardContent className="p-4"><RandomDrugTestManager patients={patients} /></CardContent>
+              <Card className="mt-4 shadow-sm">
+                <CardContent className="p-5">
+                  <RandomDrugTestManager patients={patients} />
+                </CardContent>
               </Card>
             </section>
 
@@ -160,24 +183,29 @@ export default function StaffDashboardPage() {
           <section>
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold tracking-tight">Random Drug Test Manager</h2>
-              <Button onClick={onCreateTest} className="gap-2">+ New Test</Button>
+              <Button onClick={onCreateTest} className="h-10 px-4 gap-2">+ New Test</Button>
             </div>
-            <Card className="mt-3 shadow-sm">
+            <Card className="mt-4 shadow-sm">
               <CardHeader className="pb-3">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-cyan-100 grid place-items-center">
-                      <TestTube2 className="h-4 w-4 text-cyan-700" />
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
+                      <TestTube2 className="h-5 w-5 text-cyan-700" />
                     </div>
                     <CardTitle className="text-base">Recent Tests</CardTitle>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-3">
                     <div className="relative">
-                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                      <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search patient…" className="pl-8 h-9 w-48" />
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                      <Input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Search patient…"
+                        className="pl-10 h-10 w-56"
+                      />
                     </div>
                     <Select value={filter} onValueChange={(v) => setFilter(v as any)}>
-                      <SelectTrigger className="h-9 w-36"><SelectValue placeholder="Filter" /></SelectTrigger>
+                      <SelectTrigger className="h-10 w-40"><SelectValue placeholder="Filter" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All</SelectItem>
                         <SelectItem value="completed">Completed</SelectItem>
@@ -188,11 +216,11 @@ export default function StaffDashboardPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {filteredTests.length === 0 && <div className="text-sm text-slate-500 py-6 text-center">No tests yet.</div>}
+              <CardContent className="space-y-3 p-5">
+                {filteredTests.length === 0 && <div className="text-sm text-slate-500 py-8 text-center">No tests yet.</div>}
                 <ul className="grid gap-3">
                   {filteredTests.map((t) => (
-                    <li key={t.id} className="rounded-xl border bg-white px-4 py-3 flex items-center justify-between">
+                    <li key={t.id} className="rounded-xl border bg-white px-5 py-4 flex items-center justify-between">
                       <div>
                         <div className="font-medium">{t.patient.name}</div>
                         <div className="text-xs text-slate-500">Scheduled: {fmtWhen(t.scheduledFor)}</div>
@@ -209,7 +237,7 @@ export default function StaffDashboardPage() {
         {view === "settings" && (
           <section>
             <h2 className="text-xl font-semibold tracking-tight">Settings</h2>
-            <div className="mt-3"><ProfileSettings /></div>
+            <div className="mt-4"><ProfileSettings /></div>
           </section>
         )}
       </main>
@@ -219,18 +247,36 @@ export default function StaffDashboardPage() {
   );
 }
 
+/* --------- IconPill with size control --------- */
 function IconPill({
-  children, active, onClick, aria,
-}: { children: React.ReactNode; active?: boolean; onClick?: () => void; aria: string }) {
+  children,
+  active,
+  onClick,
+  aria,
+  size = "md",
+}: {
+  children: React.ReactNode;
+  active?: boolean;
+  onClick?: () => void;
+  aria: string;
+  size?: "sm" | "md" | "lg";
+}) {
+  const sizeMap = {
+    sm: "h-10 w-10 text-[20px]", // 40px
+    md: "h-11 w-11 text-[22px]", // 44px
+    lg: "h-12 w-12 text-[24px]", // 48px
+  } as const;
+
   return (
     <button
       type="button"
       aria-label={aria}
       onClick={onClick}
-      className={`h-10 w-10 rounded-full grid place-items-center transition
+      className={`${sizeMap[size]} rounded-full grid place-items-center transition
         ${active ? "bg-cyan-100 text-cyan-700 ring-2 ring-cyan-300"
                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
     >
+      {/* WHY: children icons still get explicit h/w so text size won’t distort them */}
       {children}
     </button>
   );
