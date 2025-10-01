@@ -1,19 +1,14 @@
-// File: /lib/patients.ts
-import { supabase } from "./supabase/browser";
+import { supabase, subscribeToTable } from "@/lib/supabase-browser";
 
 export type StaffPatient = {
-  id: string;
+  id: string;          // patients.user_id
   name: string;
   email: string | null;
 };
 
 function buildName(r: any): string {
-  const full =
-    r?.full_name ??
-    `${r?.first_name ?? ""} ${r?.last_name ?? ""}`.trim();
-  // why: avoid `??` + `||`, and also handle empty strings
-  if (full && full.length > 0) return full;
-  return "Unknown";
+  const full = r?.full_name ?? `${r?.first_name ?? ""} ${r?.last_name ?? ""}`.trim();
+  return full && full.length > 0 ? full : "Unknown";
 }
 
 function shapePatient(r: any): StaffPatient {
@@ -35,21 +30,14 @@ export async function fetchPatients(q?: string) {
   if (!q) return rows;
 
   const needle = q.trim().toLowerCase();
-  return rows.filter((p) => {
-    const name = p.name.toLowerCase();
-    const email = (p.email ?? "").toLowerCase();
-    return name.includes(needle) || email.includes(needle);
-  });
+  return rows.filter((p) => p.name.toLowerCase().includes(needle) || (p.email ?? "").toLowerCase().includes(needle));
 }
 
 export function subscribePatients(onChange: () => void) {
-  const ch = supabase
-    .channel("rt-patients")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "patients" },
-      () => onChange()
-    )
-    .subscribe();
-  return () => { supabase.removeChannel(ch); };
+  return subscribeToTable({
+    table: "patients",
+    onInsert: () => onChange(),
+    onUpdate: () => onChange(),
+    onDelete: () => onChange(),
+  });
 }
