@@ -1,99 +1,100 @@
-// File: /middleware.ts
+// File: /middleware.ts  — fixed to prevent login redirect loops
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
-function assetsOrApi(pathname: string) {
+const PUBLIC = new Set<string>([
+  "/",
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/staff/login", // ← CRITICAL: allow staff login
+]);
+
+function isAssetOrApi(path: string) {
   return (
-    pathname.startsWith("/api") ||
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon") ||
-    /\.(?:png|jpg|jpeg|gif|webp|avif|svg|ico|css|js|map|txt|xml|woff2?|ttf|otf)$/.test(pathname)
+    path.startsWith("/api") ||
+    path.startsWith("/_next") ||
+    path.startsWith("/favicon") ||
+    /\.(?:png|jpe?g|gif|webp|avif|svg|ico|css|js|map|txt|xml|woff2?|ttf|otf)$/.test(path)
   );
 }
 
-export async function middleware(request: NextRequest) {
-  const { pathname, origin } = request.nextUrl;
+export async function middleware(req: NextRequest) {
+  const { pathname, search } = req.nextUrl;
 
-  // 0) Always skip assets/API
-  if (assetsOrApi(pathname) || request.method === "OPTIONS") {
-    return NextResponse.next();
-  }
+  // 0) skip assets/api
+  if (isAssetOrApi(pathname) || req.method === "OPTIONS") return NextResponse.next();
 
-  // 1) Public routes (never block)
-  const PUBLIC = new Set<string>([
-    "/",
-    "/login",
-    "/signup",
-    "/forgot-password",
-    "/reset-password",
-    "/staff/login",        // allow staff login page
-  ]);
-
-  // 2) Client-guarded app dashboard (per your comment)
+  // 1) Keep /dashboard client-guarded
   if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) {
     return NextResponse.next();
   }
 
-  // 3) Determine if we should server-guard this path
-  const requiresServerAuth =
-    pathname.startsWith("/staff") || pathname.startsWith("/clinician");
-
-  // If not a protected area, pass through (with small UX nicety on /login)
-  const response = NextResponse.next();
-
-  // Early exit for non-protected paths except login UX improvement below
-  if (!requiresServerAuth) {
-    if (PUBLIC.has(pathname)) {
-      // Optional: redirect away from /login|/signup if already authed
+  // 2) Short-circuit public routes (including /staff/login)
+  if (PUBLIC.has(pathname)) {
+    // tiny UX: if already authed, bounce /login|/signup to staff dashboard
+    if (pathname === "/login" || pathname === "/signup") {
       try {
         const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
         const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-        if (!url || !anon) return response; // soft fail if envs missing
-
+        const res = NextResponse.next();
         const supabase = createServerClient(url, anon, {
           cookies: {
-            get: (k: string) => request.cookies.get(k)?.value,
-            set: (k: string, v: string, o: CookieOptions) => response.cookies.set({ name: k, value: v, ...o }),
-            remove: (k: string, o: CookieOptions) => response.cookies.set({ name: k, value: "", ...o, maxAge: 0 }),
+            get: (k) => req.cookies.get(k)?.value,
+            set: (k, v, o: CookieOptions) => res.cookies.set({ name: k, value: v, ...o }),
+            remove: (k, o: CookieOptions) => res.cookies.set({ name: k, value: "", ...o, maxAge: 0 }),
           },
         });
         const { data } = await supabase.auth.getUser();
-        const authed = !!data?.user;
-        if ((pathname === "/login" || pathname === "/signup") && authed) {
-          return NextResponse.redirect(new URL("/staff/dashboard", origin));
-        }
+        if (data?.user) return NextResponse.redirect(new URL("/staff/dashboard", req.url));
+        return res;
       } catch {
-        // ignore auth errors; keep public accessible
+        return NextResponse.next();
       }
     }
-    return response;
+    return NextResponse.next();
   }
 
-  // 4) Protected server-guarded areas (/staff/**, /clinician/**)
+  // 3) Server-guarded areas: /staff/** and /clinician/**
+  const needsAuth = pathname.startsWith("/staff") || pathname.startsWith("/clinician");
+  if (!needsAuth) return NextResponse.next();
+
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    if (!url || !anon) return NextResponse.next(); // soft allow if envs missing
-
     const res = NextResponse.next();
+
     const supabase = createServerClient(url, anon, {
       cookies: {
-        get: (k: string) => request.cookies.get(k)?.value,
-        set: (k: string, v: string, o: CookieOptions) => res.cookies.set({ name: k, value: v, ...o }),
-        remove: (k: string, o: CookieOptions) => res.cookies.set({ name: k, value: "", ...o, maxAge: 0 }),
+        get: (k) => req.cookies.get(k)?.value,
+        set: (k, v, o: CookieOptions) => res.cookies.set({ name: k, value: v, ...o }),
+        remove: (k, o: CookieOptions) => res.cookies.set({ name: k, value: "", ...o, maxAge: 0 }),
       },
     });
 
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data?.user) {
-      // Redirect unauthenticated to staff login with return path
-      const login = new URL("/staff/login", origin);
-      login.searchParams.set("redirect", pathname + request.nextUrl.search);
-      return NextResponse.redirect(login);
+    const { data } = await supabase.auth.getUser();
+    const authed = !!data?.user;
+
+    if (authed) return res;
+
+    // Build safe return URL (avoid self-redirects and duplicate params)
+    const current = pathname + search;
+    const loginUrl = new URL("/staff/login", req.url);
+
+    const sp = new URLSearchParams(search);
+    const existing = sp.get("redirect");
+
+    // Only set redirect if it’s not already pointing to /staff/login
+    if (!existing || existing === "" || existing.startsWith("/staff/login")) {
+      loginUrl.searchParams.set("redirect", pathname + search);
+    } else {
+      loginUrl.searchParams.set("redirect", existing);
     }
-    return res;
+
+    return NextResponse.redirect(loginUrl);
   } catch {
-    // On SSR auth failure, allow and let client handle (prevents hard 500s)
+    // fail-soft: let client guard handle it
     return NextResponse.next();
   }
 }
