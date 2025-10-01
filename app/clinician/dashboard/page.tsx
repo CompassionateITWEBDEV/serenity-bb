@@ -19,11 +19,11 @@ import {
   Radio as RadioIcon,
   EyeOff,
   Bell,
+  Stethoscope, // NEW: distinct icon for Clinicians
 } from "lucide-react";
 import MobileDock from "@/components/staff/MobileDock";
 import DashboardGlyph from "@/components/icons/DashboardGlyph";
 
-// --- local types/mocks (swap to API when ready)
 type Clinician = {
   id: string;
   name: string;
@@ -47,9 +47,7 @@ export default function ClinicianDashboardPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return MOCKS.filter(
-      (c) => !q || c.name.toLowerCase().includes(q) || c.role.toLowerCase().includes(q),
-    );
+    return MOCKS.filter((c) => !q || c.name.toLowerCase().includes(q) || c.role.toLowerCase().includes(q));
   }, [query]);
 
   return (
@@ -74,7 +72,7 @@ export default function ClinicianDashboardPage() {
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
         {/* Icon row */}
         <div className="flex items-center gap-3">
-          {/* --- CORE STAFF ICONS (consistent with staff/dashboard & patient-inbox) --- */}
+          {/* Core staff icons (kept consistent with staff rows) */}
           <IconPill aria="Home" onClick={() => router.push("/staff/dashboard")}>
             <HomeIcon className="h-5 w-5" />
           </IconPill>
@@ -99,16 +97,16 @@ export default function ClinicianDashboardPage() {
             <Bell className="h-5 w-5" />
           </IconPill>
 
-          {/* This page corresponds to Clinicians in the staff row */}
+          {/* Clinicians: distinct icon to avoid duplication with Patients */}
           <IconPill aria="Clinicians" active onClick={() => router.push("/clinician/dashboard")}>
-            <Users className="h-5 w-5" />
+            <Stethoscope className="h-5 w-5" />
           </IconPill>
 
           <IconPill aria="Profile Settings" onClick={() => router.push("/staff/profile")}>
             <SettingsIcon className="h-5 w-5" />
           </IconPill>
 
-          {/* Divider then clinician-only extras (kept) */}
+          {/* Divider then clinician-only extras */}
           <span aria-hidden className="mx-1 h-5 w-px bg-slate-300" />
 
           <IconPill aria="Vitals" onClick={() => router.push("/clinician/vitals")}>
@@ -175,7 +173,11 @@ export default function ClinicianDashboardPage() {
 }
 
 function IconPill({
-  children, active, onClick, aria, title,
+  children,
+  active,
+  onClick,
+  aria,
+  title,
 }: {
   children: React.ReactNode;
   active?: boolean;
