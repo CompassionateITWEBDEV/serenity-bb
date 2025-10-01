@@ -1,3 +1,4 @@
+// File: app/staff/login/page.tsx
 "use client";
 
 import { useState } from "react";
@@ -43,24 +44,29 @@ export default function StaffLoginPage() {
     e.preventDefault();
     setBusy(true);
     try {
-      const res = await fetch("/api/staff/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      const body = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        await serenitySwal({ title: "Staff login failed", text: body?.error || "Check your credentials.", mood: "error" });
+      // ✅ Sign in directly with the browser client (persists session/localStorage)
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error || !data?.user) {
+        await serenitySwal({ title: "Staff login failed", text: error?.message || "Check your credentials.", mood: "error" });
         return;
       }
 
-      // 🔑 Sync browser Supabase client so API calls have a JWT
-      if (body?.session?.access_token && body?.session?.refresh_token) {
-        await supabase.auth.setSession({
-          access_token: body.session.access_token,
-          refresh_token: body.session.refresh_token,
-        });
+      // ✅ Verify staff row (RLS will allow the signed-in user to read their row)
+      const { data: staffRow, error: staffErr } = await supabase
+        .from("staff")
+        .select("user_id, active")
+        .eq("user_id", data.user.id)
+        .maybeSingle();
+
+      if (staffErr) {
+        await serenitySwal({ title: "Login error", text: staffErr.message, mood: "error" });
+        await supabase.auth.signOut(); // keep the app clean if staff fetch fails
+        return;
+      }
+      if (!staffRow || staffRow.active === false) {
+        await serenitySwal({ title: "Not authorized", text: "Your account is not an active staff user.", mood: "error" });
+        await supabase.auth.signOut();
+        return;
       }
 
       await serenitySwal({ title: "Welcome, team hero!", text: "Let’s make today awesome ✨", mood: "success" });
