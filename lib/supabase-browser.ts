@@ -12,19 +12,15 @@ declare global {
 
 function createBrowserClient(): SupabaseClient {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    // Soft fallback; lets UI render. Real calls will 401/404 as expected.
-    // @ts-expect-error placeholder init for DX
+    // Soft fallback; allows UI to render in non-configured envs.
+    // @ts-expect-error dev placeholder
     return createClient("http://localhost", "anon", {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
       db: { schema: "public" },
     });
   }
   return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-    },
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     db: { schema: "public" },
     global: process.env.NEXT_PUBLIC_SUPABASE_DEBUG ? { headers: { "x-supabase-debug": "1" } } : undefined,
   });
@@ -41,7 +37,7 @@ export function requireSupabaseEnv(): asserts supaEnvOk is true {
   }
 }
 
-// Convenience auth helpers
+/** Session helpers */
 export async function getAuthSession(): Promise<Session | null> {
   const { data, error } = await supabase.auth.getSession();
   if (error) console.warn("supabase.auth.getSession:", error.message);
@@ -54,9 +50,13 @@ export async function getAuthUser(): Promise<User | null> {
   return data?.user ?? null;
 }
 
-/**
- * Realtime helper (Postgres Changes).
- */
+/** REQUIRED by lib/drug-tests.ts */
+export async function getAccessToken(): Promise<string | null> {
+  const session = await getAuthSession();
+  return session?.access_token ?? null;
+}
+
+/** Realtime helper (Postgres Changes) */
 export function subscribeToTable<T = unknown>(opts: {
   table: string;
   schema?: string;
@@ -86,6 +86,6 @@ export function subscribeToTable<T = unknown>(opts: {
     .subscribe();
 
   return () => {
-    supabase.removeChannel(channel);
+    try { supabase.removeChannel(channel); } catch { /* no-op */ }
   };
 }
