@@ -20,9 +20,7 @@ import {
   Heart,
   Clock,
   Shield,
-  Phone,
-  MapPin,
-  Mail,
+  Phone, // kept for Outreach icon in first section
 } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -31,7 +29,86 @@ export const metadata: Metadata = {
     "Comprehensive, evidence-based treatment programs designed to support your recovery journey with dignity and care.",
 };
 
-/** Why: Restored per request and kept modular for reordering/reuse. */
+/** Why: Your provided section placed second per requested order. */
+function ServicesSection() {
+  const services = [
+    {
+      title: "Lead Detoxification",
+      description:
+        "Safe and effective removal of lead from your system using proven medical protocols.",
+      icon: "🔬",
+    },
+    {
+      title: "Nutritional Therapy",
+      description:
+        "Specialized nutrition plans to support your body's natural healing processes.",
+      icon: "🥗",
+    },
+    {
+      title: "Cognitive Rehabilitation",
+      description:
+        "Targeted therapies to address cognitive effects of lead exposure.",
+      icon: "🧠",
+    },
+    {
+      title: "Family Support",
+      description:
+        "Comprehensive support services for families affected by lead poisoning.",
+      icon: "👨‍👩‍👧‍👦",
+    },
+    {
+      title: "Environmental Assessment",
+      description:
+        "Professional evaluation of your living and working environments.",
+      icon: "🏠",
+    },
+    {
+      title: "Long-term Monitoring",
+      description:
+        "Ongoing health monitoring to ensure sustained recovery and wellness.",
+      icon: "📊",
+    },
+  ];
+
+  return (
+    <section id="services" className="py-20 bg-white">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center mb-16">
+          <h2 className="text-4xl font-serif font-bold text-gray-900 mb-4">
+            Discover Our Treatment Options
+          </h2>
+          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+            Our comprehensive approach to lead poisoning recovery combines medical expertise with compassionate care to
+            address every aspect of your healing journey.
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {services.map((service, index) => (
+            <Card
+              key={index}
+              className="hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 border-gray-200"
+            >
+              <CardHeader className="text-center">
+                <div className="text-4xl mb-4">{service.icon}</div>
+                <CardTitle className="text-xl font-serif text-gray-900">
+                  {service.title}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CardDescription className="text-gray-600 text-center leading-relaxed">
+                  {service.description}
+                </CardDescription>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Why: Last section as requested. Contact Information removed entirely. */
 function LeadGenerationSection() {
   return (
     <section className="py-16 bg-gray-50">
@@ -113,7 +190,7 @@ function LeadGenerationSection() {
         </div>
 
         {/* Statistics */}
-        <div className="bg-white rounded-lg p-8 mb-12">
+        <div className="bg-white rounded-lg p-8">
           <h3 className="text-xl font-semibold text-center mb-8">
             Methadone Treatment Facts
           </h3>
@@ -136,194 +213,7 @@ function LeadGenerationSection() {
             </div>
           </div>
         </div>
-
-        {/* Contact Information */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <Card>
-            <CardHeader>
-              <CardTitle>Contact Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center space-x-3">
-                <MapPin className="w-5 h-5 text-cyan-500" />
-                <div>
-                  <div className="font-medium">Address</div>
-                  <div className="text-sm text-gray-600">
-                    673 Martin Luther King Jr Blvd N, Pontiac, MI 48342
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center space-x-3">
-                <Phone className="w-5 h-5 text-cyan-500" />
-                <div>
-                  <div className="font-medium">Phone</div>
-                  <div className="text-sm text-gray-600">(248)-838-3686</div>
-                </div>
-              </div>
-              <div className="flex items-center space-x-3">
-                <Mail className="w-5 h-5 text-cyan-500" />
-                <div>
-                  <div className="font-medium">Email</div>
-                  <div className="text-sm text-gray-600">src.health</div>
-                </div>
-              </div>
-
-              <div className="pt-4">
-                <h4 className="font-medium mb-2">Operating Hours</h4>
-                <div className="text-sm text-gray-600 space-y-1">
-                  <div className="flex justify-between">
-                    <span>Monday - Friday</span>
-                    <span>6:00 AM - 1:00 PM</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Saturday</span>
-                    <span>8:00 AM - 11:00 AM</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Sunday</span>
-                    <span>Closed</span>
-                  </div>
-                </div>
-                <div className="mt-4 p-3 bg-red-50 rounded-lg">
-                  <div className="text-sm font-medium text-red-800">
-                    24/7 Crisis Support
-                  </div>
-                  <div className="text-sm text-red-600">
-                    Call 248-838-3656 for emergencies
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Eligibility & Cost Information</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div>
-                  <h4 className="font-medium mb-2">Insurance Accepted</h4>
-                  <ul className="text-sm text-gray-600 space-y-1">
-                    <li>• Most major insurance plans</li>
-                    <li>• Medicaid</li>
-                    <li>• Medicare</li>
-                    <li>• Self-pay options available</li>
-                  </ul>
-                </div>
-
-                <div>
-                  <h4 className="font-medium mb-2">The First Visit</h4>
-                  <p className="text-sm text-gray-600">
-                    When scheduling a counseling session for the first time,
-                    clients can potentially be seen the same day for an intake
-                    appointment, you will be seen by a full-time social worker.
-                  </p>
-                </div>
-
-                <div>
-                  <h4 className="font-medium mb-2">Requirements</h4>
-                  <ul className="text-sm text-gray-600 space-y-1">
-                    <li>• Complete intake assessment</li>
-                    <li>• Medical evaluation required</li>
-                    <li>• Insurance verification</li>
-                    <li>• Photo ID and insurance card</li>
-                  </ul>
-                </div>
-
-                <div>
-                  <h4 className="font-medium mb-2">Need Help Now?</h4>
-                  <p className="text-sm text-gray-600 mb-3">
-                    Our intake coordinators are available to help you start your
-                    recovery journey today.
-                  </p>
-                  <Button className="w-full bg-cyan-500 hover:bg-cyan-600">
-                    Call Now: (248)-838-3686
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/** Why: Your provided section kept intact and placed after the restored program. */
-function ServicesSection() {
-  const services = [
-    {
-      title: "Lead Detoxification",
-      description:
-        "Safe and effective removal of lead from your system using proven medical protocols.",
-      icon: "🔬",
-    },
-    {
-      title: "Nutritional Therapy",
-      description:
-        "Specialized nutrition plans to support your body's natural healing processes.",
-      icon: "🥗",
-    },
-    {
-      title: "Cognitive Rehabilitation",
-      description:
-        "Targeted therapies to address cognitive effects of lead exposure.",
-      icon: "🧠",
-    },
-    {
-      title: "Family Support",
-      description:
-        "Comprehensive support services for families affected by lead poisoning.",
-      icon: "👨‍👩‍👧‍👦",
-    },
-    {
-      title: "Environmental Assessment",
-      description:
-        "Professional evaluation of your living and working environments.",
-      icon: "🏠",
-    },
-    {
-      title: "Long-term Monitoring",
-      description:
-        "Ongoing health monitoring to ensure sustained recovery and wellness.",
-      icon: "📊",
-    },
-  ];
-
-  return (
-    <section id="services" className="py-20 bg-white">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-16">
-          <h2 className="text-4xl font-serif font-bold text-gray-900 mb-4">
-            Discover Our Treatment Options
-          </h2>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Our comprehensive approach to lead poisoning recovery combines medical expertise with compassionate care to
-            address every aspect of your healing journey.
-          </p>
-        </div>
-
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {services.map((service, index) => (
-            <Card
-              key={index}
-              className="hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 border-gray-200"
-            >
-              <CardHeader className="text-center">
-                <div className="text-4xl mb-4">{service.icon}</div>
-                <CardTitle className="text-xl font-serif text-gray-900">
-                  {service.title}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription className="text-gray-600 text-center leading-relaxed">
-                  {service.description}
-                </CardDescription>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {/* Contact Information removed as requested */}
       </div>
     </section>
   );
@@ -338,18 +228,16 @@ export default function CombinedServicesPage() {
 
       <main className="py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Our Treatment Services (FIRST) */}
+          {/* 1) Our Treatment Services */}
           <div className="text-center mb-16">
             <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">
               Our Treatment Services
             </h1>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              Comprehensive, evidence-based treatment programs designed to
-              support your recovery journey with dignity and care.
+              Comprehensive, evidence-based treatment programs designed to support your recovery journey with dignity and care.
             </p>
           </div>
 
-          {/* Services Grid */}
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 mb-16">
             <Card className="border-l-4 border-l-cyan-600">
               <CardHeader>
@@ -385,9 +273,7 @@ export default function CombinedServicesPage() {
                   <Users className="w-6 h-6 text-indigo-600" />
                 </div>
                 <CardTitle>Group Counseling</CardTitle>
-                <CardDescription>
-                  Peer support and shared healing experiences
-                </CardDescription>
+                <CardDescription>Peer support and shared healing experiences</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
@@ -413,9 +299,7 @@ export default function CombinedServicesPage() {
                   <Shield className="w-6 h-6 text-green-600" />
                 </div>
                 <CardTitle>MAT Programs</CardTitle>
-                <CardDescription>
-                  Medication-Assisted Treatment for comprehensive care
-                </CardDescription>
+                <CardDescription>Medication-Assisted Treatment for comprehensive care</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
@@ -441,9 +325,7 @@ export default function CombinedServicesPage() {
                   <Clock className="w-6 h-6 text-purple-600" />
                 </div>
                 <CardTitle>24/7 Support</CardTitle>
-                <CardDescription>
-                  Round-the-clock crisis intervention and support
-                </CardDescription>
+                <CardDescription>Round-the-clock crisis intervention and support</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
@@ -469,9 +351,7 @@ export default function CombinedServicesPage() {
                   <Heart className="w-6 h-6 text-orange-600" />
                 </div>
                 <CardTitle>Holistic Care</CardTitle>
-                <CardDescription>
-                  Comprehensive wellness and recovery support
-                </CardDescription>
+                <CardDescription>Comprehensive wellness and recovery support</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
@@ -497,9 +377,7 @@ export default function CombinedServicesPage() {
                   <Phone className="w-6 h-6 text-teal-600" />
                 </div>
                 <CardTitle>Outreach Programs</CardTitle>
-                <CardDescription>
-                  Community support and education initiatives
-                </CardDescription>
+                <CardDescription>Community support and education initiatives</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
@@ -520,32 +398,12 @@ export default function CombinedServicesPage() {
             </Card>
           </div>
 
-          {/* Counseling & Methadone Dispensing Program (RESTORED) */}
-          <LeadGenerationSection />
-
-          {/* Discover Our Treatment Options */}
+          {/* 2) Discover Our Treatment Options */}
           <ServicesSection />
 
-          {/* CTA */}
-          <div className="bg-cyan-600 rounded-lg p-8 text-center text-white mt-16">
-            <h2 className="text-3xl font-serif font-bold mb-4">
-              Ready to Start Your Recovery Journey?
-            </h2>
-            <p className="text-xl mb-6 opacity-90">
-              Our compassionate team is here to support you every step of the way.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button size="lg" className="bg-white text-cyan-600 hover:bg-gray-100">
-                Schedule Consultation
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="border-white text-white hover:bg-white hover:text-cyan-600 bg-transparent"
-              >
-                Call (248) 838-3650
-              </Button>
-            </div>
+          {/* 3) Counseling & Methadone Dispensing Program (last) */}
+          <div className="mt-16">
+            <LeadGenerationSection />
           </div>
         </div>
       </main>
