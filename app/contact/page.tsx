@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { MapPin, Phone, Mail, Clock, AlertCircle } from "lucide-react"
-import { getSwal } from "@/lib/sweetalert" // CDN SweetAlert helper
+import { getSwal } from "@/lib/sweetalert"
+import InteractiveMap from "@/components/interactive-map"
 
 export default function ContactPage() {
   const [submitting, setSubmitting] = useState(false)
@@ -20,7 +21,7 @@ export default function ContactPage() {
     if (submitting) return
     setSubmitting(true)
 
-    const form = e.currentTarget // capture before any await
+    const form = e.currentTarget
     const formData = new FormData(form)
 
     const hasPhone = Boolean((formData.get("phone") as string | null)?.trim())
@@ -37,7 +38,6 @@ export default function ContactPage() {
       source: "contact",
     }
 
-    // minimal client validation
     if (!data.first_name || !data.last_name || !data.email || !data.message) {
       getSwal()?.fire({ icon: "warning", title: "Missing fields", text: "First & last name, email and message are required." })
       setSubmitting(false)
@@ -56,7 +56,7 @@ export default function ContactPage() {
         throw new Error(txt || "Submission failed")
       }
 
-      // @ts-ignore gtag injected when GA_ID is set
+      // @ts-ignore
       window.gtag?.("event", "generate_lead", { form_type: "contact", contact_method })
 
       getSwal()?.fire({
@@ -66,7 +66,7 @@ export default function ContactPage() {
         confirmButtonColor: "#06b6d4",
       })
 
-      form.reset() // use captured form ref
+      form.reset()
     } catch (err) {
       getSwal()?.fire({
         icon: "error",
@@ -224,9 +224,7 @@ export default function ContactPage() {
                 <CardTitle className="text-2xl font-serif">Find Us</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="bg-gray-200 h-64 rounded-lg flex items-center justify-center">
-                  <p className="text-gray-500">Interactive map would be embedded here</p>
-                </div>
+                <InteractiveMap />
               </CardContent>
             </Card>
           </div>
