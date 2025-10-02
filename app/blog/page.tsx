@@ -183,27 +183,7 @@ export default function BlogPage() {
             ))}
           </div>
 
-          {/* Newsletter */}
-          <div className="mt-16 bg-indigo-600 rounded-lg p-8 text-center text-white">
-            <h2 className="font-serif font-bold mb-4 leading-tight text-[clamp(22px,2.4vw,32px)]">
-              Stay Informed
-            </h2>
-            <p className="mb-6 opacity-90 text-[clamp(15px,1.6vw,18px)]">
-              Subscribe to our newsletter for the latest recovery resources and
-              expert insights.
-            </p>
-            <div className="max-w-md mx-auto flex gap-4">
-              <input
-                type="email"
-                placeholder="Enter your email"
-                className="flex-1 px-4 py-2 rounded-lg text-gray-900"
-              />
-              <Button className="bg-white text-indigo-600 hover:bg-gray-100">
-                Subscribe
-              </Button>
-            </div>
-          </div>
-        </div>
+         
       </main>
 
       <Footer />
