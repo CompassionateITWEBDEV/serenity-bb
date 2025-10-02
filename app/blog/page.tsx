@@ -32,7 +32,7 @@ export default function BlogPage() {
         "From structured routines to comprehensive therapy, learn how a supportive environment can transform your recovery journey.",
       author: "Care Coordination",
       date: "Jan 10, 2024",
-      category: "Family Support",
+      category: "t",
       readTime: "7 min read",
     },
     {
@@ -41,7 +41,7 @@ export default function BlogPage() {
       excerpt:
         "From medication-assisted treatment to outpatient care, review evidence-based approaches that help you reclaim your life.",
       author: "Clinical Programs",
-      date: "Jan 05, 2024",
+      date: "",
       category: "Treatment",
       readTime: "5 min read",
     },
@@ -51,7 +51,7 @@ export default function BlogPage() {
       excerpt:
         "Practical, evidence-based techniques for managing stress, triggers, and setbacks during recovery.",
       author: "SRC Counseling",
-      date: "Dec 28, 2023",
+      date: "",
       category: "Recovery Tips",
       readTime: "8 min read",
     },
@@ -60,8 +60,8 @@ export default function BlogPage() {
       title: "The Importance of Mental Health in Addiction Recovery",
       excerpt:
         "How integrated care for co-occurring disorders leads to better outcomes and sustained recovery.",
-      author: "Brianna Carter, LCSW",
-      date: "Dec 20, 2023",
+      author: "",
+      date: "",
       category: "Mental Health",
       readTime: "6 min read",
     },
@@ -70,8 +70,8 @@ export default function BlogPage() {
       title: "Nutrition and Recovery: Healing Your Body from the Inside Out",
       excerpt:
         "Why nutrition matters in recovery and simple tips to support brain and body healing.",
-      author: "Sam Rivera, RN",
-      date: "Dec 15, 2023",
+      author: "",
+      date: "",
       category: "Wellness",
       readTime: "5 min read",
     },
