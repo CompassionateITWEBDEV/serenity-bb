@@ -2,6 +2,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+type Role = "patient" | "staff" | "admin" | null;
+
 export async function middleware(request: NextRequest) {
   const { pathname, origin } = request.nextUrl;
 
@@ -11,18 +13,31 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     /\.(png|jpg|jpeg|gif|webp|avif|svg|ico|css|js|map|txt|xml)$/.test(pathname)
-  ) return NextResponse.next();
+  ) {
+    return NextResponse.next();
+  }
 
   // Public pages (no SSR redirects)
-  const PUBLIC = new Set([
-    "/", "/login", "/signup", "/forgot-password", "/reset-password", "/staff/login"
+  const PUBLIC = new Set<string>([
+    "/",
+    "/login",
+    "/signup",
+    "/forgot-password",
+    "/reset-password",
+    "/staff/login",
   ]);
 
   // Dashboards are client-guarded
   if (
-    pathname === "/dashboard" || pathname.startsWith("/dashboard/") ||
-    pathname === "/patient/dashboard" || pathname.startsWith("/patient/dashboard/")
-  ) return NextResponse.next();
+    pathname === "/dashboard" ||
+    pathname.startsWith("/dashboard/") ||
+    pathname === "/patient/dashboard" ||
+    pathname.startsWith("/patient/dashboard/") ||
+    pathname === "/staff/dashboard" ||
+    pathname.startsWith("/staff/dashboard/")
+  ) {
+    return NextResponse.next();
+  }
 
   const response = NextResponse.next();
 
@@ -39,22 +54,49 @@ export async function middleware(request: NextRequest) {
           },
         }
       );
-      const { data } = await supabase.auth.getUser();
-      if (!data?.user) return response;
 
-      // Fetch role; if it fails, do not block public pages.
-      let role: "patient" | "staff" | "admin" | null = null;
+      const { data: authData } = await supabase.auth.getUser();
+      const user = authData?.user;
+
+      if (!user) return response; // unauth: keep user on the chosen login page
+
+      // Try to read role; do not force redirects on failure.
+      let role: Role = null;
       try {
-        const { data: p } = await supabase.from("profiles").select("role").eq("id", data.user.id).maybeSingle();
-        role = (p?.role as any) ?? null;
-      } catch {}
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .maybeSingle();
+        role = (profile?.role as Role) ?? null;
+      } catch {
+        role = null;
+      }
 
-      // Route to the right dashboard automatically
-      if (pathname === "/login" && role === "patient")
-        return NextResponse.redirect(new URL("/patient/dashboard", origin));
-      if (pathname === "/staff/login" && role !== "patient")
-        return NextResponse.redirect(new URL("/staff/dashboard", origin));
-    } catch { /* ignore */ }
+      // Precise redirects (avoid sending unknown-role users away from /staff/login).
+      if (pathname === "/login") {
+        if (role === "patient") {
+          return NextResponse.redirect(new URL("/patient/dashboard", origin));
+        }
+        if (role === "staff" || role === "admin") {
+          return NextResponse.redirect(new URL("/staff/dashboard", origin));
+        }
+        return response; // unknown role stays
+      }
+
+      if (pathname === "/staff/login") {
+        if (role === "staff" || role === "admin") {
+          return NextResponse.redirect(new URL("/staff/dashboard", origin));
+        }
+        if (role === "patient") {
+          return NextResponse.redirect(new URL("/patient/dashboard", origin));
+        }
+        return response; // unknown role stays to sign in as staff
+      }
+    } catch {
+      // Fail-open for public pages
+      return response;
+    }
     return response;
   }
 
@@ -62,5 +104,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|_next/data|favicon.ico|assets|images|fonts).*)"],
+  matcher: [
+    "/((?!api|_next/static|_next/image|_next/data|favicon.ico|assets|images|fonts).*)",
+  ],
 };
