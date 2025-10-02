@@ -70,19 +70,19 @@ export default function AboutPage() {
           <div className="grid md:grid-cols-4 gap-8 mb-16">
             <Card className="text-center p-6">
               <CardContent className="pt-6">
-                <div className="text-3xl font-bold text-cyan-600 mb-2">40+</div>
+                <div className="text-3xl font-bold text-cyan-600 mb-2"></div>
                 <div className="text-gray-600">Years of Experience</div>
               </CardContent>
             </Card>
             <Card className="text-center p-6">
               <CardContent className="pt-6">
-                <div className="text-3xl font-bold text-cyan-600 mb-2">5,000+</div>
+                <div className="text-3xl font-bold text-cyan-600 mb-2"></div>
                 <div className="text-gray-600">Lives Transformed</div>
               </CardContent>
             </Card>
             <Card className="text-center p-6">
               <CardContent className="pt-6">
-                <div className="text-3xl font-bold text-cyan-600 mb-2">75%</div>
+                <div className="text-3xl font-bold text-cyan-600 mb-2"></div>
                 <div className="text-gray-600">Success Rate</div>
               </CardContent>
             </Card>
@@ -101,7 +101,7 @@ export default function AboutPage() {
               <Card className="text-center">
                 <CardContent className="pt-6">
                   <div className="w-24 h-24 bg-gray-200 rounded-full mx-auto mb-4"></div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Dr. Sarah Johnson</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2"></h3>
                   <p className="text-cyan-600 mb-2">Medical Director</p>
                   <p className="text-sm text-gray-600">
                     Board-certified addiction medicine specialist with 20+ years of experience in lead poisoning
@@ -112,7 +112,7 @@ export default function AboutPage() {
               <Card className="text-center">
                 <CardContent className="pt-6">
                   <div className="w-24 h-24 bg-gray-200 rounded-full mx-auto mb-4"></div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Michael Chen, LCSW</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2"> LCSW</h3>
                   <p className="text-cyan-600 mb-2">Clinical Director</p>
                   <p className="text-sm text-gray-600">
                     Licensed clinical social worker specializing in trauma-informed care and group therapy.
@@ -122,7 +122,7 @@ export default function AboutPage() {
               <Card className="text-center">
                 <CardContent className="pt-6">
                   <div className="w-24 h-24 bg-gray-200 rounded-full mx-auto mb-4"></div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Lisa Rodriguez, RN</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">, RN</h3>
                   <p className="text-cyan-600 mb-2">Nursing Supervisor</p>
                   <p className="text-sm text-gray-600">
                     Registered nurse with expertise in medication-assisted treatment and patient care coordination.
