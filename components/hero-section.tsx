@@ -22,10 +22,8 @@ export function HeroSection() {
               </div>
               
               <h1 className="hero-title">
-                <span className="title-highlight">Restoring Lives,</span>
-                <br />
-                <span className="title-gradient">One Recovery at a Time</span>
-              </h1>
+                <span className="title-highlight">Restoring Lives, One Recovery at a Time </span>
+             </h1>
               
               <p className="hero-description">
                 At Serenity Rehabilitation Center, we believe in the power of healing. Our dedicated team is committed to
