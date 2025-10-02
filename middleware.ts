@@ -1,40 +1,32 @@
-// middleware.ts  — client-guarded /dashboard (no SSR cookie requirement)
+// path: middleware.ts
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(request: NextRequest) {
   const { pathname, origin } = request.nextUrl;
 
-  // Never touch API or static assets
+  // Skip APIs/assets
   if (
     pathname.startsWith("/api") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
-    /\.(?:png|jpg|jpeg|gif|webp|avif|svg|ico|css|js|map|txt|xml)$/.test(pathname)
-  ) {
-    return NextResponse.next();
-  }
+    /\.(png|jpg|jpeg|gif|webp|avif|svg|ico|css|js|map|txt|xml)$/.test(pathname)
+  ) return NextResponse.next();
 
-  // Public routes that should never redirect
-  const PUBLIC_ROUTES = new Set([
-    "/",
-    "/login",
-    "/signup",
-    "/forgot-password",
-    "/reset-password",
+  // Public pages (no SSR redirects)
+  const PUBLIC = new Set([
+    "/", "/login", "/signup", "/forgot-password", "/reset-password", "/staff/login"
   ]);
 
-  // ✅ Revert: let /dashboard be client-guarded (no SSR auth here)
-  if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) {
-    return NextResponse.next();
-  }
+  // Dashboards are client-guarded
+  if (
+    pathname === "/dashboard" || pathname.startsWith("/dashboard/") ||
+    pathname === "/patient/dashboard" || pathname.startsWith("/patient/dashboard/")
+  ) return NextResponse.next();
 
-  // For non-dashboard pages you still may want light auth UX:
   const response = NextResponse.next();
 
-  // Optional: only to improve UX on /login → redirect if server cookies exist.
-  // Harmless if cookies are missing.
-  if (PUBLIC_ROUTES.has(pathname)) {
+  if (PUBLIC.has(pathname)) {
     try {
       const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -48,22 +40,27 @@ export async function middleware(request: NextRequest) {
         }
       );
       const { data } = await supabase.auth.getUser();
-      const isAuthed = !!data?.user;
+      if (!data?.user) return response;
 
-      if ((pathname === "/login" || pathname === "/signup") && isAuthed) {
+      // Fetch role; if it fails, do not block public pages.
+      let role: "patient" | "staff" | "admin" | null = null;
+      try {
+        const { data: p } = await supabase.from("profiles").select("role").eq("id", data.user.id).maybeSingle();
+        role = (p?.role as any) ?? null;
+      } catch {}
+
+      // Route to the right dashboard automatically
+      if (pathname === "/login" && role === "patient")
+        return NextResponse.redirect(new URL("/patient/dashboard", origin));
+      if (pathname === "/staff/login" && role !== "patient")
         return NextResponse.redirect(new URL("/dashboard", origin));
-      }
-    } catch {
-      // ignore SSR auth errors; keep public routes accessible
-    }
+    } catch { /* ignore */ }
     return response;
   }
 
-  // Default: allow everything else
   return response;
 }
 
 export const config = {
-  // Exclude /api and static from middleware
   matcher: ["/((?!api|_next/static|_next/image|_next/data|favicon.ico|assets|images|fonts).*)"],
 };
