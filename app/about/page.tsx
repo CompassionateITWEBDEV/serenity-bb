@@ -1,4 +1,4 @@
-// app/about/page.tsx
+import Link from "next/link";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import { Button } from "@/components/ui/button";
@@ -70,7 +70,7 @@ export default function AboutPage() {
               </h1>
               <div
                 className="space-y-4 text-[1.05rem] text-gray-700 leading-[1.9] max-w-6xl"
-                style={{ textAlign: "justify" }} // why: ensure full justification cross-browser
+                style={{ textAlign: "justify" }}
               >
                 <p>
                   At Serenity Rehabilitation Center, Inc., our mission is to
@@ -110,7 +110,7 @@ export default function AboutPage() {
                 </div>
                 <div
                   className="space-y-4 text-gray-700 leading-relaxed"
-                  style={{ textAlign: "justify" }} // why: match left column readability
+                  style={{ textAlign: "justify" }}
                 >
                   <p>
                     Our Goal is to provide a high level therapeutic interventions
@@ -142,8 +142,10 @@ export default function AboutPage() {
           {/* Mission Section */}
           <div className="grid lg:grid-cols-2 gap-12 mb-16">
             <div>
-             
-              <p className="text-gray-700 leading-relaxed mb-6" style={{ textAlign: "justify" }}>
+              <p
+                className="text-gray-700 leading-relaxed mb-6"
+                style={{ textAlign: "justify" }}
+              >
                 We are committed to creating a safe, supportive environment
                 where individuals can begin their journey to recovery with
                 dignity and hope.
@@ -183,8 +185,7 @@ export default function AboutPage() {
             </div>
           </div>
 
-         
-
+          {/* CTA */}
           <div className="bg-indigo-600 rounded-lg p-8 text-center text-white">
             <h2 className="text-3xl font-serif font-bold mb-4">
               Join Our Community of Recovery
@@ -192,8 +193,8 @@ export default function AboutPage() {
             <p className="text-xl mb-6 opacity-90">
               Take the first step towards healing and transformation today.
             </p>
-            <Button size="lg" className="bg-white text-indigo-600 hover:bg-gray-100">
-              Start Your Journey
+            <Button size="lg" asChild className="bg-white text-indigo-600 hover:bg-gray-100">
+              <Link href="/patient-intake-form">Start Your Journey</Link>
             </Button>
           </div>
         </div>
