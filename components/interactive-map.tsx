@@ -1,9 +1,17 @@
+// components/interactive-map.tsx
 "use client";
 
 import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
 
-// Load react-leaflet on client only (avoids SSR issues)
+type LatLngTuple = [number, number];
+
+type Props = {
+  address: string;
+  center?: LatLngTuple; // optional precise coords if you have them
+  zoom?: number;        // default 13 (wider view)
+};
+
 const MapInner = dynamic(async () => {
   const L = await import("leaflet");
   const { MapContainer, TileLayer, Marker, Popup } = await import("react-leaflet");
@@ -17,14 +25,16 @@ const MapInner = dynamic(async () => {
     shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
   });
 
-  // Approx coords for: 123 Recovery St, Pontiac, MI 48341
-  const CENTER: [number, number] = [42.6389, -83.291];
+  function Inner({ address, center, zoom = 13 }: Props) {
+    // Fallback to a general Pontiac center if exact coords not provided
+    const FALLBACK_CENTER: LatLngTuple = [42.6389, -83.291];
+    const mapCenter = center ?? FALLBACK_CENTER;
 
-  function Inner() {
     return (
       <MapContainer
-        center={CENTER}
-        zoom={15}
+        center={mapCenter}
+        zoom={zoom}
+        zoomControl
         style={{ height: "100%", width: "100%", borderRadius: "0.5rem" }}
         scrollWheelZoom
       >
@@ -32,15 +42,15 @@ const MapInner = dynamic(async () => {
           attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <Marker position={CENTER}>
+        <Marker position={mapCenter}>
           <Popup>
             <strong>Serenity Rehabilitation Center</strong>
             <br />
-            123 Recovery St, Pontiac, MI 48341
+            {address}
             <br />
             <a
               href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-                "123 Recovery St, Pontiac, MI 48341"
+                address
               )}`}
               target="_blank"
               rel="noopener noreferrer"
@@ -56,10 +66,10 @@ const MapInner = dynamic(async () => {
   return Inner;
 }, { ssr: false });
 
-export default function InteractiveMap() {
+export default function InteractiveMap(props: Props) {
   return (
     <div className="relative w-full overflow-hidden rounded-lg" style={{ height: 400 }}>
-      <MapInner />
+      <MapInner {...props} />
     </div>
   );
 }
