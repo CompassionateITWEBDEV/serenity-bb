@@ -6,192 +6,124 @@ import { createClient } from "@supabase/supabase-js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  ShieldCheck,
-  Activity,
-  ArrowLeft,
-  Home as HomeIcon,
-  TestTube2,
-  MessageSquare,
-  Radio as RadioIcon,
-  EyeOff,
-  Bell,
-  Users,
-  Settings as SettingsIcon,
+  ShieldCheck, Activity, ArrowLeft, Home as HomeIcon, TestTube2,
+  MessageSquare, Radio as RadioIcon, EyeOff, Bell, Users, Settings as SettingsIcon
 } from "lucide-react";
 import PatientInbox from "@/components/staff/PatientInbox";
 
-function IconPill({
-  children,
-  active,
-  onClick,
-  aria,
-}: {
-  children: React.ReactNode;
-  active?: boolean;
-  onClick?: () => void;
-  aria: string;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={aria}
-      onClick={onClick}
-      className={`h-10 w-10 rounded-full grid place-items-center transition ${
-        active
-          ? "bg-cyan-100 text-cyan-700 ring-2 ring-cyan-300"
-          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-type Patient = {
+type PatientRow = {
   user_id: string;
   full_name: string | null;
   email: string | null;
-  phone_number?: string | null;
-  avatar?: string | null;
+  phone_number: string | null;
+  avatar: string | null;
   created_at: string;
+  role_on_team: string | null;
+  is_primary: boolean;
+  added_at: string;
 };
 
-type CareTeamRow = {
-  patient_id: string;
-  staff_id: string;
-  role_on_team?: string | null;
-  is_primary?: boolean;
-  added_at?: string;
-  patients: Patient; // joined row
-};
+function IconPill({ children, active, onClick, aria }:{
+  children: React.ReactNode; active?: boolean; onClick?: () => void; aria: string;
+}) {
+  return (
+    <button
+      type="button" aria-label={aria} onClick={onClick}
+      className={`h-10 w-10 rounded-full grid place-items-center transition ${active
+        ? "bg-cyan-100 text-cyan-700 ring-2 ring-cyan-300"
+        : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+    >{children}</button>
+  );
+}
 
 export default function StaffPatientInboxPage() {
   const router = useRouter();
-
   const supabase = useMemo(
     () => createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL as string,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
-    ),
-    []
+    ), []
   );
 
-  const [assignedPatients, setAssignedPatients] = useState<Patient[]>([]);
+  const [patients, setPatients] = useState<PatientRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Helper: replace/insert a patient in state
-  function upsertPatient(p: Patient) {
-    setAssignedPatients((prev) => {
-      const idx = prev.findIndex((x) => x.user_id === p.user_id);
-      if (idx === -1) return [p, ...prev];
-      const next = prev.slice();
-      next[idx] = { ...next[idx], ...p };
-      return next;
+  // Helpers
+  const upsertPatient = (p: PatientRow) => {
+    setPatients(prev => {
+      const i = prev.findIndex(x => x.user_id === p.user_id);
+      if (i === -1) return [p, ...prev];
+      const copy = prev.slice(); copy[i] = { ...copy[i], ...p }; return copy;
     });
-  }
-
-  // Helper: remove patient if assignment removed
-  function removePatient(patientId: string) {
-    setAssignedPatients((prev) => prev.filter((p) => p.user_id !== patientId));
-  }
+  };
+  const removePatient = (id: string) => setPatients(prev => prev.filter(p => p.user_id !== id));
 
   useEffect(() => {
     let mounted = true;
-    let staffId: string;
+    let staffId: string | null = null;
+    let assignedIds: Set<string> = new Set();
 
-    async function boot() {
-      // get auth user (staff)
+    async function load() {
       const { data: auth } = await supabase.auth.getUser();
-      if (!auth?.user) {
-        router.push("/staff/login");
-        return;
-      }
+      if (!auth?.user) { router.push("/staff/login"); return; }
       staffId = auth.user.id;
 
-      // load assignments + joined patients
-      const { data, error } = await supabase
-        .from("patient_care_team")
-        .select(`
-          patient_id,
-          staff_id,
-          role_on_team,
-          is_primary,
-          added_at,
-          patients:patient_id (
-            user_id, full_name, email, phone_number, avatar, created_at
-          )
-        `)
-        .eq("staff_id", staffId)
-        .order("added_at", { ascending: false });
-
+      // Use RPC for pagination/search (here: first page)
+      const { data, error } = await supabase.rpc("list_assigned_patients", {
+        p_search: null, p_limit: 100, p_offset: 0,
+      });
       if (!mounted) return;
-      if (error) {
-        console.error("Failed to load assigned patients:", error.message);
-      } else {
-        const pts = (data as CareTeamRow[]).map((r) => r.patients).filter(Boolean);
-        setAssignedPatients(pts);
-      }
+      if (error) { console.error(error.message); setLoading(false); return; }
+
+      setPatients(data as PatientRow[]);
+      assignedIds = new Set((data as PatientRow[]).map(r => r.user_id));
       setLoading(false);
 
-      // Build filter for patient updates
-      const ids = (data || []).map((r: any) => r.patient_id);
-      const idList = ids.length ? `in.(${ids.join(",")})` : null;
-
-      // Realtime: assignments (only for this staff)
-      const careTeamCh = supabase
+      // Realtime – assignments for this staff
+      const chAssign = supabase
         .channel("pct-" + staffId)
-        .on(
-          "postgres_changes",
+        .on("postgres_changes",
           { schema: "public", table: "patient_care_team", event: "INSERT", filter: `staff_id=eq.${staffId}` },
           async (payload) => {
             const pid = (payload.new as any).patient_id as string;
-            // fetch the joined patient once
+            assignedIds.add(pid);
             const { data: row } = await supabase
-              .from("patients")
-              .select("user_id, full_name, email, phone_number, avatar, created_at")
-              .eq("user_id", pid)
-              .maybeSingle();
-            if (row && mounted) upsertPatient(row as Patient);
+              .from("v_staff_assigned_patients")
+              .select("*").eq("user_id", pid).maybeSingle();
+            if (row && mounted) upsertPatient(row as PatientRow);
           }
         )
-        .on(
-          "postgres_changes",
+        .on("postgres_changes",
           { schema: "public", table: "patient_care_team", event: "DELETE", filter: `staff_id=eq.${staffId}` },
           (payload) => {
             const pid = (payload.old as any).patient_id as string;
+            assignedIds.delete(pid);
             if (mounted) removePatient(pid);
           }
         )
         .subscribe();
 
-      // Realtime: patient record updates for assigned ids
-      const patientsCh = supabase
+      // Realtime – updates to patient rows you’re assigned to
+      const chPatients = supabase
         .channel("patients-upd-" + staffId)
-        .on(
-          "postgres_changes",
-          {
-            schema: "public",
-            table: "patients",
-            event: "UPDATE",
-            ...(idList ? { filter: `user_id=${idList}` } : {}),
-          },
+        .on("postgres_changes",
+          { schema: "public", table: "patients", event: "UPDATE" },
           (payload) => {
-            const p = payload.new as Patient;
-            if (mounted) upsertPatient(p);
+            const p = payload.new as any;
+            if (!assignedIds.has(p.user_id)) return;
+            upsertPatient(p as PatientRow);
           }
         )
         .subscribe();
 
       return () => {
-        supabase.removeChannel(careTeamCh);
-        supabase.removeChannel(patientsCh);
+        supabase.removeChannel(chAssign);
+        supabase.removeChannel(chPatients);
       };
     }
 
-    boot();
-    return () => {
-      mounted = false;
-    };
+    load();
+    return () => { mounted = false; };
   }, [router, supabase]);
 
   return (
@@ -209,39 +141,22 @@ export default function StaffPatientInboxPage() {
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="gap-1">
-              <Activity className="h-3.5 w-3.5" /> Live · {assignedPatients.length} patients
+              <Activity className="h-3.5 w-3.5" /> Live · {patients.length} patients
             </Badge>
           </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* Quick nav */}
         <div className="flex items-center gap-3">
-          <IconPill onClick={() => router.push("/staff/dashboard")} aria="Home">
-            <HomeIcon className="h-5 w-5" />
-          </IconPill>
-          <IconPill onClick={() => router.push("/staff/dashboard?tab=tests")} aria="Drug Tests">
-            <TestTube2 className="h-5 w-5" />
-          </IconPill>
-          <IconPill active aria="Messages / Patient Inbox">
-            <MessageSquare className="h-5 w-5" />
-          </IconPill>
-          <IconPill onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts">
-            <RadioIcon className="h-5 w-5" />
-          </IconPill>
-          <IconPill onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups">
-            <EyeOff className="h-5 w-5" />
-          </IconPill>
-          <IconPill onClick={() => router.push("/staff/notifications")} aria="Notifications">
-            <Bell className="h-5 w-5" />
-          </IconPill>
-          <IconPill onClick={() => router.push("/clinician/dashboard")} aria="Clinicians">
-            <Users className="h-5 w-5" />
-          </IconPill>
-          <IconPill onClick={() => router.push("/staff/profile")} aria="Profile Settings">
-            <SettingsIcon className="h-5 w-5" />
-          </IconPill>
+          <IconPill onClick={() => router.push("/staff/dashboard")} aria="Home"><HomeIcon className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/dashboard?tab=tests")} aria="Drug Tests"><TestTube2 className="h-5 w-5" /></IconPill>
+          <IconPill active aria="Messages / Patient Inbox"><MessageSquare className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts"><RadioIcon className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups"><EyeOff className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/notifications")} aria="Notifications"><Bell className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/clinician/dashboard")} aria="Clinicians"><Users className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/profile")} aria="Profile Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
         </div>
 
         <div className="flex items-center justify-between">
@@ -255,11 +170,7 @@ export default function StaffPatientInboxPage() {
           {loading ? (
             <p className="text-slate-500">Loading assigned patients…</p>
           ) : (
-            // Expect PatientInbox to accept a `patients` prop; if not, I can refactor it next.
-            <PatientInbox
-              patients={assignedPatients}
-              onNewGroup={() => console.log("new patient group")}
-            />
+            <PatientInbox patients={patients} onNewGroup={() => console.log("new group")} />
           )}
         </div>
       </main>
