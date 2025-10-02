@@ -8,13 +8,13 @@ import { Calendar, User, ArrowRight } from "lucide-react"
 export default function BlogPage() {
   const blogPosts = [
     { id: 1, title: "Medication-Assisted Treatment: Explore what makes residential treatment effective—from structured daily routines to comprehensive therapy—and learn how a supportive environment can transform your recovery journey.
-", author: "", date: "January 15, 2024", category: "Health Education", readTime: "5 min read" },
+", author: "", date: "", category: "Health Education", readTime: "" },
     { id: 2, title: "Inside Serenity: Your Journey to Lasting Recovery", "A Lifeline in Recovery", excerpt: "Discover how methadone and other MAT options provide medical support for opioid addiction, reduce cravings, and create a foundation for lasting recovery.
-", author: ", LCSW", date: "January 10, 2024", category: "Family Support", readTime: "7 min read" },
-    { id: 3, title: "Your Recovery Roadmap: Understanding Treatment Options", excerpt: "From medication-assisted treatment to residential programs, learn about evidence-based approaches that support long-term recovery and help you reclaim your life.", author: ", RN", date: "January 5, 2024", category: "Treatment", readTime: "6 min read" },
-    { id: 4, title: "", excerpt: "Explore evidence-based techniques for managing stress, triggers, and challenges during your recovery journey.", author: "", date: "December 28, 2023", category: "Recovery Tips", readTime: "8 min read" },
-    { id: 5, title: "", excerpt: "Understanding the connection between mental health and addiction, and how integrated treatment approaches lead to better outcomes.", author: ", LCSW", date: "December 20, 2023", category: "Mental Health", readTime: "6 min read" },
-    { id: 6, title: "", excerpt: "Learn how proper nutrition supports the recovery process and discover practical tips for maintaining a healthy diet.", author: ", RN", date: "December 15, 2023", category: "Wellness", readTime: "5 min read" },
+", author: "", date: "", category: "Family Support", readTime: "7 min read" },
+    { id: 3, title: "Your Recovery Roadmap: Understanding Treatment Options", excerpt: "From medication-assisted treatment to residential programs, learn about evidence-based approaches that support long-term recovery and help you reclaim your life.", author: "", date: "", category: "", readTime: "" },
+    { id: 4, title: "", excerpt: "Explore evidence-based techniques for managing stress, triggers, and challenges during your recovery journey.", author: "", date: "", category: "", readTime: "" },
+    { id: 5, title: "", excerpt: "Understanding the connection between mental health and addiction, and how integrated treatment approaches lead to better outcomes.", author: "", date: "", category: "Mental Health", readTime: "" },
+    { id: 6, title: "", excerpt: "Learn how proper nutrition supports the recovery process and discover practical tips for maintaining a healthy diet.", author: "", date: "", category: "", readTime: "" },
   ]
 
   const categories = ["All","Health Education","Treatment","Recovery Tips","Family Support","Mental Health","Wellness"]
