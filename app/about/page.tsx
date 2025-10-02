@@ -112,7 +112,7 @@ export default function AboutPage() {
               <Card className="text-center">
                 <CardContent className="pt-6">
                   <div className="w-24 h-24 bg-gray-200 rounded-full mx-auto mb-4"></div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2"> LCSW</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2"> </h3>
                   <p className="text-cyan-600 mb-2">Clinical Director</p>
                   <p className="text-sm text-gray-600">
                     Licensed clinical social worker specializing in trauma-informed care and group therapy.
@@ -122,7 +122,7 @@ export default function AboutPage() {
               <Card className="text-center">
                 <CardContent className="pt-6">
                   <div className="w-24 h-24 bg-gray-200 rounded-full mx-auto mb-4"></div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">, RN</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2"></h3>
                   <p className="text-cyan-600 mb-2">Nursing Supervisor</p>
                   <p className="text-sm text-gray-600">
                     Registered nurse with expertise in medication-assisted treatment and patient care coordination.
