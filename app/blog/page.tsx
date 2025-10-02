@@ -14,7 +14,7 @@ import { Calendar, User, ArrowRight } from "lucide-react";
 
 export default function BlogPage() {
   // Place your PDF at: public/pdf/serenity-brochure.pdf
-  const PDF_URL = "/pdf/serenity-brochure.pdf";
+  const PDF_URL = "public/pdf_article_1_mat.pdf";
 
   const blogPosts = [
     {
