@@ -7,7 +7,7 @@ import { Calendar, User, ArrowRight } from "lucide-react"
 
 export default function BlogPage() {
   const blogPosts = [
-    { id: 1, title: "Understanding Lead Poisoning: Signs, Symptoms, and Treatment Options", excerpt: "Learn about the early warning signs of lead poisoning and how comprehensive treatment can help restore your health and well-being.", author: "Dr. Sarah Johnson", date: "January 15, 2024", category: "Health Education", readTime: "5 min read" },
+    { id: 1, title: "Understanding Lead Poisoning: Signs, Symptoms, and Treatment Options", excerpt: "Learn about the early warning signs of lead poisoning and how comprehensive treatment can help restore your health and well-being.", author: "", date: "January 15, 2024", category: "Health Education", readTime: "5 min read" },
     { id: 2, title: "The Role of Family Support in Recovery", excerpt: "Discover how family involvement can significantly impact the recovery process and learn practical ways to support your loved one's journey.", author: ", LCSW", date: "January 10, 2024", category: "Family Support", readTime: "7 min read" },
     { id: 3, title: "Medication-Assisted Treatment: Breaking Down the Myths", excerpt: "Addressing common misconceptions about MAT and explaining how it provides a safe, effective path to recovery.", author: ", RN", date: "January 5, 2024", category: "Treatment", readTime: "6 min read" },
     { id: 4, title: "Building Healthy Coping Strategies for Long-term Recovery", excerpt: "Explore evidence-based techniques for managing stress, triggers, and challenges during your recovery journey.", author: "", date: "December 28, 2023", category: "Recovery Tips", readTime: "8 min read" },
