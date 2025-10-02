@@ -13,6 +13,9 @@ import { Badge } from "@/components/ui/badge";
 import { Calendar, User, ArrowRight } from "lucide-react";
 
 export default function BlogPage() {
+  // Place your PDF at: public/pdf/serenity-brochure.pdf
+  const PDF_URL = "/pdf/serenity-brochure.pdf";
+
   const blogPosts = [
     {
       id: 1,
@@ -32,7 +35,7 @@ export default function BlogPage() {
         "From structured routines to comprehensive therapy, learn how a supportive environment can transform your recovery journey.",
       author: "Care Coordination",
       date: "Jan 10, 2024",
-      category: "Family Support", // fixed: was "t"
+      category: "Family Support",
       readTime: "7 min read",
     },
     {
@@ -41,7 +44,7 @@ export default function BlogPage() {
       excerpt:
         "From medication-assisted treatment to outpatient care, review evidence-based approaches that help you reclaim your life.",
       author: "Clinical Programs",
-      date: "Jan 05, 2024", // filled
+      date: "Jan 05, 2024",
       category: "Treatment",
       readTime: "5 min read",
     },
@@ -51,7 +54,7 @@ export default function BlogPage() {
       excerpt:
         "Practical, evidence-based techniques for managing stress, triggers, and setbacks during recovery.",
       author: "SRC Counseling",
-      date: "Dec 28, 2023", // filled
+      date: "Dec 28, 2023",
       category: "Recovery Tips",
       readTime: "8 min read",
     },
@@ -60,8 +63,8 @@ export default function BlogPage() {
       title: "The Importance of Mental Health in Addiction Recovery",
       excerpt:
         "How integrated care for co-occurring disorders leads to better outcomes and sustained recovery.",
-      author: "Brianna Carter, LCSW", // filled
-      date: "Dec 20, 2023", // filled
+      author: "Brianna Carter, LCSW",
+      date: "Dec 20, 2023",
       category: "Mental Health",
       readTime: "6 min read",
     },
@@ -70,8 +73,8 @@ export default function BlogPage() {
       title: "Nutrition and Recovery: Healing Your Body from the Inside Out",
       excerpt:
         "Why nutrition matters in recovery and simple tips to support brain and body healing.",
-      author: "Sam Rivera, RN", // filled
-      date: "Dec 15, 2023", // filled
+      author: "Sam Rivera, RN",
+      date: "Dec 15, 2023",
       category: "Wellness",
       readTime: "5 min read",
     },
@@ -141,9 +144,12 @@ export default function BlogPage() {
                   <span className="mr-4">{blogPosts[0].date}</span>
                   <span>{blogPosts[0].readTime}</span>
                 </div>
-                <Button className="bg-cyan-600 hover:bg-indigo-500">
-                  Read Full Article
-                  <ArrowRight className="w-4 h-4 ml-2" />
+                {/* Open PDF in a new tab */}
+                <Button asChild className="bg-cyan-600 hover:bg-indigo-500">
+                  <a href={PDF_URL} target="_blank" rel="noopener noreferrer">
+                    Read Full Article
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </a>
                 </Button>
               </div>
             </div>
@@ -174,9 +180,12 @@ export default function BlogPage() {
                     <Calendar className="w-4 h-4 mr-2" />
                     <span>{post.date}</span>
                   </div>
-                  <Button variant="outline" className="w-full bg-transparent">
-                    Read More
-                    <ArrowRight className="w-4 h-4 ml-2" />
+                  {/* Grid buttons also go to the same PDF (change per post if you have separate files) */}
+                  <Button asChild variant="outline" className="w-full bg-transparent">
+                    <a href={PDF_URL} target="_blank" rel="noopener noreferrer">
+                      Read More
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </a>
                   </Button>
                 </CardContent>
               </Card>
