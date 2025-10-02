@@ -26,7 +26,7 @@ export function Header() {
             {/* Left: brand with more breathing room */}
             <Link
               href="/"
-              className="flex items-center gap-2.5 mr-8 md:mr-16"
+              className="flex items-center gap-2.5"
               aria-label="Serenity Rehabilitation Center Home"
             >
               <svg
@@ -50,7 +50,7 @@ export function Header() {
             </Link>
 
             {/* Center: desktop nav with better spacing */}
-            <nav className="hidden lg:flex items-center gap-10 ml-auto mr-8">
+            <nav className="hidden lg:flex items-center gap-10 flex-1 justify-center">
               {NAV_ITEMS.map((item) => (
                 <Link
                   key={item.href}
