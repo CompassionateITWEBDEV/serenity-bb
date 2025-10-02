@@ -30,11 +30,7 @@ export function Footer() {
                   Contact
                 </a>
               </li>
-              <li>
-                <a href="#" className="hover:text-cyan-400 transition-colors">
-                  Insurance
-                </a>
-              </li>
+              
             </ul>
           </div>
 
