@@ -1,3 +1,4 @@
+// File: app/blog/page.tsx
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { Button } from "@/components/ui/button"
@@ -87,7 +88,9 @@ export default function BlogPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Hero Section */}
           <div className="text-center mb-16">
-            <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">Recovery Resources & Insights</h1>
+            <h1 className="text-2xl md:text-[30px] font-serif font-bold text-gray-900 mb-4">
+              Recovery Resources & Insights
+            </h1>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto">
               Expert guidance, educational resources, and inspiring stories to support your recovery journey.
             </p>
@@ -111,12 +114,16 @@ export default function BlogPage() {
           <Card className="mb-12 overflow-hidden">
             <div className="md:flex">
               <div className="md:w-1/3">
-                <div className="h-64 md:h-full bg-gradient-to-br from-cyan-500 to-indigo-600"></div>
+                <div className="h-64 md:h-full bg-gradient-to-br from-cyan-500 to-indigo-600" />
               </div>
               <div className="md:w-2/3 p-8">
                 <Badge className="mb-4 bg-cyan-100 text-cyan-800">Featured</Badge>
-                <h2 className="text-3xl font-serif font-bold text-gray-900 mb-4">{blogPosts[0].title}</h2>
-                <p className="text-gray-600 mb-6 text-lg">{blogPosts[0].excerpt}</p>
+                <h2 className="text-2xl md:text-[30px] font-serif font-bold text-gray-900 mb-4">
+                  {blogPosts[0].title}
+                </h2>
+                <p className="text-gray-600 mb-6 text-lg">
+                  {blogPosts[0].excerpt}
+                </p>
                 <div className="flex items-center text-sm text-gray-500 mb-6">
                   <User className="w-4 h-4 mr-2" />
                   <span className="mr-4">{blogPosts[0].author}</span>
@@ -141,8 +148,12 @@ export default function BlogPage() {
                     <Badge variant="secondary">{post.category}</Badge>
                     <span className="text-sm text-gray-500">{post.readTime}</span>
                   </div>
-                  <CardTitle className="text-xl font-serif line-clamp-2">{post.title}</CardTitle>
-                  <CardDescription className="line-clamp-3">{post.excerpt}</CardDescription>
+                  <CardTitle className="text-lg md:text-[30px] font-serif leading-snug line-clamp-2">
+                    {post.title}
+                  </CardTitle>
+                  <CardDescription className="line-clamp-3">
+                    {post.excerpt}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center text-sm text-gray-500 mb-4">
@@ -162,7 +173,9 @@ export default function BlogPage() {
 
           {/* Newsletter Signup */}
           <div className="mt-16 bg-indigo-600 rounded-lg p-8 text-center text-white">
-            <h2 className="text-3xl font-serif font-bold mb-4">Stay Informed</h2>
+            <h2 className="text-2xl md:text-[30px] font-serif font-bold mb-4">
+              Stay Informed
+            </h2>
             <p className="text-xl mb-6 opacity-90">
               Subscribe to our newsletter for the latest recovery resources and expert insights.
             </p>
