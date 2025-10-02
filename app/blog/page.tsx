@@ -13,8 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { Calendar, User, ArrowRight } from "lucide-react";
 
 export default function BlogPage() {
-  // Place your PDF at: public/pdf/serenity-brochure.pdf
-  const PDF_URL = "public/pdf_article_1_mat.pdf";
+  // Place the PDF at: public/pdf/pdf_article_1_mat.pdf
+  const FEATURED_PDF_URL = "/pdf/pdf_article_1_mat.pdf";
 
   const blogPosts = [
     {
@@ -144,9 +144,8 @@ export default function BlogPage() {
                   <span className="mr-4">{blogPosts[0].date}</span>
                   <span>{blogPosts[0].readTime}</span>
                 </div>
-                {/* Open PDF in a new tab */}
                 <Button asChild className="bg-cyan-600 hover:bg-indigo-500">
-                  <a href={PDF_URL} target="_blank" rel="noopener noreferrer">
+                  <a href={FEATURED_PDF_URL} target="_blank" rel="noopener noreferrer">
                     Read Full Article
                     <ArrowRight className="w-4 h-4 ml-2" />
                   </a>
@@ -180,12 +179,9 @@ export default function BlogPage() {
                     <Calendar className="w-4 h-4 mr-2" />
                     <span>{post.date}</span>
                   </div>
-                  {/* Grid buttons also go to the same PDF (change per post if you have separate files) */}
-                  <Button asChild variant="outline" className="w-full bg-transparent">
-                    <a href={PDF_URL} target="_blank" rel="noopener noreferrer">
-                      Read More
-                      <ArrowRight className="w-4 h-4 ml-2" />
-                    </a>
+                  <Button variant="outline" className="w-full bg-transparent">
+                    Read More
+                    <ArrowRight className="w-4 h-4 ml-2" />
                   </Button>
                 </CardContent>
               </Card>
