@@ -38,6 +38,11 @@ export function Footer() {
                   Contact
                 </Link>
               </li>
+              <li>
+                <Link href="/blog" className="hover:text-cyan-400 transition-colors">
+                  Blog
+                </Link>
+              </li>
             </ul>
           </div>
 
