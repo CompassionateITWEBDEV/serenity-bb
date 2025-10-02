@@ -1,7 +1,8 @@
-// app/staff/patient-inbox/page.tsx
 "use client";
 
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,8 +18,16 @@ import {
   Users,
   Settings as SettingsIcon,
 } from "lucide-react";
-
 import PatientInbox from "@/components/staff/PatientInbox";
+
+/* why: tiny helper to keep an animated flash on new events */
+function FlashBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-xs animate-pulse">
+      {label}
+    </span>
+  );
+}
 
 function IconPill({
   children,
@@ -50,6 +59,58 @@ function IconPill({
 export default function StaffPatientInboxPage() {
   const router = useRouter();
 
+  // Supabase browser client (public anon key)
+  const supabase = useMemo(
+    () =>
+      createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL as string,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
+      ),
+    []
+  );
+
+  const [patientsCount, setPatientsCount] = useState<number | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const flashTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadInitial() {
+      // why: count quickly without loading heavy data
+      const { count } = await supabase
+        .from("patients")
+        .select("*", { count: "estimated", head: true });
+      if (!mounted) return;
+      setPatientsCount(typeof count === "number" ? count : 0);
+    }
+
+    loadInitial();
+
+    // Realtime: new patients registration
+    const channel = supabase
+      .channel("realtime-patients")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "patients" },
+        (payload) => {
+          setPatientsCount((c) => (typeof c === "number" ? c + 1 : 1));
+          setRefreshKey((k) => k + 1); // remount inbox to refetch, minimal integration
+          setFlash("New patient registered");
+          if (flashTimer.current) window.clearTimeout(flashTimer.current);
+          flashTimer.current = window.setTimeout(() => setFlash(null), 2500);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      supabase.removeChannel(channel);
+      if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    };
+  }, [supabase]);
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
@@ -64,44 +125,39 @@ export default function StaffPatientInboxPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {flash && <FlashBadge label={flash} />}
             <Badge variant="secondary" className="gap-1">
-              <Activity className="h-3.5 w-3.5" /> Live
+              <Activity className="h-3.5 w-3.5" />
+              Live{typeof patientsCount === "number" ? ` · ${patientsCount} patients` : ""}
             </Badge>
           </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* Icon row (now consistent with /staff/dashboard) */}
+        {/* Quick nav */}
         <div className="flex items-center gap-3">
           <IconPill onClick={() => router.push("/staff/dashboard")} aria="Home">
             <HomeIcon className="h-5 w-5" />
           </IconPill>
-
           <IconPill onClick={() => router.push("/staff/dashboard?tab=tests")} aria="Drug Tests">
             <TestTube2 className="h-5 w-5" />
           </IconPill>
-
           <IconPill active aria="Messages / Patient Inbox">
             <MessageSquare className="h-5 w-5" />
           </IconPill>
-
           <IconPill onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts">
             <RadioIcon className="h-5 w-5" />
           </IconPill>
-
           <IconPill onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups">
             <EyeOff className="h-5 w-5" />
           </IconPill>
-
           <IconPill onClick={() => router.push("/staff/notifications")} aria="Notifications">
             <Bell className="h-5 w-5" />
           </IconPill>
-
           <IconPill onClick={() => router.push("/clinician/dashboard")} aria="Clinicians">
             <Users className="h-5 w-5" />
           </IconPill>
-
           <IconPill onClick={() => router.push("/staff/profile")} aria="Profile Settings">
             <SettingsIcon className="h-5 w-5" />
           </IconPill>
@@ -119,8 +175,9 @@ export default function StaffPatientInboxPage() {
           </Button>
         </div>
 
+        {/* Inject refreshKey so inbox remounts on new patient */}
         <div className="grid">
-          <PatientInbox onNewGroup={() => console.log("new patient group")} />
+          <PatientInbox key={refreshKey} onNewGroup={() => console.log("new patient group")} />
         </div>
       </main>
     </div>
