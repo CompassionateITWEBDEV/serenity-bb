@@ -141,17 +141,7 @@ export default function AboutPage() {
 
           {/* Mission Section */}
           <div className="grid lg:grid-cols-2 gap-12 mb-16">
-            <div>
-              <p
-                className="text-gray-700 leading-relaxed mb-6"
-                style={{ textAlign: "justify" }}
-              >
-                We are committed to creating a safe, supportive environment
-                where individuals can begin their journey to recovery with
-                dignity and hope.
-              </p>
-              
-            </div>
+           
             <div className="bg-white rounded-lg p-8 shadow-sm">
               <h3 className="text-2xl font-serif font-bold text-gray-900 mb-4">
                 Our Values
@@ -194,7 +184,7 @@ export default function AboutPage() {
               Take the first step towards healing and transformation today.
             </p>
             <Button size="lg" asChild className="bg-white text-indigo-600 hover:bg-gray-100">
-              <Link href="/patient-intake-form">Start Your Journey</Link>
+              <Link href="/components/patient-intake-form">Start Your Journey</Link>
             </Button>
           </div>
         </div>
