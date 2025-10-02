@@ -23,7 +23,7 @@ export function AboutSection() {
               Join Our Community of Hope and Recovery
             </h2>
             <p className="text-lg text-gray-600 leading-relaxed">
-              For over 15 years, Serenity Rehabilitation Center has been a beacon of hope for individuals and families
+             Serenity Rehabilitation Center has been a beacon of hope for individuals and families
               affected by lead poisoning. Our multidisciplinary team of medical professionals, nutritionists, and
               counselors work together to create personalized treatment plans that address your unique needs.
             </p>
@@ -65,7 +65,7 @@ export default function AboutPage() {
               About Serenity Rehabilitation Center
             </h1>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              For over 40 years, we've been dedicated to providing compassionate, evidence-based treatment for
+              we've been dedicated to providing compassionate, evidence-based treatment for
               individuals affected by lead poisoning and addiction.
             </p>
           </div>
