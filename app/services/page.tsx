@@ -29,7 +29,8 @@ export const metadata: Metadata = {
     "Comprehensive, evidence-based treatment programs designed to support your recovery journey with dignity and care.",
 };
 
-const METHADONE_PDF_ROUTE = "/docs/methadone.pdf"; // place the PDF under /public/docs/methadone.pdf
+// NOTE: put your PDF in /public/docs/Serenity-Brochure-High-Res_compressed.pdf
+const METHADONE_PDF_ROUTE = "/docs/Serenity-Brochure-High-Res_compressed.pdf";
 
 function ServicesSection() {
   const services = [
@@ -72,7 +73,7 @@ function ServicesSection() {
   );
 }
 
-/** Why: Last section as requested. Buttons inside Counseling/Support remain removed; new PDF CTA added for Methadone. */
+/** Last section as requested. Buttons for Counseling/Support remain removed; Methadone PDF CTA added. */
 function LeadGenerationSection() {
   return (
     <section className="py-16 bg-gray-50">
@@ -145,7 +146,7 @@ function LeadGenerationSection() {
           </Card>
         </div>
 
-        {/* Methadone intro + PDF CTA (replaces old "Facts" grid) */}
+        {/* Methadone intro + PDF CTA */}
         <div className="bg-white rounded-lg p-8">
           <h3 className="text-2xl font-serif font-bold text-gray-900 mb-4">Methadone</h3>
           <div className="text-gray-700 leading-relaxed mb-6">
@@ -155,9 +156,9 @@ function LeadGenerationSection() {
             </p>
           </div>
           <div className="text-center">
-            <a href={Serenity-Brochure-High-Res_compressed.pdf} target="_blank" rel="noopener noreferrer">
+            <a href={METHADONE_PDF_ROUTE} target="_blank" rel="noopener noreferrer">
               <Button className="bg-cyan-600 hover:bg-cyan-700">
-                Get more information about Methadone Here!
+                GET more information here
               </Button>
             </a>
           </div>
