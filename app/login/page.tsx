@@ -1,4 +1,3 @@
-// File: app/login/page.tsx
 "use client"
 
 import type React from "react"
@@ -21,7 +20,6 @@ export default function LoginPage() {
   const { login, loading } = useAuth()
   const router = useRouter()
 
-  // why: keep flow simple + predictable
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
@@ -35,7 +33,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-cyan-50 via-white to-indigo-50 flex items-center justify-center px-4 py-8">
-      <div className="w-full max-w-2xl"> {/* wider container */}
+      <div className="w-full max-w-2xl">
         {/* Header */}
         <div className="text-center mb-10">
           <div className="flex items-center justify-center mb-5">
@@ -53,8 +51,12 @@ export default function LoginPage() {
 
         <Card className="shadow-xl border-0">
           <CardHeader className="space-y-2">
-            <CardTitle className="text-3xl font-sans text-center">Patient Login</CardTitle>
-            <CardDescription className="text-center text-base">
+            {/* ↑ Larger title */}
+            <CardTitle className="text-3xl md:text-4xl font-sans text-center">
+              Patient Login
+            </CardTitle>
+            {/* ↑ Larger subtitle */}
+            <CardDescription className="text-center text-lg md:text-xl text-slate-700">
               Enter your credentials to continue your treatment
             </CardDescription>
           </CardHeader>
@@ -79,7 +81,7 @@ export default function LoginPage() {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-lg">Email Address</Label>
+                <Label htmlFor="email" className="text-base md:text-lg">Email Address</Label>
                 <Input
                   id="email"
                   type="email"
@@ -93,7 +95,7 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-lg">Password</Label>
+                <Label htmlFor="password" className="text-base md:text-lg">Password</Label>
                 <div className="relative">
                   <Input
                     id="password"
@@ -119,7 +121,7 @@ export default function LoginPage() {
               <div className="flex items-center justify-between">
                 <Link
                   href="/forgot-password"
-                  className="text-lg text-cyan-700 hover:text-cyan-800 hover:underline font-medium"
+                  className="text-base md:text-lg text-cyan-700 hover:text-cyan-800 hover:underline font-medium"
                 >
                   Forgot password?
                 </Link>
@@ -135,7 +137,7 @@ export default function LoginPage() {
             </form>
 
             <div className="mt-8 text-center">
-              <p className="text-lg text-slate-700">
+              <p className="text-base md:text-lg text-slate-700">
                 New patient?{" "}
                 <Link
                   href="/signup"
@@ -151,7 +153,7 @@ export default function LoginPage() {
         <div className="mt-8 text-center">
           <Link
             href="/"
-            className="text-lg text-slate-700 hover:text-slate-900 hover:underline"
+            className="text-base md:text-lg text-slate-700 hover:text-slate-900 hover:underline"
           >
             ← Back to Home
           </Link>
