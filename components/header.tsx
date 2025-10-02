@@ -16,16 +16,17 @@ const NAV_ITEMS: NavItem[] = [
 export function Header() {
   const pathname = usePathname();
   const [open, setOpen] = React.useState(false);
-  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  const isActive = (href: string) =>
+    href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   return (
     <header className="relative z-50 bg-white shadow-sm border-b">
       <div className="w-full">
         <div className="mx-auto max-w-[1400px] px-6 lg:px-8">
-          <div className="flex items-center justify-between min-h-[80px] lg:min-h-[90px] py-4">
-            
-            {/* Logo - Left Side */}
-            <div className="flex-shrink-0">
+          {/* 3-column grid: brand | nav | actions */}
+          <div className="grid grid-cols-[auto,1fr,auto] items-center gap-4 min-h-[80px] lg:min-h-[90px] py-4">
+            {/* Left: Brand (kept left, ample space) */}
+            <div className="justify-self-start min-w-0">
               <Link
                 href="/"
                 className="flex items-center gap-3"
@@ -36,7 +37,7 @@ export function Header() {
                   height="28"
                   viewBox="0 0 24 24"
                   fill="none"
-                  className="text-teal-800"
+                  className="text-teal-800 flex-shrink-0"
                   aria-hidden="true"
                 >
                   <path
@@ -52,9 +53,9 @@ export function Header() {
               </Link>
             </div>
 
-            {/* Navigation - Center (Desktop Only) */}
-            <nav className="hidden lg:flex items-center justify-center flex-1 mx-12">
-              <div className="flex items-center gap-12">
+            {/* Center: Desktop Nav (centered in middle column) */}
+            <nav className="hidden lg:flex justify-center">
+              <div className="flex items-center gap-12 px-6">
                 {NAV_ITEMS.map((item) => (
                   <Link
                     key={item.href}
@@ -62,7 +63,9 @@ export function Header() {
                     aria-current={isActive(item.href) ? "page" : undefined}
                     className={[
                       "text-[18px] font-medium transition-colors whitespace-nowrap",
-                      isActive(item.href) ? "text-teal-800 font-semibold" : "text-slate-700 hover:text-teal-800",
+                      isActive(item.href)
+                        ? "text-teal-800 font-semibold"
+                        : "text-slate-700 hover:text-teal-800",
                     ].join(" ")}
                   >
                     {item.label}
@@ -71,8 +74,8 @@ export function Header() {
               </div>
             </nav>
 
-            {/* Action Buttons - Right Side (Desktop Only) */}
-            <div className="hidden lg:flex items-center gap-3 flex-shrink-0">
+            {/* Right: Actions (pinned right with spacing) */}
+            <div className="hidden lg:flex items-center justify-self-end gap-4">
               <Link
                 href="/login"
                 className="rounded-md border px-5 py-2.5 text-[15px] font-medium text-teal-800 border-teal-700/70 hover:bg-teal-50 whitespace-nowrap transition-colors"
@@ -88,15 +91,15 @@ export function Header() {
               <Link
                 href="/intake"
                 className="rounded-md px-6 py-2.5 text-[15px] font-semibold text-white whitespace-nowrap transition-all hover:opacity-90"
-                style={{ backgroundColor: "#0D9AC0" }}
+                style={{ backgroundColor: "#0D9AC0" }} /* why: brand CTA color */
               >
                 Get Help Now
               </Link>
             </div>
 
-            {/* Mobile Hamburger */}
+            {/* Mobile: Hamburger occupies the actions column */}
             <button
-              className="lg:hidden inline-flex h-12 w-12 items-center justify-center rounded-md border border-slate-300 text-slate-700 ml-4"
+              className="lg:hidden justify-self-end inline-flex h-12 w-12 items-center justify-center rounded-md border border-slate-300 text-slate-700"
               aria-label="Toggle menu"
               onClick={() => setOpen((v) => !v)}
             >
@@ -111,7 +114,7 @@ export function Header() {
       {/* Mobile Menu */}
       {open && (
         <div className="lg:hidden border-t bg-white shadow-lg">
-          <div className="mx-auto max-w-7xl px-6 py-5">
+          <div className="mx-auto max-w-[1400px] px-6 py-5">
             <nav className="flex flex-col gap-2">
               {NAV_ITEMS.map((item) => (
                 <Link
@@ -121,7 +124,9 @@ export function Header() {
                   aria-current={isActive(item.href) ? "page" : undefined}
                   className={[
                     "py-3 text-[18px] font-medium rounded-md px-3 transition-colors",
-                    isActive(item.href) ? "text-teal-800 font-semibold bg-teal-50" : "text-slate-700 hover:bg-slate-50",
+                    isActive(item.href)
+                      ? "text-teal-800 font-semibold bg-teal-50"
+                      : "text-slate-700 hover:bg-slate-50",
                   ].join(" ")}
                 >
                   {item.label}
