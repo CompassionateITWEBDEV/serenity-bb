@@ -142,16 +142,7 @@ export default function AboutPage() {
           {/* Mission Section */}
           <div className="grid lg:grid-cols-2 gap-12 mb-16">
             <div>
-              <h2 className="text-3xl font-serif font-bold text-gray-900 mb-6">
-                Our Mission
-              </h2>
-              <p className="text-gray-700 leading-relaxed mb-4" style={{ textAlign: "justify" }}>
-                At Serenity Rehabilitation Center, we believe that every
-                individual deserves the opportunity to heal and rebuild their
-                life. Our mission is to provide comprehensive, compassionate
-                care that addresses not just the symptoms of lead poisoning and
-                addiction, but the whole person.
-              </p>
+             
               <p className="text-gray-700 leading-relaxed mb-6" style={{ textAlign: "justify" }}>
                 We are committed to creating a safe, supportive environment
                 where individuals can begin their journey to recovery with
