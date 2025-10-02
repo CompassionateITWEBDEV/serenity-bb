@@ -1,4 +1,3 @@
-// File: app/components/header.tsx
 "use client";
 
 import * as React from "react";
@@ -22,22 +21,20 @@ export function Header() {
   return (
     <header className="relative z-50 bg-white shadow-sm border-b">
       <div className="w-full">
-        <div className="mx-auto max-w-7xl px-4">
-          {/* Larger vertical space supports bigger text */}
-          <div className="flex items-center justify-between min-h-[72px] md:min-h-[84px] py-3 md:py-4">
-            {/* Left: brand */}
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="flex items-center justify-between min-h-[76px] md:min-h-[88px] py-4 md:py-5">
+            {/* Left: brand with more breathing room */}
             <Link
               href="/"
-              className="flex items-center gap-2"
+              className="flex items-center gap-2.5 mr-8 md:mr-16"
               aria-label="Serenity Rehabilitation Center Home"
             >
-              {/* simple heart icon */}
               <svg
-                width="24"
-                height="24"
+                width="26"
+                height="26"
                 viewBox="0 0 24 24"
                 fill="none"
-                className="text-teal-800"
+                className="text-teal-800 flex-shrink-0"
                 aria-hidden="true"
               >
                 <path
@@ -47,20 +44,20 @@ export function Header() {
                   fill="none"
                 />
               </svg>
-              <span className="text-[26px] md:text-[32px] font-semibold text-teal-800 leading-snug">
+              <span className="text-[27px] md:text-[33px] font-semibold text-teal-800 leading-tight whitespace-nowrap">
                 Serenity Rehabilitation Center
               </span>
             </Link>
 
-            {/* Center: desktop nav */}
-            <nav className="hidden md:flex items-center gap-9">
+            {/* Center: desktop nav with better spacing */}
+            <nav className="hidden lg:flex items-center gap-10 ml-auto mr-8">
               {NAV_ITEMS.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
                   aria-current={isActive(item.href) ? "page" : undefined}
                   className={[
-                    "text-[17px] leading-relaxed transition-colors",
+                    "text-[18px] font-medium leading-relaxed transition-colors whitespace-nowrap",
                     isActive(item.href) ? "text-teal-800 font-semibold" : "text-slate-700 hover:text-teal-800",
                   ].join(" ")}
                 >
@@ -70,50 +67,49 @@ export function Header() {
             </nav>
 
             {/* Right: actions */}
-            <div className="hidden md:flex items-center gap-3.5">
+            <div className="hidden lg:flex items-center gap-3 flex-shrink-0">
               <Link
                 href="/login"
-                className="rounded-md border px-3.5 py-2 text-base font-medium text-teal-800 border-teal-700/70 hover:bg-teal-50"
+                className="rounded-md border px-4 py-2.5 text-[15px] font-medium text-teal-800 border-teal-700/70 hover:bg-teal-50 whitespace-nowrap transition-colors"
               >
                 Patient Login
               </Link>
               <Link
                 href="/staff/login"
-                className="rounded-md border px-3.5 py-2 text-base font-medium text-slate-700 border-slate-300 hover:bg-slate-50"
+                className="rounded-md border px-4 py-2.5 text-[15px] font-medium text-slate-700 border-slate-300 hover:bg-slate-50 whitespace-nowrap transition-colors"
               >
                 Staff Login
               </Link>
               <Link
                 href="/intake"
-                className="rounded-md px-4.5 py-2.5 text-base font-semibold text-white"
-                style={{ backgroundColor: "#0D9AC0" }} // keep brand color
+                className="rounded-md px-5 py-2.5 text-[15px] font-semibold text-white whitespace-nowrap transition-all hover:opacity-90"
+                style={{ backgroundColor: "#0D9AC0" }}
               >
                 Get Help Now
               </Link>
             </div>
 
-            {/* Mobile hamburger (≥44px target) */}
+            {/* Mobile hamburger */}
             <button
-              className="md:hidden inline-flex h-11 w-11 items-center justify-center rounded-md border border-black/10 text-slate-700"
+              className="lg:hidden inline-flex h-11 w-11 items-center justify-center rounded-md border border-black/10 text-slate-700 ml-auto"
               aria-label="Toggle menu"
               onClick={() => setOpen((v) => !v)}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="2" />
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
             </button>
           </div>
         </div>
 
-        {/* subtle bottom line */}
         <div className="h-px w-full bg-slate-200" />
       </div>
 
-      {/* Mobile sheet */}
+      {/* Mobile menu */}
       {open && (
-        <div className="md:hidden border-b bg-white">
-          <div className="mx-auto max-w-7xl px-4 py-3">
-            <nav className="flex flex-col gap-1">
+        <div className="lg:hidden border-b bg-white">
+          <div className="mx-auto max-w-7xl px-6 py-4">
+            <nav className="flex flex-col gap-1.5">
               {NAV_ITEMS.map((item) => (
                 <Link
                   key={item.href}
@@ -121,37 +117,37 @@ export function Header() {
                   onClick={() => setOpen(false)}
                   aria-current={isActive(item.href) ? "page" : undefined}
                   className={[
-                    "py-2.5 text-[17px]",
+                    "py-3 text-[18px] font-medium",
                     isActive(item.href) ? "text-teal-800 font-semibold" : "text-slate-700",
                   ].join(" ")}
                 >
                   {item.label}
                 </Link>
               ))}
-              <div className="mt-2 flex items-center gap-2">
+              <div className="mt-3 flex flex-col gap-2.5">
                 <Link
                   href="/login"
                   onClick={() => setOpen(false)}
-                  className="flex-1 rounded-md border px-3.5 py-2.5 text-[16px] font-medium text-teal-800 border-teal-700/70"
+                  className="w-full rounded-md border px-4 py-3 text-[16px] font-medium text-teal-800 border-teal-700/70 text-center"
                 >
                   Patient Login
                 </Link>
                 <Link
                   href="/staff/login"
                   onClick={() => setOpen(false)}
-                  className="flex-1 rounded-md border px-3.5 py-2.5 text-[16px] font-medium text-slate-700 border-slate-300"
+                  className="w-full rounded-md border px-4 py-3 text-[16px] font-medium text-slate-700 border-slate-300 text-center"
                 >
                   Staff Login
                 </Link>
+                <Link
+                  href="/intake"
+                  onClick={() => setOpen(false)}
+                  className="w-full rounded-md px-4 py-3 text-[17px] font-semibold text-white text-center"
+                  style={{ backgroundColor: "#0D9AC0" }}
+                >
+                  Get Help Now
+                </Link>
               </div>
-              <Link
-                href="/intake"
-                onClick={() => setOpen(false)}
-                className="mt-2 inline-flex w-full items-center justify-center rounded-md px-4.5 py-2.5 text-[17px] font-semibold text-white"
-                style={{ backgroundColor: "#0D9AC0" }}
-              >
-                Get Help Now
-              </Link>
             </nav>
           </div>
         </div>
