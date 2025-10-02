@@ -32,7 +32,7 @@ export default function BlogPage() {
         "From structured routines to comprehensive therapy, learn how a supportive environment can transform your recovery journey.",
       author: "Care Coordination",
       date: "Jan 10, 2024",
-      category: "t",
+      category: "Family Support", // fixed: was "t"
       readTime: "7 min read",
     },
     {
@@ -41,7 +41,7 @@ export default function BlogPage() {
       excerpt:
         "From medication-assisted treatment to outpatient care, review evidence-based approaches that help you reclaim your life.",
       author: "Clinical Programs",
-      date: "",
+      date: "Jan 05, 2024", // filled
       category: "Treatment",
       readTime: "5 min read",
     },
@@ -51,7 +51,7 @@ export default function BlogPage() {
       excerpt:
         "Practical, evidence-based techniques for managing stress, triggers, and setbacks during recovery.",
       author: "SRC Counseling",
-      date: "",
+      date: "Dec 28, 2023", // filled
       category: "Recovery Tips",
       readTime: "8 min read",
     },
@@ -60,8 +60,8 @@ export default function BlogPage() {
       title: "The Importance of Mental Health in Addiction Recovery",
       excerpt:
         "How integrated care for co-occurring disorders leads to better outcomes and sustained recovery.",
-      author: "",
-      date: "",
+      author: "Brianna Carter, LCSW", // filled
+      date: "Dec 20, 2023", // filled
       category: "Mental Health",
       readTime: "6 min read",
     },
@@ -70,8 +70,8 @@ export default function BlogPage() {
       title: "Nutrition and Recovery: Healing Your Body from the Inside Out",
       excerpt:
         "Why nutrition matters in recovery and simple tips to support brain and body healing.",
-      author: "",
-      date: "",
+      author: "Sam Rivera, RN", // filled
+      date: "Dec 15, 2023", // filled
       category: "Wellness",
       readTime: "5 min read",
     },
@@ -127,9 +127,7 @@ export default function BlogPage() {
                 <div className="h-64 md:h-full bg-gradient-to-br from-cyan-500 to-indigo-600" />
               </div>
               <div className="md:w-2/3 p-8">
-                <Badge className="mb-4 bg-cyan-100 text-cyan-800">
-                  Featured
-                </Badge>
+                <Badge className="mb-4 bg-cyan-100 text-cyan-800">Featured</Badge>
                 <h2 className="font-serif font-bold text-gray-900 mb-4 leading-snug text-[clamp(22px,2.4vw,32px)]">
                   {blogPosts[0].title}
                 </h2>
@@ -158,7 +156,9 @@ export default function BlogPage() {
                 <CardHeader>
                   <div className="flex items-center justify-between mb-2">
                     <Badge variant="secondary">{post.category}</Badge>
-                    <span className="text-sm text-gray-500">{post.readTime}</span>
+                    <span className="text-sm text-gray-500">
+                      {post.readTime}
+                    </span>
                   </div>
                   <CardTitle className="font-serif leading-snug line-clamp-2 text-[clamp(18px,2vw,26px)]">
                     {post.title}
@@ -182,8 +182,7 @@ export default function BlogPage() {
               </Card>
             ))}
           </div>
-
-         
+        </div>
       </main>
 
       <Footer />
