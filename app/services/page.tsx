@@ -1,10 +1,11 @@
+// app/services/page.tsx
 import { Suspense } from "react";
 import type { Metadata } from "next";
 
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 
-import { Button } from "@/components/ui/button"; // used for PDF CTA
+import { Button } from "@/components/ui/button"; // for PDF CTA
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -29,8 +30,9 @@ export const metadata: Metadata = {
     "Comprehensive, evidence-based treatment programs designed to support your recovery journey with dignity and care.",
 };
 
-// NOTE: put your PDF in /public/docs/Serenity-Brochure-High-Res_compressed.pdf
-const METHADONE_PDF_ROUTE = "/docs/Serenity-Brochure-High-Res_compressed.pdf";
+// ✅ If your file is at: /public/Serenity-Brochure-High-Res_compressed.pdf
+//    then use the PUBLIC URL path below (no /public in the URL).
+const METHADONE_PDF_ROUTE = "/Serenity-Brochure-High-Res_compressed.pdf";
 
 function ServicesSection() {
   const services = [
@@ -73,7 +75,7 @@ function ServicesSection() {
   );
 }
 
-/** Last section as requested. Buttons for Counseling/Support remain removed; Methadone PDF CTA added. */
+/** Last section; Methadone PDF CTA now points to /public file correctly. */
 function LeadGenerationSection() {
   return (
     <section className="py-16 bg-gray-50">
@@ -87,9 +89,8 @@ function LeadGenerationSection() {
           </p>
         </div>
 
-        {/* Combined Services Grid (2 cards) */}
+        {/* Counseling + Support (no buttons inside) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
-          {/* Counseling Services (image copy) */}
           <Card className="border-t-4 border-t-cyan-600">
             <CardHeader>
               <CardTitle className="text-xl">Counseling Services</CardTitle>
@@ -112,7 +113,6 @@ function LeadGenerationSection() {
                   <li>Referral for medication evaluation and management with a psychiatrist or family practice physician.</li>
                 </ul>
               </div>
-
               <div className="rounded-lg bg-gray-50 p-4">
                 <h5 className="font-semibold text-gray-900 mb-2">Confidentiality:</h5>
                 <p className="text-sm text-gray-700 leading-relaxed">
@@ -123,7 +123,6 @@ function LeadGenerationSection() {
             </CardContent>
           </Card>
 
-          {/* Support Services */}
           <Card className="border-t-4 border-t-green-600">
             <CardHeader>
               <CardTitle className="text-xl">Support Services</CardTitle>
@@ -156,10 +155,8 @@ function LeadGenerationSection() {
             </p>
           </div>
           <div className="text-center">
-            <a href={METHADONE_PDF_ROUTE} target="_blank" rel="noopener noreferrer">
-              <Button className="bg-cyan-600 hover:bg-cyan-700">
-                GET more information here
-              </Button>
+            <a href={public/Serenity-Brochure-High-Res_compressed.pdf} target="_blank" rel="noopener noreferrer">
+              <Button className="bg-cyan-600 hover:bg-cyan-700">GET more information here</Button>
             </a>
           </div>
         </div>
