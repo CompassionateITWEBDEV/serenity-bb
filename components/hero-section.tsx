@@ -35,11 +35,11 @@ export function HeroSection() {
 
               <div className="hero-stats">
                 <div className="stat-item">
-                  <div className="stat-number">10+</div>
+                  <div className="stat-number"></div>
                   <div className="stat-label">Lives Restored</div>
                 </div>
                 <div className="stat-item">
-                  <div className="stat-number">2</div>
+                  <div className="stat-number"></div>
                   <div className="stat-label">Years Experience</div>
                 </div>
                 <div className="stat-item">
@@ -97,7 +97,7 @@ export function HeroSection() {
                     <span>✓</span>
                   </div>
                   <div className="card-content">
-                    <p className="card-title">98% Success Rate</p>
+                    <p className="card-title"> </p>
                     <p className="card-subtitle">Proven results</p>
                   </div>
                 </div>
