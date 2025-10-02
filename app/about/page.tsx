@@ -68,7 +68,10 @@ export default function AboutPage() {
               <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">
                 About Us
               </h1>
-              <div className="space-y-4 text-xl text-gray-600 max-w-3xl">
+              <div
+                className="space-y-4 text-[1.05rem] text-gray-700 leading-[1.9] max-w-6xl"
+                style={{ textAlign: "justify" }} // why: ensure full justification cross-browser
+              >
                 <p>
                   At Serenity Rehabilitation Center, Inc., our mission is to
                   provide excellent, research-based care for individuals facing
@@ -99,13 +102,16 @@ export default function AboutPage() {
               </div>
             </div>
 
-            {/* Right: Our Goal panel (from your image text) */}
+            {/* Right: Our Goal panel */}
             <Card className="bg-white rounded-2xl shadow-sm border-l-4 border-l-cyan-600">
               <CardContent className="p-6">
                 <div className="inline-block rounded-md bg-gray-100 px-3 py-1 text-sm font-semibold text-gray-800 mb-4">
                   OUR GOAL
                 </div>
-                <div className="space-y-4 text-gray-700 leading-relaxed">
+                <div
+                  className="space-y-4 text-gray-700 leading-relaxed"
+                  style={{ textAlign: "justify" }} // why: match left column readability
+                >
                   <p>
                     Our Goal is to provide a high level therapeutic interventions
                     in a short period of time to consumers who are experiencing
@@ -118,19 +124,19 @@ export default function AboutPage() {
                     in their person centered treatment plans.
                   </p>
                   <p>
-                    The philosophy is that individuals and their families receive
-                    high quality intensive mental health care in the least
-                    restricted environment and they attend the program to learn
-                    proactive coping skills to empower the client to enhance
-                    growth and to gain the necessary skills to reach their full
-                    potential.
+                    The philosophy is that individuals and their families
+                    receive high quality intensive mental health care in the
+                    least restricted environment and they attend the program to
+                    learn proactive coping skills to empower the client to
+                    enhance growth and to gain the necessary skills to reach
+                    their full potential.
                   </p>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* 2) Join Our Community of Hope and Recovery (SECOND) */}
+          {/* 2) Join Our Community of Hope and Recovery */}
           <AboutSection />
 
           {/* Mission Section */}
@@ -139,14 +145,14 @@ export default function AboutPage() {
               <h2 className="text-3xl font-serif font-bold text-gray-900 mb-6">
                 Our Mission
               </h2>
-              <p className="text-gray-600 mb-4">
+              <p className="text-gray-700 leading-relaxed mb-4" style={{ textAlign: "justify" }}>
                 At Serenity Rehabilitation Center, we believe that every
                 individual deserves the opportunity to heal and rebuild their
                 life. Our mission is to provide comprehensive, compassionate
                 care that addresses not just the symptoms of lead poisoning and
                 addiction, but the whole person.
               </p>
-              <p className="text-gray-600 mb-6">
+              <p className="text-gray-700 leading-relaxed mb-6" style={{ textAlign: "justify" }}>
                 We are committed to creating a safe, supportive environment
                 where individuals can begin their journey to recovery with
                 dignity and hope.
@@ -162,37 +168,33 @@ export default function AboutPage() {
               <ul className="space-y-3">
                 <li className="flex items-start">
                   <Heart className="w-5 h-5 text-cyan-600 mr-3 mt-1" />
-                  <span className="text-gray-600">
-                    <strong>Compassion:</strong> We treat every individual with
-                    empathy and understanding
+                  <span className="text-gray-700">
+                    <strong>Compassion:</strong> We treat every individual with empathy and understanding
                   </span>
                 </li>
                 <li className="flex items-start">
                   <Shield className="w-5 h-5 text-cyan-600 mr-3 mt-1" />
-                  <span className="text-gray-600">
-                    <strong>Safety:</strong> We provide a secure environment for
-                    healing and recovery
+                  <span className="text-gray-700">
+                    <strong>Safety:</strong> We provide a secure environment for healing and recovery
                   </span>
                 </li>
                 <li className="flex items-start">
                   <Users className="w-5 h-5 text-cyan-600 mr-3 mt-1" />
-                  <span className="text-gray-600">
-                    <strong>Community:</strong> We believe in the power of peer
-                    support and connection
+                  <span className="text-gray-700">
+                    <strong>Community:</strong> We believe in the power of peer support and connection
                   </span>
                 </li>
                 <li className="flex items-start">
                   <Award className="w-5 h-5 text-cyan-600 mr-3 mt-1" />
-                  <span className="text-gray-600">
-                    <strong>Excellence:</strong> We maintain the highest
-                    standards of care and treatment
+                  <span className="text-gray-700">
+                    <strong>Excellence:</strong> We maintain the highest standards of care and treatment
                   </span>
                 </li>
               </ul>
             </div>
           </div>
 
-          {/* Statistics */}
+          {/* Statistics + CTA unchanged... */}
           <div className="grid md:grid-cols-4 gap-8 mb-16">
             <Card className="text-center p-6">
               <CardContent className="pt-6">
@@ -220,7 +222,6 @@ export default function AboutPage() {
             </Card>
           </div>
 
-          {/* CTA */}
           <div className="bg-indigo-600 rounded-lg p-8 text-center text-white">
             <h2 className="text-3xl font-serif font-bold mb-4">
               Join Our Community of Recovery
