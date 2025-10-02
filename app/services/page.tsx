@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui/button"; // used for PDF CTA
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -29,54 +29,23 @@ export const metadata: Metadata = {
     "Comprehensive, evidence-based treatment programs designed to support your recovery journey with dignity and care.",
 };
 
-/** Why: Your provided section placed second per requested order. */
+const METHADONE_PDF_ROUTE = "/docs/methadone.pdf"; // place the PDF under /public/docs/methadone.pdf
+
 function ServicesSection() {
   const services = [
-    {
-      title: "Lead Detoxification",
-      description:
-        "Safe and effective removal of lead from your system using proven medical protocols.",
-      icon: "🔬",
-    },
-    {
-      title: "Nutritional Therapy",
-      description:
-        "Specialized nutrition plans to support your body's natural healing processes.",
-      icon: "🥗",
-    },
-    {
-      title: "Cognitive Rehabilitation",
-      description:
-        "Targeted therapies to address cognitive effects of lead exposure.",
-      icon: "🧠",
-    },
-    {
-      title: "Family Support",
-      description:
-        "Comprehensive support services for families affected by lead poisoning.",
-      icon: "👨‍👩‍👧‍👦",
-    },
-    {
-      title: "Environmental Assessment",
-      description:
-        "Professional evaluation of your living and working environments.",
-      icon: "🏠",
-    },
-    {
-      title: "Long-term Monitoring",
-      description:
-        "Ongoing health monitoring to ensure sustained recovery and wellness.",
-      icon: "📊",
-    },
+    { title: "Lead Detoxification", description: "Safe and effective removal of lead from your system using proven medical protocols.", icon: "🔬" },
+    { title: "Nutritional Therapy", description: "Specialized nutrition plans to support your body's natural healing processes.", icon: "🥗" },
+    { title: "Cognitive Rehabilitation", description: "Targeted therapies to address cognitive effects of lead exposure.", icon: "🧠" },
+    { title: "Family Support", description: "Comprehensive support services for families affected by lead poisoning.", icon: "👨‍👩‍👧‍👦" },
+    { title: "Environmental Assessment", description: "Professional evaluation of your living and working environments.", icon: "🏠" },
+    { title: "Long-term Monitoring", description: "Ongoing health monitoring to ensure sustained recovery and wellness.", icon: "📊" },
   ];
 
   return (
     <section id="services" className="py-20 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
-          <h2 className="text-4xl font-serif font-bold text-gray-900 mb-4">
-            Discover Our Treatment Options
-          </h2>
+          <h2 className="text-4xl font-serif font-bold text-gray-900 mb-4">Discover Our Treatment Options</h2>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
             Our comprehensive approach to lead poisoning recovery combines medical expertise with compassionate care to
             address every aspect of your healing journey.
@@ -85,15 +54,10 @@ function ServicesSection() {
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
           {services.map((service, index) => (
-            <Card
-              key={index}
-              className="hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 border-gray-200"
-            >
+            <Card key={index} className="hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 border-gray-200">
               <CardHeader className="text-center">
                 <div className="text-4xl mb-4">{service.icon}</div>
-                <CardTitle className="text-xl font-serif text-gray-900">
-                  {service.title}
-                </CardTitle>
+                <CardTitle className="text-xl font-serif text-gray-900">{service.title}</CardTitle>
               </CardHeader>
               <CardContent>
                 <CardDescription className="text-gray-600 text-center leading-relaxed">
@@ -108,32 +72,29 @@ function ServicesSection() {
   );
 }
 
-/** Why: Combined Counseling + Support; copied the image text verbatim under Counseling. */
+/** Why: Last section as requested. Buttons inside Counseling/Support remain removed; new PDF CTA added for Methadone. */
 function LeadGenerationSection() {
   return (
     <section className="py-16 bg-gray-50">
       <div className="container mx-auto px-4">
         {/* Header */}
         <div className="text-center mb-12">
-          <Badge className="bg-cyan-100 text-cyan-800 mb-4">
-            Licensed Addiction Treatment Center
-          </Badge>
-          <h2 className="text-3xl md:text-4xl font-serif text-gray-900 mb-4">
-            Counseling & Methadone Dispensing Program
-          </h2>
+          <Badge className="bg-cyan-100 text-cyan-800 mb-4">Licensed Addiction Treatment Center</Badge>
+          <h2 className="text-3xl md:text-4xl font-serif text-gray-900 mb-4">Counseling & Methadone Dispensing Program</h2>
           <p className="text-gray-600 max-w-2xl mx-auto">
             Comprehensive addiction treatment services tailored to your personal needs
           </p>
         </div>
 
-        {/* Combined Services Grid */}
+        {/* Combined Services Grid (2 cards) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
-          {/* Counseling Services (uses image copy) */}
+          {/* Counseling Services (image copy) */}
           <Card className="border-t-4 border-t-cyan-600">
             <CardHeader>
               <CardTitle className="text-xl">Counseling Services</CardTitle>
               <CardDescription>
-                Professional counselors are available to help patient work through a wide variety of issues that they might be facing during their life experience.
+                Professional counselors are available to help patient work through a wide variety of issues that they
+                might be facing during their life experience.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -147,9 +108,7 @@ function LeadGenerationSection() {
                   <li>Adelson Counseling.</li>
                   <li>Peer support.</li>
                   <li>After care services.</li>
-                  <li>
-                    Referral for medication evaluation and management with a psychiatrist or family practice physician.
-                  </li>
+                  <li>Referral for medication evaluation and management with a psychiatrist or family practice physician.</li>
                 </ul>
               </div>
 
@@ -160,18 +119,14 @@ function LeadGenerationSection() {
                   consent or when it is ordered by the court.
                 </p>
               </div>
-
-              <Button className="w-full bg-cyan-600 hover:bg-cyan-700">Learn More About Counseling</Button>
             </CardContent>
           </Card>
 
-          {/* Support Services (combined content) */}
+          {/* Support Services */}
           <Card className="border-t-4 border-t-green-600">
             <CardHeader>
               <CardTitle className="text-xl">Support Services</CardTitle>
-              <CardDescription>
-                Comprehensive supports that surround counseling and treatment to sustain progress.
-              </CardDescription>
+              <CardDescription>Comprehensive supports that surround counseling and treatment to sustain progress.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
@@ -186,34 +141,25 @@ function LeadGenerationSection() {
                   <li>Navigation for medical monitoring & dosage management (MAT).</li>
                 </ul>
               </div>
-
-              <Button className="w-full bg-green-600 hover:bg-green-700">Access Support Services</Button>
             </CardContent>
           </Card>
         </div>
 
-        {/* Statistics */}
+        {/* Methadone intro + PDF CTA (replaces old "Facts" grid) */}
         <div className="bg-white rounded-lg p-8">
-          <h3 className="text-xl font-semibold text-center mb-8">
-            Methadone Treatment Facts
-          </h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-            <div>
-              <div className="text-3xl font-bold text-cyan-500 mb-2"></div>
-              <div className="text-sm text-gray-600">Years of Research</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-cyan-500 mb-2"></div>
-              <div className="text-sm text-gray-600">Reduction in Crime</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-cyan-500 mb-2"></div>
-              <div className="text-sm text-gray-600">Reduction in HIV Risk</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-cyan-500 mb-2">24/7</div>
-              <div className="text-sm text-gray-600">Support Available</div>
-            </div>
+          <h3 className="text-2xl font-serif font-bold text-gray-900 mb-4">Methadone</h3>
+          <div className="text-gray-700 leading-relaxed mb-6">
+            <p>
+              Methadone is a long-acting opioid medication that is used as a pain reliever and, together with counseling
+              and other psychosocial services, is used to treat individuals addicted to heroin and certain prescription drugs.
+            </p>
+          </div>
+          <div className="text-center">
+            <a href={METHADONE_PDF_ROUTE} target="_blank" rel="noopener noreferrer">
+              <Button className="bg-cyan-600 hover:bg-cyan-700">
+                GET more information here
+              </Button>
+            </a>
           </div>
         </div>
       </div>
@@ -232,9 +178,7 @@ export default function CombinedServicesPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* 1) Our Treatment Services */}
           <div className="text-center mb-16">
-            <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">
-              Our Treatment Services
-            </h1>
+            <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">Our Treatment Services</h1>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto">
               Comprehensive, evidence-based treatment programs designed to support your recovery journey with dignity and care.
             </p>
@@ -247,9 +191,7 @@ export default function CombinedServicesPage() {
                   <Heart className="w-6 h-6 text-cyan-600" />
                 </div>
                 <CardTitle>Individual Therapy</CardTitle>
-                <CardDescription>
-                  One-on-one counseling sessions tailored to your specific needs
-                </CardDescription>
+                <CardDescription>One-on-one counseling sessions tailored to your specific needs</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2">
