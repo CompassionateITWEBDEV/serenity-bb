@@ -1,31 +1,31 @@
 // app/contact/page.tsx
-"use client"
+"use client";
 
-import { useState, type FormEvent } from "react"
-import { Header } from "@/components/header"
-import { Footer } from "@/components/footer"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
-import { MapPin, Phone, Mail, Clock, AlertCircle } from "lucide-react"
-import { getSwal } from "@/lib/sweetalert"
-import InteractiveMap from "@/components/interactive-map"
+import { useState, type FormEvent } from "react";
+import { Header } from "@/components/header";
+import { Footer } from "@/components/footer";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { MapPin, Phone, Mail, Clock, AlertCircle } from "lucide-react";
+import { getSwal } from "@/lib/sweetalert";
+import InteractiveMap from "@/components/interactive-map";
 
 export default function ContactPage() {
-  const [submitting, setSubmitting] = useState(false)
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    if (submitting) return
-    setSubmitting(true)
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
 
-    const form = e.currentTarget
-    const formData = new FormData(form)
+    const form = e.currentTarget;
+    const formData = new FormData(form);
 
-    const hasPhone = Boolean((formData.get("phone") as string | null)?.trim())
-    const contact_method = hasPhone ? "phone" : "email"
+    const hasPhone = Boolean((formData.get("phone") as string | null)?.trim());
+    const contact_method = hasPhone ? "phone" : "email";
 
     const data = {
       first_name: (formData.get("firstName") as string || "").trim(),
@@ -36,12 +36,16 @@ export default function ContactPage() {
       message: (formData.get("message") as string || "").trim(),
       contact_method,
       source: "contact",
-    }
+    };
 
     if (!data.first_name || !data.last_name || !data.email || !data.message) {
-      getSwal()?.fire({ icon: "warning", title: "Missing fields", text: "First & last name, email and message are required." })
-      setSubmitting(false)
-      return
+      getSwal()?.fire({
+        icon: "warning",
+        title: "Missing fields",
+        text: "First & last name, email and message are required.",
+      });
+      setSubmitting(false);
+      return;
     }
 
     try {
@@ -49,33 +53,36 @@ export default function ContactPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
-      })
+      });
 
       if (!res.ok) {
-        const txt = await res.text()
-        throw new Error(txt || "Submission failed")
+        const txt = await res.text();
+        throw new Error(txt || "Submission failed");
       }
 
-      // @ts-ignore
-      window.gtag?.("event", "generate_lead", { form_type: "contact", contact_method })
+      // @ts-ignore - present only if GA is configured
+      window.gtag?.("event", "generate_lead", {
+        form_type: "contact",
+        contact_method,
+      });
 
       getSwal()?.fire({
         icon: "success",
         title: "Message sent",
         text: "Thanks for reaching out. We’ll contact you shortly.",
         confirmButtonColor: "#06b6d4",
-      })
+      });
 
-      form.reset()
+      form.reset();
     } catch (err) {
       getSwal()?.fire({
         icon: "error",
         title: "Could not send",
         text: err instanceof Error ? err.message : "Please try again.",
-      })
-      console.error("Failed to submit contact form", err)
+      });
+      console.error("Failed to submit contact form", err);
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
   }
 
@@ -84,9 +91,11 @@ export default function ContactPage() {
       <Header />
       <main className="py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Hero Section */}
+          {/* Hero */}
           <div className="text-center mb-16">
-            <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">Contact Us</h1>
+            <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">
+              Contact Us
+            </h1>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto">
               We're here to help you take the first step towards recovery. Reach out to us today for confidential
               support and information.
@@ -94,7 +103,7 @@ export default function ContactPage() {
           </div>
 
           <div className="grid lg:grid-cols-2 gap-12">
-            {/* Contact Form */}
+            {/* Form */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-2xl font-serif">Send Us a Message</CardTitle>
@@ -125,7 +134,12 @@ export default function ContactPage() {
                   </div>
                   <div>
                     <Label htmlFor="message">Message *</Label>
-                    <Textarea id="message" name="message" placeholder="Tell us how we can help you..." className="min-h-[120px]" />
+                    <Textarea
+                      id="message"
+                      name="message"
+                      placeholder="Tell us how we can help you..."
+                      className="min-h-[120px]"
+                    />
                   </div>
                   <Button disabled={submitting} className="w-full bg-cyan-600 hover:bg-indigo-500">
                     {submitting ? "Sending..." : "Send Message"}
@@ -134,7 +148,7 @@ export default function ContactPage() {
               </CardContent>
             </Card>
 
-            {/* Contact Information */}
+            {/* Info */}
             <div className="space-y-6">
               <Card>
                 <CardHeader>
@@ -145,7 +159,7 @@ export default function ContactPage() {
                     <MapPin className="w-6 h-6 text-cyan-600 mt-1" />
                     <div>
                       <h3 className="font-semibold text-gray-900">Address</h3>
-                      <p className="text-gray-600">123 Recovery St, Pontiac, MI 48341</p>
+                      <p className="text-gray-600">35 S Johnson Ave, Pontiac, MI 48341</p>
                     </div>
                   </div>
                   <div className="flex items-start space-x-4">
@@ -217,14 +231,19 @@ export default function ContactPage() {
             </div>
           </div>
 
-          {/* Map Section */}
+          {/* Map */}
           <div className="mt-16">
             <Card>
               <CardHeader>
                 <CardTitle className="text-2xl font-serif">Find Us</CardTitle>
               </CardHeader>
               <CardContent>
-                <InteractiveMap />
+                <InteractiveMap
+                  address="35 S Johnson Ave, Pontiac, MI 48341"
+                  // center can be provided for exact pin; using fallback center inside component
+                  // center={[42.6379, -83.2918]}
+                  zoom={13}
+                />
               </CardContent>
             </Card>
           </div>
@@ -233,5 +252,5 @@ export default function ContactPage() {
 
       <Footer />
     </div>
-  )
+  );
 }
