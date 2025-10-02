@@ -155,9 +155,9 @@ function LeadGenerationSection() {
             </p>
           </div>
           <div className="text-center">
-            <a href={METHADONE_PDF_ROUTE} target="_blank" rel="noopener noreferrer">
+            <a href={public/Serenity-Brochure-High-Res_compressed.pdf} target="_blank" rel="noopener noreferrer">
               <Button className="bg-cyan-600 hover:bg-cyan-700">
-                GET more information here
+                Get more information about Methadone Here!
               </Button>
             </a>
           </div>
