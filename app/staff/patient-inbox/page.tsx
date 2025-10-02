@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import { Badge } from "@/components/ui/badge";
@@ -19,15 +19,6 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import PatientInbox from "@/components/staff/PatientInbox";
-
-/* why: tiny helper to keep an animated flash on new events */
-function FlashBadge({ label }: { label: string }) {
-  return (
-    <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-xs animate-pulse">
-      {label}
-    </span>
-  );
-}
 
 function IconPill({
   children,
@@ -56,60 +47,152 @@ function IconPill({
   );
 }
 
+type Patient = {
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+  phone_number?: string | null;
+  avatar?: string | null;
+  created_at: string;
+};
+
+type CareTeamRow = {
+  patient_id: string;
+  staff_id: string;
+  role_on_team?: string | null;
+  is_primary?: boolean;
+  added_at?: string;
+  patients: Patient; // joined row
+};
+
 export default function StaffPatientInboxPage() {
   const router = useRouter();
 
-  // Supabase browser client (public anon key)
   const supabase = useMemo(
-    () =>
-      createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
-      ),
+    () => createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL as string,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
+    ),
     []
   );
 
-  const [patientsCount, setPatientsCount] = useState<number | null>(null);
-  const [flash, setFlash] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const flashTimer = useRef<number | null>(null);
+  const [assignedPatients, setAssignedPatients] = useState<Patient[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Helper: replace/insert a patient in state
+  function upsertPatient(p: Patient) {
+    setAssignedPatients((prev) => {
+      const idx = prev.findIndex((x) => x.user_id === p.user_id);
+      if (idx === -1) return [p, ...prev];
+      const next = prev.slice();
+      next[idx] = { ...next[idx], ...p };
+      return next;
+    });
+  }
+
+  // Helper: remove patient if assignment removed
+  function removePatient(patientId: string) {
+    setAssignedPatients((prev) => prev.filter((p) => p.user_id !== patientId));
+  }
 
   useEffect(() => {
     let mounted = true;
+    let staffId: string;
 
-    async function loadInitial() {
-      // why: count quickly without loading heavy data
-      const { count } = await supabase
-        .from("patients")
-        .select("*", { count: "estimated", head: true });
+    async function boot() {
+      // get auth user (staff)
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth?.user) {
+        router.push("/staff/login");
+        return;
+      }
+      staffId = auth.user.id;
+
+      // load assignments + joined patients
+      const { data, error } = await supabase
+        .from("patient_care_team")
+        .select(`
+          patient_id,
+          staff_id,
+          role_on_team,
+          is_primary,
+          added_at,
+          patients:patient_id (
+            user_id, full_name, email, phone_number, avatar, created_at
+          )
+        `)
+        .eq("staff_id", staffId)
+        .order("added_at", { ascending: false });
+
       if (!mounted) return;
-      setPatientsCount(typeof count === "number" ? count : 0);
+      if (error) {
+        console.error("Failed to load assigned patients:", error.message);
+      } else {
+        const pts = (data as CareTeamRow[]).map((r) => r.patients).filter(Boolean);
+        setAssignedPatients(pts);
+      }
+      setLoading(false);
+
+      // Build filter for patient updates
+      const ids = (data || []).map((r: any) => r.patient_id);
+      const idList = ids.length ? `in.(${ids.join(",")})` : null;
+
+      // Realtime: assignments (only for this staff)
+      const careTeamCh = supabase
+        .channel("pct-" + staffId)
+        .on(
+          "postgres_changes",
+          { schema: "public", table: "patient_care_team", event: "INSERT", filter: `staff_id=eq.${staffId}` },
+          async (payload) => {
+            const pid = (payload.new as any).patient_id as string;
+            // fetch the joined patient once
+            const { data: row } = await supabase
+              .from("patients")
+              .select("user_id, full_name, email, phone_number, avatar, created_at")
+              .eq("user_id", pid)
+              .maybeSingle();
+            if (row && mounted) upsertPatient(row as Patient);
+          }
+        )
+        .on(
+          "postgres_changes",
+          { schema: "public", table: "patient_care_team", event: "DELETE", filter: `staff_id=eq.${staffId}` },
+          (payload) => {
+            const pid = (payload.old as any).patient_id as string;
+            if (mounted) removePatient(pid);
+          }
+        )
+        .subscribe();
+
+      // Realtime: patient record updates for assigned ids
+      const patientsCh = supabase
+        .channel("patients-upd-" + staffId)
+        .on(
+          "postgres_changes",
+          {
+            schema: "public",
+            table: "patients",
+            event: "UPDATE",
+            ...(idList ? { filter: `user_id=${idList}` } : {}),
+          },
+          (payload) => {
+            const p = payload.new as Patient;
+            if (mounted) upsertPatient(p);
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(careTeamCh);
+        supabase.removeChannel(patientsCh);
+      };
     }
 
-    loadInitial();
-
-    // Realtime: new patients registration
-    const channel = supabase
-      .channel("realtime-patients")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "patients" },
-        (payload) => {
-          setPatientsCount((c) => (typeof c === "number" ? c + 1 : 1));
-          setRefreshKey((k) => k + 1); // remount inbox to refetch, minimal integration
-          setFlash("New patient registered");
-          if (flashTimer.current) window.clearTimeout(flashTimer.current);
-          flashTimer.current = window.setTimeout(() => setFlash(null), 2500);
-        }
-      )
-      .subscribe();
-
+    boot();
     return () => {
       mounted = false;
-      supabase.removeChannel(channel);
-      if (flashTimer.current) window.clearTimeout(flashTimer.current);
     };
-  }, [supabase]);
+  }, [router, supabase]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -125,10 +208,8 @@ export default function StaffPatientInboxPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {flash && <FlashBadge label={flash} />}
             <Badge variant="secondary" className="gap-1">
-              <Activity className="h-3.5 w-3.5" />
-              Live{typeof patientsCount === "number" ? ` · ${patientsCount} patients` : ""}
+              <Activity className="h-3.5 w-3.5" /> Live · {assignedPatients.length} patients
             </Badge>
           </div>
         </div>
@@ -165,19 +246,21 @@ export default function StaffPatientInboxPage() {
 
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Patient Inbox</h2>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-2"
-            onClick={() => router.push("/staff/dashboard")}
-          >
+          <Button variant="ghost" size="sm" className="gap-2" onClick={() => router.push("/staff/dashboard")}>
             <ArrowLeft className="h-4 w-4" /> Back to Dashboard
           </Button>
         </div>
 
-        {/* Inject refreshKey so inbox remounts on new patient */}
         <div className="grid">
-          <PatientInbox key={refreshKey} onNewGroup={() => console.log("new patient group")} />
+          {loading ? (
+            <p className="text-slate-500">Loading assigned patients…</p>
+          ) : (
+            // Expect PatientInbox to accept a `patients` prop; if not, I can refactor it next.
+            <PatientInbox
+              patients={assignedPatients}
+              onNewGroup={() => console.log("new patient group")}
+            />
+          )}
         </div>
       </main>
     </div>
