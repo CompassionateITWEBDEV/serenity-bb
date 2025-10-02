@@ -47,7 +47,7 @@ export function Header() {
                   fill="none"
                 />
               </svg>
-              <span className="text-[22px] md:text-[26px] font-semibold text-teal-800 leading-snug">
+              <span className="text-[26px] md:text-[32px] font-semibold text-teal-800 leading-snug">
                 Serenity Rehabilitation Center
               </span>
             </Link>
