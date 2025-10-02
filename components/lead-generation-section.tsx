@@ -80,15 +80,15 @@ export function LeadGenerationSection() {
           <h3 className="text-xl font-semibold text-center mb-8">Methadone Treatment Facts</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
             <div>
-              <div className="text-3xl font-bold text-cyan-500 mb-2">40+</div>
+              <div className="text-3xl font-bold text-cyan-500 mb-2"></div>
               <div className="text-sm text-gray-600">Years of Research</div>
             </div>
             <div>
-              <div className="text-3xl font-bold text-cyan-500 mb-2">75%</div>
+              <div className="text-3xl font-bold text-cyan-500 mb-2"></div>
               <div className="text-sm text-gray-600">Reduction in Crime</div>
             </div>
             <div>
-              <div className="text-3xl font-bold text-cyan-500 mb-2">60%</div>
+              <div className="text-3xl font-bold text-cyan-500 mb-2"></div>
               <div className="text-sm text-gray-600">Reduction in HIV Risk</div>
             </div>
             <div>
