@@ -53,7 +53,7 @@ export async function middleware(request: NextRequest) {
       if (pathname === "/login" && role === "patient")
         return NextResponse.redirect(new URL("/patient/dashboard", origin));
       if (pathname === "/staff/login" && role !== "patient")
-        return NextResponse.redirect(new URL("/staff/login", origin));
+        return NextResponse.redirect(new URL("/staff/dashboard", origin));
     } catch { /* ignore */ }
     return response;
   }
