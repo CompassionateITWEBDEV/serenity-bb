@@ -185,33 +185,7 @@ export default function AboutPage() {
             </div>
           </div>
 
-          {/* Statistics + CTA unchanged... */}
-          <div className="grid md:grid-cols-4 gap-8 mb-16">
-            <Card className="text-center p-6">
-              <CardContent className="pt-6">
-                <div className="text-3xl font-bold text-cyan-600 mb-2"></div>
-                <div className="text-gray-600">Years of Experience</div>
-              </CardContent>
-            </Card>
-            <Card className="text-center p-6">
-              <CardContent className="pt-6">
-                <div className="text-3xl font-bold text-cyan-600 mb-2"></div>
-                <div className="text-gray-600">Lives Transformed</div>
-              </CardContent>
-            </Card>
-            <Card className="text-center p-6">
-              <CardContent className="pt-6">
-                <div className="text-3xl font-bold text-cyan-600 mb-2"></div>
-                <div className="text-gray-600">Success Rate</div>
-              </CardContent>
-            </Card>
-            <Card className="text-center p-6">
-              <CardContent className="pt-6">
-                <div className="text-3xl font-bold text-cyan-600 mb-2">24/7</div>
-                <div className="text-gray-600">Support Available</div>
-              </CardContent>
-            </Card>
-          </div>
+         
 
           <div className="bg-indigo-600 rounded-lg p-8 text-center text-white">
             <h2 className="text-3xl font-serif font-bold mb-4">
