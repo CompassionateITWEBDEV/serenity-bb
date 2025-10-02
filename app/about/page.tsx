@@ -184,7 +184,7 @@ export default function AboutPage() {
               Take the first step towards healing and transformation today.
             </p>
             <Button size="lg" asChild className="bg-white text-indigo-600 hover:bg-gray-100">
-              <Link href="components/patient-intake-form.tsx">Start Your Journey</Link>
+              <Link href="/intake">Start Your Journey</Link>
             </Button>
           </div>
         </div>
