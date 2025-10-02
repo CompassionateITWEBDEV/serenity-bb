@@ -1,23 +1,91 @@
-import { Header } from "@/components/header"
-import { Footer } from "@/components/footer"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Calendar, User, ArrowRight } from "lucide-react"
+// app/blog/page.tsx
+import { Header } from "@/components/header";
+import { Footer } from "@/components/footer";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Calendar, User, ArrowRight } from "lucide-react";
 
 export default function BlogPage() {
   const blogPosts = [
-    { id: 1, title: "Medication-Assisted Treatment: Explore what makes residential treatment effective—from structured daily routines to comprehensive therapy—and learn how a supportive environment can transform your recovery journey.
-", author: "", date: "", category: "Health Education", readTime: "" },
-    { id: 2, title: "Inside Serenity: Your Journey to Lasting Recovery", "A Lifeline in Recovery", excerpt: "Discover how methadone and other MAT options provide medical support for opioid addiction, reduce cravings, and create a foundation for lasting recovery.
-", author: "", date: "", category: "Family Support", readTime: "7 min read" },
-    { id: 3, title: "Your Recovery Roadmap: Understanding Treatment Options", excerpt: "From medication-assisted treatment to residential programs, learn about evidence-based approaches that support long-term recovery and help you reclaim your life.", author: "", date: "", category: "", readTime: "" },
-    { id: 4, title: "", excerpt: "Explore evidence-based techniques for managing stress, triggers, and challenges during your recovery journey.", author: "", date: "", category: "", readTime: "" },
-    { id: 5, title: "", excerpt: "Understanding the connection between mental health and addiction, and how integrated treatment approaches lead to better outcomes.", author: "", date: "", category: "Mental Health", readTime: "" },
-    { id: 6, title: "", excerpt: "Learn how proper nutrition supports the recovery process and discover practical tips for maintaining a healthy diet.", author: "", date: "", category: "", readTime: "" },
-  ]
+    {
+      id: 1,
+      title:
+        "Medication-Assisted Treatment: What It Is and How It Supports Recovery",
+      excerpt:
+        "Explore how MAT pairs safe, FDA-approved medications with counseling to reduce cravings, stabilize withdrawal, and support long-term recovery.",
+      author: "SRC Medical Team",
+      date: "Jan 15, 2024",
+      category: "Health Education",
+      readTime: "6 min read",
+    },
+    {
+      id: 2,
+      title: "Inside Serenity: Your Journey to Lasting Recovery",
+      excerpt:
+        "From structured routines to comprehensive therapy, learn how a supportive environment can transform your recovery journey.",
+      author: "Care Coordination",
+      date: "Jan 10, 2024",
+      category: "Family Support",
+      readTime: "7 min read",
+    },
+    {
+      id: 3,
+      title: "Your Recovery Roadmap: Understanding Treatment Options",
+      excerpt:
+        "From medication-assisted treatment to outpatient care, review evidence-based approaches that help you reclaim your life.",
+      author: "Clinical Programs",
+      date: "Jan 05, 2024",
+      category: "Treatment",
+      readTime: "5 min read",
+    },
+    {
+      id: 4,
+      title: "Building Healthy Coping Strategies for Long-Term Recovery",
+      excerpt:
+        "Practical, evidence-based techniques for managing stress, triggers, and setbacks during recovery.",
+      author: "SRC Counseling",
+      date: "Dec 28, 2023",
+      category: "Recovery Tips",
+      readTime: "8 min read",
+    },
+    {
+      id: 5,
+      title: "The Importance of Mental Health in Addiction Recovery",
+      excerpt:
+        "How integrated care for co-occurring disorders leads to better outcomes and sustained recovery.",
+      author: "Brianna Carter, LCSW",
+      date: "Dec 20, 2023",
+      category: "Mental Health",
+      readTime: "6 min read",
+    },
+    {
+      id: 6,
+      title: "Nutrition and Recovery: Healing Your Body from the Inside Out",
+      excerpt:
+        "Why nutrition matters in recovery and simple tips to support brain and body healing.",
+      author: "Sam Rivera, RN",
+      date: "Dec 15, 2023",
+      category: "Wellness",
+      readTime: "5 min read",
+    },
+  ];
 
-  const categories = ["All","Health Education","Treatment","Recovery Tips","Family Support","Mental Health","Wellness"]
+  const categories = [
+    "All",
+    "Health Education",
+    "Treatment",
+    "Recovery Tips",
+    "Family Support",
+    "Mental Health",
+    "Wellness",
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -28,21 +96,24 @@ export default function BlogPage() {
           {/* Hero */}
           <div className="text-center mb-16">
             <h1 className="font-serif font-bold text-gray-900 mb-4 leading-tight text-[clamp(24px,3vw,36px)]">
-              Recovery Resources & Insights
+              Recovery Resources &amp; Insights
             </h1>
             <p className="text-gray-600 max-w-3xl mx-auto leading-relaxed text-[clamp(15px,1.6vw,18px)]">
-              Expert guidance, educational resources, and inspiring stories to support your recovery journey.
+              Expert guidance, educational resources, and inspiring stories to
+              support your recovery journey.
             </p>
           </div>
 
-          {/* Category Filter */}
+          {/* Category Filter (static UI) */}
           <div className="flex flex-wrap gap-2 mb-12 justify-center">
             {categories.map((category) => (
               <Button
                 key={category}
                 variant={category === "All" ? "default" : "outline"}
                 size="sm"
-                className={category === "All" ? "bg-cyan-600 hover:bg-indigo-500" : ""}
+                className={
+                  category === "All" ? "bg-cyan-600 hover:bg-indigo-500" : ""
+                }
               >
                 {category}
               </Button>
@@ -56,7 +127,9 @@ export default function BlogPage() {
                 <div className="h-64 md:h-full bg-gradient-to-br from-cyan-500 to-indigo-600" />
               </div>
               <div className="md:w-2/3 p-8">
-                <Badge className="mb-4 bg-cyan-100 text-cyan-800">Featured</Badge>
+                <Badge className="mb-4 bg-cyan-100 text-cyan-800">
+                  Featured
+                </Badge>
                 <h2 className="font-serif font-bold text-gray-900 mb-4 leading-snug text-[clamp(22px,2.4vw,32px)]">
                   {blogPosts[0].title}
                 </h2>
@@ -116,7 +189,8 @@ export default function BlogPage() {
               Stay Informed
             </h2>
             <p className="mb-6 opacity-90 text-[clamp(15px,1.6vw,18px)]">
-              Subscribe to our newsletter for the latest recovery resources and expert insights.
+              Subscribe to our newsletter for the latest recovery resources and
+              expert insights.
             </p>
             <div className="max-w-md mx-auto flex gap-4">
               <input
@@ -124,7 +198,9 @@ export default function BlogPage() {
                 placeholder="Enter your email"
                 className="flex-1 px-4 py-2 rounded-lg text-gray-900"
               />
-              <Button className="bg-white text-indigo-600 hover:bg-gray-100">Subscribe</Button>
+              <Button className="bg-white text-indigo-600 hover:bg-gray-100">
+                Subscribe
+              </Button>
             </div>
           </div>
         </div>
@@ -132,5 +208,5 @@ export default function BlogPage() {
 
       <Footer />
     </div>
-  )
+  );
 }
