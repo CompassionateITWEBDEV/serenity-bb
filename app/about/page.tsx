@@ -23,7 +23,7 @@ export function AboutSection() {
               Join Our Community of Hope and Recovery
             </h2>
             <p className="text-lg text-gray-600 leading-relaxed">
-             Serenity Rehabilitation Center has been a beacon of hope for individuals and families
+              Serenity Rehabilitation Center has been a beacon of hope for individuals and families
               affected by lead poisoning. Our multidisciplinary team of medical professionals, nutritionists, and
               counselors work together to create personalized treatment plans that address your unique needs.
             </p>
@@ -59,12 +59,12 @@ export default function AboutPage() {
 
       <main className="py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* 1) About Serenity Rehabilitation Center (FIRST) */}
-          <div className="text-center mb-16">
+          {/* 1) About Us (LEFT-ALIGNED) */}
+          <div className="mb-16">
             <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">
-              About Serenity Rehabilitation Center
+              About Us
             </h1>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+            <p className="text-xl text-gray-600 max-w-3xl">
               we've been dedicated to providing compassionate, evidence-based treatment for
               individuals affected by lead poisoning and addiction.
             </p>
