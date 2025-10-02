@@ -40,7 +40,7 @@ export function HeroSection() {
                   <div className="stat-label">Lives Restored</div>
                 </div>
                 <div className="stat-item">
-                  <div className="stat-number"></div>
+                  <div className="stat-number">3</div>
                   <div className="stat-label">Years Experience</div>
                 </div>
                 <div className="stat-item">
