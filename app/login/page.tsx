@@ -76,7 +76,7 @@ export default function LoginPage() {
               )}
 
               <div className="space-y-3">
-                <Label htmlFor="email" className="text-lg font-medium">Email Address</Label>
+                <Label htmlFor="email" className="text-xl font-medium">Email Address</Label>
                 <Input
                   id="email"
                   type="email"
@@ -84,9 +84,8 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="h-14 text-lg"
+                  className="h-16 text-xl"
                 />
-              </div>
 
               <div className="space-y-3">
                 <Label htmlFor="password" className="text-lg font-medium">Password</Label>
