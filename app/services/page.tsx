@@ -20,7 +20,7 @@ import {
   Heart,
   Clock,
   Shield,
-  Phone, // kept for Outreach icon in first section
+  Phone,
 } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -108,7 +108,7 @@ function ServicesSection() {
   );
 }
 
-/** Why: Last section as requested. Contact Information removed entirely. */
+/** Why: Combined Counseling + Support; copied the image text verbatim under Counseling. */
 function LeadGenerationSection() {
   return (
     <section className="py-16 bg-gray-50">
@@ -126,65 +126,68 @@ function LeadGenerationSection() {
           </p>
         </div>
 
-        {/* Services Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-          <Card className="text-center">
+        {/* Combined Services Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+          {/* Counseling Services (uses image copy) */}
+          <Card className="border-t-4 border-t-cyan-600">
             <CardHeader>
-              <div className="w-12 h-12 bg-cyan-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <div className="w-6 h-6 bg-cyan-500 rounded-full" />
-              </div>
-              <CardTitle className="text-lg">Counseling Services</CardTitle>
+              <CardTitle className="text-xl">Counseling Services</CardTitle>
+              <CardDescription>
+                Professional counselors are available to help patient work through a wide variety of issues that they might be facing during their life experience.
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <ul className="text-sm text-gray-600 space-y-2">
-                <li>• Group counseling</li>
-                <li>• Substance abuse counseling</li>
-                <li>• Individual therapy</li>
-                <li>• Crisis management</li>
-              </ul>
-              <Button className="w-full mt-4 bg-cyan-500 hover:bg-cyan-600">
-                Learn More About Counseling
-              </Button>
+            <CardContent className="space-y-6">
+              <div>
+                <h4 className="font-semibold text-gray-900 mb-3">Services Include:</h4>
+                <ul className="list-disc list-inside space-y-1 text-gray-700">
+                  <li>Individual counseling.</li>
+                  <li>Group counseling.</li>
+                  <li>Substance abuse counseling.</li>
+                  <li>Family reunification.</li>
+                  <li>Adelson Counseling.</li>
+                  <li>Peer support.</li>
+                  <li>After care services.</li>
+                  <li>
+                    Referral for medication evaluation and management with a psychiatrist or family practice physician.
+                  </li>
+                </ul>
+              </div>
+
+              <div className="rounded-lg bg-gray-50 p-4">
+                <h5 className="font-semibold text-gray-900 mb-2">Confidentiality:</h5>
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  All counseling records are kept strictly confidential. Information is shared only with a person's written
+                  consent or when it is ordered by the court.
+                </p>
+              </div>
+
+              <Button className="w-full bg-cyan-600 hover:bg-cyan-700">Learn More About Counseling</Button>
             </CardContent>
           </Card>
 
-          <Card className="text-center">
+          {/* Support Services (combined content) */}
+          <Card className="border-t-4 border-t-green-600">
             <CardHeader>
-              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <div className="w-6 h-6 bg-blue-500 rounded-full" />
-              </div>
-              <CardTitle className="text-lg">Methadone Treatment</CardTitle>
+              <CardTitle className="text-xl">Support Services</CardTitle>
+              <CardDescription>
+                Comprehensive supports that surround counseling and treatment to sustain progress.
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <ul className="text-sm text-gray-600 space-y-2">
-                <li>• Take-home privileges</li>
-                <li>• Medical monitoring</li>
-                <li>• Dosage management</li>
-                <li>• Safety protocols</li>
-              </ul>
-              <Button className="w-full mt-4 bg-blue-500 hover:bg-blue-600">
-                Get Treatment Information
-              </Button>
-            </CardContent>
-          </Card>
+            <CardContent className="space-y-6">
+              <div>
+                <h4 className="font-semibold text-gray-900 mb-3">What We Provide:</h4>
+                <ul className="list-disc list-inside space-y-1 text-gray-700">
+                  <li>Case management & care coordination.</li>
+                  <li>Peer support & recovery coaching.</li>
+                  <li>Family counseling & reunification support.</li>
+                  <li>Crisis management and safety planning.</li>
+                  <li>Aftercare planning and relapse prevention.</li>
+                  <li>Referral and linkage to community resources.</li>
+                  <li>Navigation for medical monitoring & dosage management (MAT).</li>
+                </ul>
+              </div>
 
-          <Card className="text-center">
-            <CardHeader>
-              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <div className="w-6 h-6 bg-green-500 rounded-full" />
-              </div>
-              <CardTitle className="text-lg">Support Services</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="text-sm text-gray-600 space-y-2">
-                <li>• Case management</li>
-                <li>• Peer support</li>
-                <li>• Family counseling</li>
-                <li>• Recovery navigation</li>
-              </ul>
-              <Button className="w-full mt-4 bg-green-500 hover:bg-green-600">
-                Access Support Services
-              </Button>
+              <Button className="w-full bg-green-600 hover:bg-green-700">Access Support Services</Button>
             </CardContent>
           </Card>
         </div>
@@ -213,7 +216,6 @@ function LeadGenerationSection() {
             </div>
           </div>
         </div>
-        {/* Contact Information removed as requested */}
       </div>
     </section>
   );
