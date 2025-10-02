@@ -1,3 +1,4 @@
+// File: app/login/page.tsx
 "use client"
 
 import type React from "react"
@@ -20,46 +21,46 @@ export default function LoginPage() {
   const { login, loading } = useAuth()
   const router = useRouter()
 
-  // ✅ UPDATED LOGIN HANDLER
+  // why: keep flow simple + predictable
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-
     const result = await login(email, password)
-
     if (!result.success) {
-       setError(result.error ?? "Login failed");
+      setError(result.error ?? "Login failed")
       return
     }
-
-    // ✅ Go to dashboard if login succeeds
     router.push("/dashboard")
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-cyan-50 via-white to-indigo-50 flex items-center justify-center p-6">
-      <div className="w-full max-w-2xl">
+    <div className="min-h-screen bg-gradient-to-br from-cyan-50 via-white to-indigo-50 flex items-center justify-center px-4 py-8">
+      <div className="w-full max-w-2xl"> {/* wider container */}
         {/* Header */}
         <div className="text-center mb-10">
-          <div className="flex items-center justify-center mb-6">
-            <div className="bg-cyan-100 p-5 rounded-full">
-              <Heart className="h-12 w-12 text-cyan-600" />
+          <div className="flex items-center justify-center mb-5">
+            <div className="bg-cyan-100 p-4 rounded-full">
+              <Heart className="h-10 w-10 text-cyan-700" />
             </div>
           </div>
-          <h1 className="text-5xl font-sans font-bold text-gray-900 mb-3">Welcome Back</h1>
-          <p className="text-xl text-gray-600">Sign in to access your recovery journey</p>
+          <h1 className="text-4xl font-sans font-extrabold text-slate-900 mb-3">
+            Welcome Back
+          </h1>
+          <p className="text-slate-700 text-lg">
+            Sign in to access your recovery journey
+          </p>
         </div>
 
-        <Card className="shadow-2xl border-0">
-          <CardHeader className="space-y-2 pb-8">
-            <CardTitle className="text-4xl font-sans text-center">Patient Login</CardTitle>
-            <CardDescription className="text-center text-lg">
+        <Card className="shadow-xl border-0">
+          <CardHeader className="space-y-2">
+            <CardTitle className="text-3xl font-sans text-center">Patient Login</CardTitle>
+            <CardDescription className="text-center text-base">
               Enter your credentials to continue your treatment
             </CardDescription>
           </CardHeader>
+
           <CardContent className="px-8 pb-8">
-            {/* ✅ Use our updated handler */}
-            <form onSubmit={onSubmit} className="space-y-6">
+            <form onSubmit={onSubmit} className="space-y-5">
               {error && (
                 <Alert variant="destructive" className="text-base">
                   <AlertDescription>{error}</AlertDescription>
@@ -67,28 +68,32 @@ export default function LoginPage() {
               )}
 
               {error?.includes("offline mode") && (
-                <Alert className="border-amber-200 bg-amber-50">
-                  <Shield className="h-5 w-5 text-amber-600" />
-                  <AlertDescription className="text-amber-800 text-base">
-                    Backend not available. Using demo mode with local authentication.
-                  </AlertDescription>
+                <Alert className="border-amber-200 bg-amber-50 text-base">
+                  <div className="flex items-start gap-2">
+                    <Shield className="h-5 w-5 text-amber-700" />
+                    <AlertDescription className="text-amber-800">
+                      Backend not available. Using demo mode with local authentication.
+                    </AlertDescription>
+                  </div>
                 </Alert>
               )}
 
-              <div className="space-y-3">
-                <Label htmlFor="email" className="text-xl font-medium">Email Address</Label>
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-lg">Email Address</Label>
                 <Input
                   id="email"
                   type="email"
-                  placeholder="Enter your email"
+                  inputMode="email"
+                  placeholder="name@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="h-16 text-xl"
+                  className="h-12 text-lg"
                 />
+              </div>
 
-              <div className="space-y-3">
-                <Label htmlFor="password" className="text-lg font-medium">Password</Label>
+              <div className="space-y-2">
+                <Label htmlFor="password" className="text-lg">Password</Label>
                 <div className="relative">
                   <Input
                     id="password"
@@ -97,22 +102,24 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    className="h-14 text-lg pr-12"
+                    className="h-12 pr-12 text-lg"
+                    autoComplete="current-password"
                   />
                   <button
                     type="button"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-800"
                   >
                     {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                   </button>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center justify-between">
                 <Link
                   href="/forgot-password"
-                  className="text-base text-cyan-600 hover:text-cyan-700 hover:underline font-medium"
+                  className="text-lg text-cyan-700 hover:text-cyan-800 hover:underline font-medium"
                 >
                   Forgot password?
                 </Link>
@@ -120,7 +127,7 @@ export default function LoginPage() {
 
               <Button
                 type="submit"
-                className="w-full h-14 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold text-lg mt-6"
+                className="w-full h-12 text-lg bg-cyan-700 hover:bg-cyan-800 text-white font-semibold"
                 disabled={loading}
               >
                 {loading ? "Signing in..." : "Sign In"}
@@ -128,11 +135,11 @@ export default function LoginPage() {
             </form>
 
             <div className="mt-8 text-center">
-              <p className="text-base text-gray-600">
+              <p className="text-lg text-slate-700">
                 New patient?{" "}
                 <Link
                   href="/signup"
-                  className="text-cyan-600 hover:text-cyan-700 font-semibold hover:underline text-base"
+                  className="text-cyan-700 hover:text-cyan-800 font-semibold hover:underline"
                 >
                   Create an account
                 </Link>
@@ -144,7 +151,7 @@ export default function LoginPage() {
         <div className="mt-8 text-center">
           <Link
             href="/"
-            className="text-base text-gray-600 hover:text-gray-800 hover:underline font-medium"
+            className="text-lg text-slate-700 hover:text-slate-900 hover:underline"
           >
             ← Back to Home
           </Link>
