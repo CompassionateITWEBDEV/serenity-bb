@@ -65,8 +65,13 @@ export default function AboutPage() {
               About Us
             </h1>
             <p className="text-xl text-gray-600 max-w-3xl">
-              we've been dedicated to providing compassionate, evidence-based treatment for
-              individuals affected by lead poisoning and addiction.
+              At Serenity Rehabilitation Center, Inc., our mission is to provide excellent, research-based care for individuals facing substance use disorders (SUD) and mental health challenges. We understand that SUD is a disease that can be fatal if untreated, and we are dedicated to guiding individuals and families toward recovery with compassion, dignity, and respect.
+
+Our programs include medication-assisted treatment, intensive mental health services, and supportive counseling tailored to the unique needs of each person. By combining therapeutic interventions with family involvement, we create an environment that fosters healing and growth.
+
+We also serve as a resource to the community, working to educate the public on addiction and advocating for the value of treatment in improving overall wellness.
+
+We deliver comprehensive care and counseling to patients in need — ensuring that every step of the journey is supported with expertise, compassion, and a commitment to helping individuals reach their full potential
             </p>
           </div>
 
