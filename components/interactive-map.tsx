@@ -5,15 +5,14 @@ import React, { useEffect, useRef, useState } from "react";
 type LatLng = [number, number];
 type Props = { address: string; center?: LatLng; zoom?: number };
 
-// WHY: client-only safe loader (no SSR crashes)
 async function getMaplibre() {
   const m = await import("maplibre-gl");
-  // @ts-expect-error default/namespace varies
+  // @ts-expect-error default/namespace varies by bundler
   return (m.default ?? m) as typeof import("maplibre-gl");
 }
 
 export default function InteractiveMap({ address, center, zoom = 15 }: Props) {
-  const DEFAULT: LatLng = [42.6389, -83.291]; // MLK Jr Blvd, Pontiac
+  const DEFAULT: LatLng = [42.6389, -83.2910]; // MLK Jr Blvd, Pontiac
   const latlng = center ?? DEFAULT;
 
   const elRef = useRef<HTMLDivElement | null>(null);
@@ -22,19 +21,17 @@ export default function InteractiveMap({ address, center, zoom = 15 }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-
     (async () => {
       try {
         const maplibre = await getMaplibre();
         if (cancelled || !elRef.current) return;
 
-        // Clean previous instance (hot reload)
         if (mapRef.current) {
           try { mapRef.current.remove(); } catch {}
           mapRef.current = null;
         }
 
-        // WHY: Use pure OSM raster tiles to look closer to Google’s basic streets, no keys.
+        // OSM raster style (free, simple, familiar)
         const styleOSM: any = {
           version: 8,
           sources: {
@@ -54,19 +51,16 @@ export default function InteractiveMap({ address, center, zoom = 15 }: Props) {
           style: styleOSM,
           center: [latlng[1], latlng[0]], // [lng, lat]
           zoom,
-          hash: false,
-          dragRotate: false, // WHY: feels more like Google Maps
+          dragRotate: false,
           pitchWithRotate: false,
           attributionControl: true,
         });
         mapRef.current = map;
 
-        // Controls (Google-like UX)
         map.addControl(new maplibre.NavigationControl({ visualizePitch: false }), "top-right");
         map.addControl(new maplibre.GeolocateControl({ trackUserLocation: true, showUserHeading: true }), "top-right");
         map.addControl(new maplibre.FullscreenControl(), "top-right");
 
-        // Marker + popup
         const html =
           `<div style="font:13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
              <strong>Serenity Rehabilitation Center</strong><br/>${address}<br/>
@@ -79,7 +73,6 @@ export default function InteractiveMap({ address, center, zoom = 15 }: Props) {
           .setPopup(new maplibre.Popup({ offset: 12 }).setHTML(html))
           .addTo(map);
 
-        // WHY: Slight “flyTo” after load to polish
         map.once("load", () => {
           map.flyTo({ center: [latlng[1], latlng[0]], zoom, speed: 0.8, curve: 1.2, essential: true });
         });
@@ -88,7 +81,6 @@ export default function InteractiveMap({ address, center, zoom = 15 }: Props) {
         setError("Map unavailable right now. Please try again later.");
       }
     })();
-
     return () => {
       cancelled = true;
       if (mapRef.current) {
