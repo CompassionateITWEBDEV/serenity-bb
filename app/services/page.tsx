@@ -15,10 +15,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-import { CheckCircle, Users, Heart, Clock, Shield, Phone } from "lucide-react";
+import { CheckCircle, Users, Heart, Shield } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Our Treatment Services | Serenity Rehabilitation Center",
+  title: "Counseling Services and Support Services Methadone | Serenity Rehabilitation Center",
   description:
     "Comprehensive, evidence-based treatment programs designed to support your recovery journey with dignity and care.",
 };
@@ -26,94 +26,14 @@ export const metadata: Metadata = {
 /** Why: expose the public PDF using its root URL (files in /public are served from "/"). */
 const METHADONE_PDF_ROUTE = "/Serenity-Brochure-High-Res_compressed.pdf";
 
-/* -------------------- SECTION 2: Discover Our Treatment Options -------------------- */
-function ServicesSection() {
-  const services = [
-    {
-      title: "Lead Detoxification",
-      description:
-        "Safe and effective removal of lead from your system using proven medical protocols.",
-      icon: "🔬",
-    },
-    {
-      title: "Nutritional Therapy",
-      description:
-        "Specialized nutrition plans to support your body's natural healing processes.",
-      icon: "🥗",
-    },
-    {
-      title: "Cognitive Rehabilitation",
-      description:
-        "Targeted therapies to address cognitive effects of lead exposure.",
-      icon: "🧠",
-    },
-    {
-      title: "Family Support",
-      description:
-        "Comprehensive support services for families affected by lead poisoning.",
-      icon: "👨‍👩‍👧‍👦",
-    },
-    {
-      title: "Environmental Assessment",
-      description:
-        "Professional evaluation of your living and working environments.",
-      icon: "🏠",
-    },
-    {
-      title: "Long-term Monitoring",
-      description:
-        "Ongoing health monitoring to ensure sustained recovery and wellness.",
-      icon: "📊",
-    },
-  ];
-
-  return (
-    <section id="services" className="py-20 bg-white">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-16">
-          <h2 className="text-4xl font-serif font-bold text-gray-900 mb-4">
-            Counseling Services and Support Services Methadone
-          </h2>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Our comprehensive approach to lead poisoning recovery combines
-            medical expertise with compassionate care to address every aspect of
-            your healing journey.
-          </p>
-        </div>
-
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {services.map((service, index) => (
-            <Card
-              key={index}
-              className="hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 border-gray-200"
-            >
-              <CardHeader className="text-center">
-                <div className="text-4xl mb-4">{service.icon}</div>
-                <CardTitle className="text-xl font-serif text-gray-900">
-                  {service.title}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CardDescription className="text-gray-600 text-center leading-relaxed">
-                  {service.description}
-                </CardDescription>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* -------- SECTION 3 (LAST): Counseling & Methadone Dispensing Program -------- */
+/* -------- Enhanced Counseling & Methadone Dispensing Program with Animations -------- */
 function LeadGenerationSection() {
   return (
-    <section className="py-16 bg-gray-50">
+    <section className="py-16">
       <div className="container mx-auto px-4">
-        {/* Header */}
-        <div className="text-center mb-12">
-          <Badge className="bg-cyan-100 text-cyan-800 mb-4">
+        {/* Header with staggered animation */}
+        <div className="text-center mb-12 animate-fade-in-up">
+          <Badge className="bg-cyan-100 text-cyan-800 mb-4 hover:bg-cyan-200 transition-colors duration-300">
             Licensed Addiction Treatment Center
           </Badge>
           <h2 className="text-3xl md:text-4xl font-serif text-gray-900 mb-4">
@@ -125,11 +45,16 @@ function LeadGenerationSection() {
           </p>
         </div>
 
-        {/* Counseling + Support (no buttons inside) */}
+        {/* Counseling + Support with hover animations */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
-          <Card className="border-t-4 border-t-cyan-600">
+          <Card className="border-t-4 border-t-cyan-600 hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 animate-slide-in-left">
             <CardHeader>
-              <CardTitle className="text-xl">Counseling Services</CardTitle>
+              <CardTitle className="text-xl flex items-center gap-2">
+                <div className="w-10 h-10 bg-cyan-100 rounded-full flex items-center justify-center">
+                  <Heart className="w-5 h-5 text-cyan-600" />
+                </div>
+                Counseling Services
+              </CardTitle>
               <CardDescription>
                 Professional counselors are available to help patient work
                 through a wide variety of issues that they might be facing
@@ -138,25 +63,51 @@ function LeadGenerationSection() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <h4 className="font-semibold text-gray-900 mb-3">
+                <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-cyan-600" />
                   Services Include:
                 </h4>
-                <ul className="list-disc list-inside space-y-1 text-gray-700">
-                  <li>Individual counseling.</li>
-                  <li>Group counseling.</li>
-                  <li>Substance abuse counseling.</li>
-                  <li>Family reunification.</li>
-                  <li>Adelson Counseling.</li>
-                  <li>Peer support.</li>
-                  <li>After care services.</li>
-                  <li>
-                    Referral for medication evaluation and management with a
-                    psychiatrist or family practice physician.
+                <ul className="space-y-2 text-gray-700">
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-cyan-600 mt-1">•</span>
+                    <span>Individual counseling</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-cyan-600 mt-1">•</span>
+                    <span>Group counseling</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-cyan-600 mt-1">•</span>
+                    <span>Substance abuse counseling</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-cyan-600 mt-1">•</span>
+                    <span>Family reunification</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-cyan-600 mt-1">•</span>
+                    <span>Adelson Counseling</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-cyan-600 mt-1">•</span>
+                    <span>Peer support</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-cyan-600 mt-1">•</span>
+                    <span>After care services</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-cyan-600 mt-1">•</span>
+                    <span>
+                      Referral for medication evaluation and management with a
+                      psychiatrist or family practice physician
+                    </span>
                   </li>
                 </ul>
               </div>
-              <div className="rounded-lg bg-gray-50 p-4">
-                <h5 className="font-semibold text-gray-900 mb-2">
+              <div className="rounded-lg bg-gradient-to-br from-cyan-50 to-blue-50 p-4 border-l-4 border-cyan-600">
+                <h5 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-cyan-600" />
                   Confidentiality:
                 </h5>
                 <p className="text-sm text-gray-700 leading-relaxed">
@@ -168,9 +119,14 @@ function LeadGenerationSection() {
             </CardContent>
           </Card>
 
-          <Card className="border-t-4 border-t-green-600">
+          <Card className="border-t-4 border-t-green-600 hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 animate-slide-in-right">
             <CardHeader>
-              <CardTitle className="text-xl">Support Services</CardTitle>
+              <CardTitle className="text-xl flex items-center gap-2">
+                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                  <Users className="w-5 h-5 text-green-600" />
+                </div>
+                Support Services
+              </CardTitle>
               <CardDescription>
                 Comprehensive supports that surround counseling and treatment to
                 sustain progress.
@@ -178,19 +134,41 @@ function LeadGenerationSection() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <h4 className="font-semibold text-gray-900 mb-3">
+                <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
                   What We Provide:
                 </h4>
-                <ul className="list-disc list-inside space-y-1 text-gray-700">
-                  <li>Case management &amp; care coordination.</li>
-                  <li>Peer support &amp; recovery coaching.</li>
-                  <li>Family counseling &amp; reunification support.</li>
-                  <li>Crisis management and safety planning.</li>
-                  <li>Aftercare planning and relapse prevention.</li>
-                  <li>Referral and linkage to community resources.</li>
-                  <li>
-                    Navigation for medical monitoring &amp; dosage management
-                    (MAT).
+                <ul className="space-y-2 text-gray-700">
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-green-600 mt-1">•</span>
+                    <span>Case management &amp; care coordination</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-green-600 mt-1">•</span>
+                    <span>Peer support &amp; recovery coaching</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-green-600 mt-1">•</span>
+                    <span>Family counseling &amp; reunification support</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-green-600 mt-1">•</span>
+                    <span>Crisis management and safety planning</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-green-600 mt-1">•</span>
+                    <span>Aftercare planning and relapse prevention</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-green-600 mt-1">•</span>
+                    <span>Referral and linkage to community resources</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-green-600 mt-1">•</span>
+                    <span>
+                      Navigation for medical monitoring &amp; dosage management
+                      (MAT)
+                    </span>
                   </li>
                 </ul>
               </div>
@@ -198,27 +176,42 @@ function LeadGenerationSection() {
           </Card>
         </div>
 
-        {/* Methadone intro + PDF CTA */}
-        <div className="bg-white rounded-lg p-8">
-          <h3 className="text-2xl font-serif font-bold text-gray-900 mb-4">
-            Methadone
-          </h3>
-          <div className="text-gray-700 leading-relaxed mb-6">
-            <p>
+        {/* Methadone intro + PDF CTA with enhanced styling */}
+        <div className="bg-gradient-to-br from-white to-cyan-50 rounded-2xl p-8 shadow-lg border border-cyan-100 hover:shadow-2xl transition-all duration-500 animate-fade-in-up">
+          <div className="flex items-start gap-4 mb-6">
+            <div className="w-14 h-14 bg-cyan-600 rounded-full flex items-center justify-center flex-shrink-0 animate-pulse">
+              <Shield className="w-7 h-7 text-white" />
+            </div>
+            <div>
+              <h3 className="text-2xl font-serif font-bold text-gray-900 mb-2">
+                Methadone Treatment Program
+              </h3>
+              <Badge className="bg-cyan-600 text-white">
+                Evidence-Based Care
+              </Badge>
+            </div>
+          </div>
+          <div className="text-gray-700 leading-relaxed mb-6 pl-18">
+            <p className="text-lg">
               Methadone is a long-acting opioid medication that is used as a
               pain reliever and, together with counseling and other
               psychosocial services, is used to treat individuals addicted to
               heroin and certain prescription drugs.
             </p>
           </div>
-          <div className="text-center">
+          <div className="text-center pt-4">
             <a
               href={METHADONE_PDF_ROUTE}
               target="_blank"
               rel="noopener noreferrer"
             >
-              <Button className="bg-cyan-600 hover:bg-cyan-700">
-                Get more information here
+              <Button className="bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-700 hover:to-cyan-800 text-white px-8 py-6 text-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300">
+                <span className="flex items-center gap-2">
+                  Get More Information Here
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </span>
               </Button>
             </a>
           </div>
@@ -228,210 +221,102 @@ function LeadGenerationSection() {
   );
 }
 
-/* -------------------- PAGE (order: Services → Options → Program) -------------------- */
+/* -------------------- PAGE (Counseling & Methadone Program only) -------------------- */
 export default function CombinedServicesPage() {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
       <Suspense fallback={null}>
         <Header />
       </Suspense>
 
       <main className="py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* 1) Our Treatment Services */}
-          <div className="text-center mb-16">
-            <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">
-              Our Treatment Services
+          {/* Hero Section with Animation */}
+          <div className="text-center mb-16 animate-fade-in">
+            <div className="inline-block mb-6">
+              <div className="w-20 h-20 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-full flex items-center justify-center mx-auto shadow-lg animate-pulse">
+                <Heart className="w-10 h-10 text-white" />
+              </div>
+            </div>
+            <h1 className="text-5xl font-serif font-bold text-gray-900 mb-6 tracking-tight">
+              Serenity Rehabilitation Center
             </h1>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              Comprehensive, evidence-based treatment programs designed to
-              support your recovery journey with dignity and care.
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
+              Your journey to recovery starts here. Comprehensive, compassionate care
+              tailored to your unique needs.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 mb-16">
-            <Card className="border-l-4 border-l-cyan-600">
-              <CardHeader>
-                <div className="w-12 h-12 bg-cyan-100 rounded-lg flex items-center justify-center mb-4">
-                  <Heart className="w-6 h-6 text-cyan-600" />
-                </div>
-                <CardTitle>Individual Therapy</CardTitle>
-                <CardDescription>
-                  One-on-one counseling sessions tailored to your specific needs
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Cognitive Behavioral Therapy
-                  </li>
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Trauma-Informed Care
-                  </li>
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Motivational Interviewing
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card className="border-l-4 border-l-indigo-600">
-              <CardHeader>
-                <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center mb-4">
-                  <Users className="w-6 h-6 text-indigo-600" />
-                </div>
-                <CardTitle>Group Counseling</CardTitle>
-                <CardDescription>
-                  Peer support and shared healing experiences
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Support Groups
-                  </li>
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Family Therapy
-                  </li>
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Educational Workshops
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card className="border-l-4 border-l-green-600">
-              <CardHeader>
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
-                  <Shield className="w-6 h-6 text-green-600" />
-                </div>
-                <CardTitle>MAT Programs</CardTitle>
-                <CardDescription>
-                  Medication-Assisted Treatment for comprehensive care
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Methadone Treatment
-                  </li>
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Medical Monitoring
-                  </li>
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Dosage Management
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card className="border-l-4 border-l-purple-600">
-              <CardHeader>
-                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
-                  <Clock className="w-6 h-6 text-purple-600" />
-                </div>
-                <CardTitle>24/7 Support</CardTitle>
-                <CardDescription>
-                  Round-the-clock crisis intervention and support
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Crisis Hotline
-                  </li>
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Emergency Support
-                  </li>
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Peer Support Network
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card className="border-l-4 border-l-orange-600">
-              <CardHeader>
-                <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mb-4">
-                  <Heart className="w-6 h-6 text-orange-600" />
-                </div>
-                <CardTitle>Holistic Care</CardTitle>
-                <CardDescription>
-                  Comprehensive wellness and recovery support
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Nutrition Counseling
-                  </li>
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Mindfulness Training
-                  </li>
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Life Skills Development
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card className="border-l-4 border-l-teal-600">
-              <CardHeader>
-                <div className="w-12 h-12 bg-teal-100 rounded-lg flex items-center justify-center mb-4">
-                  <Phone className="w-6 h-6 text-teal-600" />
-                </div>
-                <CardTitle>Outreach Programs</CardTitle>
-                <CardDescription>
-                  Community support and education initiatives
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Community Education
-                  </li>
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Prevention Programs
-                  </li>
-                  <li className="flex items-center text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                    Resource Coordination
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* 2) Discover Our Treatment Options */}
-          <ServicesSection />
-
-          {/* 3) Counseling & Methadone Dispensing Program (last) */}
-          <div className="mt-16">
-            <LeadGenerationSection />
-          </div>
+          {/* Counseling & Methadone Dispensing Program */}
+          <LeadGenerationSection />
         </div>
       </main>
 
       <Suspense fallback={null}>
         <Footer />
       </Suspense>
+
+      <style jsx global>{`
+        @keyframes fade-in {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        
+        @keyframes fade-in-up {
+          from {
+            opacity: 0;
+            transform: translateY(30px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        
+        @keyframes slide-in-left {
+          from {
+            opacity: 0;
+            transform: translateX(-50px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+        
+        @keyframes slide-in-right {
+          from {
+            opacity: 0;
+            transform: translateX(50px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+        
+        .animate-fade-in {
+          animation: fade-in 0.8s ease-out;
+        }
+        
+        .animate-fade-in-up {
+          animation: fade-in-up 0.8s ease-out;
+        }
+        
+        .animate-slide-in-left {
+          animation: slide-in-left 0.8s ease-out;
+        }
+        
+        .animate-slide-in-right {
+          animation: slide-in-right 0.8s ease-out;
+        }
+      `}</style>
     </div>
   );
 }
