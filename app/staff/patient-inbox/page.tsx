@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase/client"; // share auth/session
+import { supabase } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,11 +43,9 @@ export default function StaffPatientInboxPage() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string>("");
 
-  // keep assignment ids stable across renders
   const assignedIdsRef = useRef<Set<string>>(new Set());
   const staffIdRef = useRef<string | null>(null);
 
-  // helper updates
   const upsertPatient = (p: PatientRow) => {
     setPatients(prev => {
       const i = prev.findIndex(x => x.user_id === p.user_id);
@@ -60,35 +58,32 @@ export default function StaffPatientInboxPage() {
     setPatients(prev => prev.filter(p => p.user_id !== id));
   };
 
-  // fetch assigned patients for this staff
+  // FIX: reverse-join from `patients` via explicit FK name
   async function fetchAssignedFor(uid: string): Promise<PatientRow[]> {
-    // Preferred: join with explicit staff filter (RLS-friendly)
     const { data, error } = await supabase
-      .from("patient_care_team")
+      .from("patients")
       .select(`
-        role_on_team, is_primary, added_at,
-        patients:user_id (
-          user_id, full_name, email, phone_number, avatar, created_at
+        user_id, full_name, email, phone_number, avatar, created_at,
+        pct:patient_care_team!patient_care_team_patient_id_fkey!inner(
+          staff_id, role_on_team, is_primary, added_at
         )
       `)
-      .eq("staff_id", uid)
-      .order("added_at", { ascending: false });
+      .eq("pct.staff_id", uid)
+      .order("pct.added_at", { ascending: false });
 
     if (error) throw error;
 
-    const rows: PatientRow[] = (data ?? [])
-      .map((r: any) => ({
-        user_id: r.patients?.user_id,
-        full_name: r.patients?.full_name,
-        email: r.patients?.email,
-        phone_number: r.patients?.phone_number,
-        avatar: r.patients?.avatar,
-        created_at: r.patients?.created_at,
-        role_on_team: r.role_on_team,
-        is_primary: r.is_primary,
-        added_at: r.added_at,
-      }))
-      .filter(x => x.user_id);
+    const rows: PatientRow[] = (data as any[] ?? []).map((r) => ({
+      user_id: r.user_id,
+      full_name: r.full_name,
+      email: r.email,
+      phone_number: r.phone_number,
+      avatar: r.avatar,
+      created_at: r.created_at,
+      role_on_team: r.pct?.role_on_team ?? null,
+      is_primary: Boolean(r.pct?.is_primary),
+      added_at: r.pct?.added_at ?? r.created_at,
+    }));
 
     return rows;
   }
@@ -100,7 +95,6 @@ export default function StaffPatientInboxPage() {
       setLoading(true);
       setErrorMsg("");
 
-      // Auth guard
       const { data: auth, error: authErr } = await supabase.auth.getUser();
       if (authErr || !auth?.user) { router.push("/staff/login"); return; }
       const staffId = auth.user.id;
@@ -109,7 +103,6 @@ export default function StaffPatientInboxPage() {
       try {
         const list = await fetchAssignedFor(staffId);
         if (!mounted) return;
-
         assignedIdsRef.current = new Set(list.map(x => x.user_id));
         setPatients(list);
       } catch (e: any) {
@@ -127,7 +120,6 @@ export default function StaffPatientInboxPage() {
             const pid = (payload.new as any)?.patient_id as string | undefined;
             if (!pid || assignedIdsRef.current.has(pid)) return;
 
-            // fetch one patient row
             const { data: pr } = await supabase
               .from("patients")
               .select("user_id, full_name, email, phone_number, avatar, created_at")
@@ -160,7 +152,7 @@ export default function StaffPatientInboxPage() {
         )
         .subscribe();
 
-      // Realtime: patient profile updates (only patch if assigned)
+      // Realtime: patient profile updates
       const chPatients = supabase
         .channel(`patients-upd-${staffId}`)
         .on("postgres_changes",
@@ -189,9 +181,8 @@ export default function StaffPatientInboxPage() {
       };
     }
 
-    init();
+    void init();
     return () => { mounted = false; };
-    // NOTE: do NOT depend on `patients` here; keep a ref to avoid loop
   }, [router]);
 
   return (
@@ -216,7 +207,6 @@ export default function StaffPatientInboxPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* nav */}
         <div className="flex items-center gap-3">
           <IconPill onClick={() => router.push("/staff/dashboard")} aria="Home"><HomeIcon className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/dashboard?tab=tests")} aria="Drug Tests"><TestTube2 className="h-5 w-5" /></IconPill>
