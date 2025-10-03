@@ -53,7 +53,7 @@ function initials(name?: string | null) {
   return s.split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 }
 
-// map staff.role → conversations.provider_role
+// why: conversations.provider_role accepts only doctor|nurse|counselor
 function toProviderRole(role?: string | null): ProviderRole {
   const r = (role ?? "").toLowerCase();
   if (r.includes("doc")) return "doctor";
@@ -77,7 +77,7 @@ export default function PatientMessagesPage() {
 
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Conversations
+  // Load conversations for patient
   useEffect(() => {
     if (!meId) return;
     (async () => {
@@ -94,7 +94,7 @@ export default function PatientMessagesPage() {
     })();
   }, [meId]);
 
-  // Care team picker — **REVISED**: reverse join via patient_care_team
+  // Load staff via explicit reverse join (disambiguates staff_id vs added_by)
   useEffect(() => {
     if (!meId) return;
     (async () => {
@@ -102,9 +102,9 @@ export default function PatientMessagesPage() {
         .from("staff")
         .select(`
           user_id, first_name, last_name, role, avatar_url, email,
-          patient_care_team!inner(patient_id)
+          pct:patient_care_team!patient_care_team_staff_id_fkey(patient_id)
         `)
-        .eq("patient_care_team.patient_id", meId);
+        .eq("pct.patient_id", meId);
 
       if (error) {
         await Swal.fire("Error loading care team", error.message, "error");
@@ -124,7 +124,7 @@ export default function PatientMessagesPage() {
           icon: "info",
           title: "No staff found",
           text: "Ask the clinic to add providers to your care team.",
-          timer: 2500,
+          timer: 2200,
           showConfirmButton: false,
         });
       }
@@ -133,7 +133,7 @@ export default function PatientMessagesPage() {
     })();
   }, [meId]);
 
-  // Realtime conversations
+  // Realtime: conversations refresh
   useEffect(() => {
     if (!meId) return;
     const ch = supabase
@@ -154,7 +154,7 @@ export default function PatientMessagesPage() {
     return () => { supabase.removeChannel(ch); };
   }, [meId]);
 
-  // Messages + realtime
+  // Load messages + thread realtime
   useEffect(() => {
     if (!selectedId) return;
     let alive = true;
@@ -246,6 +246,7 @@ export default function PatientMessagesPage() {
     return insert.data;
   }
 
+  // Send message
   async function handleSend() {
     if (!selectedId || !meId || !compose.trim()) return;
 
@@ -294,7 +295,7 @@ export default function PatientMessagesPage() {
       .eq("id", selectedId);
   }
 
-  // Derived
+  // Derived lists
   const filteredConvs = useMemo(() => {
     const v = q.trim().toLowerCase();
     const base = convs.slice().sort((a, b) => {
@@ -323,7 +324,11 @@ export default function PatientMessagesPage() {
   }, [staffList, pickerQ]);
 
   if (loading || !isAuthenticated) {
-    return <div className="container mx-auto p-6 max-w-7xl"><p className="text-gray-600">Loading…</p></div>;
+    return (
+      <div className="container mx-auto p-6 max-w-7xl">
+        <p className="text-gray-600">Loading…</p>
+      </div>
+    );
   }
 
   return (
@@ -374,23 +379,17 @@ export default function PatientMessagesPage() {
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between">
-                        <p className="truncate font-medium text-gray-900">
-                          {c.provider_name}
-                        </p>
+                        <p className="truncate font-medium text-gray-900">{c.provider_name}</p>
                         <span className="text-xs text-gray-500">
-                          {new Date(c.last_message_at ?? c.created_at).toLocaleTimeString(
-                            [],
-                            { hour: "2-digit", minute: "2-digit" }
-                          )}
+                          {new Date(c.last_message_at ?? c.created_at).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="capitalize">
-                          {c.provider_role}
-                        </Badge>
-                        <p className="truncate text-xs text-gray-500">
-                          {c.last_message ?? "—"}
-                        </p>
+                        <Badge variant="secondary" className="capitalize">{c.provider_role}</Badge>
+                        <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
                       </div>
                     </div>
                   </button>
@@ -409,9 +408,7 @@ export default function PatientMessagesPage() {
             <CardContent className="flex flex-1 items-center justify-center">
               <div className="text-center">
                 <MessageCircle className="mx-auto mb-4 h-12 w-12 text-gray-400" />
-                <h3 className="mb-2 text-lg font-medium text-gray-900">
-                  Select a conversation
-                </h3>
+                <h3 className="mb-2 text-lg font-medium text-gray-900">Select a conversation</h3>
                 <p className="text-gray-600">Pick a provider or start a new one</p>
               </div>
             </CardContent>
@@ -422,21 +419,14 @@ export default function PatientMessagesPage() {
                   {msgs.map((m) => {
                     const own = m.sender_role === "patient" && m.sender_id === meId;
                     return (
-                      <div
-                        key={m.id}
-                        className={`flex ${own ? "justify-end" : "justify-start"}`}
-                      >
+                      <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
                         <div
                           className={`max-w-xs lg:max-w-md rounded-lg px-4 py-2 ${
                             own ? "bg-cyan-500 text-white" : "bg-gray-100 text-gray-900"
                           }`}
                         >
                           <p className="whitespace-pre-wrap text-sm">{m.content}</p>
-                          <p
-                            className={`mt-1 text-xs ${
-                              own ? "text-cyan-100" : "text-gray-500"
-                            }`}
-                          >
+                          <p className={`mt-1 text-xs ${own ? "text-cyan-100" : "text-gray-500"}`}>
                             {new Date(m.created_at).toLocaleTimeString([], {
                               hour: "2-digit",
                               minute: "2-digit",
@@ -475,7 +465,7 @@ export default function PatientMessagesPage() {
         </Card>
       </div>
 
-      {/* Staff picker */}
+      {/* Staff picker modal */}
       {pickerOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
           <div className="w-full max-w-lg rounded-lg border bg-white">
