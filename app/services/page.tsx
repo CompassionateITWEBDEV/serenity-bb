@@ -72,7 +72,7 @@ function ServicesSection() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
           <h2 className="text-4xl font-serif font-bold text-gray-900 mb-4">
-            Discover Our Treatment Options
+            Counseling Services and Support Services Methadone
           </h2>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
             Our comprehensive approach to lead poisoning recovery combines
@@ -218,7 +218,7 @@ function LeadGenerationSection() {
               rel="noopener noreferrer"
             >
               <Button className="bg-cyan-600 hover:bg-cyan-700">
-                GET more information here
+                Get more information here
               </Button>
             </a>
           </div>
