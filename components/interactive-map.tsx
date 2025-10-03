@@ -1,19 +1,18 @@
-// components/interactive-map.tsx
 "use client";
 
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
 
 type LatLngTuple = [number, number];
 
 type Props = {
-  address?: string;
-  center?: LatLngTuple; // precise coords if you have them
-  zoom?: number;        // default 15 (closer)
+  address: string;          // label / directions
+  center?: LatLngTuple;     // if provided, skips geocoding (recommended)
+  zoom?: number;            // default 15
 };
 
-/* WHY: dynamic to avoid SSR issues with Leaflet */
+// Client-only load of react-leaflet + leaflet
 const MapInner = dynamic(async () => {
   const L = await import("leaflet");
   const {
@@ -21,163 +20,62 @@ const MapInner = dynamic(async () => {
     TileLayer,
     Marker,
     Popup,
-    useMap,
     LayersControl,
+    useMap,
   } = await import("react-leaflet");
 
-  // Fix Leaflet default icons on Next.js
+  // Fix default marker icons in Next.js
   // @ts-ignore
   delete (L.Icon.Default as any).prototype._getIconUrl;
   L.Icon.Default.mergeOptions({
-    iconRetinaUrl:
-      "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+    iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
     iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-    shadowUrl:
-      "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+    shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
   });
 
-  /* ===== Helpers ===== */
+  const FALLBACK_CENTER: LatLngTuple = [42.6389, -83.2910]; // Pontiac area
+  const EMAIL_FOR_NOMINATIM = "maps@your-domain.tld"; // optional contact per policy
+
+  async function geocode(query: string) {
+    const url =
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&accept-language=en&email=${encodeURIComponent(
+        EMAIL_FOR_NOMINATIM
+      )}&q=${encodeURIComponent(query)}`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("geocode http");
+      const data = (await res.json()) as Array<{ lat: string; lon: string; display_name: string }>;
+      if (!data?.length) throw new Error("no results");
+      const { lat, lon, display_name } = data[0];
+      return { center: [parseFloat(lat), parseFloat(lon)] as LatLngTuple, label: display_name };
+    } catch {
+      return null; // never throw
+    }
+  }
 
   function useLocalCache<T>(key: string, initial?: T) {
     const [value, setValue] = useState<T | undefined>(() => {
-      try {
-        const raw = localStorage.getItem(key);
-        return raw ? (JSON.parse(raw) as T) : initial;
-      } catch {
-        return initial;
-      }
+      try { const raw = localStorage.getItem(key); return raw ? (JSON.parse(raw) as T) : initial; } catch { return initial; }
     });
     useEffect(() => {
-      try {
-        if (value === undefined) localStorage.removeItem(key);
-        else localStorage.setItem(key, JSON.stringify(value));
-      } catch {}
+      try { value === undefined ? localStorage.removeItem(key) : localStorage.setItem(key, JSON.stringify(value)); } catch {}
     }, [key, value]);
     return [value, setValue] as const;
   }
 
-  async function geocode(q: string) {
-    // WHY: Nominatim, free. Keep it light; include email param per usage policy.
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&accept-language=en&email=maps@example.com&q=${encodeURIComponent(
-      q
-    )}`;
-    const res = await fetch(url, { method: "GET" });
-    if (!res.ok) throw new Error("geocode failed");
-    const data = (await res.json()) as Array<{
-      lat: string;
-      lon: string;
-      display_name: string;
-    }>;
-    if (!data?.length) throw new Error("no results");
-    const { lat, lon, display_name } = data[0];
-    return {
-      center: [parseFloat(lat), parseFloat(lon)] as LatLngTuple,
-      label: display_name,
-    };
-  }
-
   function FlyTo({ center, zoom }: { center: LatLngTuple; zoom?: number }) {
     const map = useMap();
-    const last = useRef<string>("");
+    const last = useRef("");
     useEffect(() => {
       const key = `${center[0].toFixed(5)},${center[1].toFixed(5)}:${zoom ?? ""}`;
       if (last.current === key) return;
       last.current = key;
-      map.flyTo(center, zoom ?? Math.max(map.getZoom(), 15), {
-        animate: true,
-        duration: 0.8,
-      });
+      map.flyTo(center, zoom ?? Math.max(map.getZoom(), 15), { animate: true, duration: 0.8 });
     }, [center, zoom, map]);
     return null;
   }
 
-  function OverlayUI(props: {
-    address: string;
-    mainCenter: LatLngTuple;
-    onLocate: (pos?: LatLngTuple) => void;
-    onSearchHit: (result: { center: LatLngTuple; label: string }) => void;
-  }) {
-    const { address, mainCenter, onLocate, onSearchHit } = props;
-    const [query, setQuery] = useState(address);
-    const [busy, setBusy] = useState(false);
-    const [error, setError] = useState<string>("");
-
-    async function doSearch() {
-      setBusy(true);
-      setError("");
-      try {
-        const r = await geocode(query);
-        onSearchHit(r);
-      } catch (e) {
-        setError("No results. Try a more specific address.");
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    function doRecenter() {
-      onSearchHit({ center: mainCenter, label: address });
-    }
-
-    function doLocateMe() {
-      if (!navigator.geolocation) return setError("Geolocation not available.");
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const c: LatLngTuple = [pos.coords.latitude, pos.coords.longitude];
-          onLocate(c);
-        },
-        () => setError("Unable to get your location.")
-      );
-    }
-
-    return (
-      <div className="absolute left-3 top-3 z-[1000] flex flex-col gap-2">
-        {/* Search Card */}
-        <div className="rounded-lg bg-white/95 shadow p-2 w-[min(92vw,360px)]">
-          <div className="flex gap-2">
-            <input
-              className="flex-1 rounded-md border px-3 py-2 text-sm outline-none focus:ring"
-              placeholder="Search address or place"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && doSearch()}
-            />
-            <button
-              className="rounded-md bg-cyan-600 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-60"
-              onClick={doSearch}
-              disabled={busy}
-              aria-label="Search"
-            >
-              {busy ? "…" : "Search"}
-            </button>
-          </div>
-          {error && <div className="mt-1 text-xs text-red-600">{error}</div>}
-          <div className="mt-2 flex gap-2">
-            <button
-              onClick={doRecenter}
-              className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50"
-              title="Recenter to clinic"
-            >
-              Recenter
-            </button>
-            <button
-              onClick={doLocateMe}
-              className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50"
-              title="Locate me"
-            >
-              Locate me
-            </button>
-          </div>
-        </div>
-
-        {/* Styles Card */}
-        <LayersControl position="topright" />
-      </div>
-    );
-  }
-
   function BaseLayers() {
-    // WHY: free tiles with a “satellite-like” option (Esri imagery).
     return (
       <LayersControl position="topright">
         <LayersControl.BaseLayer checked name="OSM Standard">
@@ -186,14 +84,12 @@ const MapInner = dynamic(async () => {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
         </LayersControl.BaseLayer>
-
         <LayersControl.BaseLayer name="Carto Positron">
-            <TileLayer
-              attribution="&copy; OpenStreetMap &copy; CARTO"
-              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-            />
+          <TileLayer
+            attribution="&copy; OpenStreetMap &copy; CARTO"
+            url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+          />
         </LayersControl.BaseLayer>
-
         <LayersControl.BaseLayer name="Esri World Imagery (satellite)">
           <TileLayer
             attribution="Tiles &copy; Esri"
@@ -204,64 +100,93 @@ const MapInner = dynamic(async () => {
     );
   }
 
+  function Overlay({
+    clinicLabel,
+    clinicCenter,
+    onSearchHit,
+    onLocate,
+  }: {
+    clinicLabel: string;
+    clinicCenter: LatLngTuple;
+    onSearchHit: (r: { center: LatLngTuple; label: string }) => void;
+    onLocate: (pos?: LatLngTuple) => void;
+  }) {
+    const [q, setQ] = useState(clinicLabel);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+
+    async function doSearch() {
+      setBusy(true); setError("");
+      const r = await geocode(q);
+      if (!r) setError("No results. Try a more specific address.");
+      else onSearchHit(r);
+      setBusy(false);
+    }
+    function recenter() { onSearchHit({ center: clinicCenter, label: clinicLabel }); }
+    function locateMe() {
+      if (!navigator.geolocation) { setError("Geolocation not available."); return; }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => onLocate([pos.coords.latitude, pos.coords.longitude]),
+        () => setError("Unable to get your location.")
+      );
+    }
+
+    return (
+      <div className="absolute left-3 top-3 z-[1000] flex flex-col gap-2">
+        <div className="w-[min(92vw,360px)] rounded-lg bg-white/95 p-2 shadow">
+          <div className="flex gap-2">
+            <input
+              className="flex-1 rounded-md border px-3 py-2 text-sm outline-none focus:ring"
+              placeholder="Search address or place"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && doSearch()}
+              aria-label="Search address"
+            />
+            <button
+              className="rounded-md bg-cyan-600 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-60"
+              onClick={doSearch}
+              disabled={busy}
+            >
+              {busy ? "…" : "Search"}
+            </button>
+          </div>
+          {error && <div className="mt-1 text-xs text-red-600">{error}</div>}
+          <div className="mt-2 flex gap-2">
+            <button className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50" onClick={recenter}>Recenter</button>
+            <button className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50" onClick={locateMe}>Locate me</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function Inner({ address, center, zoom = 15 }: Props) {
-    // Default to "Martin Luther King Jr Blvd, Pontiac, MI" if no address passed
-    const defaultAddress =
-      address ||
-      "Martin Luther King Jr Blvd, Pontiac, Michigan";
-
-    // Fallback Pontiac center if geocode fails and no center provided
-    const FALLBACK_CENTER: LatLngTuple = [42.6389, -83.291];
-
-    const [main, setMain] = useState<{
-      center: LatLngTuple;
-      label: string;
-    }>({
+    const defaultAddress = address || "Martin Luther King Jr Blvd, Pontiac, Michigan";
+    const [clinic, setClinic] = useState<{ center: LatLngTuple; label: string }>({
       center: center ?? FALLBACK_CENTER,
       label: defaultAddress,
     });
-
+    const [searchHit, setSearchHit] = useState<{ center: LatLngTuple; label: string } | null>(null);
     const [userPos, setUserPos] = useState<LatLngTuple | null>(null);
-    const [searchHit, setSearchHit] = useState<{
-      center: LatLngTuple;
-      label: string;
-    } | null>(null);
 
-    // cache by address
     const cacheKey = `geo:${defaultAddress}`;
     const [cached, setCached] = useLocalCache<{ center: LatLngTuple; label: string } | undefined>(cacheKey);
 
-    // Initial geocode when no center provided
     useEffect(() => {
-      if (center) return;
       let cancelled = false;
-
-      async function go() {
+      if (center) return;
+      (async () => {
         try {
-          if (cached) {
-            if (!cancelled) setMain(cached);
-            return;
-          }
+          if (cached) { if (!cancelled) setClinic(cached); return; }
           const r = await geocode(defaultAddress);
-          if (!cancelled) {
-            setMain(r);
-            setCached(r);
-          }
-        } catch {
-          if (!cancelled) {
-            setMain((m) => ({ ...m, center: FALLBACK_CENTER }));
-          }
-        }
-      }
-      void go();
-      return () => {
-        cancelled = true;
-      };
+          if (r && !cancelled) { setClinic(r); setCached(r); }
+        } catch { /* swallow */ }
+      })();
+      return () => { cancelled = true; };
     }, [center, defaultAddress, cached, setCached]);
 
-    const activeCenter = useMemo<LatLngTuple>(() => {
-      return searchHit?.center ?? main.center;
-    }, [searchHit, main.center]);
+    const activeCenter = useMemo<LatLngTuple>(() => searchHit?.center ?? clinic.center, [searchHit, clinic.center]);
 
     return (
       <div className="relative h-full w-full">
@@ -273,21 +198,17 @@ const MapInner = dynamic(async () => {
           scrollWheelZoom
         >
           <BaseLayers />
-
-          {/* Smooth fly to current target */}
           <FlyTo center={activeCenter} zoom={zoom} />
 
           {/* Clinic marker */}
-          <Marker position={main.center}>
+          <Marker position={clinic.center}>
             <Popup>
               <strong>Serenity Rehabilitation Center</strong>
               <br />
-              {main.label}
+              {clinic.label}
               <br />
               <a
-                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-                  main.label
-                )}`}
+                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(clinic.label)}`}
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -296,14 +217,14 @@ const MapInner = dynamic(async () => {
             </Popup>
           </Marker>
 
-          {/* Search result marker (if different) */}
+          {/* Search result marker */}
           {searchHit && (
             <Marker position={searchHit.center}>
               <Popup>{searchHit.label}</Popup>
             </Marker>
           )}
 
-          {/* User location marker */}
+          {/* User marker */}
           {userPos && (
             <Marker position={userPos}>
               <Popup>Your location</Popup>
@@ -311,14 +232,14 @@ const MapInner = dynamic(async () => {
           )}
         </MapContainer>
 
-        {/* Overlay controls */}
-        <OverlayUI
-          address={main.label}
-          mainCenter={main.center}
+        <Overlay
+          clinicLabel={clinic.label}
+          clinicCenter={clinic.center}
           onSearchHit={(r) => setSearchHit(r)}
           onLocate={(pos) => {
-            setUserPos(pos ?? null);
-            if (pos) setSearchHit({ center: pos, label: "Your location" });
+            if (!pos) return;
+            setUserPos(pos);
+            setSearchHit({ center: pos, label: "Your location" });
           }}
         />
       </div>
@@ -330,10 +251,7 @@ const MapInner = dynamic(async () => {
 
 export default function InteractiveMap(props: Props) {
   return (
-    <div
-      className="relative w-full overflow-hidden rounded-lg border"
-      style={{ height: 420 }}
-    >
+    <div className="relative w-full overflow-hidden rounded-lg border" style={{ height: 420 }}>
       <MapInner {...props} />
     </div>
   );
