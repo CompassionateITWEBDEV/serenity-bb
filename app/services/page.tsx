@@ -32,7 +32,7 @@ function LeadGenerationSection() {
     <section className="py-16">
       <div className="container mx-auto px-4">
         {/* Header with staggered animation */}
-        <div className="text-center mb-12 animate-fade-in-up">
+        <div className="text-center mb-12 animate-[fadeInUp_0.8s_ease-out]">
           <Badge className="bg-cyan-100 text-cyan-800 mb-4 hover:bg-cyan-200 transition-colors duration-300">
             Licensed Addiction Treatment Center
           </Badge>
@@ -47,7 +47,7 @@ function LeadGenerationSection() {
 
         {/* Counseling + Support with hover animations */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
-          <Card className="border-t-4 border-t-cyan-600 hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 animate-slide-in-left">
+          <Card className="border-t-4 border-t-cyan-600 hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 animate-[slideInLeft_0.8s_ease-out]">
             <CardHeader>
               <CardTitle className="text-xl flex items-center gap-2">
                 <div className="w-10 h-10 bg-cyan-100 rounded-full flex items-center justify-center">
@@ -119,7 +119,7 @@ function LeadGenerationSection() {
             </CardContent>
           </Card>
 
-          <Card className="border-t-4 border-t-green-600 hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 animate-slide-in-right">
+          <Card className="border-t-4 border-t-green-600 hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 animate-[slideInRight_0.8s_ease-out]">
             <CardHeader>
               <CardTitle className="text-xl flex items-center gap-2">
                 <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
@@ -177,7 +177,7 @@ function LeadGenerationSection() {
         </div>
 
         {/* Methadone intro + PDF CTA with enhanced styling */}
-        <div className="bg-gradient-to-br from-white to-cyan-50 rounded-2xl p-8 shadow-lg border border-cyan-100 hover:shadow-2xl transition-all duration-500 animate-fade-in-up">
+        <div className="bg-gradient-to-br from-white to-cyan-50 rounded-2xl p-8 shadow-lg border border-cyan-100 hover:shadow-2xl transition-all duration-500 animate-[fadeInUp_0.8s_ease-out]">
           <div className="flex items-start gap-4 mb-6">
             <div className="w-14 h-14 bg-cyan-600 rounded-full flex items-center justify-center flex-shrink-0 animate-pulse">
               <Shield className="w-7 h-7 text-white" />
@@ -232,7 +232,7 @@ export default function CombinedServicesPage() {
       <main className="py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Hero Section with Animation */}
-          <div className="text-center mb-16 animate-fade-in">
+          <div className="text-center mb-16 animate-[fadeIn_0.8s_ease-out]">
             <div className="inline-block mb-6">
               <div className="w-20 h-20 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-full flex items-center justify-center mx-auto shadow-lg animate-pulse">
                 <Heart className="w-10 h-10 text-white" />
@@ -255,68 +255,6 @@ export default function CombinedServicesPage() {
       <Suspense fallback={null}>
         <Footer />
       </Suspense>
-
-      <style jsx global>{`
-        @keyframes fade-in {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        
-        @keyframes fade-in-up {
-          from {
-            opacity: 0;
-            transform: translateY(30px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        
-        @keyframes slide-in-left {
-          from {
-            opacity: 0;
-            transform: translateX(-50px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-        
-        @keyframes slide-in-right {
-          from {
-            opacity: 0;
-            transform: translateX(50px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-        
-        .animate-fade-in {
-          animation: fade-in 0.8s ease-out;
-        }
-        
-        .animate-fade-in-up {
-          animation: fade-in-up 0.8s ease-out;
-        }
-        
-        .animate-slide-in-left {
-          animation: slide-in-left 0.8s ease-out;
-        }
-        
-        .animate-slide-in-right {
-          animation: slide-in-right 0.8s ease-out;
-        }
-      `}</style>
     </div>
   );
 }
