@@ -35,7 +35,7 @@ export default function BlogPage() {
       excerpt:
         "From structured routines to comprehensive therapy, learn how a supportive environment can transform your recovery journey.",
       category: "Family Support",
-      pdfUrl: "/pdf/pdf_article_2_inside_serenity.pdf",
+      pdfUrl: "/pdf_article_2_serenity-1-6.pdf",
     },
     {
       id: 3,
@@ -43,7 +43,7 @@ export default function BlogPage() {
       excerpt:
         "From medication-assisted treatment to outpatient care, review evidence-based approaches that help you reclaim your life.",
       category: "Treatment",
-      pdfUrl: undefined,
+      pdfUrl: "/pdf_article_3_roadmap-1-5.pdf",
     },
   ];
 
@@ -146,20 +146,21 @@ export default function BlogPage() {
                           rel="noopener noreferrer"
                           aria-label={`Open PDF: ${post.title}`}
                         >
-                          Read PDF
+                          Read More
                           <ArrowRight className="w-4 h-4 ml-2" />
                         </a>
                       </Button>
                     ) : (
-                      <Button
-                        variant="outline"
-                        className="w-full bg-transparent"
-                        disabled
-                        aria-disabled
-                        title="Coming soon"
-                      >
-                        Read More
-                        <ArrowRight className="w-4 h-4 ml-2" />
+                      <Button asChild variant="outline" className="w-full bg-transparent">
+                        <a
+                          href={post.pdfUrl as string}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Open PDF: ${post.title}`}
+                        >
+                          Read More
+                          <ArrowRight className="w-4 h-4 ml-2" />
+                        </a>
                       </Button>
                     )}
                   </CardContent>
