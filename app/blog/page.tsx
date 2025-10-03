@@ -23,60 +23,48 @@ export default function BlogPage() {
         "Medication-Assisted Treatment: What It Is and How It Supports Recovery",
       excerpt:
         "Explore how MAT pairs safe, FDA-approved medications with counseling to reduce cravings, stabilize withdrawal, and support long-term recovery.",
-      author: "SRC Medical Team",
-      date: "Jan 15, 2024",
-      category: "Health Education",
-      readTime: "6 min read",
+         category: "Health Education",
+      
     },
     {
       id: 2,
       title: "Inside Serenity: Your Journey to Lasting Recovery",
       excerpt:
         "From structured routines to comprehensive therapy, learn how a supportive environment can transform your recovery journey.",
-      author: "Care Coordination",
-      date: "Jan 10, 2024",
-      category: "Family Support",
-      readTime: "7 min read",
+         category: "Family Support",
+      
     },
     {
       id: 3,
       title: "Your Recovery Roadmap: Understanding Treatment Options",
       excerpt:
         "From medication-assisted treatment to outpatient care, review evidence-based approaches that help you reclaim your life.",
-      author: "Clinical Programs",
-      date: "Jan 05, 2024",
-      category: "Treatment",
-      readTime: "5 min read",
+        category: "Treatment",
+      
     },
     {
       id: 4,
       title: "Building Healthy Coping Strategies for Long-Term Recovery",
       excerpt:
         "Practical, evidence-based techniques for managing stress, triggers, and setbacks during recovery.",
-      author: "SRC Counseling",
-      date: "Dec 28, 2023",
-      category: "Recovery Tips",
-      readTime: "8 min read",
+         category: "Recovery Tips",
+      
     },
     {
       id: 5,
       title: "The Importance of Mental Health in Addiction Recovery",
       excerpt:
         "How integrated care for co-occurring disorders leads to better outcomes and sustained recovery.",
-      author: "Brianna Carter, LCSW",
-      date: "Dec 20, 2023",
-      category: "Mental Health",
-      readTime: "6 min read",
+        category: "Mental Health",
+      
     },
     {
       id: 6,
       title: "Nutrition and Recovery: Healing Your Body from the Inside Out",
       excerpt:
         "Why nutrition matters in recovery and simple tips to support brain and body healing.",
-      author: "Sam Rivera, RN",
-      date: "Dec 15, 2023",
-      category: "Wellness",
-      readTime: "5 min read",
+         category: "Wellness",
+      
     },
   ];
 
