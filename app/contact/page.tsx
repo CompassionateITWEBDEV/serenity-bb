@@ -12,35 +12,7 @@ import { Label } from "@/components/ui/label";
 import { MapPin, Phone, Mail, Clock, AlertCircle } from "lucide-react";
 import { getSwal } from "@/lib/sweetalert";
 
-// Lightweight client-only wrapper
-function ClientOnly({ children }: { children: React.ReactNode }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-  if (!mounted) return null;
-  return <>{children}</>;
-}
-
-// Local error boundary to avoid blank screen if map fails
-class SectionErrorBoundary extends React.Component<
-  { children: React.ReactNode; fallback?: React.ReactNode },
-  { hasError: boolean }
-> {
-  constructor(props: any) { super(props); this.state = { hasError: false }; }
-  static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(err: any, info: any) { console.error("[/contact] map error", err, info); }
-  render() {
-    if (this.state.hasError) {
-      return this.props.fallback ?? (
-        <div className="flex h-[420px] items-center justify-center rounded-lg border bg-gray-50 text-sm text-gray-700">
-          Map unavailable right now. Try again later.
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
-// Import the map (already client-only inside)
+/** Client-only loader for the map component */
 const InteractiveMap = dynamic(() => import("@/components/interactive-map"), {
   ssr: false,
   loading: () => <div className="h-[420px] w-full rounded-lg border animate-pulse bg-gray-100" />,
@@ -92,7 +64,9 @@ export default function ContactPage() {
     } catch (err) {
       getSwal()?.fire({ icon: "error", title: "Could not send", text: err instanceof Error ? err.message : "Please try again." });
       console.error("Failed to submit contact form", err);
-    } finally { setSubmitting(false); }
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -111,9 +85,7 @@ export default function ContactPage() {
           <div className="grid gap-12 lg:grid-cols-2">
             {/* Form */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-2xl font-serif">Send Us a Message</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-2xl font-serif">Send Us a Message</CardTitle></CardHeader>
               <CardContent>
                 <form className="space-y-6" onSubmit={handleSubmit} noValidate>
                   <div className="grid gap-4 md:grid-cols-2">
@@ -229,15 +201,11 @@ export default function ContactPage() {
             <Card>
               <CardHeader><CardTitle className="text-2xl font-serif">Find Us</CardTitle></CardHeader>
               <CardContent>
-                <ClientOnly>
-                  <SectionErrorBoundary>
-                    <InteractiveMap
-                      address="Martin Luther King Jr Blvd, Pontiac, MI 48341"
-                      center={[42.6389, -83.2910]} // MLK Jr Blvd, Pontiac (approx)
-                      zoom={15}
-                    />
-                  </SectionErrorBoundary>
-                </ClientOnly>
+                <InteractiveMap
+                  address="Martin Luther King Jr Blvd, Pontiac, MI 48341"
+                  center={[42.6389, -83.2910]}  // MLK Jr Blvd, Pontiac (approx)
+                  zoom={15}
+                />
               </CardContent>
             </Card>
           </div>
