@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { MessageCircle, Search, Send, UserPlus, X } from "lucide-react";
-import Swal from "sweetalert2"; // why: user asked for SweetAlert UX
+import Swal from "sweetalert2";
 
 type ProviderRole = "doctor" | "nurse" | "counselor";
 
@@ -50,28 +50,21 @@ type CareTeamStaff = {
 function initials(name?: string | null) {
   const s = (name ?? "").trim();
   if (!s) return "U";
-  return s
-    .split(/\s+/)
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  return s.split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 }
 
-// why: map app's staff_role enum to conversation's provider_role constraint
+// map staff.role → conversations.provider_role
 function toProviderRole(role?: string | null): ProviderRole {
   const r = (role ?? "").toLowerCase();
   if (r.includes("doc")) return "doctor";
   if (r.includes("nurse")) return "nurse";
   if (r.includes("counsel")) return "counselor";
-  // fallback to nurse to satisfy constraint
   return "nurse";
 }
 
 export default function PatientMessagesPage() {
   const { isAuthenticated, loading, user, patient } = useAuth();
-  const meId =
-    isAuthenticated ? (patient?.user_id || (patient as any)?.id || user?.id) : null;
+  const meId = isAuthenticated ? (patient?.user_id || (patient as any)?.id || user?.id) : null;
 
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -84,18 +77,15 @@ export default function PatientMessagesPage() {
 
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Conversations for this patient
+  // Conversations
   useEffect(() => {
     if (!meId) return;
     (async () => {
       const { data, error } = await supabase
         .from("conversations")
-        .select(
-          "id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at"
-        )
+        .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
         .eq("patient_id", meId)
         .order("last_message_at", { ascending: false, nullsFirst: false });
-
       if (error) {
         await Swal.fire("Error loading conversations", error.message, "error");
         return;
@@ -104,44 +94,46 @@ export default function PatientMessagesPage() {
     })();
   }, [meId]);
 
-  // Assigned staff for “New message” — FIXED: use FK name for embed
+  // Care team picker — **REVISED**: reverse join via patient_care_team
   useEffect(() => {
     if (!meId) return;
     (async () => {
       const { data, error } = await supabase
-        .from("patient_care_team")
-        .select(
-          `
-          staff:staff!patient_care_team_staff_id_fkey(
-            user_id, first_name, last_name, role, avatar_url, email
-          )
-        `
-        )
-        .eq("patient_id", meId);
+        .from("staff")
+        .select(`
+          user_id, first_name, last_name, role, avatar_url, email,
+          patient_care_team!inner(patient_id)
+        `)
+        .eq("patient_care_team.patient_id", meId);
 
       if (error) {
         await Swal.fire("Error loading care team", error.message, "error");
         return;
       }
 
-      const rows: CareTeamStaff[] = (data || [])
-        .map((r: any) => ({
-          user_id: r.staff?.user_id,
-          full_name:
-            [r.staff?.first_name, r.staff?.last_name].filter(Boolean).join(" ") ||
-            r.staff?.email ||
-            "Staff",
-          role: toProviderRole(r.staff?.role),
-          avatar_url: r.staff?.avatar_url || null,
-          email: r.staff?.email || null,
-        }))
-        .filter((x) => x.user_id);
+      const rows: CareTeamStaff[] = (data as any[] || []).map((s) => ({
+        user_id: s.user_id,
+        full_name: [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "Staff",
+        role: toProviderRole(s.role),
+        avatar_url: s.avatar_url ?? null,
+        email: s.email ?? null,
+      }));
+
+      if (!rows.length) {
+        await Swal.fire({
+          icon: "info",
+          title: "No staff found",
+          text: "Ask the clinic to add providers to your care team.",
+          timer: 2500,
+          showConfirmButton: false,
+        });
+      }
 
       setStaffList(rows);
     })();
   }, [meId]);
 
-  // realtime refresh conversations
+  // Realtime conversations
   useEffect(() => {
     if (!meId) return;
     const ch = supabase
@@ -152,21 +144,17 @@ export default function PatientMessagesPage() {
         async () => {
           const { data } = await supabase
             .from("conversations")
-            .select(
-              "id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at"
-            )
+            .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
             .eq("patient_id", meId)
             .order("last_message_at", { ascending: false });
           setConvs((data as Conversation[]) || []);
         }
       )
       .subscribe();
-    return () => {
-      supabase.removeChannel(ch);
-    };
+    return () => { supabase.removeChannel(ch); };
   }, [meId]);
 
-  // messages + realtime thread
+  // Messages + realtime
   useEffect(() => {
     if (!selectedId) return;
     let alive = true;
@@ -177,18 +165,14 @@ export default function PatientMessagesPage() {
         .select("*")
         .eq("conversation_id", selectedId)
         .order("created_at", { ascending: true });
-
       if (error) {
         await Swal.fire("Error loading messages", error.message, "error");
         return;
       }
-
       if (alive) {
         setMsgs((data as MessageRow[]) || []);
         await markRead(selectedId);
-        requestAnimationFrame(() =>
-          listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
-        );
+        requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight }));
       }
     })();
 
@@ -203,10 +187,7 @@ export default function PatientMessagesPage() {
             setMsgs((prev) => [...prev, m]);
             if (m.sender_role !== "patient") await markRead(selectedId);
             requestAnimationFrame(() =>
-              listRef.current?.scrollTo({
-                top: listRef.current.scrollHeight,
-                behavior: "smooth",
-              })
+              listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" })
             );
           } else {
             const { data } = await supabase
@@ -220,10 +201,7 @@ export default function PatientMessagesPage() {
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(ch);
-      alive = false;
-    };
+    return () => { supabase.removeChannel(ch); alive = false; };
   }, [selectedId]);
 
   async function markRead(conversationId: string) {
@@ -235,7 +213,7 @@ export default function PatientMessagesPage() {
       .eq("read", false);
   }
 
-  // ensure/create conversation with a staff member
+  // Ensure/create conversation
   async function ensureConversationWith(staff: CareTeamStaff): Promise<Conversation | null> {
     if (!meId) return null;
 
@@ -245,7 +223,6 @@ export default function PatientMessagesPage() {
       .eq("patient_id", meId)
       .eq("provider_id", staff.user_id)
       .maybeSingle<Conversation>();
-
     if (!found.error && found.data) return found.data;
 
     const insert = await supabase
@@ -261,12 +238,10 @@ export default function PatientMessagesPage() {
       })
       .select("*")
       .single<Conversation>();
-
     if (insert.error) {
       await Swal.fire("Could not start conversation", insert.error.message, "error");
       return null;
     }
-
     await Swal.fire("Conversation started", staff.full_name ?? "Care team", "success");
     return insert.data;
   }
@@ -293,7 +268,6 @@ export default function PatientMessagesPage() {
       read: true,
       urgent: false,
     };
-
     setMsgs((m) => [...m, optimistic]);
     setCompose("");
 
@@ -309,7 +283,6 @@ export default function PatientMessagesPage() {
     });
 
     if (error) {
-      // rollback optimistic UI
       setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
       await Swal.fire("Send failed", error.message, "error");
       return;
@@ -317,14 +290,11 @@ export default function PatientMessagesPage() {
 
     await supabase
       .from("conversations")
-      .update({
-        last_message: optimistic.content,
-        last_message_at: new Date().toISOString(),
-      })
+      .update({ last_message: optimistic.content, last_message_at: new Date().toISOString() })
       .eq("id", selectedId);
   }
 
-  // derived
+  // Derived
   const filteredConvs = useMemo(() => {
     const v = q.trim().toLowerCase();
     const base = convs.slice().sort((a, b) => {
@@ -353,11 +323,7 @@ export default function PatientMessagesPage() {
   }, [staffList, pickerQ]);
 
   if (loading || !isAuthenticated) {
-    return (
-      <div className="container mx-auto p-6 max-w-7xl">
-        <p className="text-gray-600">Loading…</p>
-      </div>
-    );
+    return <div className="container mx-auto p-6 max-w-7xl"><p className="text-gray-600">Loading…</p></div>;
   }
 
   return (
@@ -509,7 +475,7 @@ export default function PatientMessagesPage() {
         </Card>
       </div>
 
-      {/* Staff picker modal */}
+      {/* Staff picker */}
       {pickerOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
           <div className="w-full max-w-lg rounded-lg border bg-white">
@@ -539,9 +505,7 @@ export default function PatientMessagesPage() {
                       if (!conv) return;
                       const { data } = await supabase
                         .from("conversations")
-                        .select(
-                          "id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at"
-                        )
+                        .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
                         .eq("patient_id", meId!)
                         .order("last_message_at", { ascending: false });
                       setConvs((data as Conversation[]) || []);
@@ -556,12 +520,8 @@ export default function PatientMessagesPage() {
                     <div className="min-w-0">
                       <div className="truncate font-medium">{s.full_name}</div>
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="capitalize">
-                          {s.role}
-                        </Badge>
-                        <span className="truncate text-xs text-gray-500">
-                          {s.email ?? ""}
-                        </span>
+                        <Badge variant="secondary" className="capitalize">{s.role}</Badge>
+                        <span className="truncate text-xs text-gray-500">{s.email ?? ""}</span>
                       </div>
                     </div>
                   </button>
