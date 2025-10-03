@@ -39,12 +39,7 @@ function AboutGoalSummary() {
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
-              <Button asChild className="bg-cyan-600 hover:bg-indigo-600">
-                <Link href="/programs" className="inline-flex items-center gap-2">
-                  Explore Programs <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
-              <Button asChild variant="outline" className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">
+             <Button asChild variant="outline" className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">
                 <Link href="/contact">Talk to a Clinician</Link>
               </Button>
             </div>
