@@ -28,7 +28,7 @@ export default function BlogPage() {
       excerpt:
         "Explore how MAT pairs safe, FDA-approved medications with counseling to reduce cravings, stabilize withdrawal, and support long-term recovery.",
       category: "Health Education",
-      pdfUrl: "/pdf/pdf_article_1_mat.pdf",
+      pdfUrl: "/pdf_article_1_mat.pdf",
     },
     {
       id: 2,
@@ -36,7 +36,7 @@ export default function BlogPage() {
       excerpt:
         "From structured routines to comprehensive therapy, learn how a supportive environment can transform your recovery journey.",
       category: "Family Support",
-      pdfUrl: "/pdf/pdf_article_2_serenity-1-6.pdf",
+      pdfUrl: "/pdf_article_2_serenity-1-6.pdf",
     },
     {
       id: 3,
@@ -44,7 +44,7 @@ export default function BlogPage() {
       excerpt:
         "From medication-assisted treatment to outpatient care, review evidence-based approaches that help you reclaim your life.",
       category: "Treatment",
-      pdfUrl: "/pdf/pdf_article_3_roadmap-1-5.pdf",
+      pdfUrl: "/pdf_article_3_roadmap-1-5.pdf",
     },
   ];
 
