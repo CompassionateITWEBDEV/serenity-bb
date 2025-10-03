@@ -10,12 +10,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, User, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+
+/**
+ * PDFs:
+ *   - public/pdf/pdf_article_1_mat.pdf            (Medication-Assisted Treatment)
+ *   - public/pdf/pdf_article_2_inside_serenity.pdf (Inside Serenity: Your Journey to Lasting Recovery)
+ */
 
 export default function BlogPage() {
-  // Place the PDF at: public/pdf/pdf_article_1_mat.pdf
-  const FEATURED_PDF_URL = "/pdf_article_1_mat.pdf";
-
   const blogPosts = [
     {
       id: 1,
@@ -23,26 +26,25 @@ export default function BlogPage() {
         "Medication-Assisted Treatment: What It Is and How It Supports Recovery",
       excerpt:
         "Explore how MAT pairs safe, FDA-approved medications with counseling to reduce cravings, stabilize withdrawal, and support long-term recovery.",
-         category: "Health Education",
-      
+      category: "Health Education",
+      pdfUrl: "/pdf/pdf_article_1_mat.pdf",
     },
     {
       id: 2,
       title: "Inside Serenity: Your Journey to Lasting Recovery",
       excerpt:
         "From structured routines to comprehensive therapy, learn how a supportive environment can transform your recovery journey.",
-         category: "Family Support",
-      
+      category: "Family Support",
+      pdfUrl: "/pdf/pdf_article_2_inside_serenity.pdf",
     },
     {
       id: 3,
       title: "Your Recovery Roadmap: Understanding Treatment Options",
       excerpt:
         "From medication-assisted treatment to outpatient care, review evidence-based approaches that help you reclaim your life.",
-        category: "Treatment",
-      
+      category: "Treatment",
+      pdfUrl: undefined,
     },
-    
   ];
 
   const categories = [
@@ -88,7 +90,7 @@ export default function BlogPage() {
             ))}
           </div>
 
-          {/* Featured Post */}
+          {/* Featured Post (Medication-Assisted Treatment) */}
           <Card className="mb-12 overflow-hidden">
             <div className="md:flex">
               <div className="md:w-1/3">
@@ -102,15 +104,14 @@ export default function BlogPage() {
                 <p className="text-gray-700 mb-6 leading-relaxed text-[clamp(15px,1.6vw,18px)]">
                   {blogPosts[0].excerpt}
                 </p>
-                <div className="flex items-center text-sm text-gray-500 mb-6">
-                  <User className="w-4 h-4 mr-2" />
-                  <span className="mr-4">{blogPosts[0].author}</span>
-                  <Calendar className="w-4 h-4 mr-2" />
-                  <span className="mr-4">{blogPosts[0].date}</span>
-                  <span>{blogPosts[0].readTime}</span>
-                </div>
+
                 <Button asChild className="bg-cyan-600 hover:bg-indigo-500">
-                  <a href={FEATURED_PDF_URL} target="_blank" rel="noopener noreferrer">
+                  <a
+                    href={blogPosts[0].pdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Open featured article PDF"
+                  >
                     Read Full Article
                     <ArrowRight className="w-4 h-4 ml-2" />
                   </a>
@@ -121,36 +122,50 @@ export default function BlogPage() {
 
           {/* Blog Posts Grid */}
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {blogPosts.slice(1).map((post) => (
-              <Card key={post.id} className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <div className="flex items-center justify-between mb-2">
-                    <Badge variant="secondary">{post.category}</Badge>
-                    <span className="text-sm text-gray-500">
-                      {post.readTime}
-                    </span>
-                  </div>
-                  <CardTitle className="font-serif leading-snug line-clamp-2 text-[clamp(18px,2vw,26px)]">
-                    {post.title}
-                  </CardTitle>
-                  <CardDescription className="line-clamp-3 text-[clamp(15px,1.6vw,18px)]">
-                    {post.excerpt}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center text-sm text-gray-500 mb-4">
-                    <User className="w-4 h-4 mr-2" />
-                    <span className="mr-4">{post.author}</span>
-                    <Calendar className="w-4 h-4 mr-2" />
-                    <span>{post.date}</span>
-                  </div>
-                  <Button variant="outline" className="w-full bg-transparent">
-                    Read More
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
+            {blogPosts.slice(1).map((post) => {
+              const hasPdf = Boolean(post.pdfUrl);
+              return (
+                <Card key={post.id} className="hover:shadow-lg transition-shadow">
+                  <CardHeader>
+                    <div className="flex items-center justify-between mb-2">
+                      <Badge variant="secondary">{post.category}</Badge>
+                    </div>
+                    <CardTitle className="font-serif leading-snug line-clamp-2 text-[clamp(18px,2vw,26px)]">
+                      {post.title}
+                    </CardTitle>
+                    <CardDescription className="line-clamp-3 text-[clamp(15px,1.6vw,18px)]">
+                      {post.excerpt}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {hasPdf ? (
+                      <Button asChild variant="outline" className="w-full bg-transparent">
+                        <a
+                          href={post.pdfUrl as string}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Open PDF: ${post.title}`}
+                        >
+                          Read PDF
+                          <ArrowRight className="w-4 h-4 ml-2" />
+                        </a>
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        className="w-full bg-transparent"
+                        disabled
+                        aria-disabled
+                        title="Coming soon"
+                      >
+                        Read More
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </div>
       </main>
