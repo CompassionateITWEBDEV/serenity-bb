@@ -26,7 +26,7 @@ export const metadata: Metadata = {
 };
 
 /** Why: expose the public PDF using its root URL (files in /public are served from "/"). */
-const METHADONE_PDF_ROUTE = "/Serenity-Brochure-High-Res_compressed.pdf";
+const METHADONE_PDF_ROUTE = "/Methadone-Flyer_compressed.pdf";
 
 /* -------- Enhanced Counseling & Methadone Dispensing Program with Animations -------- */
 function LeadGenerationSection() {
