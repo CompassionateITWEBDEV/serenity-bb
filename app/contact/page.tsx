@@ -1,7 +1,7 @@
 // app/contact/page.tsx
 "use client";
 
-import { useState, type FormEvent, useEffect } from "react";
+import React, { useState, type FormEvent, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { MapPin, Phone, Mail, Clock, AlertCircle } from "lucide-react";
 import { getSwal } from "@/lib/sweetalert";
 
-// ---------- Safe wrappers (prevents map crashing the whole page) ----------
+/* ---------- Safe wrappers ---------- */
 function ClientOnly({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -25,23 +25,30 @@ class SectionErrorBoundary extends React.Component<
   { children: React.ReactNode; fallback?: React.ReactNode },
   { hasError: boolean }
 > {
-  constructor(props: any) { super(props); this.state = { hasError: false }; }
-  static getDerivedStateFromError() { return { hasError: true }; }
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
   componentDidCatch(err: any, info: any) {
     console.error("[/contact] map section error", err, info);
   }
   render() {
     if (this.state.hasError)
-      return this.props.fallback ?? (
-        <div className="flex h-[420px] items-center justify-center rounded-lg border bg-gray-50 text-sm text-gray-700">
-          Map unavailable right now. Try again later.
-        </div>
+      return (
+        this.props.fallback ?? (
+          <div className="flex h-[420px] items-center justify-center rounded-lg border bg-gray-50 text-sm text-gray-700">
+            Map unavailable right now. Try again later.
+          </div>
+        )
       );
     return this.props.children;
   }
 }
 
-// IMPORTANT: load the map client-side only
+/* IMPORTANT: map must be client-only */
 const InteractiveMap = dynamic(() => import("@/components/interactive-map"), {
   ssr: false,
   loading: () => (
@@ -64,12 +71,12 @@ export default function ContactPage() {
     const contact_method = hasPhone ? "phone" : "email";
 
     const data = {
-      first_name: (formData.get("firstName") as string || "").trim(),
-      last_name: (formData.get("lastName") as string || "").trim(),
-      email: (formData.get("email") as string || "").trim(),
-      phone: (formData.get("phone") as string || "").trim(),
-      subject: (formData.get("subject") as string || "").trim(),
-      message: (formData.get("message") as string || "").trim(),
+      first_name: ((formData.get("firstName") as string) || "").trim(),
+      last_name: ((formData.get("lastName") as string) || "").trim(),
+      email: ((formData.get("email") as string) || "").trim(),
+      phone: ((formData.get("phone") as string) || "").trim(),
+      subject: ((formData.get("subject") as string) || "").trim(),
+      message: ((formData.get("message") as string) || "").trim(),
       contact_method,
       source: "contact",
     };
@@ -90,7 +97,6 @@ export default function ContactPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-
       if (!res.ok) throw new Error((await res.text()) || "Submission failed");
 
       // @ts-ignore optional GA
@@ -102,7 +108,6 @@ export default function ContactPage() {
         text: "Thanks for reaching out. We’ll contact you shortly.",
         confirmButtonColor: "#06b6d4",
       });
-
       form.reset();
     } catch (err) {
       getSwal()?.fire({
@@ -189,7 +194,7 @@ export default function ContactPage() {
                     <Phone className="w-6 h-6 text-cyan-600 mt-1" />
                     <div>
                       <h3 className="font-semibold text-gray-900">Phone</h3>
-                      <p className="text-gray-600">Main: <a href="tel:+12488383686" className="underline">(248) 838-3686</a></p>
+                      <p className="text-gray-600">Main: <a className="underline" href="tel:+12488383686">(248) 838-3686</a></p>
                       <p className="text-gray-600">Fax: (248) 838-3686</p>
                     </div>
                   </div>
@@ -197,7 +202,7 @@ export default function ContactPage() {
                     <Mail className="w-6 h-6 text-cyan-600 mt-1" />
                     <div>
                       <h3 className="font-semibold text-gray-900">Email</h3>
-                      <p className="text-gray-600"><a href="mailto:info@serenityrehab.com" className="underline">info@serenityrehab.com</a></p>
+                      <p className="text-gray-600"><a className="underline" href="mailto:info@serenityrehab.com">info@serenityrehab.com</a></p>
                       <p className="text-gray-600">src.health</p>
                     </div>
                   </div>
@@ -240,8 +245,8 @@ export default function ContactPage() {
                   <div className="flex items-start space-x-4">
                     <AlertCircle className="w-6 h-6 text-red-600 mt-1" />
                     <div>
-                      <h3 className="font-semibold text-red-900 mb-2">Crisis or Emergency?</h3>
-                      <p className="text-red-800 mb-3">
+                      <h3 className="mb-2 font-semibold text-red-900">Crisis or Emergency?</h3>
+                      <p className="mb-3 text-red-800">
                         If you're experiencing a medical emergency or crisis, please call 911 or go to your nearest emergency room.
                       </p>
                       <p className="text-red-800">
@@ -265,8 +270,7 @@ export default function ContactPage() {
                   <SectionErrorBoundary>
                     <InteractiveMap
                       address="Martin Luther King Jr Blvd, Pontiac, MI 48341"
-                      // If you have exact coords, uncomment for faster load & perfect pin:
-                      // center={[42.6389, -83.2910]}
+                      // center={[42.6389, -83.2910]} // optional precise pin
                       zoom={15}
                     />
                   </SectionErrorBoundary>
