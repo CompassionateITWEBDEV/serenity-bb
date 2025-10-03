@@ -239,7 +239,7 @@ export default function ContactPage() {
               </CardHeader>
               <CardContent>
                 <InteractiveMap
-                  address="35 S Johnson Ave, Pontiac, MI 48341"
+                  Address="Martin Luther king johnson, Pontiac, MI 48341"
                   // center can be provided for exact pin; using fallback center inside component
                   // center={[42.6379, -83.2918]}
                   zoom={13}
