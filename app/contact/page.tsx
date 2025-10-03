@@ -1,4 +1,3 @@
-// app/contact/page.tsx
 "use client";
 
 import React, { useState, type FormEvent, useEffect } from "react";
@@ -13,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { MapPin, Phone, Mail, Clock, AlertCircle } from "lucide-react";
 import { getSwal } from "@/lib/sweetalert";
 
-/* ---------- Safe wrappers ---------- */
+// Lightweight client-only wrapper
 function ClientOnly({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -21,39 +20,30 @@ function ClientOnly({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Local error boundary to avoid blank screen if map fails
 class SectionErrorBoundary extends React.Component<
   { children: React.ReactNode; fallback?: React.ReactNode },
   { hasError: boolean }
 > {
-  constructor(props: any) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-  componentDidCatch(err: any, info: any) {
-    console.error("[/contact] map section error", err, info);
-  }
+  constructor(props: any) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(err: any, info: any) { console.error("[/contact] map error", err, info); }
   render() {
-    if (this.state.hasError)
-      return (
-        this.props.fallback ?? (
-          <div className="flex h-[420px] items-center justify-center rounded-lg border bg-gray-50 text-sm text-gray-700">
-            Map unavailable right now. Try again later.
-          </div>
-        )
+    if (this.state.hasError) {
+      return this.props.fallback ?? (
+        <div className="flex h-[420px] items-center justify-center rounded-lg border bg-gray-50 text-sm text-gray-700">
+          Map unavailable right now. Try again later.
+        </div>
       );
+    }
     return this.props.children;
   }
 }
 
-/* IMPORTANT: map must be client-only */
+// Import the map (already client-only inside)
 const InteractiveMap = dynamic(() => import("@/components/interactive-map"), {
   ssr: false,
-  loading: () => (
-    <div className="h-[420px] w-full rounded-lg border animate-pulse bg-gray-100" />
-  ),
+  loading: () => <div className="h-[420px] w-full rounded-lg border animate-pulse bg-gray-100" />,
 });
 
 export default function ContactPage() {
@@ -66,7 +56,6 @@ export default function ContactPage() {
 
     const form = e.currentTarget;
     const formData = new FormData(form);
-
     const hasPhone = Boolean((formData.get("phone") as string | null)?.trim());
     const contact_method = hasPhone ? "phone" : "email";
 
@@ -82,11 +71,7 @@ export default function ContactPage() {
     };
 
     if (!data.first_name || !data.last_name || !data.email || !data.message) {
-      getSwal()?.fire({
-        icon: "warning",
-        title: "Missing fields",
-        text: "First & last name, email and message are required.",
-      });
+      getSwal()?.fire({ icon: "warning", title: "Missing fields", text: "First & last name, email and message are required." });
       setSubmitting(false);
       return;
     }
@@ -102,40 +87,28 @@ export default function ContactPage() {
       // @ts-ignore optional GA
       window.gtag?.("event", "generate_lead", { form_type: "contact", contact_method });
 
-      getSwal()?.fire({
-        icon: "success",
-        title: "Message sent",
-        text: "Thanks for reaching out. We’ll contact you shortly.",
-        confirmButtonColor: "#06b6d4",
-      });
+      getSwal()?.fire({ icon: "success", title: "Message sent", text: "Thanks for reaching out. We’ll contact you shortly.", confirmButtonColor: "#06b6d4" });
       form.reset();
     } catch (err) {
-      getSwal()?.fire({
-        icon: "error",
-        title: "Could not send",
-        text: err instanceof Error ? err.message : "Please try again.",
-      });
+      getSwal()?.fire({ icon: "error", title: "Could not send", text: err instanceof Error ? err.message : "Please try again." });
       console.error("Failed to submit contact form", err);
-    } finally {
-      setSubmitting(false);
-    }
+    } finally { setSubmitting(false); }
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
       <main className="py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           {/* Hero */}
-          <div className="text-center mb-16">
-            <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">Contact Us</h1>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              We're here to help you take the first step towards recovery. Reach out to us today for confidential
-              support and information.
+          <div className="mb-16 text-center">
+            <h1 className="mb-4 text-4xl font-serif font-bold text-gray-900">Contact Us</h1>
+            <p className="mx-auto max-w-3xl text-xl text-gray-600">
+              We're here to help you take the first step towards recovery. Reach out to us today for confidential support and information.
             </p>
           </div>
 
-          <div className="grid lg:grid-cols-2 gap-12">
+          <div className="grid gap-12 lg:grid-cols-2">
             {/* Form */}
             <Card>
               <CardHeader>
@@ -143,7 +116,7 @@ export default function ContactPage() {
               </CardHeader>
               <CardContent>
                 <form className="space-y-6" onSubmit={handleSubmit} noValidate>
-                  <div className="grid md:grid-cols-2 gap-4">
+                  <div className="grid gap-4 md:grid-cols-2">
                     <div>
                       <Label htmlFor="firstName">First Name *</Label>
                       <Input id="firstName" name="firstName" required placeholder="Enter your first name" />
@@ -179,19 +152,17 @@ export default function ContactPage() {
             {/* Info */}
             <div className="space-y-6">
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-2xl font-serif">Get in Touch</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle className="text-2xl font-serif">Get in Touch</CardTitle></CardHeader>
                 <CardContent className="space-y-6">
                   <div className="flex items-start space-x-4">
-                    <MapPin className="w-6 h-6 text-cyan-600 mt-1" />
+                    <MapPin className="mt-1 h-6 w-6 text-cyan-600" />
                     <div>
                       <h3 className="font-semibold text-gray-900">Address</h3>
                       <p className="text-gray-600">35 S Johnson Ave, Pontiac, MI 48341</p>
                     </div>
                   </div>
                   <div className="flex items-start space-x-4">
-                    <Phone className="w-6 h-6 text-cyan-600 mt-1" />
+                    <Phone className="mt-1 h-6 w-6 text-cyan-600" />
                     <div>
                       <h3 className="font-semibold text-gray-900">Phone</h3>
                       <p className="text-gray-600">Main: <a className="underline" href="tel:+12488383686">(248) 838-3686</a></p>
@@ -199,7 +170,7 @@ export default function ContactPage() {
                     </div>
                   </div>
                   <div className="flex items-start space-x-4">
-                    <Mail className="w-6 h-6 text-cyan-600 mt-1" />
+                    <Mail className="mt-1 h-6 w-6 text-cyan-600" />
                     <div>
                       <h3 className="font-semibold text-gray-900">Email</h3>
                       <p className="text-gray-600"><a className="underline" href="mailto:info@serenityrehab.com">info@serenityrehab.com</a></p>
@@ -210,27 +181,25 @@ export default function ContactPage() {
               </Card>
 
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-xl font-serif">Operating Hours</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle className="text-xl font-serif">Operating Hours</CardTitle></CardHeader>
                 <CardContent>
                   <div className="space-y-3">
                     <div className="flex items-center space-x-4">
-                      <Clock className="w-5 h-5 text-cyan-600" />
+                      <Clock className="h-5 w-5 text-cyan-600" />
                       <div>
                         <p className="font-semibold text-gray-900">Monday - Friday</p>
                         <p className="text-gray-600">6:00 AM - 5:00 PM</p>
                       </div>
                     </div>
                     <div className="flex items-center space-x-4">
-                      <Clock className="w-5 h-5 text-cyan-600" />
+                      <Clock className="h-5 w-5 text-cyan-600" />
                       <div>
                         <p className="font-semibold text-gray-900">Saturday</p>
                         <p className="text-gray-600">8:00 AM - 11:00 AM</p>
                       </div>
                     </div>
                     <div className="flex items-center space-x-4">
-                      <Clock className="w-5 h-5 text-cyan-600" />
+                      <Clock className="h-5 w-5 text-cyan-600" />
                       <div>
                         <p className="font-semibold text-gray-900">Sunday</p>
                         <p className="text-gray-600">Closed</p>
@@ -240,18 +209,14 @@ export default function ContactPage() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-red-50 border-red-200">
+              <Card className="border-red-200 bg-red-50">
                 <CardContent className="pt-6">
                   <div className="flex items-start space-x-4">
-                    <AlertCircle className="w-6 h-6 text-red-600 mt-1" />
+                    <AlertCircle className="mt-1 h-6 w-6 text-red-600" />
                     <div>
                       <h3 className="mb-2 font-semibold text-red-900">Crisis or Emergency?</h3>
-                      <p className="mb-3 text-red-800">
-                        If you're experiencing a medical emergency or crisis, please call 911 or go to your nearest emergency room.
-                      </p>
-                      <p className="text-red-800">
-                        For 24/7 crisis support, call our hotline: <strong>(248) 838-3686</strong>
-                      </p>
+                      <p className="mb-3 text-red-800">If you're experiencing a medical emergency or crisis, call 911 or go to your nearest emergency room.</p>
+                      <p className="text-red-800">For 24/7 crisis support, call our hotline: <strong>(248) 838-3686</strong></p>
                     </div>
                   </div>
                 </CardContent>
@@ -262,15 +227,13 @@ export default function ContactPage() {
           {/* Map */}
           <div className="mt-16">
             <Card>
-              <CardHeader>
-                <CardTitle className="text-2xl font-serif">Find Us</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-2xl font-serif">Find Us</CardTitle></CardHeader>
               <CardContent>
                 <ClientOnly>
                   <SectionErrorBoundary>
                     <InteractiveMap
                       address="Martin Luther King Jr Blvd, Pontiac, MI 48341"
-                      // center={[42.6389, -83.2910]} // optional precise pin
+                      center={[42.6389, -83.2910]} // MLK Jr Blvd, Pontiac (approx)
                       zoom={15}
                     />
                   </SectionErrorBoundary>
@@ -280,7 +243,6 @@ export default function ContactPage() {
           </div>
         </div>
       </main>
-
       <Footer />
     </div>
   );
