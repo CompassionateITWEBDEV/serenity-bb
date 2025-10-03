@@ -55,10 +55,19 @@ export default function ContactPage() {
       // @ts-ignore optional GA
       window.gtag?.("event", "generate_lead", { form_type: "contact", contact_method: payload.contact_method });
 
-      getSwal()?.fire({ icon: "success", title: "Message sent", text: "Thanks for reaching out. We’ll contact you shortly.", confirmButtonColor: "#06b6d4" });
+      getSwal()?.fire({
+        icon: "success",
+        title: "Message sent",
+        text: "Thanks for reaching out. We’ll contact you shortly.",
+        confirmButtonColor: "#06b6d4",
+      });
       (e.currentTarget as HTMLFormElement).reset();
     } catch (err) {
-      getSwal()?.fire({ icon: "error", title: "Could not send", text: err instanceof Error ? err.message : "Please try again." });
+      getSwal()?.fire({
+        icon: "error",
+        title: "Could not send",
+        text: err instanceof Error ? err.message : "Please try again.",
+      });
       console.error(err);
     } finally {
       setSubmitting(false);
@@ -114,7 +123,9 @@ export default function ContactPage() {
                     <Phone className="mt-1 h-6 w-6 text-cyan-600" />
                     <div>
                       <h3 className="font-semibold text-gray-900">Phone</h3>
-                      <p className="text-gray-600">Main: <a className="underline" href="tel:+12488383686">(248) 838-3686</a></p>
+                      <p className="text-gray-600">
+                        Main: <a className="underline" href="tel:+12488383686">(248) 838-3686</a>
+                      </p>
                       <p className="text-gray-600">Fax: (248) 838-3686</p>
                     </div>
                   </div>
@@ -122,7 +133,9 @@ export default function ContactPage() {
                     <Mail className="mt-1 h-6 w-6 text-cyan-600" />
                     <div>
                       <h3 className="font-semibold text-gray-900">Email</h3>
-                      <p className="text-gray-600"><a className="underline" href="mailto:info@serenityrehab.com">info@serenityrehab.com</a></p>
+                      <p className="text-gray-600">
+                        <a className="underline" href="mailto:info@serenityrehab.com">info@serenityrehab.com</a>
+                      </p>
                       <p className="text-gray-600">src.health</p>
                     </div>
                   </div>
@@ -133,9 +146,18 @@ export default function ContactPage() {
                 <CardHeader><CardTitle className="text-xl font-serif">Operating Hours</CardTitle></CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    <div className="flex items-center gap-4"><Clock className="h-5 w-5 text-cyan-600" /><div><p className="font-semibold">Mon–Fri</p><p className="text-gray-600">6:00 AM – 5:00 PM</p></div></div>
-                    <div className="flex items-center gap-4"><Clock className="h-5 w-5 text-cyan-600" /><div><p className="font-semibold">Sat</p><p className="text-gray-600">8:00 AM – 11:00 AM</p></div></div>
-                    <div className="flex items-center gap-4"><Clock className="h-5 w-5 text-cyan-600" /><div><p className="font-semibold">Sun</p><p className="text-gray-600">Closed</p></div></div>
+                    <div className="flex items-center gap-4">
+                      <Clock className="h-5 w-5 text-cyan-600" />
+                      <div><p className="font-semibold">Mon–Fri</p><p className="text-gray-600">6:00 AM – 5:00 PM</p></div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <Clock className="h-5 w-5 text-cyan-600" />
+                      <div><p className="font-semibold">Sat</p><p className="text-gray-600">8:00 AM – 11:00 AM</p></div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <Clock className="h-5 w-5 text-cyan-600" />
+                      <div><p className="font-semibold">Sun</p><p className="text-gray-600">Closed</p></div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -146,7 +168,9 @@ export default function ContactPage() {
                     <AlertCircle className="mt-1 h-6 w-6 text-red-600" />
                     <div>
                       <h3 className="mb-2 font-semibold text-red-900">Crisis or Emergency?</h3>
-                      <p className="mb-3 text-red-800">If you're experiencing a medical emergency or crisis, call 911 or go to your nearest emergency room.</p>
+                      <p className="mb-3 text-red-800">
+                        If you're experiencing a medical emergency or crisis, call 911 or go to your nearest emergency room.
+                      </p>
                       <p className="text-red-800">24/7 crisis support: <strong>(248) 838-3686</strong></p>
                     </div>
                   </div>
