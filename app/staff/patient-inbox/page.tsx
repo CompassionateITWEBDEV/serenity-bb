@@ -21,11 +21,12 @@ type PatientRow = {
   role_on_team: string | null;
   is_primary: boolean;
   added_at: string;
+  staff_id?: string; // present in the view
 };
 
-function IconPill({ children, active, onClick, aria }:{
-  children: React.ReactNode; active?: boolean; onClick?: () => void; aria: string;
-}) {
+function IconPill({
+  children, active, onClick, aria,
+}: { children: React.ReactNode; active?: boolean; onClick?: () => void; aria: string }) {
   return (
     <button
       type="button" aria-label={aria} onClick={onClick}
@@ -38,17 +39,17 @@ function IconPill({ children, active, onClick, aria }:{
 
 export default function StaffPatientInboxPage() {
   const router = useRouter();
-  const supabase = useMemo(
-    () => createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
-    ), []
-  );
+
+  const supabase = useMemo(() => createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL as string,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string,
+  ), []);
 
   const [patients, setPatients] = useState<PatientRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string>("");
 
-  // Helpers
+  // local helpers
   const upsertPatient = (p: PatientRow) => {
     setPatients(prev => {
       const i = prev.findIndex(x => x.user_id === p.user_id);
@@ -61,57 +62,114 @@ export default function StaffPatientInboxPage() {
   useEffect(() => {
     let mounted = true;
     let staffId: string | null = null;
-    let assignedIds: Set<string> = new Set();
+    const assigned = new Set<string>();
 
-    async function load() {
-      const { data: auth } = await supabase.auth.getUser();
-      if (!auth?.user) { router.push("/staff/login"); return; }
+    async function fetchAssigned(p_search: string | null = null) {
+      // Prefer RPC (fast, RLS-safe)
+      const { data, error } = await supabase.rpc("list_assigned_patients", {
+        p_search,
+        p_limit: 100,
+        p_offset: 0,
+      });
+
+      if (!error && data) return data as PatientRow[];
+
+      // Fallback when RPC not present (kept for robustness)
+      const { data: fb, error: fbErr } = await supabase
+        .from("patient_care_team")
+        .select(`
+          role_on_team, is_primary, added_at, staff_id,
+          patients:user_id (
+            user_id, full_name, email, phone_number, avatar, created_at
+          )
+        `);
+      if (fbErr) throw fbErr;
+
+      const rows: PatientRow[] = (fb ?? []).map((r: any) => ({
+        user_id: r.patients?.user_id,
+        full_name: r.patients?.full_name,
+        email: r.patients?.email,
+        phone_number: r.patients?.phone_number,
+        avatar: r.patients?.avatar,
+        created_at: r.patients?.created_at,
+        role_on_team: r.role_on_team,
+        is_primary: r.is_primary,
+        added_at: r.added_at,
+        staff_id: r.staff_id,
+      })).filter(x => x.user_id);
+      return rows;
+    }
+
+    async function init() {
+      setLoading(true);
+      setErrorMsg("");
+
+      // Auth guard
+      const { data: auth, error: authErr } = await supabase.auth.getUser();
+      if (authErr || !auth?.user) { router.push("/staff/login"); return; }
       staffId = auth.user.id;
 
-      // Use RPC for pagination/search (here: first page)
-      const { data, error } = await supabase.rpc("list_assigned_patients", {
-        p_search: null, p_limit: 100, p_offset: 0,
-      });
-      if (!mounted) return;
-      if (error) { console.error(error.message); setLoading(false); return; }
+      try {
+        const list = await fetchAssigned(null);
+        if (!mounted) return;
+        // Filter to only my assignments (covers fallback path)
+        const mine = (list ?? []).filter(x => !x.staff_id || x.staff_id === staffId);
+        mine.forEach(x => assigned.add(x.user_id));
+        setPatients(mine);
+      } catch (e: any) {
+        if (mounted) setErrorMsg(e?.message ?? "Failed to load patients.");
+      } finally {
+        if (mounted) setLoading(false);
+      }
 
-      setPatients(data as PatientRow[]);
-      assignedIds = new Set((data as PatientRow[]).map(r => r.user_id));
-      setLoading(false);
-
-      // Realtime – assignments for this staff
+      // Realtime: care_team changes for me
       const chAssign = supabase
         .channel("pct-" + staffId)
         .on("postgres_changes",
           { schema: "public", table: "patient_care_team", event: "INSERT", filter: `staff_id=eq.${staffId}` },
           async (payload) => {
             const pid = (payload.new as any).patient_id as string;
-            assignedIds.add(pid);
+            if (!pid || assigned.has(pid)) return;
+            // Fetch the row via view to get display fields
             const { data: row } = await supabase
               .from("v_staff_assigned_patients")
-              .select("*").eq("user_id", pid).maybeSingle();
-            if (row && mounted) upsertPatient(row as PatientRow);
+              .select("*").eq("user_id", pid).eq("staff_id", staffId).maybeSingle();
+            if (row && mounted) {
+              assigned.add(pid);
+              upsertPatient(row as PatientRow);
+            }
           }
         )
         .on("postgres_changes",
           { schema: "public", table: "patient_care_team", event: "DELETE", filter: `staff_id=eq.${staffId}` },
           (payload) => {
             const pid = (payload.old as any).patient_id as string;
-            assignedIds.delete(pid);
+            if (!pid) return;
+            assigned.delete(pid);
             if (mounted) removePatient(pid);
           }
         )
         .subscribe();
 
-      // Realtime – updates to patient rows you’re assigned to
+      // Realtime: updates to patients profile (only patch if assigned)
       const chPatients = supabase
         .channel("patients-upd-" + staffId)
         .on("postgres_changes",
           { schema: "public", table: "patients", event: "UPDATE" },
           (payload) => {
             const p = payload.new as any;
-            if (!assignedIds.has(p.user_id)) return;
-            upsertPatient(p as PatientRow);
+            if (!p?.user_id || !assigned.has(p.user_id)) return;
+            upsertPatient({
+              user_id: p.user_id,
+              full_name: p.full_name,
+              email: p.email,
+              phone_number: p.phone_number,
+              avatar: p.avatar,
+              created_at: p.created_at,
+              role_on_team: patients.find(x => x.user_id === p.user_id)?.role_on_team ?? null,
+              is_primary: patients.find(x => x.user_id === p.user_id)?.is_primary ?? false,
+              added_at: patients.find(x => x.user_id === p.user_id)?.added_at ?? p.created_at,
+            });
           }
         )
         .subscribe();
@@ -122,9 +180,9 @@ export default function StaffPatientInboxPage() {
       };
     }
 
-    load();
+    init();
     return () => { mounted = false; };
-  }, [router, supabase]);
+  }, [router, supabase, patients]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -167,9 +225,9 @@ export default function StaffPatientInboxPage() {
         </div>
 
         <div className="grid">
-          {loading ? (
-            <p className="text-slate-500">Loading assigned patients…</p>
-          ) : (
+          {loading && <p className="text-slate-500">Loading assigned patients…</p>}
+          {!loading && errorMsg && <p className="text-red-600">{errorMsg}</p>}
+          {!loading && !errorMsg && (
             <PatientInbox patients={patients} onNewGroup={() => console.log("new group")} />
           )}
         </div>
