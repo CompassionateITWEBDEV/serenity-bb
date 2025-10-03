@@ -12,8 +12,7 @@ export function Footer() {
               Serenity Rehabilitation Center
             </h3>
             <p className="text-gray-300 leading-relaxed mb-4">
-              Dedicated to providing compassionate, comprehensive care for individuals and families affected by lead
-              poisoning. Your recovery is our mission.
+              Dedicated to helping individuals reclaim health and hope through personalized treatment, supportive counseling, and evidence-based care. At Serenity Rehabilitation Center, your healing journey is our mission.
             </p>
             <p className="text-sm text-gray-400">
               Licensed Medical Facility • Accredited by Joint Commission
