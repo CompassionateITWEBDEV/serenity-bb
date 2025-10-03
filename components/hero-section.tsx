@@ -22,23 +22,15 @@ export function HeroSection() {
               </div>
               
               <h1 className="hero-title">
-                <span className="title-highlight"> We Strive to deliver comprehensive care and counseling to patients in need! </span>
+                <span className="title-highlight"> We strive to deliver comprehensive care and counseling to patients in need. </span>
              </h1>
               
               <p className="hero-description">
-                At Serenity Rehabilitation Center, 
-                we are dedicated to helping individuals reclaim their health and well-being. 
-                Through personalized treatment, supportive counseling, and evidence-based care, 
-                we guide our patients toward lasting recovery and hope. 
-                We deliver comprehensive care and counseling to patients in need, 
-                ensuring each person receives the compassion, dignity, and respect they deserve on their journey to healing.
+                At Serenity Rehabilitation Center, we help individuals reclaim their health through personalized treatment, supportive counseling, and evidence-based care. We provide comprehensive, compassionate services that honor dignity and foster lasting recovery.
               </p>
 
               <div className="hero-stats">
-                <div className="stat-item">
-                  <div className="stat-number"></div>
-                  <div className="stat-label">Lives Restored</div>
-                </div>
+                
                 <div className="stat-item">
                   <div className="stat-number">3</div>
                   <div className="stat-label">Years Experience</div>
