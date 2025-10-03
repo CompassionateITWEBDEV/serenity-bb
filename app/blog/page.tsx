@@ -13,9 +13,10 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowRight } from "lucide-react";
 
 /**
- * PDFs:
- *   - public/pdf/pdf_article_1_mat.pdf            (Medication-Assisted Treatment)
- *   - public/pdf/pdf_article_2_inside_serenity.pdf (Inside Serenity: Your Journey to Lasting Recovery)
+ * Place PDFs in: /public/pdf/
+ *  - pdf_article_1_mat.pdf
+ *  - pdf_article_2_serenity-1-6.pdf
+ *  - pdf_article_3_roadmap-1-5.pdf
  */
 
 export default function BlogPage() {
@@ -35,7 +36,7 @@ export default function BlogPage() {
       excerpt:
         "From structured routines to comprehensive therapy, learn how a supportive environment can transform your recovery journey.",
       category: "Family Support",
-      pdfUrl: "/pdf_article_2_serenity-1-6.pdf",
+      pdfUrl: "/pdf/pdf_article_2_serenity-1-6.pdf",
     },
     {
       id: 3,
@@ -43,11 +44,20 @@ export default function BlogPage() {
       excerpt:
         "From medication-assisted treatment to outpatient care, review evidence-based approaches that help you reclaim your life.",
       category: "Treatment",
-      pdfUrl: "/pdf_article_3_roadmap-1-5.pdf",
+      pdfUrl: "/pdf/pdf_article_3_roadmap-1-5.pdf",
     },
   ];
 
- 
+  // Required to avoid ReferenceError in prerender
+  const categories = [
+    "All",
+    "Health Education",
+    "Treatment",
+    "Recovery Tips",
+    "Family Support",
+    "Mental Health",
+    "Wellness",
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -82,7 +92,7 @@ export default function BlogPage() {
             ))}
           </div>
 
-          {/* Featured Post (Medication-Assisted Treatment) */}
+          {/* Featured Post */}
           <Card className="mb-12 overflow-hidden">
             <div className="md:flex">
               <div className="md:w-1/3">
@@ -97,17 +107,19 @@ export default function BlogPage() {
                   {blogPosts[0].excerpt}
                 </p>
 
-                <Button asChild className="bg-cyan-600 hover:bg-indigo-500">
-                  <a
-                    href={blogPosts[0].pdfUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label="Open featured article PDF"
-                  >
-                    Read Full Article
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </a>
-                </Button>
+                <div className="flex gap-3 flex-wrap">
+                  <Button asChild className="bg-cyan-600 hover:bg-indigo-500">
+                    <a
+                      href={blogPosts[0].pdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="Open featured article PDF"
+                    >
+                      Read Full Article
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </a>
+                  </Button>
+                </div>
               </div>
             </div>
           </Card>
@@ -143,16 +155,15 @@ export default function BlogPage() {
                         </a>
                       </Button>
                     ) : (
-                      <Button asChild variant="outline" className="w-full bg-transparent">
-                        <a
-                          href={post.pdfUrl as string}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          aria-label={`Open PDF: ${post.title}`}
-                        >
-                          Read More
-                          <ArrowRight className="w-4 h-4 ml-2" />
-                        </a>
+                      <Button
+                        variant="outline"
+                        className="w-full bg-transparent"
+                        disabled
+                        aria-disabled
+                        title="PDF coming soon"
+                      >
+                        Read More
+                        <ArrowRight className="w-4 h-4 ml-2" />
                       </Button>
                     )}
                   </CardContent>
