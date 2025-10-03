@@ -229,23 +229,7 @@ export default function CombinedServicesPage() {
         <Header />
       </Suspense>
 
-      <main className="py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Hero Section with Animation */}
-          <div className="text-center mb-16 animate-[fadeIn_0.8s_ease-out]">
-            <div className="inline-block mb-6">
-              <div className="w-20 h-20 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-full flex items-center justify-center mx-auto shadow-lg animate-pulse">
-                <Heart className="w-10 h-10 text-white" />
-              </div>
-            </div>
-            <h1 className="text-5xl font-serif font-bold text-gray-900 mb-6 tracking-tight">
-              Serenity Rehabilitation Center
-            </h1>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
-              Your journey to recovery starts here. Comprehensive, compassionate care
-              tailored to your unique needs.
-            </p>
-          </div>
+      
 
           {/* Counseling & Methadone Dispensing Program */}
           <LeadGenerationSection />
