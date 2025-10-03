@@ -4,24 +4,11 @@ import { Footer } from "@/components/footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Award, Users, Heart, Shield, Sparkles, ArrowRight } from "lucide-react";
-import { motion } from "framer-motion";
 
 /**
  * Serenity Rehabilitation Center, Inc. — About page (summarized, visual, animated).
  * WHY: Improves scan-ability and conversion while preserving your full narrative.
- * NOTE: If framer-motion isn't installed: `npm i framer-motion`
  */
-
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.5 } },
-};
-
-const stagger = {
-  show: {
-    transition: { staggerChildren: 0.08 },
-  },
-};
 
 function HeroSummary() {
   return (
@@ -30,27 +17,21 @@ function HeroSummary() {
       <div className="absolute inset-0 -z-10 opacity-10 [background-image:radial-gradient(60rem_60rem_at_80%_-10%,white_10%,transparent_60%)]" />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-24">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
-          <motion.div
-            initial="hidden"
-            whileInView="show"
-            viewport={{ once: true, amount: 0.4 }}
-            variants={stagger}
-            className="text-white space-y-6"
-          >
-            <motion.div variants={fadeUp} className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-sm font-medium ring-1 ring-white/20">
+          <div className="text-white space-y-6">
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-sm font-medium ring-1 ring-white/20">
               <Sparkles className="h-4 w-4" />
               <span>Serenity Rehabilitation Center, Inc.</span>
-            </motion.div>
+            </div>
 
-            <motion.h1 id="about-hero" variants={fadeUp} className="text-4xl sm:text-5xl font-serif font-bold leading-tight">
+            <h1 id="about-hero" className="text-4xl sm:text-5xl font-serif font-bold leading-tight">
               Hope, science, and care — delivered with dignity
-            </motion.h1>
+            </h1>
 
-            <motion.p variants={fadeUp} className="text-white/90 text-lg leading-relaxed">
+            <p className="text-white/90 text-lg leading-relaxed">
               We provide research-based care for substance use disorders and mental health challenges. A multidisciplinary team blends medical treatment, counseling, and family involvement so you can heal safely and sustainably.
-            </motion.p>
+            </p>
 
-            <motion.div variants={fadeUp} className="space-y-3 text-white/90">
+            <div className="space-y-3 text-white/90">
               <p className="font-semibold">TL;DR</p>
               <ul className="grid sm:grid-cols-2 gap-2 text-sm">
                 <li className="rounded-lg bg-white/10 px-3 py-2 ring-1 ring-white/15">Medication-assisted & intensive mental health care</li>
@@ -58,9 +39,9 @@ function HeroSummary() {
                 <li className="rounded-lg bg-white/10 px-3 py-2 ring-1 ring-white/15">Compassionate, evidence-based, 24/7 support</li>
                 <li className="rounded-lg bg-white/10 px-3 py-2 ring-1 ring-white/15">Community education & prevention resources</li>
               </ul>
-            </motion.div>
+            </div>
 
-            <motion.div variants={fadeUp} className="flex flex-wrap gap-3 pt-2">
+            <div className="flex flex-wrap gap-3 pt-2">
               <Button asChild size="lg" className="bg-white text-indigo-700 hover:bg-gray-100">
                 <Link href="/intake" className="inline-flex items-center gap-2">
                   Start Intake <ArrowRight className="h-4 w-4" />
@@ -71,8 +52,8 @@ function HeroSummary() {
                   Get Information <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
 
           <ImageMosaic />
         </div>
@@ -92,16 +73,11 @@ function ImageMosaic() {
   return (
     <div className="relative grid grid-cols-2 gap-4">
       {images.map((img, i) => (
-        <motion.img
+        <img
           key={img.src}
           src={img.src}
           alt={img.alt}
-          className={`rounded-2xl shadow-2xl ring-1 ring-white/30 ${img.shift}`}
-          initial={{ opacity: 0, scale: 0.96, y: 20 }}
-          whileInView={{ opacity: 1, scale: 1, y: 0 }}
-          viewport={{ once: true, amount: 0.3 }}
-          transition={{ duration: 0.5, delay: 0.1 * i }}
-          whileHover={{ scale: 1.015 }}
+          className={`rounded-2xl shadow-2xl ring-1 ring-white/30 ${img.shift} transition-transform hover:scale-105`}
         />
       ))}
     </div>
@@ -163,7 +139,7 @@ function GoalCard() {
 
           <div className="space-y-4 text-[1.05rem] text-gray-700 leading-[1.9] max-w-3xl" style={{ textAlign: "justify" }}>
             <h3 className="text-2xl font-serif font-bold text-gray-900">About Us (Summary)</h3>
-            <p>Serenity Rehabilitation Center blends medication-assisted treatment, intensive mental health services, and supportive counseling—personalized to each person’s needs and delivered with compassion and dignity.</p>
+            <p>Serenity Rehabilitation Center blends medication-assisted treatment, intensive mental health services, and supportive counseling—personalized to each person's needs and delivered with compassion and dignity.</p>
             <p>Family involvement and community education are core, helping reduce stigma, prevent relapse, and improve whole-person wellness.</p>
           </div>
         </div>
