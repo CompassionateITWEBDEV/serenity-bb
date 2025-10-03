@@ -1,25 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { MessageCircle, Send, Search, Phone, Video, MoreVertical } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { MessageCircle, Search, Send, UserPlus, X } from "lucide-react";
+
+type StaffRole = "doctor" | "nurse" | "counselor";
 
 type Conversation = {
   id: string;
   patient_id: string;
-  other_id: string;
-  other_name: string;
-  other_role: "doctor" | "nurse" | "counselor";
-  other_avatar: string | null;
-  title: string | null;
-  updated_at: string;
+  provider_id: string;
+  provider_name: string;
+  provider_role: StaffRole;
+  provider_avatar: string | null;
+  last_message: string | null;
+  last_message_at: string | null;
+  created_at: string;
 };
 
 type MessageRow = {
@@ -28,150 +31,246 @@ type MessageRow = {
   patient_id: string;
   sender_id: string;
   sender_name: string;
-  sender_role: "patient" | "doctor" | "nurse" | "counselor";
+  sender_role: "patient" | StaffRole;
   content: string;
   created_at: string;
   read: boolean;
   urgent: boolean;
 };
 
-export default function MessagesPage() {
+type CareTeamStaff = {
+  user_id: string;
+  full_name: string | null;
+  role: StaffRole;
+  avatar_url: string | null;
+  email: string | null;
+};
+
+function initials(name?: string | null) {
+  const s = (name ?? "").trim();
+  if (!s) return "U";
+  return s.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+}
+
+export default function PatientMessagesPage() {
   const { isAuthenticated, loading, user, patient } = useAuth();
-  const patientId = isAuthenticated ? (patient?.user_id || patient?.id || user?.id) : null;
+  const meId = isAuthenticated ? (patient?.user_id || patient?.id || user?.id) : null;
 
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
   const [q, setQ] = useState("");
-  const [newMessage, setNewMessage] = useState("");
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [compose, setCompose] = useState("");
+  const [staffList, setStaffList] = useState<CareTeamStaff[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQ, setPickerQ] = useState("");
 
-  // Load conversations for current user
-  const loadConversations = useCallback(async () => {
-    if (!patientId) return;
-    const { data, error } = await supabase
-      .from("conversations")
-      .select("*")
-      .or(`patient_id.eq.${patientId},other_id.eq.${patientId}`) // patient or provider view
-      .order("updated_at", { ascending: false });
-    if (!error) setConvs((data as Conversation[]) || []);
-  }, [patientId]);
+  const listRef = useRef<HTMLDivElement>(null);
 
-  // Load messages for a conversation
-  const loadMessages = useCallback(async (conversationId: string) => {
-    const { data, error } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true });
-    if (!error) setMsgs((data as MessageRow[]) || []);
-    // scroll bottom
-    requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }));
-  }, []);
-
-  // Realtime: conversations (for list refresh) + messages for selected conversation
+  // ---- load conversations for this patient
   useEffect(() => {
-    if (!patientId) return;
-    void loadConversations();
+    if (!meId) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from("conversations")
+        .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
+        .eq("patient_id", meId)
+        .order("last_message_at", { ascending: false, nullsFirst: false });
+      if (!error) setConvs((data as Conversation[]) || []);
+    })();
+  }, [meId]);
 
-    const convCh = supabase
-      .channel(`conv_${patientId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversations", filter: `patient_id=eq.${patientId}` }, loadConversations)
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversations", filter: `other_id=eq.${patientId}` }, loadConversations)
-      .subscribe();
-
-    return () => { convCh.unsubscribe(); };
-  }, [patientId, loadConversations]);
-
+  // ---- load assigned staff for “New message”
   useEffect(() => {
-    if (!selectedId) return;
-    void loadMessages(selectedId);
+    if (!meId) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from("patient_care_team")
+        .select(`
+          staff:staff_id(user_id, first_name, last_name, role, avatar_url, email)
+        `)
+        .eq("patient_id", meId);
+      if (error) return;
+      const rows: CareTeamStaff[] = (data || []).map((r: any) => ({
+        user_id: r.staff?.user_id,
+        full_name: [r.staff?.first_name, r.staff?.last_name].filter(Boolean).join(" ") || r.staff?.email || "Staff",
+        role: (r.staff?.role || "nurse") as StaffRole,
+        avatar_url: r.staff?.avatar_url || null,
+        email: r.staff?.email || null,
+      })).filter((x) => x.user_id);
+      setStaffList(rows);
+    })();
+  }, [meId]);
 
-    const msgCh = supabase
-      .channel(`msgs_${selectedId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${selectedId}` }, (payload) => {
-        // minimal reconciliation
-        if (payload.eventType === "INSERT") setMsgs((m) => [...m, payload.new as MessageRow]);
-        else void loadMessages(selectedId);
-        requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }));
+  // ---- realtime: conversations list refresh on any change for my patient_id
+  useEffect(() => {
+    if (!meId) return;
+    const ch = supabase
+      .channel(`convs_${meId}`)
+      .on("postgres_changes", { schema: "public", table: "conversations", event: "*", filter: `patient_id=eq.${meId}` }, async () => {
+        const { data } = await supabase
+          .from("conversations")
+          .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
+          .eq("patient_id", meId)
+          .order("last_message_at", { ascending: false });
+        setConvs((data as Conversation[]) || []);
       })
       .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [meId]);
 
-    return () => { msgCh.unsubscribe(); };
-  }, [selectedId, loadMessages]);
+  // ---- load messages + realtime thread
+  useEffect(() => {
+    if (!selectedId) return;
+    let alive = true;
 
-  // Create a conversation if needed (patient → provider)
-  async function ensureConversation(otherId: string, otherName: string, otherRole: Conversation["other_role"]) {
-    if (!patientId) return null;
-    // try find
-    const { data: found } = await supabase
-      .from("conversations")
-      .select("*")
-      .eq("patient_id", patientId)
-      .eq("other_id", otherId)
-      .maybeSingle();
-    if (found) return found as Conversation;
+    (async () => {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", selectedId)
+        .order("created_at", { ascending: true });
+      if (!error && alive) {
+        setMsgs((data as MessageRow[]) || []);
+        await markRead(selectedId);
+        requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight }));
+      }
+    })();
 
-    const { data, error } = await supabase
-      .from("conversations")
-      .insert([{ patient_id: patientId, other_id: otherId, other_name: otherName, other_role: otherRole, title: otherName }])
-      .select("*")
-      .single();
-    if (error) { alert(error.message); return null; }
-    return data as Conversation;
+    const ch = supabase
+      .channel(`thread_${selectedId}`)
+      .on("postgres_changes",
+        { schema: "public", table: "messages", event: "*", filter: `conversation_id=eq.${selectedId}` },
+        async (payload) => {
+          if (payload.eventType === "INSERT") {
+            const m = payload.new as MessageRow;
+            setMsgs((prev) => [...prev, m]);
+            if (m.sender_role !== "patient") await markRead(selectedId); // staff→patient
+            requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }));
+          } else {
+            const { data } = await supabase
+              .from("messages")
+              .select("*")
+              .eq("conversation_id", selectedId)
+              .order("created_at", { ascending: true });
+            setMsgs((data as MessageRow[]) || []);
+          }
+        })
+      .subscribe();
+
+    return () => { supabase.removeChannel(ch); alive = false; };
+  }, [selectedId]);
+
+  // ---- mark unread staff→patient as read
+  async function markRead(conversationId: string) {
+    await supabase
+      .from("messages")
+      .update({ read: true })
+      .eq("conversation_id", conversationId)
+      .neq("sender_role", "patient")
+      .eq("read", false);
   }
 
+  // ---- ensure/create conversation with a staff member
+  async function ensureConversationWith(staff: CareTeamStaff): Promise<Conversation | null> {
+    if (!meId) return null;
+    const found = await supabase
+      .from("conversations")
+      .select("*")
+      .eq("patient_id", meId)
+      .eq("provider_id", staff.user_id)
+      .maybeSingle<Conversation>();
+    if (!found.error && found.data) return found.data;
+
+    const insert = await supabase
+      .from("conversations")
+      .insert({
+        patient_id: meId,
+        provider_id: staff.user_id,
+        provider_name: staff.full_name || staff.email || "Staff",
+        provider_role: staff.role,
+        provider_avatar: staff.avatar_url,
+        last_message: null,
+        last_message_at: new Date().toISOString(),
+      })
+      .select("*")
+      .single<Conversation>();
+    if (insert.error) { alert(insert.error.message); return null; }
+    return insert.data;
+  }
+
+  // ---- send
   async function handleSend() {
-    if (!selectedId || !patientId || !newMessage.trim()) return;
+    if (!selectedId || !meId || !compose.trim()) return;
 
-    // Who is the current user in this chat?
-    const amPatient = patientId === user?.id;
-    const sender_id = user?.id || patientId!;
-    const sender_role: MessageRow["sender_role"] = amPatient ? "patient" : "doctor"; // adjust if you have staff roles in auth
-    const sender_name = user?.user_metadata?.name || user?.email || "You";
+    const meName =
+      (user?.user_metadata?.full_name as string) ||
+      (user?.user_metadata?.name as string) ||
+      patient?.full_name ||
+      user?.email ||
+      "You";
 
-    // optimistic
     const optimistic: MessageRow = {
       id: `tmp-${crypto.randomUUID()}`,
       conversation_id: selectedId,
-      patient_id: patientId!,
-      sender_id,
-      sender_name,
-      sender_role,
-      content: newMessage.trim(),
+      patient_id: meId,
+      sender_id: meId,
+      sender_name: meName,
+      sender_role: "patient",
+      content: compose.trim(),
       created_at: new Date().toISOString(),
-      read: false,
+      read: true,
       urgent: false,
     };
     setMsgs((m) => [...m, optimistic]);
-    setNewMessage("");
+    setCompose("");
 
     const { error } = await supabase.from("messages").insert({
       conversation_id: selectedId,
-      patient_id: patientId,
-      sender_id,
-      sender_name,
-      sender_role,
+      patient_id: meId,
+      sender_id: meId,
+      sender_name: meName,
+      sender_role: "patient",
       content: optimistic.content,
-      read: false,
+      read: true,
       urgent: false,
     });
     if (error) alert(error.message);
-    // bump conversation updated_at
-    await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", selectedId);
+
+    // bump conversation for ordering
+    await supabase
+      .from("conversations")
+      .update({ last_message: optimistic.content, last_message_at: new Date().toISOString() })
+      .eq("id", selectedId);
   }
 
-  // Filter conversations client-side
-  const filteredConvs = useMemo(
-    () =>
-      convs.filter(
-        (c) =>
-          !q ||
-          c.other_name.toLowerCase().includes(q.toLowerCase()) ||
-          (c.title || "").toLowerCase().includes(q.toLowerCase())
-      ),
-    [convs, q]
-  );
+  // ---- derived lists
+  const filteredConvs = useMemo(() => {
+    const v = q.trim().toLowerCase();
+    const base = convs.slice().sort((a, b) => {
+      const ta = a.last_message_at || a.created_at;
+      const tb = b.last_message_at || b.created_at;
+      return (tb ?? "").localeCompare(ta ?? "");
+    });
+    if (!v) return base;
+    return base.filter(
+      (c) =>
+        c.provider_name.toLowerCase().includes(v) ||
+        (c.last_message ?? "").toLowerCase().includes(v),
+    );
+  }, [convs, q]);
+
+  const staffFiltered = useMemo(() => {
+    const v = pickerQ.trim().toLowerCase();
+    return !v
+      ? staffList
+      : staffList.filter(
+          (s) =>
+            (s.full_name ?? "").toLowerCase().includes(v) ||
+            (s.email ?? "").toLowerCase().includes(v) ||
+            s.role.toLowerCase().includes(v),
+        );
+  }, [staffList, pickerQ]);
 
   if (loading || !isAuthenticated) {
     return (
@@ -183,12 +282,17 @@ export default function MessagesPage() {
 
   return (
     <div className="container mx-auto p-6 max-w-7xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Messages</h1>
-        <p className="text-gray-600 mt-2">Communicate with your healthcare team</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Messages</h1>
+          <p className="mt-2 text-gray-600">Chat with your care team</p>
+        </div>
+        <Button size="sm" className="gap-2" onClick={() => setPickerOpen(true)}>
+          <UserPlus className="h-4 w-4" /> New message
+        </Button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-200px)]">
+      <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Conversations */}
         <Card className="lg:col-span-1">
           <CardHeader>
@@ -198,99 +302,98 @@ export default function MessagesPage() {
             </CardTitle>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input placeholder="Search conversations..." className="pl-10" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input
+                placeholder="Search providers or last message…"
+                className="pl-10"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="space-y-1">
+            <div className="divide-y">
               {filteredConvs.map((c) => {
-                const initials = c.other_name.split(" ").map((n) => n[0]).join("");
                 const active = selectedId === c.id;
                 return (
-                  <div
+                  <button
                     key={c.id}
                     onClick={() => setSelectedId(c.id)}
-                    className={`p-4 cursor-pointer hover:bg-gray-50 border-l-4 ${active ? "border-cyan-500 bg-cyan-50" : "border-transparent"}`}
+                    className={`flex w-full items-center gap-3 border-l-4 p-4 text-left hover:bg-gray-50 ${
+                      active ? "border-cyan-500 bg-cyan-50" : "border-transparent"
+                    }`}
                   >
-                    <div className="flex items-center gap-3">
-                      <Avatar>
-                        <AvatarImage src={c.other_avatar || "/placeholder.svg"} />
-                        <AvatarFallback>{initials}</AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <p className="font-medium text-gray-900 truncate">{c.other_name}</p>
-                          <span className="text-xs text-gray-500">
-                            {new Date(c.updated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-600 capitalize">{c.other_role}</p>
+                    <Avatar>
+                      <AvatarImage src={c.provider_avatar ?? undefined} />
+                      <AvatarFallback>{initials(c.provider_name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <p className="truncate font-medium text-gray-900">{c.provider_name}</p>
+                        <span className="text-xs text-gray-500">
+                          {new Date(c.last_message_at ?? c.created_at).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
                       </div>
-                      {/* unread badge can be computed with a view; omitted for brevity */}
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="capitalize">{c.provider_role}</Badge>
+                        <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
+                      </div>
                     </div>
-                  </div>
+                  </button>
                 );
               })}
-              {filteredConvs.length === 0 && <div className="p-6 text-sm text-gray-500">No conversations yet.</div>}
+              {filteredConvs.length === 0 && (
+                <div className="p-6 text-sm text-gray-500">No conversations yet.</div>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Chat Area */}
-        <Card className="lg:col-span-2 flex flex-col">
-          {selectedId ? (
+        {/* Thread */}
+        <Card className="flex flex-col lg:col-span-2">
+          {!selectedId ? (
+            <CardContent className="flex flex-1 items-center justify-center">
+              <div className="text-center">
+                <MessageCircle className="mx-auto mb-4 h-12 w-12 text-gray-400" />
+                <h3 className="mb-2 text-lg font-medium text-gray-900">Select a conversation</h3>
+                <p className="text-gray-600">Pick a provider or start a new one</p>
+              </div>
+            </CardContent>
+          ) : (
             <>
-              <CardHeader className="border-b">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Avatar>
-                      <AvatarImage
-                        src={convs.find((c) => c.id === selectedId)?.other_avatar || "/placeholder.svg"}
-                      />
-                      <AvatarFallback>
-                        {convs.find((c) => c.id === selectedId)?.other_name
-                          ?.split(" ").map((n) => n[0]).join("")}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <h3 className="font-semibold">{convs.find((c) => c.id === selectedId)?.other_name}</h3>
-                      <p className="text-sm text-gray-600 capitalize">{convs.find((c) => c.id === selectedId)?.other_role}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm"><Phone className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="sm"><Video className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="sm"><MoreVertical className="h-4 w-4" /></Button>
-                  </div>
-                </div>
-              </CardHeader>
-
-              <CardContent ref={scrollRef} className="flex-1 overflow-y-auto p-4">
+              <CardContent ref={listRef} className="flex-1 overflow-y-auto p-4">
                 <div className="space-y-4">
                   {msgs.map((m) => {
-                    const isOwn = m.sender_id === (user?.id || "");
+                    const own = m.sender_role === "patient" && m.sender_id === meId;
                     return (
-                      <div key={m.id} className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
-                        <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${isOwn ? "bg-cyan-500 text-white" : "bg-gray-100 text-gray-900"}`}>
-                          <p className="text-sm whitespace-pre-wrap">{m.content}</p>
-                          <p className={`text-xs mt-1 ${isOwn ? "text-cyan-100" : "text-gray-500"}`}>
+                      <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
+                        <div
+                          className={`max-w-xs lg:max-w-md rounded-lg px-4 py-2 ${
+                            own ? "bg-cyan-500 text-white" : "bg-gray-100 text-gray-900"
+                          }`}
+                        >
+                          <p className="whitespace-pre-wrap text-sm">{m.content}</p>
+                          <p className={`mt-1 text-xs ${own ? "text-cyan-100" : "text-gray-500"}`}>
                             {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </p>
                         </div>
                       </div>
                     );
                   })}
-                  {msgs.length === 0 && <div className="text-sm text-gray-500">No messages yet. Say hi 👋</div>}
+                  {msgs.length === 0 && (
+                    <div className="text-sm text-gray-500">No messages yet. Say hi 👋</div>
+                  )}
                 </div>
               </CardContent>
-
               <div className="border-t p-4">
                 <div className="flex gap-2">
                   <Textarea
                     placeholder="Type your message…"
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    className="flex-1 min-h-[40px] max-h-[120px]"
+                    value={compose}
+                    onChange={(e) => setCompose(e.target.value)}
+                    className="min-h-[40px] max-h-[120px] flex-1"
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
@@ -298,21 +401,79 @@ export default function MessagesPage() {
                       }
                     }}
                   />
-                  <Button onClick={handleSend} className="self-end"><Send className="h-4 w-4" /></Button>
+                  <Button onClick={handleSend} disabled={!compose.trim()}>
+                    <Send className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             </>
-          ) : (
-            <CardContent className="flex-1 flex items-center justify-center">
-              <div className="text-center">
-                <MessageCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Select a conversation</h3>
-                <p className="text-gray-600">Choose a healthcare provider to start messaging</p>
-              </div>
-            </CardContent>
           )}
         </Card>
       </div>
+
+      {/* Staff picker modal */}
+      {pickerOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
+          <div className="w-full max-w-lg rounded-lg border bg-white">
+            <div className="flex items-center justify-between border-b p-4">
+              <h3 className="font-semibold">Start a conversation</h3>
+              <Button variant="ghost" size="icon" onClick={() => setPickerOpen(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="p-4">
+              <div className="relative mb-3">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <Input
+                  placeholder="Search staff by name, email, role…"
+                  className="pl-9"
+                  value={pickerQ}
+                  onChange={(e) => setPickerQ(e.target.value)}
+                />
+              </div>
+              <div className="max-h-80 divide-y overflow-y-auto">
+                {staffFiltered.map((s) => (
+                  <button
+                    key={s.user_id}
+                    className="flex w-full items-center gap-3 p-3 text-left hover:bg-gray-50"
+                    onClick={async () => {
+                      const conv = await ensureConversationWith(s);
+                      if (!conv) return;
+                      // refresh & open
+                      const { data } = await supabase
+                        .from("conversations")
+                        .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
+                        .eq("patient_id", meId!)
+                        .order("last_message_at", { ascending: false });
+                      setConvs((data as Conversation[]) || []);
+                      setSelectedId(conv.id);
+                      setPickerOpen(false);
+                    }}
+                  >
+                    <Avatar>
+                      <AvatarImage src={s.avatar_url ?? undefined} />
+                      <AvatarFallback>{initials(s.full_name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{s.full_name}</div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="capitalize">{s.role}</Badge>
+                        <span className="truncate text-xs text-gray-500">{s.email ?? ""}</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+                {staffFiltered.length === 0 && (
+                  <div className="p-6 text-sm text-gray-500">No matches found.</div>
+                )}
+              </div>
+              <p className="mt-3 text-xs text-gray-500">
+                Only staff on your care team are shown. Ask the clinic to add a provider if needed.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
