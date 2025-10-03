@@ -50,13 +50,7 @@ export default function BlogPage() {
 
   // Required to avoid ReferenceError in prerender
   const categories = [
-    "All",
-    "Health Education",
-    "Treatment",
-    "Recovery Tips",
-    "Family Support",
-    "Mental Health",
-    "Wellness",
+    
   ];
 
   return (
