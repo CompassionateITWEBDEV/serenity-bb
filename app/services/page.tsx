@@ -1,4 +1,5 @@
 // app/services/page.tsx
+
 import { Suspense } from "react";
 import type { Metadata } from "next";
 
@@ -18,7 +19,8 @@ import {
 import { CheckCircle, Users, Heart, Shield } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Counseling Services and Support Services Methadone | Serenity Rehabilitation Center",
+  title:
+    "Counseling Services and Support Services Methadone | Serenity Rehabilitation Center",
   description:
     "Comprehensive, evidence-based treatment programs designed to support your recovery journey with dignity and care.",
 };
@@ -186,30 +188,29 @@ function LeadGenerationSection() {
               <h3 className="text-2xl font-serif font-bold text-gray-900 mb-2">
                 Methadone Treatment Program
               </h3>
-              <Badge className="bg-cyan-600 text-white">
-                Evidence-Based Care
-              </Badge>
+              <Badge className="bg-cyan-600 text-white">Evidence-Based Care</Badge>
             </div>
           </div>
           <div className="text-gray-700 leading-relaxed mb-6 pl-18">
             <p className="text-lg">
               Methadone is a long-acting opioid medication that is used as a
-              pain reliever and, together with counseling and other
-              psychosocial services, is used to treat individuals addicted to
-              heroin and certain prescription drugs.
+              pain reliever and, together with counseling and other psychosocial
+              services, is used to treat individuals addicted to heroin and
+              certain prescription drugs.
             </p>
           </div>
           <div className="text-center pt-4">
-            <a
-              href={METHADONE_PDF_ROUTE}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <a href={METHADONE_PDF_ROUTE} target="_blank" rel="noopener noreferrer">
               <Button className="bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-700 hover:to-cyan-800 text-white px-8 py-6 text-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300">
                 <span className="flex items-center gap-2">
                   Get More Information Here
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    />
                   </svg>
                 </span>
               </Button>
@@ -229,11 +230,9 @@ export default function CombinedServicesPage() {
         <Header />
       </Suspense>
 
-      
-
-          {/* Counseling & Methadone Dispensing Program */}
-          <LeadGenerationSection />
-        </div>
+      <main>
+        {/* Counseling & Methadone Dispensing Program */}
+        <LeadGenerationSection />
       </main>
 
       <Suspense fallback={null}>
