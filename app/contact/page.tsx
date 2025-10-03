@@ -1,7 +1,8 @@
 // app/contact/page.tsx
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,42 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { MapPin, Phone, Mail, Clock, AlertCircle } from "lucide-react";
 import { getSwal } from "@/lib/sweetalert";
-import InteractiveMap from "@/components/interactive-map";
+
+// ---------- Safe wrappers (prevents map crashing the whole page) ----------
+function ClientOnly({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+  return <>{children}</>;
+}
+
+class SectionErrorBoundary extends React.Component<
+  { children: React.ReactNode; fallback?: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: any) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(err: any, info: any) {
+    console.error("[/contact] map section error", err, info);
+  }
+  render() {
+    if (this.state.hasError)
+      return this.props.fallback ?? (
+        <div className="flex h-[420px] items-center justify-center rounded-lg border bg-gray-50 text-sm text-gray-700">
+          Map unavailable right now. Try again later.
+        </div>
+      );
+    return this.props.children;
+  }
+}
+
+// IMPORTANT: load the map client-side only
+const InteractiveMap = dynamic(() => import("@/components/interactive-map"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[420px] w-full rounded-lg border animate-pulse bg-gray-100" />
+  ),
+});
 
 export default function ContactPage() {
   const [submitting, setSubmitting] = useState(false);
@@ -55,16 +91,10 @@ export default function ContactPage() {
         body: JSON.stringify(data),
       });
 
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(txt || "Submission failed");
-      }
+      if (!res.ok) throw new Error((await res.text()) || "Submission failed");
 
-      // @ts-ignore - present only if GA is configured
-      window.gtag?.("event", "generate_lead", {
-        form_type: "contact",
-        contact_method,
-      });
+      // @ts-ignore optional GA
+      window.gtag?.("event", "generate_lead", { form_type: "contact", contact_method });
 
       getSwal()?.fire({
         icon: "success",
@@ -93,9 +123,7 @@ export default function ContactPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Hero */}
           <div className="text-center mb-16">
-            <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">
-              Contact Us
-            </h1>
+            <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">Contact Us</h1>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto">
               We're here to help you take the first step towards recovery. Reach out to us today for confidential
               support and information.
@@ -109,20 +137,20 @@ export default function ContactPage() {
                 <CardTitle className="text-2xl font-serif">Send Us a Message</CardTitle>
               </CardHeader>
               <CardContent>
-                <form className="space-y-6" onSubmit={handleSubmit}>
+                <form className="space-y-6" onSubmit={handleSubmit} noValidate>
                   <div className="grid md:grid-cols-2 gap-4">
                     <div>
                       <Label htmlFor="firstName">First Name *</Label>
-                      <Input id="firstName" name="firstName" placeholder="Enter your first name" />
+                      <Input id="firstName" name="firstName" required placeholder="Enter your first name" />
                     </div>
                     <div>
                       <Label htmlFor="lastName">Last Name *</Label>
-                      <Input id="lastName" name="lastName" placeholder="Enter your last name" />
+                      <Input id="lastName" name="lastName" required placeholder="Enter your last name" />
                     </div>
                   </div>
                   <div>
                     <Label htmlFor="email">Email Address *</Label>
-                    <Input id="email" name="email" type="email" placeholder="Enter your email" />
+                    <Input id="email" name="email" type="email" required placeholder="Enter your email" />
                   </div>
                   <div>
                     <Label htmlFor="phone">Phone Number</Label>
@@ -134,12 +162,7 @@ export default function ContactPage() {
                   </div>
                   <div>
                     <Label htmlFor="message">Message *</Label>
-                    <Textarea
-                      id="message"
-                      name="message"
-                      placeholder="Tell us how we can help you..."
-                      className="min-h-[120px]"
-                    />
+                    <Textarea id="message" name="message" required placeholder="Tell us how we can help you..." className="min-h-[120px]" />
                   </div>
                   <Button disabled={submitting} className="w-full bg-cyan-600 hover:bg-indigo-500">
                     {submitting ? "Sending..." : "Send Message"}
@@ -166,15 +189,15 @@ export default function ContactPage() {
                     <Phone className="w-6 h-6 text-cyan-600 mt-1" />
                     <div>
                       <h3 className="font-semibold text-gray-900">Phone</h3>
-                      <p className="text-gray-600">Main: (248)-838-3686</p>
-                      <p className="text-gray-600">Fax: (248)-838-3686</p>
+                      <p className="text-gray-600">Main: <a href="tel:+12488383686" className="underline">(248) 838-3686</a></p>
+                      <p className="text-gray-600">Fax: (248) 838-3686</p>
                     </div>
                   </div>
                   <div className="flex items-start space-x-4">
                     <Mail className="w-6 h-6 text-cyan-600 mt-1" />
                     <div>
                       <h3 className="font-semibold text-gray-900">Email</h3>
-                      <p className="text-gray-600">info@serenityrehab.com</p>
+                      <p className="text-gray-600"><a href="mailto:info@serenityrehab.com" className="underline">info@serenityrehab.com</a></p>
                       <p className="text-gray-600">src.health</p>
                     </div>
                   </div>
@@ -222,7 +245,7 @@ export default function ContactPage() {
                         If you're experiencing a medical emergency or crisis, please call 911 or go to your nearest emergency room.
                       </p>
                       <p className="text-red-800">
-                        For 24/7 crisis support, call our hotline: <strong>(248)-838-3686</strong>
+                        For 24/7 crisis support, call our hotline: <strong>(248) 838-3686</strong>
                       </p>
                     </div>
                   </div>
@@ -238,12 +261,16 @@ export default function ContactPage() {
                 <CardTitle className="text-2xl font-serif">Find Us</CardTitle>
               </CardHeader>
               <CardContent>
-                <InteractiveMap
-                  Address="Martin Luther king johnson, Pontiac, MI 48341"
-                  // center can be provided for exact pin; using fallback center inside component
-                  // center={[42.6379, -83.2918]}
-                  zoom={13}
-                />
+                <ClientOnly>
+                  <SectionErrorBoundary>
+                    <InteractiveMap
+                      address="Martin Luther King Jr Blvd, Pontiac, MI 48341"
+                      // If you have exact coords, uncomment for faster load & perfect pin:
+                      // center={[42.6389, -83.2910]}
+                      zoom={15}
+                    />
+                  </SectionErrorBoundary>
+                </ClientOnly>
               </CardContent>
             </Card>
           </div>
