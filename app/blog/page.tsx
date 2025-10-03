@@ -47,15 +47,7 @@ export default function BlogPage() {
     },
   ];
 
-  const categories = [
-    "All",
-    "Health Education",
-    "Treatment",
-    "Recovery Tips",
-    "Family Support",
-    "Mental Health",
-    "Wellness",
-  ];
+ 
 
   return (
     <div className="min-h-screen bg-gray-50">
