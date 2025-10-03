@@ -4,9 +4,58 @@ import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Award, Users, Heart, Shield } from "lucide-react";
+import { Award, Users, Heart, Shield, Sparkles, Target, ArrowRight } from "lucide-react";
 
-/** WHY: Kept as provided, only formatting. */
+/**
+ * About & Goal summary in one paragraph with a catchy hero design.
+ * Why: Improves scan-ability and aligns with request for a single concise paragraph.
+ */
+function AboutGoalSummary() {
+  return (
+    <section aria-labelledby="about-goal" className="relative isolate overflow-hidden">
+      <div className="absolute inset-0 -z-10 bg-gradient-to-br from-indigo-600 via-cyan-600 to-sky-500" />
+      <div className="absolute inset-0 -z-10 opacity-10 [background-image:radial-gradient(60rem_60rem_at_80%_-10%,white_10%,transparent_60%)]" />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-24">
+        <Card className="mx-auto max-w-3xl border-0 shadow-2xl ring-1 ring-white/20">
+          <CardContent className="p-8 md:p-10">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-sm font-medium text-indigo-700">
+              <Sparkles className="h-4 w-4" />
+              Serenity Rehabilitation Center, Inc.
+            </div>
+            <h1
+              id="about-goal"
+              className="mb-4 flex items-center gap-3 text-3xl sm:text-4xl font-serif font-bold text-gray-900"
+            >
+              <Target className="h-7 w-7 text-cyan-600" />
+              About Us & Our Goal
+            </h1>
+            <p className="text-[1.05rem] leading-relaxed text-gray-700 text-justify">
+              Serenity Rehabilitation Center, Inc. delivers evidence-based care for substance use disorders
+              and co-occurring mental health challenges, combining medication-assisted treatment, intensive
+              therapy, and supportive counseling into personalized, family-involved plans. Our goal is to
+              provide rapid, high-quality therapeutic interventions—up to six hours per day when needed—for
+              children, adolescents, and adults, in the least restrictive setting, teaching proactive coping
+              skills that build lasting wellness and independence.
+            </p>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Button asChild className="bg-cyan-600 hover:bg-indigo-600">
+                <Link href="/programs" className="inline-flex items-center gap-2">
+                  Explore Programs <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button asChild variant="outline" className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">
+                <Link href="/contact">Talk to a Clinician</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+  );
+}
+
+/** Reusable section kept as-is (image + stats). */
 export function AboutSection() {
   return (
     <section id="about" className="py-20 bg-gray-50">
@@ -25,11 +74,9 @@ export function AboutSection() {
               Join Our Community of Hope and Recovery
             </h2>
             <p className="text-lg text-gray-600 leading-relaxed">
-              Serenity Rehabilitation Center has been a beacon of hope for
-              individuals and families affected by lead poisoning. Our
-              multidisciplinary team of medical professionals, nutritionists,
-              and counselors work together to create personalized treatment
-              plans that address your unique needs.
+              Serenity Rehabilitation Center has been a beacon of hope for individuals and families affected by
+              lead poisoning. Our multidisciplinary team of medical professionals, nutritionists, and counselors
+              work together to create personalized treatment plans that address your unique needs.
             </p>
 
             <div className="grid sm:grid-cols-2 gap-6">
@@ -57,113 +104,35 @@ export function AboutSection() {
   );
 }
 
-/** Left column: About copy */
-function AboutIntro() {
-  return (
-    <div>
-      <h1 className="text-4xl font-serif font-bold text-gray-900 mb-4">
-        About Us
-      </h1>
-      <div className="space-y-4 text-[1.05rem] text-gray-700 leading-[1.9] max-w-6xl text-justify">
-        <p>
-          At Serenity Rehabilitation Center, Inc., our mission is to provide
-          excellent, research-based care for individuals facing substance use
-          disorders (SUD) and mental health challenges. We understand that SUD
-          is a disease that can be fatal if untreated, and we are dedicated to
-          guiding individuals and families toward recovery with compassion,
-          dignity, and respect.
-        </p>
-        <p>
-          Our programs include medication-assisted treatment, intensive mental
-          health services, and supportive counseling tailored to the unique
-          needs of each person. By combining therapeutic interventions with
-          family involvement, we create an environment that fosters healing and
-          growth.
-        </p>
-        <p>
-          We also serve as a resource to the community, working to educate the
-          public on addiction and advocating for the value of treatment in
-          improving overall wellness.
-        </p>
-        <p>
-          We deliver comprehensive care and counseling to patients in need —
-          ensuring that every step of the journey is supported with expertise,
-          compassion, and a commitment to helping individuals reach their full
-          potential.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/** Right column: Goal panel */
-function GoalPanel() {
-  return (
-    <Card className="bg-white rounded-2xl shadow-sm border-l-4 border-l-cyan-600">
-      <CardContent className="p-6">
-        <div className="inline-block rounded-md bg-gray-100 px-3 py-1 text-sm font-semibold text-gray-800 mb-4">
-          OUR GOAL
-        </div>
-        <div className="space-y-4 text-gray-700 leading-relaxed text-justify">
-          <p>
-            Our Goal is to provide a high level therapeutic interventions in a
-            short period of time to consumers who are experiencing severe levels
-            of distress. Not limited to just children and adolescents but adults
-            too.
-          </p>
-          <p>
-            Services can be provided up to 6 hours per day working with
-            clinicians and their families on achieving goals identified in their
-            person centered treatment plans.
-          </p>
-          <p>
-            The philosophy is that individuals and their families receive high
-            quality intensive mental health care in the least restricted
-            environment and they attend the program to learn proactive coping
-            skills to empower the client to enhance growth and to gain the
-            necessary skills to reach their full potential.
-          </p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 /** Values list */
 function ValuesSection() {
   return (
     <section className="grid lg:grid-cols-2 gap-12 mb-16">
       <div className="bg-white rounded-lg p-8 shadow-sm">
-        <h3 className="text-2xl font-serif font-bold text-gray-900 mb-4">
-          Our Values
-        </h3>
+        <h3 className="text-2xl font-serif font-bold text-gray-900 mb-4">Our Values</h3>
         <ul className="space-y-3">
           <li className="flex items-start">
             <Heart className="w-5 h-5 text-cyan-600 mr-3 mt-1" />
             <span className="text-gray-700">
-              <strong>Compassion:</strong> We treat every individual with
-              empathy and understanding
+              <strong>Compassion:</strong> We treat every individual with empathy and understanding
             </span>
           </li>
           <li className="flex items-start">
             <Shield className="w-5 h-5 text-cyan-600 mr-3 mt-1" />
             <span className="text-gray-700">
-              <strong>Safety:</strong> We provide a secure environment for
-              healing and recovery
+              <strong>Safety:</strong> We provide a secure environment for healing and recovery
             </span>
           </li>
           <li className="flex items-start">
             <Users className="w-5 h-5 text-cyan-600 mr-3 mt-1" />
             <span className="text-gray-700">
-              <strong>Community:</strong> We believe in the power of peer
-              support and connection
+              <strong>Community:</strong> We believe in the power of peer support and connection
             </span>
           </li>
           <li className="flex items-start">
             <Award className="w-5 h-5 text-cyan-600 mr-3 mt-1" />
             <span className="text-gray-700">
-              <strong>Excellence:</strong> We maintain the highest standards of
-              care and treatment
+              <strong>Excellence:</strong> We maintain the highest standards of care and treatment
             </span>
           </li>
         </ul>
@@ -176,17 +145,9 @@ function ValuesSection() {
 function CTASection() {
   return (
     <div className="bg-indigo-600 rounded-lg p-8 text-center text-white">
-      <h2 className="text-3xl font-serif font-bold mb-4">
-        Join Our Community of Recovery
-      </h2>
-      <p className="text-xl mb-6 opacity-90">
-        Take the first step towards healing and transformation today.
-      </p>
-      <Button
-        size="lg"
-        asChild
-        className="bg-white text-indigo-600 hover:bg-gray-100"
-      >
+      <h2 className="text-3xl font-serif font-bold mb-4">Join Our Community of Recovery</h2>
+      <p className="text-xl mb-6 opacity-90">Take the first step towards healing and transformation today.</p>
+      <Button size="lg" asChild className="bg-white text-indigo-600 hover:bg-gray-100">
         <Link href="/intake">Start Your Journey</Link>
       </Button>
     </div>
@@ -195,28 +156,16 @@ function CTASection() {
 
 export default function AboutPage() {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       <Header />
-
-      <main className="py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* HERO: About Us (left) + Our Goal (right) */}
-          <div className="mb-16 grid lg:grid-cols-2 gap-8 items-start">
-            <AboutIntro />
-            <GoalPanel />
-          </div>
-
-          {/* Join Our Community of Hope and Recovery */}
+      <main>
+        <AboutGoalSummary />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
           <AboutSection />
-
-          {/* Mission / Values */}
           <ValuesSection />
-
-          {/* CTA */}
           <CTASection />
         </div>
       </main>
-
       <Footer />
     </div>
   );
