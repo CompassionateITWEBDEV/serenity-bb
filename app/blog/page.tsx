@@ -42,30 +42,7 @@ export default function BlogPage() {
         category: "Treatment",
       
     },
-    {
-      id: 4,
-      title: "Building Healthy Coping Strategies for Long-Term Recovery",
-      excerpt:
-        "Practical, evidence-based techniques for managing stress, triggers, and setbacks during recovery.",
-         category: "Recovery Tips",
-      
-    },
-    {
-      id: 5,
-      title: "The Importance of Mental Health in Addiction Recovery",
-      excerpt:
-        "How integrated care for co-occurring disorders leads to better outcomes and sustained recovery.",
-        category: "Mental Health",
-      
-    },
-    {
-      id: 6,
-      title: "Nutrition and Recovery: Healing Your Body from the Inside Out",
-      excerpt:
-        "Why nutrition matters in recovery and simple tips to support brain and body healing.",
-         category: "Wellness",
-      
-    },
+    
   ];
 
   const categories = [
