@@ -119,5 +119,6 @@ export function subscribeToTable<T = unknown>(opts: {
 
     export * from "@/lib/supabase-browser";
 export { supabase as default } from "@/lib/supabase-browser";
+  
   };
 }
