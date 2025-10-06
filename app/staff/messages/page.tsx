@@ -11,7 +11,7 @@ import Groups from "@/components/staff/Groups";
 import DirectMessages from "@/components/staff/DirectMessages";
 
 import { logout } from "@/lib/staff";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, ensureSession } from "@/lib/supabase-browser";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,7 +30,6 @@ type ConversationRow = {
   updated_at: string;
   patients?: { full_name?: string | null; avatar?: string | null } | null;
 };
-
 type Conversation = {
   id: string;
   patient_id: string;
@@ -38,19 +37,12 @@ type Conversation = {
   patient_avatar: string | null;
   updated_at: string;
 };
-
-type PatientAssigned = {
-  user_id: string;
-  full_name: string | null;
-  email: string | null;
-  avatar: string | null;
-};
-
+type PatientAssigned = { user_id: string; full_name: string | null; email: string | null; avatar: string | null };
 type MessageRow = {
   id: string;
   conversation_id: string;
   patient_id: string;
-  sender_id: string; // NOTE: your schema uses text; keep consistent here
+  sender_id: string;
   sender_name: string;
   sender_role: "patient" | "doctor" | "nurse" | "counselor";
   content: string;
@@ -82,15 +74,11 @@ const ToggleBtn = ({
   </button>
 );
 
-function delay(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 export default function StaffMessagesPage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
-
+  const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"both" | "groups" | "dms">("both");
 
   // auth/staff
@@ -138,15 +126,11 @@ export default function StaffMessagesPage() {
       .toUpperCase();
   }
 
-  function mapStaffRole(
-    role?: string | null,
-    dept?: string | null
-  ): "doctor" | "nurse" | "counselor" {
+  function mapStaffRole(role?: string | null, dept?: string | null): "doctor" | "nurse" | "counselor" {
     const r = (role ?? "").toLowerCase();
     const d = (dept ?? "").toLowerCase();
     if (r.includes("doctor") || r.includes("physician") || d.includes("medical")) return "doctor";
-    if (r.includes("counselor") || r.includes("therapist") || d.includes("therapy"))
-      return "counselor";
+    if (r.includes("counselor") || r.includes("therapist") || d.includes("therapy")) return "counselor";
     return "nurse";
   }
 
@@ -197,13 +181,8 @@ export default function StaffMessagesPage() {
   }
 
   async function fetchUnread(uid: string) {
-    const u = await supabase
-      .from("v_staff_dm_unread")
-      .select("conversation_id, unread_from_patient")
-      .eq("provider_id", uid);
-
+    const u = await supabase.from("v_staff_dm_unread").select("conversation_id, unread_from_patient").eq("provider_id", uid);
     if (u.error) return;
-
     const map: Record<string, number> = {};
     for (const row of (u.data as any[]) ?? []) {
       map[row.conversation_id] = Number(row.unread_from_patient) || 0;
@@ -290,103 +269,76 @@ export default function StaffMessagesPage() {
 
     if (ins.error) alert(ins.error.message);
 
-    await supabase
-      .from("conversations")
-      .update({ updated_at: new Date().toISOString() })
-      .eq("id", selectedId);
+    await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", selectedId);
   }
 
-  // ---- bootstrap auth + data (grace + re-check) ----
+  // ---- bootstrap auth + data (use ensureSession) ----
   useEffect(() => {
     let mounted = true;
 
     async function bootstrap(uid: string) {
-      setMeId(uid);
+      try {
+        setError(null);
+        setMeId(uid);
 
-      const { data: getUserRes } = await supabase.auth.getUser();
-      const u = getUserRes?.user;
-      if (u) {
-        setMeName(
-          (u.user_metadata?.full_name as string) ||
-            (u.user_metadata?.name as string) ||
-            u.email ||
-            "Me"
-        );
+        const { data: getUserRes } = await supabase.auth.getUser();
+        const u = getUserRes?.user;
+        if (u) {
+          setMeName((u.user_metadata?.full_name as string) || (u.user_metadata?.name as string) || u.email || "Me");
+        }
+
+        const staff = await supabase
+          .from("staff")
+          .select("role, department, first_name, last_name")
+          .eq("user_id", uid)
+          .maybeSingle();
+
+        const role = staff.error ? null : ((staff.data?.role as string | null) ?? null);
+        const dept = staff.error ? null : ((staff.data?.department as string | null) ?? null);
+        setMeRole(mapStaffRole(role, dept));
+
+        const first = (staff.data?.first_name ?? "").trim();
+        const last = (staff.data?.last_name ?? "").trim();
+        if (first || last) setMeName(`${first} ${last}`.trim());
+
+        await Promise.all([
+          fetchConversations(uid),
+          fetchUnread(uid),
+          (async () => {
+            const { count, error: cntErr } = await supabase
+              .from("patient_care_team")
+              .select("patient_id", { count: "exact", head: true })
+              .eq("staff_id", uid);
+            if (cntErr) throw cntErr;
+            if (mounted && typeof count === "number") setAssignedCount(count);
+
+            const list = await fetchAssignedPatients(uid);
+            if (mounted) setPatients(list);
+          })(),
+        ]);
+      } catch (e: any) {
+        setError(e?.message ?? "Failed to load data");
+      } finally {
+        if (mounted) setLoading(false);
       }
-
-      const staff = await supabase
-        .from("staff")
-        .select("role, department, first_name, last_name")
-        .eq("user_id", uid)
-        .maybeSingle();
-
-      const role = staff.error ? null : ((staff.data?.role as string | null) ?? null);
-      const dept = staff.error ? null : ((staff.data?.department as string | null) ?? null);
-      setMeRole(mapStaffRole(role, dept));
-
-      const first = (staff.data?.first_name ?? "").trim();
-      const last = (staff.data?.last_name ?? "").trim();
-      if (first || last) setMeName(`${first} ${last}`.trim());
-
-      await Promise.all([
-        fetchConversations(uid),
-        fetchUnread(uid),
-        (async () => {
-          const { count } = await supabase
-            .from("patient_care_team")
-            .select("patient_id", { count: "exact", head: true })
-            .eq("staff_id", uid);
-          if (mounted && typeof count === "number") setAssignedCount(count);
-
-          const list = await fetchAssignedPatients(uid);
-          if (mounted) setPatients(list);
-        })(),
-      ]);
-
-      if (mounted) setLoading(false);
     }
 
-    async function ensureSession() {
-      let { data } = await supabase.auth.getSession();
-      let session = data?.session;
-
-      if (!session) {
-        await delay(300); // give hydration time
-        ({ data } = await supabase.auth.getSession());
-        session = data?.session;
+    (async () => {
+      try {
+        const session = await ensureSession(); // waits for hydration; avoids false redirects
+        if (!mounted) return;
+        if (!session) {
+          router.replace("/staff/login");
+          return;
+        }
+        await bootstrap(session.user.id);
+      } catch (e: any) {
+        setError(e?.message ?? "Failed to initialize");
+        setLoading(false);
       }
+    })();
 
-      if (!session) {
-        let decided = false;
-        const { data: sub } = supabase.auth.onAuthStateChange(async (_evt, newSession) => {
-          if (decided) return;
-          decided = true;
-          sub.subscription.unsubscribe();
-
-          if (!mounted) return;
-          if (newSession) await bootstrap(newSession.user.id);
-          else router.replace("/staff/login");
-        });
-
-        setTimeout(async () => {
-          if (decided) return;
-          decided = true;
-          sub.subscription.unsubscribe();
-
-          const again = (await supabase.auth.getSession()).data.session;
-          if (again) await bootstrap(again.user.id);
-          else router.replace("/staff/login");
-        }, 500);
-
-        return;
-      }
-
-      await bootstrap(session.user.id);
-    }
-
-    void ensureSession();
-
-    // redirect only on explicit sign-out
+    // Redirect only on explicit sign-out (not during nav)
     const { data: subOut } = supabase.auth.onAuthStateChange((evt) => {
       if (evt === "SIGNED_OUT") router.replace("/staff/login");
     });
@@ -405,12 +357,7 @@ export default function StaffMessagesPage() {
       .channel(`conv_${meId}`)
       .on(
         "postgres_changes",
-        {
-          schema: "public",
-          table: "conversations",
-          event: "*",
-          filter: `provider_id=eq.${meId}`,
-        },
+        { schema: "public", table: "conversations", event: "*", filter: `provider_id=eq.${meId}` },
         async () => {
           await fetchConversations(meId);
           await fetchUnread(meId);
@@ -422,57 +369,21 @@ export default function StaffMessagesPage() {
       .channel(`pct_${meId}`)
       .on(
         "postgres_changes",
-        {
-          schema: "public",
-          table: "patient_care_team",
-          event: "INSERT",
-          filter: `staff_id=eq.${meId}`,
-        },
+        { schema: "public", table: "patient_care_team", event: "INSERT", filter: `staff_id=eq.${meId}` },
         () => setAssignedCount((n) => (Number.isFinite(n) ? n + 1 : 1))
       )
       .on(
         "postgres_changes",
-        {
-          schema: "public",
-          table: "patient_care_team",
-          event: "DELETE",
-          filter: `staff_id=eq.${meId}`,
-        },
+        { schema: "public", table: "patient_care_team", event: "DELETE", filter: `staff_id=eq.${meId}` },
         () => setAssignedCount((n) => (Number.isFinite(n) ? Math.max(0, n - 1) : 0))
-      )
-      .subscribe();
-
-    const msgCh = supabase
-      .channel(`msgs_staff_${meId}`)
-      .on(
-        "postgres_changes",
-        {
-          schema: "public",
-          table: "messages",
-          event: "INSERT",
-        },
-        (payload) => {
-          const m = payload.new as MessageRow;
-          if (m.sender_role !== "patient") return;
-
-          const belongs = convs.some((c) => c.id === m.conversation_id);
-          if (!belongs) return;
-
-          setUnreadMap((prev) => {
-            if (selectedId === m.conversation_id) return prev;
-            const curr = prev[m.conversation_id] ?? 0;
-            return { ...prev, [m.conversation_id]: curr + 1 };
-          });
-        }
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(convCh);
       supabase.removeChannel(pctCh);
-      supabase.removeChannel(msgCh);
     };
-  }, [meId, convs, selectedId]);
+  }, [meId]); // ← don’t depend on convs/selectedId; prevents resub churn
 
   // Load messages + mark read on selection
   useEffect(() => {
@@ -481,11 +392,9 @@ export default function StaffMessagesPage() {
     let active = true;
 
     (async () => {
-      const res = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", selectedId)
-        .order("created_at", { ascending: true });
+      const res = await supabase.from("messages").select("*").eq("conversation_id", selectedId).order("created_at", {
+        ascending: true,
+      });
 
       if (!res.error && active) setMsgs((res.data as MessageRow[]) || []);
 
@@ -500,12 +409,7 @@ export default function StaffMessagesPage() {
       .channel(`conv_msgs_${selectedId}`)
       .on(
         "postgres_changes",
-        {
-          schema: "public",
-          table: "messages",
-          event: "*",
-          filter: `conversation_id=eq.${selectedId}`,
-        },
+        { schema: "public", table: "messages", event: "*", filter: `conversation_id=eq.${selectedId}` },
         async (payload) => {
           if (!active) return;
 
@@ -525,7 +429,7 @@ export default function StaffMessagesPage() {
           }
 
           requestAnimationFrame(() =>
-            listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" })
+            listRef.current?.scrollTo({ top: listRef.current!.scrollHeight, behavior: "smooth" })
           );
         }
       )
@@ -542,6 +446,35 @@ export default function StaffMessagesPage() {
     return (
       <div className="min-h-screen grid place-items-center bg-slate-50">
         <div className="text-sm text-slate-500">Loading…</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen grid place-items-center bg-slate-50">
+        <Card className="max-w-lg w-full">
+          <CardHeader>
+            <CardTitle>Messages Error</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-red-600">{error}</p>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => location.reload()}>
+                Retry
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  await logout();
+                  router.replace("/staff/login");
+                }}
+              >
+                Sign out
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -661,11 +594,12 @@ export default function StaffMessagesPage() {
 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between">
-                          <p className="truncate font-medium text-gray-900">
-                            {c.patient_name ?? "Patient"}
-                          </p>
+                          <p className="truncate font-medium text-gray-900">{c.patient_name ?? "Patient"}</p>
                           <span className="text-xs text-gray-500">
-                            {new Date(c.updated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            {new Date(c.updated_at).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
                           </span>
                         </div>
                         <p className="text-xs text-gray-500">patient</p>
