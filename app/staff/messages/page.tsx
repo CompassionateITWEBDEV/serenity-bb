@@ -1,4 +1,3 @@
-// app/staff/messages/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -90,6 +89,10 @@ const ToggleBtn = ({
     {children}
   </button>
 );
+
+function delay(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 export default function StaffMessagesPage() {
   const router = useRouter();
@@ -305,38 +308,24 @@ export default function StaffMessagesPage() {
       .eq("id", selectedId);
   }
 
-  // ---- bootstrap auth + data ----
+  // ---- bootstrap auth + data (FIX: grace + re-check) ----
   useEffect(() => {
     let mounted = true;
 
-    (async () => {
-      // WHY: getSession avoids temporary null from getUser on first load
-      const { data } = await supabase.auth.getSession();
-      const session = data?.session;
-
-      if (!session) {
-        router.replace("/staff/login");
-        return;
-      }
-
-      const user = session.user;
-      if (!user) {
-        router.replace("/staff/login");
-        return;
-      }
-
-      const uid = user.id;
-      if (!mounted) return;
-
+    async function bootstrap(uid: string) {
       setMeId(uid);
-      setMeName(
-        (user.user_metadata?.full_name as string) ||
-          (user.user_metadata?.name as string) ||
-          user.email ||
-          "Me"
-      );
 
-      // Pull staff role/department + friendly name if present
+      const { data: getUserRes } = await supabase.auth.getUser();
+      const u = getUserRes?.user;
+      if (u) {
+        setMeName(
+          (u.user_metadata?.full_name as string) ||
+            (u.user_metadata?.name as string) ||
+            u.email ||
+            "Me"
+        );
+      }
+
       const staff = await supabase
         .from("staff")
         .select("role, department, first_name, last_name")
@@ -349,16 +338,12 @@ export default function StaffMessagesPage() {
 
       const first = (staff.data?.first_name ?? "").trim();
       const last = (staff.data?.last_name ?? "").trim();
-      if (first || last) {
-        setMeName(`${first} ${last}`.trim());
-      }
+      if (first || last) setMeName(`${first} ${last}`.trim());
 
-      // initial loads
       await Promise.all([
         fetchConversations(uid),
         fetchUnread(uid),
         (async () => {
-          // header count + New Message modal list
           const { count } = await supabase
             .from("patient_care_team")
             .select("patient_id", { count: "exact", head: true })
@@ -371,10 +356,62 @@ export default function StaffMessagesPage() {
       ]);
 
       if (mounted) setLoading(false);
-    })();
+    }
+
+    async function ensureSession() {
+      let { data } = await supabase.auth.getSession();
+      let session = data?.session;
+
+      if (!session) {
+        // allow hydration to load persisted session
+        await delay(300);
+        ({ data } = await supabase.auth.getSession());
+        session = data?.session;
+      }
+
+      if (!session) {
+        // wait for exactly one auth event before deciding
+        let decided = false;
+        const { data: sub } = supabase.auth.onAuthStateChange(async (_evt, newSession) => {
+          if (decided) return;
+          decided = true;
+          sub.subscription.unsubscribe();
+
+          if (!mounted) return;
+          if (newSession) {
+            await bootstrap(newSession.user.id);
+          } else {
+            router.replace("/staff/login");
+          }
+        });
+
+        // fallback if no event quickly arrives
+        setTimeout(async () => {
+          if (decided) return;
+          decided = true;
+          sub.subscription.unsubscribe();
+
+          const again = (await supabase.auth.getSession()).data.session;
+          if (again) await bootstrap(again.user.id);
+          else router.replace("/staff/login");
+        }, 500);
+
+        return;
+      }
+
+      await bootstrap(session.user.id);
+    }
+
+    void ensureSession();
+
+    // Redirect only on explicit sign-out
+    const { data: subOut } = supabase.auth.onAuthStateChange((evt) => {
+      if (evt === "SIGNED_OUT") router.replace("/staff/login");
+    });
 
     return () => {
       mounted = false;
+      subOut.subscription.unsubscribe();
     };
   }, [router]);
 
@@ -390,7 +427,7 @@ export default function StaffMessagesPage() {
           schema: "public",
           table: "conversations",
           event: "*",
-          filter: `provider_id=eq.${meId}`, // WHY: server-side filter to minimize traffic
+          filter: `provider_id=eq.${meId}`,
         },
         async () => {
           await fetchConversations(meId);
@@ -436,11 +473,9 @@ export default function StaffMessagesPage() {
           const m = payload.new as MessageRow;
           if (m.sender_role !== "patient") return;
 
-          // Only if this conversation belongs to me
           const belongs = convs.some((c) => c.id === m.conversation_id);
           if (!belongs) return;
 
-          // Don’t bump if currently viewing it
           setUnreadMap((prev) => {
             if (selectedId === m.conversation_id) return prev;
             const curr = prev[m.conversation_id] ?? 0;
@@ -474,7 +509,6 @@ export default function StaffMessagesPage() {
 
       await markRead(selectedId);
 
-      // autoscroll
       requestAnimationFrame(() =>
         listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" })
       );
@@ -495,7 +529,6 @@ export default function StaffMessagesPage() {
 
           if (payload.eventType === "INSERT") {
             setMsgs((m) => [...m, payload.new as MessageRow]);
-
             if ((payload.new as MessageRow).sender_role === "patient") {
               await markRead(selectedId);
             }
