@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 function srv() {
-  // server client via cookies-less mode (route handlers)
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -26,7 +25,6 @@ export async function POST(req: Request) {
     .eq("patient_id", patientId)
     .eq("provider_id", providerId)
     .maybeSingle();
-
   if (existing?.id) return NextResponse.json({ id: existing.id });
 
   const { data, error } = await supabase
