@@ -1,4 +1,3 @@
-// File: app/staff/messages/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -27,8 +26,8 @@ type ConversationRow = {
   provider_role?: "doctor" | "nurse" | "counselor" | null;
   provider_avatar?: string | null;
   title?: string | null;
-  last_message_at: string | null;   // ← real column
-  created_at: string;               // ← fallback
+  last_message_at: string | null;  // optional in some DBs
+  created_at: string;              // always exists
   patients?: { full_name?: string | null; avatar?: string | null } | null;
 };
 type Conversation = {
@@ -132,29 +131,35 @@ export default function StaffMessagesPage() {
   }
 
   async function fetchAssignedPatients(uid: string) {
-    const v = await supabase
-      .from("v_staff_assigned_patients")
-      .select("user_id, full_name, email, avatar")
-      .eq("staff_id", uid)
-      .order("full_name", { ascending: true });
+    try {
+      const v = await supabase
+        .from("v_staff_assigned_patients")
+        .select("user_id, full_name, email, avatar")
+        .eq("staff_id", uid)
+        .order("full_name", { ascending: true });
 
-    if (!v.error && v.data) return v.data as PatientAssigned[];
+      if (!v.error && v.data) return v.data as PatientAssigned[];
 
-    const j = await supabase
-      .from("patients")
-      .select("user_id, full_name, email, avatar, patient_care_team!inner(staff_id)")
-      .eq("patient_care_team.staff_id", uid);
+      const j = await supabase
+        .from("patients")
+        .select("user_id, full_name, email, avatar, patient_care_team!inner(staff_id)")
+        .eq("patient_care_team.staff_id", uid);
 
-    if (j.error) throw j.error;
+      if (j.error) throw j.error;
 
-    return (j.data || []).map((r: any) => ({
-      user_id: r.user_id,
-      full_name: r.full_name,
-      email: r.email,
-      avatar: r.avatar,
-    })) as PatientAssigned[];
+      return (j.data || []).map((r: any) => ({
+        user_id: r.user_id,
+        full_name: r.full_name,
+        email: r.email,
+        avatar: r.avatar,
+      })) as PatientAssigned[];
+    } catch {
+      return [];
+    }
   }
 
+  // SAFE: only one .order and use a column that surely exists on all rows (created_at).
+  // Then sort on the client by (last_message_at ?? created_at) desc.
   async function fetchConversations(uid: string) {
     const q = await supabase
       .from("conversations")
@@ -162,42 +167,70 @@ export default function StaffMessagesPage() {
         "id, patient_id, provider_id, provider_name, provider_avatar, title, last_message_at, created_at, patients:patient_id(full_name, avatar)"
       )
       .eq("provider_id", uid)
-      .order("last_message_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false });
 
     if (q.error) {
-      console.error("[fetchConversations] ", q.error);
-      throw q.error;
+      console.error("[fetchConversations]", q.error);
+      setConvs([]); // do not throw to avoid blocking "loading"
+      return;
     }
 
     const rows: ConversationRow[] = (q.data as ConversationRow[]) ?? [];
-    const mapped: Conversation[] = rows.map((r) => ({
-      id: r.id,
-      patient_id: r.patient_id,
-      patient_name: r.patients?.full_name ?? r.title ?? "Patient",
-      patient_avatar: (r.patients?.avatar as string | null) ?? null,
-      updated_at: (r.last_message_at ?? r.created_at) as string,
-    }));
+    const mapped: Conversation[] = rows
+      .map((r) => ({
+        id: r.id,
+        patient_id: r.patient_id,
+        patient_name: r.patients?.full_name ?? r.title ?? "Patient",
+        patient_avatar: (r.patients?.avatar as string | null) ?? null,
+        updated_at: (r.last_message_at ?? r.created_at) as string,
+      }))
+      .sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0)); // newest first
+
     setConvs(mapped);
   }
 
   async function fetchUnread(uid: string) {
-    const u = await supabase.from("v_staff_dm_unread").select("conversation_id, unread_from_patient").eq("provider_id", uid);
-    if (u.error) return;
-    const map: Record<string, number> = {};
-    for (const row of (u.data as any[]) ?? []) map[row.conversation_id] = Number(row.unread_from_patient) || 0;
-    setUnreadMap(map);
+    try {
+      const u = await supabase
+        .from("v_staff_dm_unread")
+        .select("conversation_id, unread_from_patient")
+        .eq("provider_id", uid);
+
+      if (u.error) return;
+
+      const map: Record<string, number> = {};
+      for (const row of (u.data as any[]) ?? []) map[row.conversation_id] = Number(row.unread_from_patient) || 0;
+      setUnreadMap(map);
+    } catch {
+      // ignore
+    }
   }
 
   async function markRead(conversationId: string) {
-    await supabase.from("messages").update({ read: true }).eq("conversation_id", conversationId).eq("read", false).eq("sender_role", "patient");
-    setUnreadMap((m) => ({ ...m, [conversationId]: 0 }));
+    try {
+      await supabase
+        .from("messages")
+        .update({ read: true })
+        .eq("conversation_id", conversationId)
+        .eq("read", false)
+        .eq("sender_role", "patient");
+
+      setUnreadMap((m) => ({ ...m, [conversationId]: 0 }));
+    } catch {
+      // ignore
+    }
   }
 
   async function ensureConversationWithPatient(patientId: string) {
     if (!meId) return null;
 
-    const found = await supabase.from("conversations").select("id").eq("patient_id", patientId).eq("provider_id", meId).maybeSingle();
+    const found = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("patient_id", patientId)
+      .eq("provider_id", meId)
+      .maybeSingle();
+
     if (!found.error && found.data) return found.data;
 
     const ins = await supabase
@@ -256,12 +289,14 @@ export default function StaffMessagesPage() {
       alert(ins.error.message);
     }
 
-    // Keep ordering fresh – your schema has last_message_at
-    const upd = await supabase
+    // Try to maintain ordering; ignore failure
+    await supabase
       .from("conversations")
       .update({ last_message: content, last_message_at: new Date().toISOString() })
-      .eq("id", selectedId);
-    if (upd.error) console.error("[sendMessage] conv update", upd.error);
+      .eq("id", selectedId)
+      .then((r) => {
+        if (r.error) console.error("[sendMessage] conv update", r.error);
+      });
   }
 
   // ---- bootstrap auth + data (race-free) ----
@@ -276,7 +311,12 @@ export default function StaffMessagesPage() {
         setMeName((u.user_metadata?.full_name as string) || (u.user_metadata?.name as string) || u.email || "Me");
       }
 
-      const staff = await supabase.from("staff").select("role, department, first_name, last_name").eq("user_id", uid).maybeSingle();
+      const staff = await supabase
+        .from("staff")
+        .select("role, department, first_name, last_name")
+        .eq("user_id", uid)
+        .maybeSingle();
+
       const role = staff.error ? null : ((staff.data?.role as string | null) ?? null);
       const dept = staff.error ? null : ((staff.data?.department as string | null) ?? null);
       setMeRole(mapStaffRole(role, dept));
@@ -284,11 +324,14 @@ export default function StaffMessagesPage() {
       const last = (staff.data?.last_name ?? "").trim();
       if (first || last) setMeName(`${first} ${last}`.trim());
 
-      await Promise.all([
+      await Promise.allSettled([
         fetchConversations(uid),
         fetchUnread(uid),
         (async () => {
-          const { count } = await supabase.from("patient_care_team").select("patient_id", { count: "exact", head: true }).eq("staff_id", uid);
+          const { count } = await supabase
+            .from("patient_care_team")
+            .select("patient_id", { count: "exact", head: true })
+            .eq("staff_id", uid);
           if (mounted && typeof count === "number") setAssignedCount(count);
           const list = await fetchAssignedPatients(uid);
           if (mounted) setPatients(list);
@@ -380,7 +423,11 @@ export default function StaffMessagesPage() {
     let active = true;
 
     (async () => {
-      const res = await supabase.from("messages").select("*").eq("conversation_id", selectedId).order("created_at", { ascending: true });
+      const res = await supabase
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", selectedId)
+        .order("created_at", { ascending: true });
       if (!res.error && active) setMsgs((res.data as MessageRow[]) || []);
       await markRead(selectedId);
       requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }));
@@ -397,7 +444,11 @@ export default function StaffMessagesPage() {
             setMsgs((m) => [...m, payload.new as MessageRow]);
             if ((payload.new as MessageRow).sender_role === "patient") await markRead(selectedId);
           } else {
-            const res = await supabase.from("messages").select("*").eq("conversation_id", selectedId).order("created_at", { ascending: true });
+            const res = await supabase
+              .from("messages")
+              .select("*")
+              .eq("conversation_id", selectedId)
+              .order("created_at", { ascending: true });
             if (!res.error && active) setMsgs((res.data as MessageRow[]) || []);
           }
           requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }));
@@ -565,7 +616,11 @@ export default function StaffMessagesPage() {
                       const isOwn = m.sender_id === meId;
                       return (
                         <div key={m.id} className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
-                          <div className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${isOwn ? "bg-cyan-500 text-white" : "bg-gray-100 text-gray-900"}`}>
+                          <div
+                            className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
+                              isOwn ? "bg-cyan-500 text-white" : "bg-gray-100 text-gray-900"
+                            }`}
+                          >
                             <div className="text-[10px] opacity-60 mb-1">{isOwn ? meName : "Patient"}</div>
                             <div className="whitespace-pre-wrap">{m.content}</div>
                             <div className="text-[10px] opacity-60 mt-1">{new Date(m.created_at).toLocaleString()}</div>
