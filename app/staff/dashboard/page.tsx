@@ -175,7 +175,7 @@ export default function StaffDashboardPage() {
         <div className="flex items-center gap-4">
           <IconPill size="lg" active={view === "home"} onClick={() => setView("home")} aria="Home"><HomeIcon className="h-6 w-6" /></IconPill>
           <IconPill size="lg" active={view === "tests"} onClick={() => setView("tests")} aria="Drug Tests"><TestTube2 className="h-6 w-6" /></IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/patient-inbox")} aria="Messages"><MessageSquare className="h-6 w-6" /></IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/messages")} aria="Messages"><MessageSquare className="h-6 w-6" /></IconPill>
           <IconPill size="lg" onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts"><RadioIcon className="h-6 w-6" /></IconPill>
           <IconPill size="lg" onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups"><EyeOff className="h-6 w-6" /></IconPill>
           <IconPill size="lg" onClick={() => router.push("/staff/notifications")} aria="Notifications"><Bell className="h-6 w-6" /></IconPill>
