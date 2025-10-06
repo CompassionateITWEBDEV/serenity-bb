@@ -1,496 +1,189 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Activity, ArrowLeft, LogOut, Plus, Search, Send, X } from "lucide-react";
-
-import Groups from "@/components/staff/Groups";
-import DirectMessages from "@/components/staff/DirectMessages";
-
-import { logout } from "@/lib/staff";
-import { supabase, ensureSession } from "@/lib/supabase-browser";
-
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-/** Types */
-type ConversationRow = {
-  id: string;
-  patient_id: string;
-  provider_id: string | null;
-  provider_name?: string | null;
-  provider_role?: "doctor" | "nurse" | "counselor" | null;
-  provider_avatar?: string | null;
-  title?: string | null;
-  updated_at: string;
-  patients?: { full_name?: string | null; avatar?: string | null } | null;
+import RandomDrugTestManager from "@/components/staff/RandomDrugTestManager";
+import IntakeQueue from "@/components/staff/IntakeQueue";
+import MobileDock from "@/components/staff/MobileDock";
+import ProfileSettings from "@/components/ProfileSettings";
+
+import {
+  ShieldCheck,
+  Activity,
+  Search,
+  Filter,
+  Home as HomeIcon,
+  TestTube2,
+  MessageSquare,
+  Users,
+  Settings as SettingsIcon,
+  Radio as RadioIcon,
+  EyeOff,
+  Bell,
+} from "lucide-react";
+
+import type { DrugTest, TestStatus } from "@/lib/drug-tests";
+import { createDrugTest, listDrugTests, subscribeDrugTests } from "@/lib/drug-tests";
+import type { StaffPatient } from "@/lib/patients";
+import { fetchPatients, subscribePatients } from "@/lib/patients";
+
+// IMPORTANT: use the *singleton* client + ensureSession
+import { supabase, ensureSession } from "@/lib/supabase-browser";
+
+const TEST_STATUS_META: Record<TestStatus, { label: string; cls: string }> = {
+  completed: { label: "Completed", cls: "text-emerald-700 bg-emerald-50 border-emerald-200" },
+  missed: { label: "Missed", cls: "text-rose-700 bg-rose-50 border-rose-200" },
+  pending: { label: "Pending", cls: "text-amber-700 bg-amber-50 border-amber-200" },
 };
-type Conversation = { id: string; patient_id: string; patient_name: string | null; patient_avatar: string | null; updated_at: string };
-type PatientAssigned = { user_id: string; full_name: string | null; email: string | null; avatar: string | null };
-type MessageRow = {
-  id: string;
-  conversation_id: string;
-  patient_id: string;
-  sender_id: string;
-  sender_name: string;
-  sender_role: "patient" | "doctor" | "nurse" | "counselor";
-  content: string;
-  created_at: string;
-  read: boolean;
-  urgent: boolean;
-};
 
-/** Small UI */
-const ToggleBtn = ({
-  active,
-  onClick,
-  children,
-  aria,
-}: {
-  active?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-  aria: string;
-}) => (
-  <button
-    aria-label={aria}
-    onClick={onClick}
-    className={`h-9 px-3 rounded-full inline-flex items-center gap-2 text-sm ${
-      active ? "bg-cyan-500 text-white shadow" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-    }`}
-  >
-    {children}
-  </button>
-);
+function StatusChip({ status }: { status: TestStatus }) {
+  const m = TEST_STATUS_META[status];
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs border ${m.cls}`}>
+      {m.label}
+    </span>
+  );
+}
 
-export default function StaffMessagesPage() {
+const fmtWhen = (iso?: string | null) =>
+  iso ? new Date(iso).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+
+type View = "home" | "tests" | "settings";
+
+export default function StaffDashboardPage() {
   const router = useRouter();
 
-  const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<"both" | "groups" | "dms">("both");
+  // Gate all data work behind a ready flag
+  const [ready, setReady] = useState(false);
 
-  // auth/staff
-  const [meId, setMeId] = useState<string | null>(null);
-  const [meName, setMeName] = useState<string>("Me");
-  const [meRole, setMeRole] = useState<"doctor" | "nurse" | "counselor">("nurse");
+  const [patients, setPatients] = useState<StaffPatient[]>([]);
+  const [tests, setTests] = useState<DrugTest[]>([]);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | TestStatus>("all");
+  const [view, setView] = useState<View>("home");
 
-  // conversations + selection
-  const [convs, setConvs] = useState<Conversation[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [msgs, setMsgs] = useState<MessageRow[]>([]);
-  const [compose, setCompose] = useState("");
-  const listRef = useRef<HTMLDivElement>(null);
-
-  // assigned patients count (header)
-  const [assignedCount, setAssignedCount] = useState<number>(0);
-
-  // NEW MESSAGE modal state
-  const [modalOpen, setModalOpen] = useState(false);
-  const [pSearch, setPSearch] = useState("");
-  const [patients, setPatients] = useState<PatientAssigned[]>([]);
-  const filteredPatients = useMemo(
-    () =>
-      patients.filter(
-        (p) =>
-          !pSearch ||
-          (p.full_name ?? "").toLowerCase().includes(pSearch.toLowerCase()) ||
-          (p.email ?? "").toLowerCase().includes(pSearch.toLowerCase())
-      ),
-    [patients, pSearch]
-  );
-
-  // unread counts per conversation
-  const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
-
-  // ---- helpers ----
-  function initials(name?: string | null) {
-    const raw = (name ?? "P").trim();
-    if (!raw) return "P";
-    return raw
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-  }
-
-  function mapStaffRole(
-    role?: string | null,
-    dept?: string | null
-  ): "doctor" | "nurse" | "counselor" {
-    const r = (role ?? "").toLowerCase();
-    const d = (dept ?? "").toLowerCase();
-    if (r.includes("doctor") || r.includes("physician") || d.includes("medical")) return "doctor";
-    if (r.includes("counselor") || r.includes("therapist") || d.includes("therapy"))
-      return "counselor";
-    return "nurse";
-  }
-
-  async function fetchAssignedPatients(uid: string) {
-    const v = await supabase
-      .from("v_staff_assigned_patients")
-      .select("user_id, full_name, email, avatar")
-      .eq("staff_id", uid)
-      .order("full_name", { ascending: true });
-
-    if (!v.error && v.data) return v.data as PatientAssigned[];
-
-    const j = await supabase
-      .from("patients")
-      .select("user_id, full_name, email, avatar, patient_care_team!inner(staff_id)")
-      .eq("patient_care_team.staff_id", uid);
-
-    if (j.error) throw j.error;
-
-    return (j.data || []).map((r: any) => ({
-      user_id: r.user_id,
-      full_name: r.full_name,
-      email: r.email,
-      avatar: r.avatar,
-    })) as PatientAssigned[];
-  }
-
-  async function fetchConversations(uid: string) {
-    const q = await supabase
-      .from("conversations")
-      .select(
-        "id, patient_id, provider_id, provider_name, provider_avatar, title, updated_at, patients:patient_id(full_name, avatar)"
-      )
-      .eq("provider_id", uid)
-      .order("updated_at", { ascending: false });
-
-    if (q.error) throw q.error;
-
-    const rows: ConversationRow[] = (q.data as ConversationRow[]) ?? [];
-    const mapped: Conversation[] = rows.map((r) => ({
-      id: r.id,
-      patient_id: r.patient_id,
-      patient_name: r.patients?.full_name ?? r.title ?? "Patient",
-      patient_avatar: (r.patients?.avatar as string | null) ?? null,
-      updated_at: r.updated_at,
-    }));
-    setConvs(mapped);
-  }
-
-  async function fetchUnread(uid: string) {
-    const u = await supabase
-      .from("v_staff_dm_unread")
-      .select("conversation_id, unread_from_patient")
-      .eq("provider_id", uid);
-
-    if (u.error) return;
-
-    const map: Record<string, number> = {};
-    for (const row of (u.data as any[]) ?? []) {
-      map[row.conversation_id] = Number(row.unread_from_patient) || 0;
-    }
-    setUnreadMap(map);
-  }
-
-  async function markRead(conversationId: string) {
-    await supabase
-      .from("messages")
-      .update({ read: true })
-      .eq("conversation_id", conversationId)
-      .eq("read", false)
-      .eq("sender_role", "patient");
-
-    setUnreadMap((m) => ({ ...m, [conversationId]: 0 }));
-  }
-
-  async function ensureConversationWithPatient(patientId: string) {
-    if (!meId) return null;
-
-    const found = await supabase
-      .from("conversations")
-      .select("id")
-      .eq("patient_id", patientId)
-      .eq("provider_id", meId)
-      .maybeSingle();
-
-    if (!found.error && found.data) return found.data;
-
-    const ins = await supabase
-      .from("conversations")
-      .insert({
-        patient_id: patientId,
-        provider_id: meId,
-        provider_name: meName,
-        provider_role: meRole,
-        provider_avatar: null,
-        title: "Conversation",
-        updated_at: new Date().toISOString(),
-      })
-      .select("id")
-      .single();
-
-    if (ins.error) {
-      alert(ins.error.message);
-      return null;
-    }
-    return ins.data;
-  }
-
-  async function sendMessage() {
-    if (!selectedId || !meId || !compose.trim()) return;
-
-    const content = compose.trim();
-    setCompose("");
-
-    const conv = convs.find((c) => c.id === selectedId);
-    const optimistic: MessageRow = {
-      id: `tmp-${crypto.randomUUID()}`,
-      conversation_id: selectedId,
-      patient_id: conv?.patient_id || "",
-      sender_id: meId,
-      sender_name: meName,
-      sender_role: meRole,
-      content,
-      created_at: new Date().toISOString(),
-      read: true,
-      urgent: false,
-    };
-
-    setMsgs((m) => [...m, optimistic]);
-
-    const ins = await supabase.from("messages").insert({
-      conversation_id: optimistic.conversation_id,
-      patient_id: optimistic.patient_id,
-      sender_id: optimistic.sender_id,
-      sender_name: optimistic.sender_name,
-      sender_role: optimistic.sender_role,
-      content: optimistic.content,
-      read: true,
-      urgent: false,
-    });
-
-    if (ins.error) alert(ins.error.message);
-
-    await supabase
-      .from("conversations")
-      .update({ updated_at: new Date().toISOString() })
-      .eq("id", selectedId);
-  }
-
-  // ---- bootstrap auth + data (use ensureSession) ----
+  // Session guard: wait for hydrated session before proceeding
   useEffect(() => {
-    let mounted = true;
-
-    async function bootstrap(uid: string) {
-      setMeId(uid);
-
-      const { data: getUserRes } = await supabase.auth.getUser();
-      const u = getUserRes?.user;
-      if (u) {
-        setMeName(
-          (u.user_metadata?.full_name as string) ||
-            (u.user_metadata?.name as string) ||
-            u.email ||
-            "Me"
-        );
-      }
-
-      const staff = await supabase
-        .from("staff")
-        .select("role, department, first_name, last_name")
-        .eq("user_id", uid)
-        .maybeSingle();
-
-      const role = staff.error ? null : ((staff.data?.role as string | null) ?? null);
-      const dept = staff.error ? null : ((staff.data?.department as string | null) ?? null);
-      setMeRole(mapStaffRole(role, dept));
-
-      const first = (staff.data?.first_name ?? "").trim();
-      const last = (staff.data?.last_name ?? "").trim();
-      if (first || last) setMeName(`${first} ${last}`.trim());
-
-      await Promise.all([
-        fetchConversations(uid),
-        fetchUnread(uid),
-        (async () => {
-          const { count } = await supabase
-            .from("patient_care_team")
-            .select("patient_id", { count: "exact", head: true })
-            .eq("staff_id", uid);
-          if (mounted && typeof count === "number") setAssignedCount(count);
-
-          const list = await fetchAssignedPatients(uid);
-          if (mounted) setPatients(list);
-        })(),
-      ]);
-
-      if (mounted) setLoading(false);
-    }
+    let alive = true;
 
     (async () => {
-      const session = await ensureSession(); // <<< key fix
-      if (!mounted) return;
+      const session = await ensureSession();
+      if (!alive) return;
+
       if (!session) {
-        router.replace("/staff/login");
+        router.replace("/staff/login?redirect=/staff/dashboard");
         return;
       }
 
-      await bootstrap(session.user.id);
+      setReady(true);
     })();
 
-    // Redirect only on explicit sign-out (not during nav)
-    const { data: subOut } = supabase.auth.onAuthStateChange((evt) => {
+    // Redirect on explicit sign-out (avoid bouncing during normal nav)
+    const { data: sub } = supabase.auth.onAuthStateChange((evt) => {
       if (evt === "SIGNED_OUT") router.replace("/staff/login");
     });
 
     return () => {
-      mounted = false;
-      subOut.subscription.unsubscribe();
+      alive = false;
+      sub.subscription.unsubscribe();
     };
   }, [router]);
 
-  // ---- realtime subscriptions ----
+  // Initial load (only after ready)
   useEffect(() => {
-    if (!meId) return;
-
-    const convCh = supabase
-      .channel(`conv_${meId}`)
-      .on(
-        "postgres_changes",
-        {
-          schema: "public",
-          table: "conversations",
-          event: "*",
-          filter: `provider_id=eq.${meId}`,
-        },
-        async () => {
-          await fetchConversations(meId);
-          await fetchUnread(meId);
-        }
-      )
-      .subscribe();
-
-    const pctCh = supabase
-      .channel(`pct_${meId}`)
-      .on(
-        "postgres_changes",
-        {
-          schema: "public",
-          table: "patient_care_team",
-          event: "INSERT",
-          filter: `staff_id=eq.${meId}`,
-        },
-        () => setAssignedCount((n) => (Number.isFinite(n) ? n + 1 : 1))
-      )
-      .on(
-        "postgres_changes",
-        {
-          schema: "public",
-          table: "patient_care_team",
-          event: "DELETE",
-          filter: `staff_id=eq.${meId}`,
-        },
-        () => setAssignedCount((n) => (Number.isFinite(n) ? Math.max(0, n - 1) : 0))
-      )
-      .subscribe();
-
-    const msgCh = supabase
-      .channel(`msgs_staff_${meId}`)
-      .on(
-        "postgres_changes",
-        {
-          schema: "public",
-          table: "messages",
-          event: "INSERT",
-        },
-        (payload) => {
-          const m = payload.new as MessageRow;
-          if (m.sender_role !== "patient") return;
-
-          const belongs = convs.some((c) => c.id === m.conversation_id);
-          if (!belongs) return;
-
-          setUnreadMap((prev) => {
-            if (selectedId === m.conversation_id) return prev;
-            const curr = prev[m.conversation_id] ?? 0;
-            return { ...prev, [m.conversation_id]: curr + 1 };
-          });
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(convCh);
-      supabase.removeChannel(pctCh);
-      supabase.removeChannel(msgCh);
-    };
-  }, [meId, convs, selectedId]);
-
-  // Load messages + mark read on selection
-  useEffect(() => {
-    if (!selectedId) return;
-
-    let active = true;
-
+    if (!ready) return;
     (async () => {
-      const res = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", selectedId)
-        .order("created_at", { ascending: true });
-
-      if (!res.error && active) setMsgs((res.data as MessageRow[]) || []);
-
-      await markRead(selectedId);
-
-      requestAnimationFrame(() =>
-        listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" })
-      );
+      const [p, t] = await Promise.all([fetchPatients(), listDrugTests({})]);
+      setPatients(p);
+      setTests(t);
     })();
+  }, [ready]);
 
-    const ch = supabase
-      .channel(`conv_msgs_${selectedId}`)
-      .on(
-        "postgres_changes",
-        {
-          schema: "public",
-          table: "messages",
-          event: "*",
-          filter: `conversation_id=eq.${selectedId}`,
-        },
-        async (payload) => {
-          if (!active) return;
-
-          if (payload.eventType === "INSERT") {
-            setMsgs((m) => [...m, payload.new as MessageRow]);
-            if ((payload.new as MessageRow).sender_role === "patient") {
-              await markRead(selectedId);
-            }
-          } else {
-            const res = await supabase
-              .from("messages")
-              .select("*")
-              .eq("conversation_id", selectedId)
-              .order("created_at", { ascending: true });
-
-            if (!res.error && active) setMsgs((res.data as MessageRow[]) || []);
-          }
-
-          requestAnimationFrame(() =>
-            listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" })
-          );
-        }
-      )
-      .subscribe();
-
+  // Realtime refresh (only after ready)
+  useEffect(() => {
+    if (!ready) return;
+    const offP = subscribePatients(async () => setPatients(await fetchPatients(query)));
+    const offT = subscribeDrugTests(async () =>
+      setTests(await listDrugTests({ q: query, status: filter === "all" ? undefined : filter }))
+    );
     return () => {
-      active = false;
-      supabase.removeChannel(ch);
+      offP();
+      offT();
     };
-  }, [selectedId]);
+  }, [ready, query, filter]);
 
-  // ---- UI ----
-  if (loading) {
+  const filteredTests = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return tests.filter((t) => {
+      const bySearch =
+        !q ||
+        t.patient.name.toLowerCase().includes(q) ||
+        (t.patient.email ?? "").toLowerCase().includes(q);
+      const byStatus = filter === "all" || t.status === filter;
+      return bySearch && byStatus;
+    });
+  }, [tests, query, filter]);
+
+  async function sweetAlert(opts: { icon: "success" | "error" | "info" | "warning"; title: string; text?: string }) {
+    const Swal = (await import("sweetalert2")).default;
+    return Swal.fire({
+      icon: opts.icon,
+      title: opts.title,
+      text: opts.text,
+      confirmButtonColor: "#06b6d4",
+      buttonsStyling: true,
+    });
+  }
+
+  async function refreshTests() {
+    setTests(await listDrugTests({ q: query, status: filter === "all" ? undefined : filter }));
+  }
+
+  async function onCreateTest() {
+    const m = patients[0];
+    if (!m) {
+      await sweetAlert({
+        icon: "error",
+        title: "No patients available",
+        text: "Add a patient before creating a test.",
+      });
+      return;
+    }
+    try {
+      await createDrugTest({ patientId: m.id, scheduledFor: null });
+      await refreshTests();
+      await sweetAlert({
+        icon: "success",
+        title: "Test created",
+        text: `A new test was created for ${m.name}.`,
+      });
+    } catch (err: any) {
+      const status = Number(err?.status || 0);
+      if (status === 401 || status === 403) {
+        await sweetAlert({
+          icon: "error",
+          title: "Sign in required",
+          text: "Please sign in with a staff account.",
+        });
+        router.replace("/staff/login?redirect=/staff/dashboard");
+        return;
+      }
+      await sweetAlert({
+        icon: "error",
+        title: "Failed to create test",
+        text: err?.message ?? "Please try again.",
+      });
+    }
+  }
+
+  if (!ready) {
     return (
       <div className="min-h-screen grid place-items-center bg-slate-50">
         <div className="text-sm text-slate-500">Loading…</div>
@@ -501,263 +194,221 @@ export default function StaffMessagesPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
-        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
-              <svg viewBox="0 0 24 24" className="h-5 w-5 text-cyan-600" fill="none" stroke="currentColor">
-                <path strokeWidth="2" d="M12 3l9 7-9 7-9-7 9-7z" />
-              </svg>
+            <div className="h-10 w-10 rounded-full bg-cyan-100 grid place-items-center">
+              <ShieldCheck className="h-5 w-5 text-cyan-600" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold">Staff Console</h1>
+              <h1 className="text-xl font-semibold">Staff Console</h1>
               <p className="text-xs text-slate-500">Care operations at a glance</p>
             </div>
           </div>
-
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="gap-1">
-              <Activity className="h-3.5 w-3.5" />
-              {`Live · ${assignedCount} patients`}
+              <Activity className="h-3.5 w-3.5" /> Live
             </Badge>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1"
-              onClick={async () => {
-                await logout();
-                router.refresh();
-              }}
-            >
-              <LogOut className="h-4 w-4" /> Logout
-            </Button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-6 space-y-4">
-        {/* Title + controls */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
-              <svg viewBox="0 0 24 24" className="h-5 w-5 text-cyan-700" fill="none" stroke="currentColor">
-                <path strokeWidth="2" d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z" />
-              </svg>
-            </span>
-            <h2 className="text-xl font-semibold">Messages</h2>
-          </div>
+      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+        {/* Icon Row */}
+        <div className="flex items-center gap-4">
+          <IconPill size="lg" active={view === "home"} onClick={() => setView("home")} aria="Home">
+            <HomeIcon className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" active={view === "tests"} onClick={() => setView("tests")} aria="Drug Tests">
+            <TestTube2 className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/messages")} aria="Messages">
+            <MessageSquare className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts">
+            <RadioIcon className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups">
+            <EyeOff className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/notifications")} aria="Notifications">
+            <Bell className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" onClick={() => router.push("/clinician/dashboard")} aria="Clinicians">
+            <Users className="h-6 w-6" />
+          </IconPill>
+          <IconPill size="lg" onClick={() => router.push("/staff/profile")} aria="Settings">
+            <SettingsIcon className="h-6 w-6" />
+          </IconPill>
+        </div>
 
-          <div className="flex items-center gap-2">
-            <Button size="sm" className="gap-2" onClick={() => setModalOpen(true)}>
-              <Plus className="h-4 w-4" /> New message
+        {/* Search / Filter */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search"
+              className="pl-10 h-10 w-72 rounded-full"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" className="h-10 rounded-full px-4">
+              <Filter className="h-5 w-5 mr-2 text-cyan-600" /> Filter
             </Button>
-            <ToggleBtn active={mode === "groups"} onClick={() => setMode("groups")} aria="Show Internal Groups">
-              Groups
-            </ToggleBtn>
-            <ToggleBtn active={mode === "dms"} onClick={() => setMode("dms")} aria="Show Direct Messages">
-              Direct
-            </ToggleBtn>
-            <ToggleBtn active={mode === "both"} onClick={() => setMode("both")} aria="Show Both">
-              Both
-            </ToggleBtn>
-            <Button variant="ghost" size="sm" className="gap-2 ml-2" onClick={() => router.push("/staff/dashboard")}>
-              <ArrowLeft className="h-4 w-4" /> Back to Dashboard
-            </Button>
+            <span className="text-sm text-slate-600">Patient ({patients.length})</span>
           </div>
         </div>
 
-        {/* Panels */}
-        {mode === "both" ? (
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="w-full">
-              <Groups />
-            </div>
-            <div className="w-full">
-              <DirectMessages />
-            </div>
-          </div>
-        ) : mode === "groups" ? (
-          <div className="w-full">
-            <Groups />
-          </div>
-        ) : (
-          <div className="w-full">
-            <DirectMessages />
-          </div>
+        {view === "home" && (
+          <>
+            <section>
+              <h2 className="text-xl font-semibold tracking-tight">Random Drug Test Manager</h2>
+              <Card className="mt-4 shadow-sm">
+                <CardContent className="p-5">
+                  <RandomDrugTestManager patients={patients} onCreate={handleModalCreate} />
+                </CardContent>
+              </Card>
+            </section>
+
+            <section>
+              <h2 className="text-xl font-semibold tracking-tight">Real-Time Intake Queue</h2>
+              <p className="text-xs text-slate-500 -mt-1">Monitor patient progress across intake roles</p>
+              <IntakeQueue patients={patients} />
+            </section>
+          </>
         )}
 
-        {/* Lightweight built-in DM panel (shows unread badges, compose box) */}
-        <div className="grid gap-6 md:grid-cols-3">
-          {/* Conversations list with unread badges */}
-          <Card className="md:col-span-1">
-            <CardHeader>
-              <CardTitle>Direct Messages</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="divide-y">
-                {convs.map((c) => {
-                  const active = selectedId === c.id;
-                  const un = unreadMap[c.id] ?? 0;
-
-                return (
-                    <button
-                      key={c.id}
-                      onClick={() => setSelectedId(c.id)}
-                      className={`w-full text-left p-4 flex items-center gap-3 hover:bg-gray-50 border-l-4 ${
-                        active ? "border-cyan-500 bg-cyan-50" : "border-transparent"
-                      }`}
-                    >
-                      <Avatar>
-                        <AvatarImage src={c.patient_avatar ?? undefined} />
-                        <AvatarFallback>{initials(c.patient_name)}</AvatarFallback>
-                      </Avatar>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between">
-                          <p className="truncate font-medium text-gray-900">
-                            {c.patient_name ?? "Patient"}
-                          </p>
-                          <span className="text-xs text-gray-500">
-                            {new Date(c.updated_at).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-500">patient</p>
-                      </div>
-
-                      {!!un && <Badge className="ml-auto">{un}</Badge>}
-                    </button>
-                  );
-                })}
-
-                {convs.length === 0 && (
-                  <div className="p-6 text-sm text-gray-500">No conversations yet.</div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Active conversation */}
-          <Card className="md:col-span-2 flex flex-col">
-            {!selectedId ? (
-              <CardContent className="flex-1 flex items-center justify-center">
-                <div className="text-sm text-gray-500">Select a conversation</div>
-              </CardContent>
-            ) : (
-              <>
-                <CardContent ref={listRef} className="flex-1 overflow-y-auto p-4">
-                  <div className="space-y-3">
-                    {msgs.map((m) => {
-                      const isOwn = m.sender_id === meId;
-                      return (
-                        <div key={m.id} className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
-                          <div
-                            className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
-                              isOwn ? "bg-cyan-500 text-white" : "bg-gray-100 text-gray-900"
-                            }`}
-                          >
-                            <div className="text-[10px] opacity-60 mb-1">
-                              {isOwn ? meName : "Patient"}
-                            </div>
-                            <div className="whitespace-pre-wrap">{m.content}</div>
-                            <div className="text-[10px] opacity-60 mt-1">
-                              {new Date(m.created_at).toLocaleString()}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+        {view === "tests" && (
+          <section>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold tracking-tight">Random Drug Test Manager</h2>
+              <Button onClick={onCreateTest} className="h-10 px-4 gap-2">
+                + New Test
+              </Button>
+            </div>
+            <Card className="mt-4 shadow-sm">
+              <CardHeader className="pb-3">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
+                      <TestTube2 className="h-5 w-5 text-cyan-700" />
+                    </div>
+                    <CardTitle className="text-base">Recent Tests</CardTitle>
                   </div>
-                </CardContent>
-
-                <div className="border-t p-3">
-                  <div className="flex gap-2">
-                    <Textarea
-                      placeholder="Type a message…"
-                      value={compose}
-                      onChange={(e) => setCompose(e.target.value)}
-                      className="flex-1 min-h-[40px] max-h-[120px]"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          void sendMessage();
-                        }
-                      }}
-                    />
-                    <Button onClick={sendMessage}>
-                      <Send className="h-4 w-4" />
-                    </Button>
+                  <div className="flex gap-3">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                      <Input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Search patient…"
+                        className="pl-10 h-10 w-56"
+                      />
+                    </div>
+                    <Select value={filter} onValueChange={(v) => setFilter(v as any)}>
+                      <SelectTrigger className="h-10 w-40">
+                        <SelectValue placeholder="Filter" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                        <SelectItem value="missed">Missed</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
-              </>
-            )}
-          </Card>
-        </div>
+              </CardHeader>
+              <CardContent className="space-y-3 p-5">
+                {filteredTests.length === 0 && (
+                  <div className="text-sm text-slate-500 py-8 text-center">No tests yet.</div>
+                )}
+                <ul className="grid gap-3">
+                  {filteredTests.map((t) => (
+                    <li
+                      key={t.id}
+                      className="rounded-xl border bg-white px-5 py-4 flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="font-medium">{t.patient.name}</div>
+                        <div className="text-xs text-slate-500">
+                          Scheduled: {fmtWhen(t.scheduledFor)}
+                        </div>
+                      </div>
+                      <StatusChip status={t.status} />
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          </section>
+        )}
+
+        {view === "settings" && (
+          <section>
+            <h2 className="text-xl font-semibold tracking-tight">Settings</h2>
+            <div className="mt-4">
+              <ProfileSettings />
+            </div>
+          </section>
+        )}
       </main>
 
-      {/* New Message Modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
-          <div className="w-full max-w-lg rounded-lg border bg-white">
-            <div className="flex items-center justify-between border-b p-4">
-              <h3 className="font-semibold">New message</h3>
-              <Button variant="ghost" size="icon" onClick={() => setModalOpen(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <div className="p-4">
-              <div className="relative mb-3">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search patients…"
-                  className="pl-9"
-                  value={pSearch}
-                  onChange={(e) => setPSearch(e.target.value)}
-                />
-              </div>
-
-              <div className="max-h-80 overflow-y-auto divide-y">
-                {filteredPatients.map((p) => (
-                  <button
-                    key={p.user_id}
-                    className="w-full text-left p-3 hover:bg-gray-50 flex items-center gap-3"
-                    onClick={async () => {
-                      const conv = await ensureConversationWithPatient(p.user_id);
-                      if (!conv || !meId) return;
-
-                      await fetchConversations(meId);
-                      await fetchUnread(meId);
-                      setSelectedId(conv.id);
-                      setModalOpen(false);
-                    }}
-                  >
-                    <Avatar>
-                      <AvatarImage src={p.avatar ?? undefined} />
-                      <AvatarFallback>{initials(p.full_name)}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{p.full_name ?? "Patient"}</div>
-                      <div className="text-xs text-gray-500 truncate">{p.email ?? ""}</div>
-                    </div>
-                  </button>
-                ))}
-
-                {filteredPatients.length === 0 && (
-                  <div className="p-6 text-sm text-gray-500">No matches.</div>
-                )}
-              </div>
-            </div>
-
-            <div className="border-t p-3 text-right">
-              <Button variant="outline" onClick={() => setModalOpen(false)}>
-                Close
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <MobileDock />
     </div>
+  );
+
+  // Helpers
+  async function handleModalCreate(payload: { patientId: string; scheduledFor: string | null }) {
+    try {
+      await createDrugTest({ patientId: payload.patientId, scheduledFor: payload.scheduledFor });
+      await refreshTests();
+      const who = patients.find((p) => p.id === payload.patientId)?.name ?? "patient";
+      const when = payload.scheduledFor ? fmtWhen(payload.scheduledFor) : "unscheduled";
+      await sweetAlert({ icon: "success", title: "Test created", text: `${who} • ${when}` });
+    } catch (err: any) {
+      const status = Number(err?.status || 0);
+      if (status === 401 || status === 403) {
+        await sweetAlert({ icon: "error", title: "Sign in required", text: "Please sign in with a staff account." });
+        router.replace("/staff/login?redirect=/staff/dashboard");
+        return;
+      }
+      await sweetAlert({ icon: "error", title: "Failed to create test", text: err?.message ?? "Please try again." });
+    }
+  }
+}
+
+/* --------- IconPill with size control --------- */
+function IconPill({
+  children,
+  active,
+  onClick,
+  aria,
+  size = "md",
+}: {
+  children: React.ReactNode;
+  active?: boolean;
+  onClick?: () => void;
+  aria: string;
+  size?: "sm" | "md" | "lg";
+}) {
+  const sizeMap = {
+    sm: "h-10 w-10 text-[20px]",
+    md: "h-11 w-11 text-[22px]",
+    lg: "h-12 w-12 text-[24px]",
+  } as const;
+
+  return (
+    <button
+      type="button"
+      aria-label={aria}
+      onClick={onClick}
+      className={`${sizeMap[size]} rounded-full grid place-items-center transition
+        ${active ? "bg-cyan-100 text-cyan-700 ring-2 ring-cyan-300"
+                 : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+    >
+      {children}
+    </button>
   );
 }
