@@ -116,5 +116,8 @@ export function subscribeToTable<T = unknown>(opts: {
     try {
       supabase.removeChannel(ch);
     } catch {}
+
+    export * from "@/lib/supabase-browser";
+export { supabase as default } from "@/lib/supabase-browser";
   };
 }
