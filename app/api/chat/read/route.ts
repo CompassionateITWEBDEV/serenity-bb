@@ -18,7 +18,6 @@ export async function POST(req: Request) {
   const { conversationId } = await req.json();
   if (!conversationId) return NextResponse.json({ error: "invalid" }, { status: 400 });
 
-  // mark all messages not sent by me as read
   const { error } = await supabase
     .from("messages")
     .update({ read: true })
