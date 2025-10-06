@@ -5,15 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Activity,
-  ArrowLeft,
-  LogOut,
-  Plus,
-  Search,
-  Send,
-  X,
-} from "lucide-react";
+import { Activity, ArrowLeft, LogOut, Plus, Search, Send, X } from "lucide-react";
 
 import Groups from "@/components/staff/Groups";
 import DirectMessages from "@/components/staff/DirectMessages";
@@ -58,7 +50,7 @@ type MessageRow = {
   id: string;
   conversation_id: string;
   patient_id: string;
-  sender_id: string;
+  sender_id: string; // NOTE: your schema uses text; keep consistent here
   sender_name: string;
   sender_role: "patient" | "doctor" | "nurse" | "counselor";
   content: string;
@@ -159,7 +151,6 @@ export default function StaffMessagesPage() {
   }
 
   async function fetchAssignedPatients(uid: string) {
-    // Try view (recommended)
     const v = await supabase
       .from("v_staff_assigned_patients")
       .select("user_id, full_name, email, avatar")
@@ -168,7 +159,6 @@ export default function StaffMessagesPage() {
 
     if (!v.error && v.data) return v.data as PatientAssigned[];
 
-    // Fallback: join
     const j = await supabase
       .from("patients")
       .select("user_id, full_name, email, avatar, patient_care_team!inner(staff_id)")
@@ -235,7 +225,6 @@ export default function StaffMessagesPage() {
   async function ensureConversationWithPatient(patientId: string) {
     if (!meId) return null;
 
-    // find
     const found = await supabase
       .from("conversations")
       .select("id")
@@ -245,7 +234,6 @@ export default function StaffMessagesPage() {
 
     if (!found.error && found.data) return found.data;
 
-    // create
     const ins = await supabase
       .from("conversations")
       .insert({
@@ -308,7 +296,7 @@ export default function StaffMessagesPage() {
       .eq("id", selectedId);
   }
 
-  // ---- bootstrap auth + data (FIX: grace + re-check) ----
+  // ---- bootstrap auth + data (grace + re-check) ----
   useEffect(() => {
     let mounted = true;
 
@@ -363,14 +351,12 @@ export default function StaffMessagesPage() {
       let session = data?.session;
 
       if (!session) {
-        // allow hydration to load persisted session
-        await delay(300);
+        await delay(300); // give hydration time
         ({ data } = await supabase.auth.getSession());
         session = data?.session;
       }
 
       if (!session) {
-        // wait for exactly one auth event before deciding
         let decided = false;
         const { data: sub } = supabase.auth.onAuthStateChange(async (_evt, newSession) => {
           if (decided) return;
@@ -378,14 +364,10 @@ export default function StaffMessagesPage() {
           sub.subscription.unsubscribe();
 
           if (!mounted) return;
-          if (newSession) {
-            await bootstrap(newSession.user.id);
-          } else {
-            router.replace("/staff/login");
-          }
+          if (newSession) await bootstrap(newSession.user.id);
+          else router.replace("/staff/login");
         });
 
-        // fallback if no event quickly arrives
         setTimeout(async () => {
           if (decided) return;
           decided = true;
@@ -404,7 +386,7 @@ export default function StaffMessagesPage() {
 
     void ensureSession();
 
-    // Redirect only on explicit sign-out
+    // redirect only on explicit sign-out
     const { data: subOut } = supabase.auth.onAuthStateChange((evt) => {
       if (evt === "SIGNED_OUT") router.replace("/staff/login");
     });
@@ -683,10 +665,7 @@ export default function StaffMessagesPage() {
                             {c.patient_name ?? "Patient"}
                           </p>
                           <span className="text-xs text-gray-500">
-                            {new Date(c.updated_at).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            {new Date(c.updated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </span>
                         </div>
                         <p className="text-xs text-gray-500">patient</p>
@@ -697,9 +676,7 @@ export default function StaffMessagesPage() {
                   );
                 })}
 
-                {convs.length === 0 && (
-                  <div className="p-6 text-sm text-gray-500">No conversations yet.</div>
-                )}
+                {convs.length === 0 && <div className="p-6 text-sm text-gray-500">No conversations yet.</div>}
               </div>
             </CardContent>
           </Card>
@@ -723,13 +700,9 @@ export default function StaffMessagesPage() {
                               isOwn ? "bg-cyan-500 text-white" : "bg-gray-100 text-gray-900"
                             }`}
                           >
-                            <div className="text-[10px] opacity-60 mb-1">
-                              {isOwn ? meName : "Patient"}
-                            </div>
+                            <div className="text-[10px] opacity-60 mb-1">{isOwn ? meName : "Patient"}</div>
                             <div className="whitespace-pre-wrap">{m.content}</div>
-                            <div className="text-[10px] opacity-60 mt-1">
-                              {new Date(m.created_at).toLocaleString()}
-                            </div>
+                            <div className="text-[10px] opacity-60 mt-1">{new Date(m.created_at).toLocaleString()}</div>
                           </div>
                         </div>
                       );
@@ -810,9 +783,7 @@ export default function StaffMessagesPage() {
                   </button>
                 ))}
 
-                {filteredPatients.length === 0 && (
-                  <div className="p-6 text-sm text-gray-500">No matches.</div>
-                )}
+                {filteredPatients.length === 0 && <div className="p-6 text-sm text-gray-500">No matches.</div>}
               </div>
             </div>
 
