@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Activity, ArrowLeft, LogOut, Plus, Search, Send, X } from "lucide-react";
 
 import { supabase, ensureSession, logout } from "@/lib/supabase-browser";
@@ -15,11 +15,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Groups from "@/components/staff/Groups";
 import DirectMessages from "@/components/staff/DirectMessages";
 
-/* =========================
-   Types (match your schema)
-   ========================= */
 type ProviderRole = "doctor" | "nurse" | "counselor";
-
 type ConversationRow = {
   id: string;
   patient_id: string;
@@ -32,7 +28,6 @@ type ConversationRow = {
   created_at: string;
   patients?: { full_name?: string | null; email?: string | null; avatar?: string | null } | null;
 };
-
 type Conversation = {
   id: string;
   patient_id: string;
@@ -40,9 +35,8 @@ type Conversation = {
   patient_email: string | null;
   patient_avatar: string | null;
   last_message: string | null;
-  updated_at: string; // last_message_at || created_at
+  updated_at: string;
 };
-
 type MessageRow = {
   id: string;
   conversation_id: string;
@@ -55,23 +49,13 @@ type MessageRow = {
   read: boolean;
   urgent: boolean;
 };
-
 type PatientAssigned = { user_id: string; full_name: string | null; email: string | null; avatar: string | null };
 
-/* ============
-   UI helpers
-   ============ */
 function initials(name?: string | null) {
   const s = (name ?? "").trim();
   if (!s) return "U";
-  return s
-    .split(/\s+/)
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  return s.split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 }
-
 function mapStaffRole(role?: string | null, dept?: string | null): ProviderRole {
   const r = (role ?? "").toLowerCase();
   const d = (dept ?? "").toLowerCase();
@@ -79,18 +63,9 @@ function mapStaffRole(role?: string | null, dept?: string | null): ProviderRole 
   if (r.includes("counsel") || r.includes("therap") || d.includes("therapy")) return "counselor";
   return "nurse";
 }
-
 function ToggleBtn({
-  active,
-  onClick,
-  children,
-  aria,
-}: {
-  active?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-  aria: string;
-}) {
+  active, onClick, children, aria,
+}: { active?: boolean; onClick: () => void; children: React.ReactNode; aria: string }) {
   return (
     <button
       aria-label={aria}
@@ -104,34 +79,25 @@ function ToggleBtn({
   );
 }
 
-/* =======================
-   Page: Staff Messages
-   ======================= */
 export default function StaffMessagesPage() {
   const router = useRouter();
-  const search = useSearchParams(); // supports ?open=<conversation_id> deep-link
 
-  // auth/me
   const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState<"both" | "groups" | "dms">("both");
+
   const [meId, setMeId] = useState<string | null>(null);
   const [meName, setMeName] = useState<string>("Me");
   const [meRole, setMeRole] = useState<ProviderRole>("nurse");
 
-  // layout + metrics
-  const [mode, setMode] = useState<"both" | "groups" | "dms">("both");
-  const [assignedCount, setAssignedCount] = useState<number>(0);
-
-  // data
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [msgs, setMsgs] = useState<MessageRow[]>([]);
-  const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
 
-  // compose + list UI
+  const [msgs, setMsgs] = useState<MessageRow[]>([]);
   const [compose, setCompose] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
 
-  // new message modal
+  const [assignedCount, setAssignedCount] = useState<number>(0);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [pSearch, setPSearch] = useState("");
   const [patients, setPatients] = useState<PatientAssigned[]>([]);
@@ -145,7 +111,8 @@ export default function StaffMessagesPage() {
     );
   }, [patients, pSearch]);
 
-  /* ======= fetchers ======= */
+  const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
+
   async function fetchAssignedPatients(uid: string) {
     try {
       const v = await supabase
@@ -216,9 +183,7 @@ export default function StaffMessagesPage() {
       const map: Record<string, number> = {};
       for (const row of (u.data as any[]) ?? []) map[row.conversation_id] = Number(row.unread_from_patient) || 0;
       setUnreadMap(map);
-    } catch {
-      // ignore
-    }
+    } catch {}
   }
 
   async function markRead(conversationId: string) {
@@ -228,12 +193,10 @@ export default function StaffMessagesPage() {
         .update({ read: true })
         .eq("conversation_id", conversationId)
         .eq("read", false)
-        .eq("sender_role", "patient"); // why: staff reads patient msgs
+        .eq("sender_role", "patient"); // only patient messages get marked by staff
 
       setUnreadMap((m) => ({ ...m, [conversationId]: 0 }));
-    } catch {
-      // ignore
-    }
+    } catch {}
   }
 
   async function ensureConversationWithPatient(patientId: string) {
@@ -263,7 +226,7 @@ export default function StaffMessagesPage() {
       .single();
 
     if (ins.error) {
-      alert(ins.error.message); // important: user feedback if creation fails
+      alert(ins.error.message);
       return null;
     }
     return ins.data;
@@ -277,7 +240,6 @@ export default function StaffMessagesPage() {
     const content = compose.trim();
     setCompose("");
 
-    // optimistic append
     const optimistic: MessageRow = {
       id: `tmp-${crypto.randomUUID()}`,
       conversation_id: selectedId,
@@ -303,7 +265,6 @@ export default function StaffMessagesPage() {
       urgent: false,
     });
     if (ins.error) {
-      // rollback optimistic on failure
       setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
       alert(ins.error.message);
       return;
@@ -315,7 +276,7 @@ export default function StaffMessagesPage() {
       .eq("id", selectedId);
   }
 
-  /* ======== bootstrap ======== */
+  // Bootstrap auth + data
   useEffect(() => {
     let mounted = true;
 
@@ -355,16 +316,18 @@ export default function StaffMessagesPage() {
         })(),
       ]);
 
-      if (mounted) {
-        setLoading(false);
-        const open = search.get("open");
+      if (mounted) setLoading(false);
+
+      // ✅ SAFE deep-link without useSearchParams (avoids Suspense requirement)
+      if (mounted && typeof window !== "undefined") {
+        const q = new URLSearchParams(window.location.search);
+        const open = q.get("open");
         if (open) setSelectedId(open);
       }
     }
 
     (async () => {
       const session = await ensureSession({ graceMs: 200, fallbackMs: 1200 });
-      if (!mounted) return;
       if (!session) {
         setLoading(false);
         router.replace("/staff/login?redirect=/staff/messages");
@@ -380,10 +343,9 @@ export default function StaffMessagesPage() {
       mounted = false;
       sub.subscription.unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  /* ======== realtime: lists & unread ======== */
+  // Realtime: list & unread
   useEffect(() => {
     if (!meId) return;
 
@@ -439,7 +401,7 @@ export default function StaffMessagesPage() {
     };
   }, [meId, convs, selectedId]);
 
-  /* ======== thread loader (and realtime for the open thread) ======== */
+  // Thread loader + realtime
   useEffect(() => {
     if (!selectedId) return;
     let active = true;
@@ -489,7 +451,6 @@ export default function StaffMessagesPage() {
     };
   }, [selectedId]);
 
-  /* ============ UI ============ */
   if (loading) {
     return (
       <div className="min-h-screen grid place-items-center bg-slate-50">
@@ -500,7 +461,6 @@ export default function StaffMessagesPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Header */}
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -535,9 +495,7 @@ export default function StaffMessagesPage() {
         </div>
       </header>
 
-      {/* Main */}
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-4">
-        {/* Title + controls */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
@@ -567,7 +525,6 @@ export default function StaffMessagesPage() {
           </div>
         </div>
 
-        {/* Panels */}
         {mode === "both" ? (
           <div className="grid gap-6 md:grid-cols-2">
             <div className="w-full">
@@ -587,9 +544,7 @@ export default function StaffMessagesPage() {
           </div>
         )}
 
-        {/* DM panel */}
         <div className="grid gap-6 md:grid-cols-3">
-          {/* Conversations */}
           <Card className="md:col-span-1">
             <CardHeader>
               <CardTitle>Direct Messages</CardTitle>
@@ -633,7 +588,6 @@ export default function StaffMessagesPage() {
             </CardContent>
           </Card>
 
-          {/* Active conversation */}
           <Card className="md:col-span-2 flex flex-col">
             {!selectedId ? (
               <CardContent className="flex-1 flex items-center justify-center">
@@ -688,7 +642,6 @@ export default function StaffMessagesPage() {
         </div>
       </main>
 
-      {/* New Message Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
           <div className="w-full max-w-lg rounded-lg border bg-white">
@@ -720,7 +673,13 @@ export default function StaffMessagesPage() {
                       await fetchUnread(meId);
                       setSelectedId(conv.id);
                       setModalOpen(false);
-                      router.replace(`/staff/messages?open=${conv.id}`); // keeps deep-link
+
+                      // update URL query without triggering Suspense hooks
+                      if (typeof window !== "undefined") {
+                        const url = new URL(window.location.href);
+                        url.searchParams.set("open", conv.id);
+                        window.history.replaceState({}, "", url.toString());
+                      }
                     }}
                   >
                     <Avatar>
