@@ -2,471 +2,275 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, ArrowLeft, LogOut, Plus, Search, Send, X } from "lucide-react";
-
+import { Send } from "lucide-react";
 import { supabase, ensureSession, logout } from "@/lib/supabase-browser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-import Groups from "@/components/staff/Groups";
-import DirectMessages from "@/components/staff/DirectMessages";
-
-/** Types (align with your schema) */
 type ProviderRole = "doctor" | "nurse" | "counselor";
 type ConversationRow = {
   id: string; patient_id: string; provider_id: string;
-  provider_name: string; provider_role: ProviderRole; provider_avatar: string | null;
   last_message: string | null; last_message_at: string | null; created_at: string;
   patients?: { full_name?: string | null; email?: string | null; avatar?: string | null } | null;
 };
-type Conversation = {
-  id: string; patient_id: string;
-  patient_name: string | null; patient_email: string | null; patient_avatar: string | null;
-  last_message: string | null; updated_at: string;
-};
+type Conversation = { id: string; patient_id: string; name: string; updated_at: string; last_message: string | null; };
 type MessageRow = {
   id: string; conversation_id: string; patient_id: string;
   sender_id: string; sender_name: string; sender_role: "patient" | ProviderRole;
   content: string; created_at: string; read: boolean; urgent: boolean;
 };
-type PatientAssigned = { user_id: string; full_name: string | null; email: string | null; avatar: string | null };
-
-/** Small UI helpers */
-const ToggleBtn = ({ active, onClick, children }: { active?: boolean; onClick: () => void; children: React.ReactNode }) => (
-  <button
-    onClick={onClick}
-    className={`h-9 px-3 rounded-full inline-flex items-center gap-2 text-sm ${active ? "bg-cyan-500 text-white shadow" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
-  >{children}</button>
-);
-const initials = (name?: string | null) => {
-  const s = (name ?? "").trim(); if (!s) return "U";
-  return s.split(/\s+/).map(n => n[0]).join("").slice(0, 2).toUpperCase();
-};
-const mapStaffRole = (role?: string | null, dept?: string | null): ProviderRole => {
-  const r = (role ?? "").toLowerCase(), d = (dept ?? "").toLowerCase();
-  if (r.includes("doc") || r.includes("physician") || d.includes("medical")) return "doctor";
-  if (r.includes("counsel") || r.includes("therap") || d.includes("therapy")) return "counselor";
-  return "nurse";
-};
 
 export default function StaffMessagesPage() {
   const router = useRouter();
+  const [loading, setLoading] = useState(true);
 
   // me
   const [meId, setMeId] = useState<string | null>(null);
   const [meName, setMeName] = useState("Me");
   const [meRole, setMeRole] = useState<ProviderRole>("nurse");
 
-  // ui/data
-  const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<"both" | "groups" | "dms">("both");
-  const [assignedCount, setAssignedCount] = useState(0);
-
+  // data
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
-  const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
+  const [unread, setUnread] = useState<Record<string, number>>({});
 
   // compose
   const [compose, setCompose] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
 
-  // new DM modal
-  const [modalOpen, setModalOpen] = useState(false);
-  const [pSearch, setPSearch] = useState("");
-  const [patients, setPatients] = useState<PatientAssigned[]>([]);
-  const filteredPatients = useMemo(() => {
-    const v = pSearch.trim().toLowerCase(); if (!v) return patients;
-    return patients.filter(p => (p.full_name ?? "").toLowerCase().includes(v) || (p.email ?? "").toLowerCase().includes(v));
-  }, [patients, pSearch]);
-
-  /** Data fetchers */
-  async function fetchAssignedPatients(uid: string) {
-    try {
-      const v = await supabase.from("v_staff_assigned_patients")
-        .select("user_id, full_name, email, avatar")
-        .eq("staff_id", uid).order("full_name", { ascending: true });
-      if (!v.error && v.data) return v.data as PatientAssigned[];
-
-      // fallback if view is missing
-      const j = await supabase.from("patients")
-        .select("user_id, full_name, email, avatar, patient_care_team!inner(staff_id)")
-        .eq("patient_care_team.staff_id", uid);
-      if (j.error) throw j.error;
-      return (j.data ?? []).map((r: any) => ({ user_id: r.user_id, full_name: r.full_name, email: r.email, avatar: r.avatar }));
-    } catch { return []; }
+  function initials(s?: string | null) {
+    const v = (s ?? "U").trim();
+    return v.split(/\s+/).map(n => n[0]).join("").slice(0, 2).toUpperCase();
   }
+
+  // --- fetchers ---
   async function fetchConversations(uid: string) {
     const q = await supabase.from("conversations").select(
-      "id, patient_id, provider_id, provider_name, provider_role, provider_avatar, last_message, last_message_at, created_at, patients:patient_id(full_name, email, avatar)"
+      "id, patient_id, last_message, last_message_at, created_at, patients:patient_id(full_name, email)"
     ).eq("provider_id", uid).order("created_at", { ascending: false });
-    if (q.error) { console.error(q.error); setConvs([]); return; }
-
-    const mapped: Conversation[] = ((q.data as ConversationRow[]) ?? [])
-      .map(r => ({
-        id: r.id,
-        patient_id: r.patient_id,
-        patient_name: r.patients?.full_name ?? null,
-        patient_email: r.patients?.email ?? null,
-        patient_avatar: (r.patients?.avatar as string | null) ?? null,
-        last_message: r.last_message ?? null,
-        updated_at: (r.last_message_at ?? r.created_at) as string,
-      }))
-      .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
+    if (q.error) { setConvs([]); return; }
+    const mapped: Conversation[] = ((q.data as ConversationRow[]) ?? []).map(r => ({
+      id: r.id,
+      patient_id: r.patient_id,
+      name: r.patients?.full_name ?? r.patients?.email ?? "Patient",
+      last_message: r.last_message ?? null,
+      updated_at: (r.last_message_at ?? r.created_at) as string,
+    })).sort((a,b)=>a.updated_at<b.updated_at?1:-1);
     setConvs(mapped);
   }
   async function fetchUnread(uid: string) {
-    const u = await supabase.from("v_staff_dm_unread").select("conversation_id, unread_from_patient").eq("provider_id", uid);
-    if (u.error) return;
-    const map: Record<string, number> = {};
-    for (const row of (u.data as any[]) ?? []) map[row.conversation_id] = Number(row.unread_from_patient) || 0;
-    setUnreadMap(map);
+    const r = await supabase.from("v_staff_dm_unread").select("conversation_id, unread_from_patient").eq("provider_id", uid);
+    if (r.error) return;
+    const m: Record<string, number> = {};
+    for (const row of (r.data as any[]) ?? []) m[row.conversation_id] = Number(row.unread_from_patient) || 0;
+    setUnread(m);
   }
   async function markRead(conversationId: string) {
     await supabase.from("messages").update({ read: true })
-      .eq("conversation_id", conversationId).eq("read", false).eq("sender_role", "patient"); // staff reads patient msgs
-    setUnreadMap(m => ({ ...m, [conversationId]: 0 }));
-  }
-  async function ensureConversationWithPatient(patientId: string) {
-    if (!meId) return null;
-    const found = await supabase.from("conversations").select("id")
-      .eq("patient_id", patientId).eq("provider_id", meId).maybeSingle();
-    if (!found.error && found.data) return found.data;
-    const ins = await supabase.from("conversations").insert({
-      patient_id: patientId, provider_id: meId, provider_name: meName, provider_role: meRole,
-      provider_avatar: null, last_message: null, last_message_at: null,
-    }).select("id").single();
-    if (ins.error) { alert(ins.error.message); return null; }
-    return ins.data;
-  }
-  async function sendMessage() {
-    if (!selectedId || !meId || !compose.trim()) return;
-    const conv = convs.find(c => c.id === selectedId); if (!conv) return;
-    const content = compose.trim(); setCompose("");
-
-    // optimistic
-    const optimistic: MessageRow = {
-      id: `tmp-${crypto.randomUUID()}`,
-      conversation_id: selectedId,
-      patient_id: conv.patient_id,
-      sender_id: meId,
-      sender_name: meName,
-      sender_role: meRole,
-      content,
-      created_at: new Date().toISOString(),
-      read: true,
-      urgent: false,
-    };
-    setMsgs(m => [...m, optimistic]);
-
-    const ins = await supabase.from("messages").insert({
-      conversation_id: selectedId, patient_id: conv.patient_id,
-      sender_id: meId, sender_name: meName, sender_role: meRole,
-      content, read: true, urgent: false,
-    });
-    if (ins.error) { setMsgs(m => m.filter(x => x.id !== optimistic.id)); alert(ins.error.message); return; }
-
-    await supabase.from("conversations").update({ last_message: content, last_message_at: new Date().toISOString() })
-      .eq("id", selectedId);
+      .eq("conversation_id", conversationId).eq("read", false).eq("sender_role", "patient");
+    setUnread((u)=>({ ...u, [conversationId]: 0 }));
   }
 
-  /** Bootstrap */
+  // --- bootstrap ---
   useEffect(() => {
-    let mounted = true;
+    let alive = true;
     (async () => {
       const session = await ensureSession({ graceMs: 200, fallbackMs: 1200 });
       if (!session) { setLoading(false); router.replace("/staff/login?redirect=/staff/messages"); return; }
-      const uid = session.user.id; setMeId(uid);
-
+      const uid = session.user.id;
+      setMeId(uid);
       const u = (await supabase.auth.getUser()).data.user;
-      if (u) setMeName((u.user_metadata?.full_name as string) || (u.user_metadata?.name as string) || u.email || "Me");
+      if (u) setMeName((u.user_metadata?.full_name as string) || u.email || "Me");
 
-      const staff = await supabase.from("staff").select("role, department, first_name, last_name").eq("user_id", uid).maybeSingle();
-      const role = staff.error ? null : (staff.data?.role as string | null);
-      const dept = staff.error ? null : (staff.data?.department as string | null);
-      setMeRole(mapStaffRole(role, dept));
-      const first = (staff.data?.first_name ?? "").trim(), last = (staff.data?.last_name ?? "").trim();
-      if (first || last) setMeName(`${first} ${last}`.trim());
+      // get role (fallback nurse)
+      const s = await supabase.from("staff").select("role").eq("user_id", uid).maybeSingle();
+      const r = (s.error ? null : (s.data?.role as string | null))?.toLowerCase() ?? "nurse";
+      setMeRole(r.includes("doc") ? "doctor" : r.includes("counsel") ? "counselor" : "nurse");
 
-      await Promise.allSettled([
-        fetchConversations(uid),
-        fetchUnread(uid),
-        (async () => {
-          const { count } = await supabase.from("patient_care_team").select("patient_id", { count: "exact", head: true }).eq("staff_id", uid);
-          if (mounted && typeof count === "number") setAssignedCount(count);
-          const list = await fetchAssignedPatients(uid); if (mounted) setPatients(list);
-        })(),
-      ]);
-
+      await Promise.allSettled([fetchConversations(uid), fetchUnread(uid)]);
       setLoading(false);
 
-      // deep-link (?open=<id>) without useSearchParams (no Suspense)
+      // deep-link without useSearchParams
       if (typeof window !== "undefined") {
         const id = new URLSearchParams(window.location.search).get("open");
         if (id) setSelectedId(id);
       }
     })();
-
-    const { data: sub } = supabase.auth.onAuthStateChange((evt) => {
-      if (evt === "SIGNED_OUT") router.replace("/staff/login?redirect=/staff/messages");
-    });
-    return () => { mounted = false; sub.subscription.unsubscribe(); };
+    return () => { alive = false; };
   }, [router]);
 
-  /** Realtime: lists + unread + care team */
+  // --- realtime: list + unread ---
   useEffect(() => {
     if (!meId) return;
 
-    const convCh = supabase.channel(`conv_${meId}`).on(
-      "postgres_changes",
-      { schema: "public", table: "conversations", event: "*", filter: `provider_id=eq.${meId}` },
-      async () => { await fetchConversations(meId); await fetchUnread(meId); }
-    ).subscribe();
-
-    const pctCh = supabase.channel(`pct_${meId}`)
-      .on("postgres_changes", { schema: "public", table: "patient_care_team", event: "INSERT", filter: `staff_id=eq.${meId}` },
-        () => setAssignedCount(n => (Number.isFinite(n) ? n + 1 : 1)))
-      .on("postgres_changes", { schema: "public", table: "patient_care_team", event: "DELETE", filter: `staff_id=eq.${meId}` },
-        () => setAssignedCount(n => (Number.isFinite(n) ? Math.max(0, n - 1) : 0)))
+    const convCh = supabase
+      .channel(`conv_${meId}`)
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'conversations', filter: `provider_id=eq.${meId}` },
+        async () => { await fetchConversations(meId); await fetchUnread(meId); })
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'conversations', filter: `provider_id=eq.${meId}` },
+        async () => { await fetchConversations(meId); await fetchUnread(meId); })
       .subscribe();
 
-    const msgCh = supabase.channel(`msgs_staff_${meId}`).on(
-      "postgres_changes",
-      { schema: "public", table: "messages", event: "INSERT" },
-      (payload) => {
-        const m = payload.new as MessageRow;
-        if (m.sender_role !== "patient") return;
-        if (!convs.some(c => c.id === m.conversation_id)) return;
-        setUnreadMap(prev => {
-          if (selectedId === m.conversation_id) return prev;
-          const curr = prev[m.conversation_id] ?? 0;
-          return { ...prev, [m.conversation_id]: curr + 1 };
-        });
-      }
-    ).subscribe();
+    const inboxCh = supabase
+      .channel(`inbox_${meId}`)
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const m = payload.new as MessageRow;
+          if (m.sender_role !== 'patient') return;
+          if (selectedId === m.conversation_id) return;
+          setUnread(prev => ({ ...prev, [m.conversation_id]: (prev[m.conversation_id] ?? 0) + 1 }));
+        })
+      .subscribe();
 
     return () => {
       supabase.removeChannel(convCh);
-      supabase.removeChannel(pctCh);
-      supabase.removeChannel(msgCh);
+      supabase.removeChannel(inboxCh);
     };
-  }, [meId, convs, selectedId]);
+  }, [meId, selectedId]);
 
-  /** Thread + realtime */
+  // --- open thread ---
   useEffect(() => {
     if (!selectedId) return;
     let alive = true;
 
     (async () => {
-      const res = await supabase.from("messages").select("*").eq("conversation_id", selectedId).order("created_at", { ascending: true });
-      if (!res.error && alive) setMsgs((res.data as MessageRow[]) || []);
+      const res = await supabase.from("messages").select("*")
+        .eq("conversation_id", selectedId).order("created_at",{ascending:true});
+      if (!res.error && alive) setMsgs((res.data as MessageRow[]) ?? []);
       await markRead(selectedId);
-      requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }));
+      requestAnimationFrame(()=>listRef.current?.scrollTo({top:listRef.current.scrollHeight, behavior:"smooth"}));
     })();
 
-    const ch = supabase.channel(`conv_msgs_${selectedId}`).on(
-      "postgres_changes",
-      { schema: "public", table: "messages", event: "*", filter: `conversation_id=eq.${selectedId}` },
-      async (payload) => {
-        if (!alive) return;
-        if (payload.eventType === "INSERT") {
+    const thread = supabase
+      .channel(`thread_${selectedId}`)
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${selectedId}` },
+        async (payload) => {
           const m = payload.new as MessageRow;
-          setMsgs(prev => [...prev, m]);
+          setMsgs(cur => [...cur, m]);
           if (m.sender_role === "patient") await markRead(selectedId);
-        } else {
-          const res = await supabase.from("messages").select("*").eq("conversation_id", selectedId).order("created_at", { ascending: true });
-          if (!res.error && alive) setMsgs((res.data as MessageRow[]) || []);
-        }
-        requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }));
-      }
-    ).subscribe();
+          requestAnimationFrame(()=>listRef.current?.scrollTo({top:listRef.current.scrollHeight, behavior:"smooth"}));
+        })
+      .subscribe();
 
-    return () => { alive = false; supabase.removeChannel(ch); };
+    return () => { alive = false; supabase.removeChannel(thread); };
   }, [selectedId]);
 
-  if (loading) {
-    return <div className="min-h-screen grid place-items-center bg-slate-50"><div className="text-sm text-slate-500">Loading…</div></div>;
+  // --- send ---
+  async function send() {
+    if (!selectedId || !meId || !compose.trim()) return;
+    const c = convs.find(x => x.id === selectedId); if (!c) return;
+    const content = compose.trim(); setCompose("");
+
+    const optimistic: MessageRow = {
+      id:`tmp-${crypto.randomUUID()}`, conversation_id:selectedId, patient_id:c.patient_id,
+      sender_id:meId, sender_name:meName, sender_role:meRole, content, created_at:new Date().toISOString(),
+      read: true, urgent:false
+    };
+    setMsgs(m=>[...m, optimistic]);
+
+    const ins = await supabase.from("messages").insert({
+      conversation_id:selectedId, patient_id:c.patient_id,
+      sender_id:meId, sender_name:meName, sender_role:meRole,
+      content, read:true, urgent:false
+    });
+    if (ins.error) { setMsgs(m=>m.filter(x=>x.id!==optimistic.id)); alert(ins.error.message); return; }
+
+    await supabase.from("conversations").update({ last_message: content, last_message_at: new Date().toISOString() })
+      .eq("id", selectedId);
   }
 
+  // --- tiny realtime debugger ---
+  function RealtimeDebug() {
+    const [state, setState] = useState("idle");
+    useEffect(() => {
+      const ch = supabase
+        .channel("dbg_msgs")
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, p => {
+          console.log("[DEBUG] messages INSERT:", p.new);
+          setState("events");
+        })
+        .subscribe((s) => { if (s === "SUBSCRIBED") setTimeout(()=>setState(cur=>cur==="idle"?"no-events":cur), 4000); });
+      return () => { supabase.removeChannel(ch); };
+    }, []);
+    return <div className="text-[11px] text-slate-500">Realtime: {state}</div>;
+  }
+
+  if (loading) return <div className="min-h-screen grid place-items-center">Loading…</div>;
+
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
-        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
-              <svg viewBox="0 0 24 24" className="h-5 w-5 text-cyan-600" fill="none" stroke="currentColor"><path strokeWidth="2" d="M12 3l9 7-9 7-9-7 9-7z" /></svg>
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold">Staff Console</h1>
-              <p className="text-xs text-slate-500">Care operations at a glance</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="gap-1">
-              <Activity className="h-3.5 w-3.5" /> {`Live · ${assignedCount} patients`}
-            </Badge>
-            <Button variant="outline" size="sm" className="gap-1" onClick={async () => { await logout(); router.refresh(); }}>
-              <LogOut className="h-4 w-4" /> Logout
-            </Button>
-          </div>
+    <div className="mx-auto max-w-6xl p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Direct Messages (LIVE)</h1>
+        <div className="flex items-center gap-2">
+          <RealtimeDebug />
+          <Button variant="outline" size="sm" onClick={async ()=>{ await logout(); router.refresh(); }}>Logout</Button>
         </div>
-      </header>
+      </div>
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto px-6 py-6 space-y-4">
-        {/* Controls */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
-              <svg viewBox="0 0 24 24" className="h-5 w-5 text-cyan-700" fill="none" stroke="currentColor">
-                <path strokeWidth="2" d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z" />
-              </svg>
-            </span>
-            <h2 className="text-xl font-semibold">Messages</h2>
-          </div>
+      <div className="grid gap-6 md:grid-cols-3">
+        {/* conversations */}
+        <Card className="md:col-span-1">
+          <CardHeader><CardTitle>Chats</CardTitle></CardHeader>
+          <CardContent className="p-0">
+            {convs.map(c=>{
+              const active = selectedId===c.id; const u = unread[c.id] ?? 0;
+              return (
+                <button key={c.id} onClick={()=>setSelectedId(c.id)}
+                  className={`w-full p-4 text-left flex items-center justify-between border-l-4 ${active?"border-cyan-500 bg-cyan-50":"border-transparent hover:bg-gray-50"}`}>
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{c.name}</div>
+                    <div className="text-xs text-gray-500 truncate">{c.last_message ?? "—"}</div>
+                  </div>
+                  {u>0 && <Badge>{u}</Badge>}
+                </button>
+              );
+            })}
+            {convs.length===0 && <div className="p-6 text-sm text-gray-500">No conversations.</div>}
+          </CardContent>
+        </Card>
 
-          <div className="flex items-center gap-2">
-            <Button size="sm" className="gap-2" onClick={() => setModalOpen(true)}><Plus className="h-4 w-4" /> New message</Button>
-            <ToggleBtn active={mode === "groups"} onClick={() => setMode("groups")}>Groups</ToggleBtn>
-            <ToggleBtn active={mode === "dms"} onClick={() => setMode("dms")}>Direct</ToggleBtn>
-            <ToggleBtn active={mode === "both"} onClick={() => setMode("both")}>Both</ToggleBtn>
-            <Button variant="ghost" size="sm" className="gap-2 ml-2" onClick={() => router.push("/staff/dashboard")}><ArrowLeft className="h-4 w-4" /> Back</Button>
-          </div>
-        </div>
-
-        {/* (Optional) panels to match your screenshot */}
-        {mode === "both" ? (
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="w-full"><Groups /></div>
-            <div className="w-full"><DirectMessages /></div>
-          </div>
-        ) : mode === "groups" ? (<div className="w-full"><Groups /></div>) : (<div className="w-full"><DirectMessages /></div>)}
-
-        {/* DM area */}
-        <div className="grid gap-6 md:grid-cols-3">
-          {/* Conversation list */}
-          <Card className="md:col-span-1">
-            <CardHeader><CardTitle>Direct Messages</CardTitle></CardHeader>
-            <CardContent className="p-0">
-              <div className="divide-y">
-                {convs.map(c => {
-                  const active = selectedId === c.id; const un = unreadMap[c.id] ?? 0;
-                  return (
-                    <button key={c.id} onClick={() => setSelectedId(c.id)}
-                      className={`w-full text-left p-4 flex items-center gap-3 hover:bg-gray-50 border-l-4 ${active ? "border-cyan-500 bg-cyan-50" : "border-transparent"}`}>
-                      <Avatar><AvatarImage src={c.patient_avatar ?? undefined} /><AvatarFallback>{initials(c.patient_name ?? c.patient_email)}</AvatarFallback></Avatar>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between">
-                          <p className="truncate font-medium text-gray-900">{c.patient_name ?? c.patient_email ?? "Patient"}</p>
-                          <span className="text-xs text-gray-500">{new Date(c.updated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+        {/* thread */}
+        <Card className="md:col-span-2 flex flex-col">
+          {!selectedId ? (
+            <CardContent className="flex-1 grid place-items-center text-sm text-gray-500">Select a conversation</CardContent>
+          ) : (
+            <>
+              <CardContent ref={listRef} className="flex-1 overflow-y-auto p-4">
+                <div className="space-y-3">
+                  {msgs.map(m=>{
+                    const own = m.sender_id===meId;
+                    return (
+                      <div key={m.id} className={`flex ${own?"justify-end":"justify-start"}`}>
+                        <div className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${own?"bg-cyan-500 text-white":"bg-gray-100 text-gray-900"}`}>
+                          <div className="text-[10px] opacity-60 mb-1">{own?meName:"Patient"}</div>
+                          <div className="whitespace-pre-wrap">{m.content}</div>
+                          <div className="text-[10px] opacity-60 mt-1">{new Date(m.created_at).toLocaleString()}</div>
                         </div>
-                        <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
                       </div>
-                      {!!un && <Badge className="ml-auto">{un}</Badge>}
-                    </button>
-                  );
-                })}
-                {convs.length === 0 && <div className="p-6 text-sm text-gray-500">No conversations yet.</div>}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Open thread + composer */}
-          <Card className="md:col-span-2 flex flex-col">
-            {!selectedId ? (
-              <CardContent className="flex-1 flex items-center justify-center">
-                <div className="text-sm text-gray-500">Select a conversation</div>
-              </CardContent>
-            ) : (
-              <>
-                <CardContent ref={listRef} className="flex-1 overflow-y-auto p-4">
-                  <div className="space-y-3">
-                    {msgs.map(m => {
-                      const own = m.sender_id === meId;
-                      return (
-                        <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
-                          <div className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${own ? "bg-cyan-500 text-white" : "bg-gray-100 text-gray-900"}`}>
-                            <div className="text-[10px] opacity-60 mb-1">{own ? meName : "Patient"}</div>
-                            <div className="whitespace-pre-wrap">{m.content}</div>
-                            <div className="text-[10px] opacity-60 mt-1">{new Date(m.created_at).toLocaleString()}</div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {msgs.length === 0 && <div className="text-sm text-gray-500">No messages yet.</div>}
-                  </div>
-                </CardContent>
-
-                <div className="border-t p-3">
-                  <div className="flex gap-2">
-                    <Textarea
-                      placeholder="Type a message…"
-                      value={compose}
-                      onChange={(e) => setCompose(e.target.value)}
-                      className="flex-1 min-h-[40px] max-h-[120px]"
-                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }}
-                    />
-                    <Button onClick={sendMessage} disabled={!compose.trim()}><Send className="h-4 w-4" /></Button>
-                  </div>
+                    );
+                  })}
                 </div>
-              </>
-            )}
-          </Card>
-        </div>
-      </main>
-
-      {/* New Message Modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
-          <div className="w-full max-w-lg rounded-lg border bg-white">
-            <div className="flex items-center justify-between border-b p-4">
-              <h3 className="font-semibold">New message</h3>
-              <Button variant="ghost" size="icon" onClick={() => setModalOpen(false)}><X className="h-4 w-4" /></Button>
-            </div>
-            <div className="p-4">
-              <div className="relative mb-3">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input placeholder="Search patients…" className="pl-9" value={pSearch} onChange={(e) => setPSearch(e.target.value)} />
+              </CardContent>
+              <div className="border-t p-3">
+                <div className="flex gap-2">
+                  <Textarea value={compose} onChange={e=>setCompose(e.target.value)}
+                    placeholder="Type a message…" className="min-h-[40px] max-h-[120px] flex-1"
+                    onKeyDown={(e)=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); void send(); }}}/>
+                  <Button onClick={send} disabled={!compose.trim()}><Send className="h-4 w-4"/></Button>
+                </div>
               </div>
-              <div className="max-h-80 overflow-y-auto divide-y">
-                {filteredPatients.map((p) => (
-                  <button
-                    key={p.user_id}
-                    className="w-full text-left p-3 hover:bg-gray-50 flex items-center gap-3"
-                    onClick={async () => {
-                      const conv = await ensureConversationWithPatient(p.user_id);
-                      if (!conv || !meId) return;
-                      await fetchConversations(meId);
-                      await fetchUnread(meId);
-                      setSelectedId(conv.id);
-                      setModalOpen(false);
-                      if (typeof window !== "undefined") { // keep deep-link in URL
-                        const url = new URL(window.location.href);
-                        url.searchParams.set("open", conv.id);
-                        window.history.replaceState({}, "", url.toString());
-                      }
-                    }}
-                  >
-                    <Avatar><AvatarImage src={p.avatar ?? undefined} /><AvatarFallback>{initials(p.full_name)}</AvatarFallback></Avatar>
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{p.full_name ?? "Patient"}</div>
-                      <div className="text-xs text-gray-500 truncate">{p.email ?? ""}</div>
-                    </div>
-                  </button>
-                ))}
-                {filteredPatients.length === 0 && <div className="p-6 text-sm text-gray-500">No matches.</div>}
-              </div>
-            </div>
-            <div className="border-t p-3 text-right"><Button variant="outline" onClick={() => setModalOpen(false)}>Close</Button></div>
-          </div>
-        </div>
-      )}
+            </>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }
