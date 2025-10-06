@@ -10,7 +10,8 @@ import {
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const DEBUG = Boolean(process.env.NEXT_PUBLIC_SUPABASE_DEBUG);
-const STORAGE_KEY = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_KEY; // optional
+// Optional: set to a single shared key (patient + staff) via env for consistency
+const STORAGE_KEY = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_KEY; // e.g. "sb-app-auth"
 
 declare global {
   // eslint-disable-next-line no-var
@@ -44,6 +45,7 @@ export async function getAuthUser(): Promise<User | null> {
 }
 
 export async function getAccessToken(): Promise<string | null> {
+  // Try current session; if missing, one-time refresh (helps right after reloads)
   let { data } = await supabase.auth.getSession();
   let token = data.session?.access_token ?? null;
   if (!token) {
@@ -53,10 +55,10 @@ export async function getAccessToken(): Promise<string | null> {
   return token;
 }
 
-/** Ensures a session exists: hydration grace + one auth event wait */
+/** Reliable session getter: hydration grace + one auth event wait */
 export async function ensureSession(opts?: {
-  graceMs?: number;
-  fallbackMs?: number;
+  graceMs?: number;    // wait for localStorage hydration
+  fallbackMs?: number; // one-shot timeout while waiting for auth event
 }): Promise<Session | null> {
   const graceMs = opts?.graceMs ?? 300;
   const fallbackMs = opts?.fallbackMs ?? 500;
@@ -72,10 +74,10 @@ export async function ensureSession(opts?: {
   session = data?.session ?? null;
   if (session) return session;
 
-  // 3) wait for first auth event OR fallback
+  // 3) wait for first auth event OR fallback timer
   return await new Promise<Session | null>((resolve) => {
     let decided = false;
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_evt, newSession) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_evt, newSession) => {
       if (decided) return;
       decided = true;
       sub.subscription.unsubscribe();
@@ -91,7 +93,7 @@ export async function ensureSession(opts?: {
   });
 }
 
-/** Realtime helper (unchanged) */
+/** Simple realtime subscription helper */
 export function subscribeToTable<T = unknown>(opts: {
   table: string;
   schema?: string;
@@ -117,5 +119,4 @@ export function subscribeToTable<T = unknown>(opts: {
   };
 }
 
-// (named export SupabaseClient types if needed)
 export type { SupabaseClient as SupabaseBrowserClient };
