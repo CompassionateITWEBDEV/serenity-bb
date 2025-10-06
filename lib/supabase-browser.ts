@@ -1,20 +1,26 @@
 "use client";
 
-import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
+import {
+  createClient,
+  type SupabaseClient,
+  type Session,
+  type User,
+} from "@supabase/supabase-js";
+
 type DB = any;
 
-// HMR-safe global cache to prevent "Multiple GoTrueClient instances" warning.
+const URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const STORAGE_KEY = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_KEY || "sb-app-auth";
+const DEBUG = Boolean(process.env.NEXT_PUBLIC_SUPABASE_DEBUG);
+
 declare global {
   // eslint-disable-next-line no-var
   var __SB_CLIENT__: SupabaseClient<DB> | undefined;
 }
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const STORAGE_KEY = "sb-app-auth"; // ← unify across staff/patient
-
 function makeClient(): SupabaseClient<DB> {
-  return createClient<DB>(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  return createClient<DB>(URL, ANON, {
     auth: {
       storageKey: STORAGE_KEY,
       persistSession: true,
@@ -22,60 +28,32 @@ function makeClient(): SupabaseClient<DB> {
       detectSessionInUrl: true,
       flowType: "pkce",
     },
+    db: { schema: "public" },
+    global: DEBUG ? { headers: { "x-supabase-debug": "1" } } : undefined,
   });
 }
 
-export const supabase: SupabaseClient<DB> = globalThis.__SB_CLIENT__ ?? makeClient();
-if (!globalThis.__SB_CLIENT__) globalThis.__SB_CLIENT__ = supabase;
+// HMR-safe singleton
+export const supabase: SupabaseClient<DB> =
+  globalThis.__SB_CLIENT__ ?? (globalThis.__SB_CLIENT__ = makeClient());
+export default supabase;
 
-// Wait briefly for Supabase to hydrate session (avoids bouncing to login).
-async function waitForAuthEvent(timeoutMs = 2500): Promise<Session | null> {
-  return new Promise<Session | null>((resolve) => {
-    let settled = false;
-
-    const timer = setTimeout(async () => {
-      if (settled) return;
-      settled = true;
-      const { data } = await supabase.auth.getSession();
-      resolve(data.session ?? null);
-    }, timeoutMs);
-
-    const { data: sub } = supabase.auth.onAuthStateChange(async () => {
-      if (settled) return;
-      const { data } = await supabase.auth.getSession();
-      if (data.session) {
-        settled = true;
-        clearTimeout(timer);
-        sub.subscription.unsubscribe();
-        resolve(data.session);
-      }
-    });
-
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!settled && data.session) {
-        settled = true;
-        clearTimeout(timer);
-        sub.subscription.unsubscribe();
-        resolve(data.session);
-      }
-    })();
-  });
+// ── Auth helpers ─────────────────────────────────────────────────────────────
+export async function getAuthSession(): Promise<Session | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session ?? null;
 }
 
-export async function ensureSession(): Promise<Session | null> {
-  try {
-    const { data, error } = await supabase.auth.getSession();
-    if (!error && data.session) return data.session;
+export async function getAuthUser(): Promise<User | null> {
+  const { data } = await supabase.auth.getUser();
+  return data.user ?? null;
+}
 
-    const hydrated = await waitForAuthEvent(2500);
-    if (hydrated) return hydrated;
-
-    const retry = await supabase.auth.getSession();
-    return retry.data.session ?? null;
-  } catch {
-    return null;
-  }
+export async function getAccessToken(): Promise<string | null> {
+  let { data } = await supabase.auth.getSession();
+  let token = data.session?.access_token ?? null;
+  if (!token) token = (await supabase.auth.refreshSession()).data.session?.access_token ?? null;
+  return token;
 }
 
 export async function logout(): Promise<void> {
@@ -84,4 +62,70 @@ export async function logout(): Promise<void> {
   } catch {
     /* no-op */
   }
+}
+
+/** Ensure a session exists (prevents false-unauth during navigation). */
+export async function ensureSession(opts?: {
+  graceMs?: number;    // wait for storage hydration
+  fallbackMs?: number; // timeout while waiting for the first auth event
+}): Promise<Session | null> {
+  const graceMs = opts?.graceMs ?? 300;
+  const fallbackMs = opts?.fallbackMs ?? 500;
+
+  // 1) immediate
+  let { data } = await supabase.auth.getSession();
+  let session = data.session ?? null;
+  if (session) return session;
+
+  // 2) brief grace
+  await new Promise((r) => setTimeout(r, graceMs));
+  ({ data } = await supabase.auth.getSession());
+  session = data.session ?? null;
+  if (session) return session;
+
+  // 3) wait for the first auth event OR fallback
+  return await new Promise<Session | null>((resolve) => {
+    let decided = false;
+    const { data: sub } = supabase.auth.onAuthStateChange((_evt, newSession) => {
+      if (decided) return;
+      decided = true;
+      sub.subscription.unsubscribe();
+      resolve(newSession ?? null);
+    });
+    setTimeout(async () => {
+      if (decided) return;
+      decided = true;
+      sub.subscription.unsubscribe();
+      const again = (await supabase.auth.getSession()).data.session ?? null;
+      resolve(again);
+    }, fallbackMs);
+  });
+}
+
+// ── Realtime helper ──────────────────────────────────────────────────────────
+export function subscribeToTable<T = unknown>(opts: {
+  table: string;
+  schema?: string;
+  event?: "*" | "INSERT" | "UPDATE" | "DELETE";
+  filter?: string;
+  onInsert?: (row: T) => void;
+  onUpdate?: (row: T) => void;
+  onDelete?: (row: T) => void;
+}): () => void {
+  const { table, schema = "public", event = "*", filter, onInsert, onUpdate, onDelete } = opts;
+
+  const ch = supabase
+    .channel(`realtime:${schema}.${table}${filter ? `?${filter}` : ""}`)
+    .on("postgres_changes", { schema, table, event, filter }, (p: any) => {
+      if (p.eventType === "INSERT") onInsert?.(p.new as T);
+      else if (p.eventType === "UPDATE") onUpdate?.(p.new as T);
+      else if (p.eventType === "DELETE") onDelete?.(p.old as T);
+    })
+    .subscribe();
+
+  return () => {
+    try {
+      supabase.removeChannel(ch);
+    } catch {}
+  };
 }
