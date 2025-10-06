@@ -1,24 +1,26 @@
 // File: /lib/supabase/client.ts
 "use client";
 
-// Shim + compatibility layer. Do NOT create a new Supabase client here.
-// All exports point to the canonical singleton in /lib/supabase-browser.ts.
+/**
+ * Shim + compatibility layer. Do NOT create a new Supabase client here.
+ * Everything re-exports the canonical singleton from /lib/supabase-browser.
+ */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-// Pull the canonical singleton + default from the browser client.
-import supabaseDefault, { supabase as supabaseSingleton } from "@/lib/supabase-browser";
+// Pull the canonical singleton
+import { supabase as browserSingleton } from "@/lib/supabase-browser";
 
-// Re-export the full API from the canonical client for convenience.
+// Re-export the full API from the canonical client for convenience
 export * from "@/lib/supabase-browser";
 
-// Keep the same named and default exports people already use.
-export const supabase = supabaseSingleton;
-export default supabaseDefault;
+// Keep the same named and default exports people already use
+export const supabase = browserSingleton;
+export default browserSingleton;
 
 /** Legacy helper: return the singleton client (keeps old imports working). */
 export function getSupabaseClient<T = unknown>(): SupabaseClient<T> {
-  return supabaseSingleton as unknown as SupabaseClient<T>;
+  return browserSingleton as unknown as SupabaseClient<T>;
 }
 
 /**
@@ -30,14 +32,5 @@ export function createClient<T = unknown>(
   _anonKey?: string,
   _options?: unknown
 ): SupabaseClient<T> {
-  return supabaseSingleton as unknown as SupabaseClient<T>;
-  export {
-  supabase,
-  default,
-  ensureSession,
-  getAuthSession,
-  getAuthUser,
-  getAccessToken,
-  logout,
-} from "@/lib/supabase-browser";
+  return browserSingleton as unknown as SupabaseClient<T>;
 }
