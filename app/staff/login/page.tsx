@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,17 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eye, EyeOff } from "lucide-react";
 import { supabase, ensureSession } from "@/lib/supabase-browser";
+
+/** Prevent static prerendering issues for auth pages. */
+export const dynamic = "force-dynamic";
+
+function LoadingFallback() {
+  return (
+    <div className="min-h-screen grid place-items-center bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+      <div className="text-slate-500 text-sm">Loading…</div>
+    </div>
+  );
+}
 
 async function serenitySwal(opts: { title: string; text?: string; mood: "success" | "error" | "info" }) {
   const Swal = (await import("sweetalert2")).default;
@@ -32,15 +43,25 @@ async function serenitySwal(opts: { title: string; text?: string; mood: "success
   });
 }
 
+/** Outer page only provides Suspense to satisfy Next’s requirement. */
 export default function StaffLoginPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+/** All hooks live here, safely inside Suspense. */
+function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const router = useRouter();
-  const qp = useSearchParams();
-  const redirectTo = useMemo(() => qp.get("redirect") || "/staff/dashboard", [qp]);
+  const params = useSearchParams();
+  const redirectTo = useMemo(() => params.get("redirect") || "/staff/dashboard", [params]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -58,18 +79,14 @@ export default function StaffLoginPage() {
         return;
       }
 
-      // 2) Ensure session actually hydrated (prevents ‘Loading…’ limbo)
+      // 2) Ensure session hydrated to avoid “stuck on Loading…”
       const session = await ensureSession({ graceMs: 250, fallbackMs: 1200 });
       if (!session) {
-        await serenitySwal({
-          title: "Could not start session",
-          text: "Please try again.",
-          mood: "error",
-        });
+        await serenitySwal({ title: "Could not start session", text: "Please try again.", mood: "error" });
         return;
       }
 
-      // 3) Optional staff check — do not hang if RLS blocks; fail soft except for explicit inactive flag
+      // 3) Soft staff check (don’t hang on RLS)
       let isActiveStaff = true;
       try {
         const { data: staffRow, error: staffErr, status } = await supabase
@@ -78,11 +95,10 @@ export default function StaffLoginPage() {
           .eq("user_id", session.user.id)
           .maybeSingle();
 
-        // If RLS forbids (401/403) or row missing, keep isActiveStaff=true but warn in console.
         if (staffErr && (status === 401 || status === 403)) {
-          console.warn("[login] staff check forbidden by RLS; proceeding after auth.");
+          console.warn("[login] staff check forbidden by RLS; proceeding.");
         } else if (!staffRow) {
-          console.warn("[login] no staff row found; proceeding after auth.");
+          console.warn("[login] no staff row; proceeding.");
         } else if (staffRow.active === false) {
           isActiveStaff = false;
         }
@@ -91,24 +107,15 @@ export default function StaffLoginPage() {
       }
 
       if (!isActiveStaff) {
-        await serenitySwal({
-          title: "Not authorized",
-          text: "Your staff account is inactive.",
-          mood: "error",
-        });
+        await serenitySwal({ title: "Not authorized", text: "Your staff account is inactive.", mood: "error" });
         await supabase.auth.signOut();
         return;
       }
 
-      // 4) Success → go
       await serenitySwal({ title: "Welcome!", text: "Let’s make today awesome ✨", mood: "success" });
       router.replace(redirectTo);
     } catch (err: any) {
-      await serenitySwal({
-        title: "Unexpected error",
-        text: err?.message ?? "Please try again.",
-        mood: "error",
-      });
+      await serenitySwal({ title: "Unexpected error", text: err?.message ?? "Please try again.", mood: "error" });
     } finally {
       setBusy(false);
     }
