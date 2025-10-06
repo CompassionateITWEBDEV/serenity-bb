@@ -38,6 +38,11 @@ export async function getAccessToken(): Promise<string | null> {
   } catch {
     return null;
   }
+  export * from "@/lib/supabase-browser";
+
 }
 
 export { createClient } from "@supabase/supabase-js";
+
+export { default } from "@/lib/supabase-browser";
+
