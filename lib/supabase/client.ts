@@ -31,4 +31,13 @@ export function createClient<T = unknown>(
   _options?: unknown
 ): SupabaseClient<T> {
   return supabaseSingleton as unknown as SupabaseClient<T>;
+  export {
+  supabase,
+  default,
+  ensureSession,
+  getAuthSession,
+  getAuthUser,
+  getAccessToken,
+  logout,
+} from "@/lib/supabase-browser";
 }
