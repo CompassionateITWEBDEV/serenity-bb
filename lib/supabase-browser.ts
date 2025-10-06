@@ -1,3 +1,5 @@
+"use client";
+
 import {
   createClient,
   type SupabaseClient,
@@ -5,102 +7,91 @@ import {
   type User,
 } from "@supabase/supabase-js";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const DEBUG = Boolean(process.env.NEXT_PUBLIC_SUPABASE_DEBUG);
+const STORAGE_KEY = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_KEY; // optional
 
-export const supaEnvOk: boolean = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
-
-// HMR-safe global cache
 declare global {
   // eslint-disable-next-line no-var
   var __SUPABASE_BROWSER__: SupabaseClient | undefined;
 }
 
-/** Factory for client components. */
-export function createSupabaseBrowser(): SupabaseClient {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    // dev placeholder to keep UI mountable
-    // @ts-expect-error dev placeholder
-    return createClient("http://localhost", "anon", {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
-      db: { schema: "public" },
-    });
-  }
-  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+function makeClient(): SupabaseClient {
+  return createClient(URL, ANON, {
     auth: {
+      ...(STORAGE_KEY ? { storageKey: STORAGE_KEY } : {}),
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
     },
     db: { schema: "public" },
-    global: process.env.NEXT_PUBLIC_SUPABASE_DEBUG
-      ? { headers: { "x-supabase-debug": "1" } }
-      : undefined,
+    global: DEBUG ? { headers: { "x-supabase-debug": "1" } } : undefined,
   });
 }
 
-// Singleton across HMR
 export const supabase: SupabaseClient =
-  globalThis.__SUPABASE_BROWSER__ ??
-  (globalThis.__SUPABASE_BROWSER__ = createSupabaseBrowser());
+  globalThis.__SUPABASE_BROWSER__ ?? (globalThis.__SUPABASE_BROWSER__ = makeClient());
 
-// Hard guard for code paths that require envs.
-export function requireSupabaseEnv(): asserts supaEnvOk is true {
-  if (!supaEnvOk) {
-    throw new Error(
-      "Supabase env missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY."
-    );
-  }
-}
-
-/** Session helpers */
 export async function getAuthSession(): Promise<Session | null> {
-  const { data, error } = await supabase.auth.getSession();
-  if (error) console.warn("supabase.auth.getSession:", error.message);
+  const { data } = await supabase.auth.getSession();
   return data?.session ?? null;
 }
 
 export async function getAuthUser(): Promise<User | null> {
-  const { data, error } = await supabase.auth.getUser();
-  if (error) console.warn("supabase.auth.getUser:", error.message);
+  const { data } = await supabase.auth.getUser();
   return data?.user ?? null;
 }
 
-/** REQUIRED by lib/drug-tests.ts */
 export async function getAccessToken(): Promise<string | null> {
-  const session = await getAuthSession();
-  return session?.access_token ?? null;
-}
-
-/** Roles */
-export type AppRole = "patient" | "staff" | "admin";
-
-/** Fetch role from public.profiles(role). */
-export async function getUserRole(
-  client: SupabaseClient = supabase
-): Promise<AppRole | null> {
-  const { data: auth } = await client.auth.getUser();
-  const uid = auth.user?.id;
-  if (!uid) return null;
-
-  const { data, error } = await client
-    .from("profiles")
-    .select("role")
-    .eq("id", uid)
-    .maybeSingle();
-
-  if (error) {
-    console.warn("profiles.role fetch failed:", error.message);
-    return null;
+  let { data } = await supabase.auth.getSession();
+  let token = data.session?.access_token ?? null;
+  if (!token) {
+    const r = await supabase.auth.refreshSession();
+    token = r.data.session?.access_token ?? null;
   }
-  return (data?.role as AppRole | undefined) ?? null;
+  return token;
 }
 
-/** Realtime helper (Postgres Changes) */
+/** Ensures a session exists: hydration grace + one auth event wait */
+export async function ensureSession(opts?: {
+  graceMs?: number;
+  fallbackMs?: number;
+}): Promise<Session | null> {
+  const graceMs = opts?.graceMs ?? 300;
+  const fallbackMs = opts?.fallbackMs ?? 500;
+
+  // 1) immediate read
+  let { data } = await supabase.auth.getSession();
+  let session = data?.session ?? null;
+  if (session) return session;
+
+  // 2) grace for hydration
+  await new Promise((r) => setTimeout(r, graceMs));
+  ({ data } = await supabase.auth.getSession());
+  session = data?.session ?? null;
+  if (session) return session;
+
+  // 3) wait for first auth event OR fallback
+  return await new Promise<Session | null>((resolve) => {
+    let decided = false;
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_evt, newSession) => {
+      if (decided) return;
+      decided = true;
+      sub.subscription.unsubscribe();
+      resolve(newSession ?? null);
+    });
+    setTimeout(async () => {
+      if (decided) return;
+      decided = true;
+      sub.subscription.unsubscribe();
+      const again = (await supabase.auth.getSession()).data.session ?? null;
+      resolve(again);
+    }, fallbackMs);
+  });
+}
+
+/** Realtime helper (unchanged) */
 export function subscribeToTable<T = unknown>(opts: {
   table: string;
   schema?: string;
@@ -110,38 +101,21 @@ export function subscribeToTable<T = unknown>(opts: {
   onUpdate?: (row: T) => void;
   onDelete?: (row: T) => void;
 }): () => void {
-  if (!supaEnvOk) {
-    console.warn("subscribeToTable skipped: Supabase env not set.");
-    return () => {};
-  }
-  const {
-    table,
-    schema = "public",
-    event = "*",
-    filter,
-    onInsert,
-    onUpdate,
-    onDelete,
-  } = opts;
-
-  const channel = supabase
+  const { table, schema = "public", event = "*", filter, onInsert, onUpdate, onDelete } = opts;
+  const ch = supabase
     .channel(`realtime:${schema}.${table}${filter ? `?${filter}` : ""}`)
-    .on(
-      "postgres_changes",
-      { event, schema, table, filter },
-      (payload: any) => {
-        if (payload.eventType === "INSERT") onInsert?.(payload.new as T);
-        else if (payload.eventType === "UPDATE") onUpdate?.(payload.new as T);
-        else if (payload.eventType === "DELETE") onDelete?.(payload.old as T);
-      }
-    )
+    .on("postgres_changes", { schema, table, event, filter }, (p: any) => {
+      if (p.eventType === "INSERT") onInsert?.(p.new as T);
+      else if (p.eventType === "UPDATE") onUpdate?.(p.new as T);
+      else if (p.eventType === "DELETE") onDelete?.(p.old as T);
+    })
     .subscribe();
-
   return () => {
     try {
-      supabase.removeChannel(channel);
-    } catch {
-      /* no-op */
-    }
+      supabase.removeChannel(ch);
+    } catch {}
   };
 }
+
+// (named export SupabaseClient types if needed)
+export type { SupabaseClient as SupabaseBrowserClient };
