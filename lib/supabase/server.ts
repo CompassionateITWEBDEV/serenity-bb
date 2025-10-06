@@ -17,10 +17,18 @@ export default function supabaseServer(): SupabaseClient<Db> {
     cookies: {
       get: (name: string) => cookieStore.get(name)?.value,
       set: (name: string, value: string, options: CookieOptions) => {
-        try { cookieStore.set({ name, value, ...options }); } catch { /* noop for edge strict mode */ }
+        try {
+          cookieStore.set({ name, value, ...options });
+        } catch {
+          /* edge strict mode: ignore */
+        }
       },
       remove: (name: string, options: CookieOptions) => {
-        try { cookieStore.set({ name, value: "", ...options, maxAge: 0 }); } catch { /* noop */ }
+        try {
+          cookieStore.set({ name, value: "", ...options, maxAge: 0 });
+        } catch {
+          /* ignore */
+        }
       },
     },
     db: { schema: "public" },
@@ -32,7 +40,7 @@ export function getServerSupabase(): SupabaseClient<Db> {
   return supabaseServer();
 }
 
-/** Create a client bound to a bearer token (e.g. webhooks) */
+/** Create a client bound to a bearer token (e.g. webhooks, server fetch with user JWT) */
 export function supabaseForToken(token?: string | null): SupabaseClient<Db> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -44,13 +52,36 @@ export function supabaseForToken(token?: string | null): SupabaseClient<Db> {
   });
 }
 
+/**
+ * Realtime-enabled client bound to a user/service JWT.
+ * Use this in API routes to subscribe to `postgres_changes` with the caller's RLS.
+ * Example:
+ *   const { data: { session } } = await getServerSupabase().auth.getSession();
+ *   const rt = supabaseRealtimeForToken(session!.access_token);
+ *   const ch = rt.channel(`conv_${id}`).on(...).subscribe();
+ */
+export function supabaseRealtimeForToken(token: string): SupabaseClient<Db> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anon) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL/ANON_KEY");
+
+  return createSbClient<Db>(url, anon, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false }, // server usage
+    realtime: {
+      params: { eventsPerSecond: "2" }, // throttle; tweak if needed
+    },
+  });
+}
+
 let _admin: SupabaseClient<Db> | null = null;
 /** Service-role client (bypasses RLS). Use server-only. */
 export function supabaseAdmin(): SupabaseClient<Db> {
   if (_admin) return _admin;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE ?? "";
-  if (!url || !key) throw new Error("Missing service role env (SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE).");
+  if (!url || !key)
+    throw new Error("Missing service role env (SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE).");
   _admin = createSbClient<Db>(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
   return _admin;
 }
@@ -67,5 +98,8 @@ export function assertServerEnv(): void {
 /** Aliases kept for compatibility with your other imports */
 export const createClient = supabaseServer;
 export const createServiceRoleClient = supabaseAdmin;
+
+// Convenience alias if you prefer the previous name in examples
+export const createRealtimeWithJwt = supabaseRealtimeForToken;
 
 export type { SupabaseClient } from "@supabase/supabase-js";
