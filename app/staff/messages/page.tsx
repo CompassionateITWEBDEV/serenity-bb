@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-
+import { useRouter, useSearchParams } from "next/navigation";
 import { Activity, ArrowLeft, LogOut, Plus, Search, Send, X } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+
+import { supabase, ensureSession, logout } from "@/lib/supabase-browser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -14,20 +15,19 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Groups from "@/components/staff/Groups";
 import DirectMessages from "@/components/staff/DirectMessages";
 
-// NOTE: single source of truth for supabase helpers
-import { supabase, ensureSession, logout } from "@/lib/supabase-browser";
-
+/* =========================
+   Types (match your schema)
+   ========================= */
 type ProviderRole = "doctor" | "nurse" | "counselor";
 
 type ConversationRow = {
   id: string;
   patient_id: string;
-  provider_id: string | null;
-  provider_name?: string | null;
-  provider_role?: ProviderRole | null;
-  provider_avatar?: string | null;
-  title?: string | null;
-  last_message?: string | null;
+  provider_id: string;
+  provider_name: string;
+  provider_role: ProviderRole;
+  provider_avatar: string | null;
+  last_message: string | null;
   last_message_at: string | null;
   created_at: string;
   patients?: { full_name?: string | null; email?: string | null; avatar?: string | null } | null;
@@ -43,13 +43,6 @@ type Conversation = {
   updated_at: string; // last_message_at || created_at
 };
 
-type PatientAssigned = {
-  user_id: string;
-  full_name: string | null;
-  email: string | null;
-  avatar: string | null;
-};
-
 type MessageRow = {
   id: string;
   conversation_id: string;
@@ -63,11 +56,15 @@ type MessageRow = {
   urgent: boolean;
 };
 
-/* ---------- utils ---------- */
+type PatientAssigned = { user_id: string; full_name: string | null; email: string | null; avatar: string | null };
+
+/* ============
+   UI helpers
+   ============ */
 function initials(name?: string | null) {
-  const raw = (name ?? "").trim();
-  if (!raw) return "U";
-  return raw
+  const s = (name ?? "").trim();
+  if (!s) return "U";
+  return s
     .split(/\s+/)
     .map((n) => n[0])
     .join("")
@@ -83,7 +80,6 @@ function mapStaffRole(role?: string | null, dept?: string | null): ProviderRole 
   return "nurse";
 }
 
-/* ---------- local UI helper ---------- */
 function ToggleBtn({
   active,
   onClick,
@@ -108,31 +104,32 @@ function ToggleBtn({
   );
 }
 
-/* ---------- page ---------- */
+/* =======================
+   Page: Staff Messages
+   ======================= */
 export default function StaffMessagesPage() {
   const router = useRouter();
+  const search = useSearchParams(); // supports ?open=<conversation_id> deep-link
 
+  // auth/me
   const [loading, setLoading] = useState(true);
-
-  // mode: show internal groups & DMs widgets
-  const [mode, setMode] = useState<"both" | "groups" | "dms">("both");
-
-  // me
   const [meId, setMeId] = useState<string | null>(null);
   const [meName, setMeName] = useState<string>("Me");
   const [meRole, setMeRole] = useState<ProviderRole>("nurse");
 
-  // conversations
+  // layout + metrics
+  const [mode, setMode] = useState<"both" | "groups" | "dms">("both");
+  const [assignedCount, setAssignedCount] = useState<number>(0);
+
+  // data
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  // messages
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
+  const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
+
+  // compose + list UI
   const [compose, setCompose] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
-
-  // assigned patients header metric
-  const [assignedCount, setAssignedCount] = useState<number>(0);
 
   // new message modal
   const [modalOpen, setModalOpen] = useState(false);
@@ -148,10 +145,7 @@ export default function StaffMessagesPage() {
     );
   }, [patients, pSearch]);
 
-  // unread counts per conversation
-  const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
-
-  /* ---------- data ---------- */
+  /* ======= fetchers ======= */
   async function fetchAssignedPatients(uid: string) {
     try {
       const v = await supabase
@@ -160,9 +154,8 @@ export default function StaffMessagesPage() {
         .eq("staff_id", uid)
         .order("full_name", { ascending: true });
 
-      if (!v.error && v.data) return v.data as PatientAssigned[];
+      if (!v.error && v.data) return (v.data as PatientAssigned[]) ?? [];
 
-      // fallback if the view doesn't exist in some envs
       const j = await supabase
         .from("patients")
         .select("user_id, full_name, email, avatar, patient_care_team!inner(staff_id)")
@@ -185,10 +178,10 @@ export default function StaffMessagesPage() {
     const q = await supabase
       .from("conversations")
       .select(
-        "id, patient_id, provider_id, provider_name, provider_role, provider_avatar, title, last_message, last_message_at, created_at, patients:patient_id(full_name, email, avatar)"
+        "id, patient_id, provider_id, provider_name, provider_role, provider_avatar, last_message, last_message_at, created_at, patients:patient_id(full_name, email, avatar)"
       )
       .eq("provider_id", uid)
-      .order("created_at", { ascending: false }); // stable, exists in all rows
+      .order("created_at", { ascending: false });
 
     if (q.error) {
       console.error("[fetchConversations]", q.error);
@@ -196,17 +189,19 @@ export default function StaffMessagesPage() {
       return;
     }
 
-    const mapped: Conversation[] = ((q.data as ConversationRow[]) ?? [])
+    const rows: ConversationRow[] = (q.data as ConversationRow[]) ?? [];
+    const mapped: Conversation[] = rows
       .map((r) => ({
         id: r.id,
         patient_id: r.patient_id,
-        patient_name: r.patients?.full_name ?? r.title ?? "Patient",
-        patient_email: r.patients?.email ?? "",
+        patient_name: r.patients?.full_name ?? null,
+        patient_email: r.patients?.email ?? null,
         patient_avatar: (r.patients?.avatar as string | null) ?? null,
         last_message: r.last_message ?? null,
         updated_at: (r.last_message_at ?? r.created_at) as string,
       }))
       .sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0));
+
     setConvs(mapped);
   }
 
@@ -218,7 +213,6 @@ export default function StaffMessagesPage() {
         .eq("provider_id", uid);
 
       if (u.error) return;
-
       const map: Record<string, number> = {};
       for (const row of (u.data as any[]) ?? []) map[row.conversation_id] = Number(row.unread_from_patient) || 0;
       setUnreadMap(map);
@@ -234,7 +228,7 @@ export default function StaffMessagesPage() {
         .update({ read: true })
         .eq("conversation_id", conversationId)
         .eq("read", false)
-        .eq("sender_role", "patient");
+        .eq("sender_role", "patient"); // why: staff reads patient msgs
 
       setUnreadMap((m) => ({ ...m, [conversationId]: 0 }));
     } catch {
@@ -262,7 +256,6 @@ export default function StaffMessagesPage() {
         provider_name: meName,
         provider_role: meRole,
         provider_avatar: null,
-        title: "Conversation",
         last_message: null,
         last_message_at: null,
       })
@@ -270,7 +263,7 @@ export default function StaffMessagesPage() {
       .single();
 
     if (ins.error) {
-      alert(ins.error.message); // why: blocking UX must alert user on failed create
+      alert(ins.error.message); // important: user feedback if creation fails
       return null;
     }
     return ins.data;
@@ -278,13 +271,13 @@ export default function StaffMessagesPage() {
 
   async function sendMessage() {
     if (!selectedId || !meId || !compose.trim()) return;
-
     const conv = convs.find((c) => c.id === selectedId);
     if (!conv) return;
 
     const content = compose.trim();
     setCompose("");
 
+    // optimistic append
     const optimistic: MessageRow = {
       id: `tmp-${crypto.randomUUID()}`,
       conversation_id: selectedId,
@@ -300,20 +293,18 @@ export default function StaffMessagesPage() {
     setMsgs((m) => [...m, optimistic]);
 
     const ins = await supabase.from("messages").insert({
-      conversation_id: optimistic.conversation_id,
-      patient_id: optimistic.patient_id,
-      sender_id: optimistic.sender_id,
-      sender_name: optimistic.sender_name,
-      sender_role: optimistic.sender_role,
-      content: optimistic.content,
+      conversation_id: selectedId,
+      patient_id: conv.patient_id,
+      sender_id: meId,
+      sender_name: meName,
+      sender_role: meRole,
+      content,
       read: true,
       urgent: false,
     });
-
     if (ins.error) {
-      // why: reconcile optimistic UI if server write fails
+      // rollback optimistic on failure
       setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
-      console.error("[sendMessage] insert", ins.error);
       alert(ins.error.message);
       return;
     }
@@ -321,13 +312,10 @@ export default function StaffMessagesPage() {
     await supabase
       .from("conversations")
       .update({ last_message: content, last_message_at: new Date().toISOString() })
-      .eq("id", selectedId)
-      .then((r) => {
-        if (r.error) console.error("[sendMessage] conv update", r.error);
-      });
+      .eq("id", selectedId);
   }
 
-  /* ---------- bootstrap ---------- */
+  /* ======== bootstrap ======== */
   useEffect(() => {
     let mounted = true;
 
@@ -336,12 +324,7 @@ export default function StaffMessagesPage() {
 
       const u = (await supabase.auth.getUser()).data.user;
       if (u) {
-        setMeName(
-          (u.user_metadata?.full_name as string) ||
-            (u.user_metadata?.name as string) ||
-            (u.email as string) ||
-            "Me"
-        );
+        setMeName((u.user_metadata?.full_name as string) || (u.user_metadata?.name as string) || u.email || "Me");
       }
 
       const staff = await supabase
@@ -372,7 +355,11 @@ export default function StaffMessagesPage() {
         })(),
       ]);
 
-      if (mounted) setLoading(false);
+      if (mounted) {
+        setLoading(false);
+        const open = search.get("open");
+        if (open) setSelectedId(open);
+      }
     }
 
     (async () => {
@@ -389,14 +376,14 @@ export default function StaffMessagesPage() {
     const { data: sub } = supabase.auth.onAuthStateChange((evt) => {
       if (evt === "SIGNED_OUT") router.replace("/staff/login?redirect=/staff/messages");
     });
-
     return () => {
       mounted = false;
       sub.subscription.unsubscribe();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  /* ---------- realtime: conv list, care team, unread bump ---------- */
+  /* ======== realtime: lists & unread ======== */
   useEffect(() => {
     if (!meId) return;
 
@@ -452,7 +439,7 @@ export default function StaffMessagesPage() {
     };
   }, [meId, convs, selectedId]);
 
-  /* ---------- thread loader ---------- */
+  /* ======== thread loader (and realtime for the open thread) ======== */
   useEffect(() => {
     if (!selectedId) return;
     let active = true;
@@ -478,8 +465,9 @@ export default function StaffMessagesPage() {
         async (payload) => {
           if (!active) return;
           if (payload.eventType === "INSERT") {
-            setMsgs((m) => [...m, payload.new as MessageRow]);
-            if ((payload.new as MessageRow).sender_role === "patient") await markRead(selectedId);
+            const m = payload.new as MessageRow;
+            setMsgs((prev) => [...prev, m]);
+            if (m.sender_role === "patient") await markRead(selectedId);
           } else {
             const res = await supabase
               .from("messages")
@@ -501,7 +489,7 @@ export default function StaffMessagesPage() {
     };
   }, [selectedId]);
 
-  /* ---------- UI ---------- */
+  /* ============ UI ============ */
   if (loading) {
     return (
       <div className="min-h-screen grid place-items-center bg-slate-50">
@@ -514,9 +502,9 @@ export default function StaffMessagesPage() {
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-cyan-100">
+            <div className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
               <svg viewBox="0 0 24 24" className="h-5 w-5 text-cyan-600" fill="none" stroke="currentColor">
                 <path strokeWidth="2" d="M12 3l9 7-9 7-9-7 9-7z" />
               </svg>
@@ -548,11 +536,11 @@ export default function StaffMessagesPage() {
       </header>
 
       {/* Main */}
-      <main className="mx-auto max-w-7xl space-y-4 px-6 py-6">
+      <main className="max-w-7xl mx-auto px-6 py-6 space-y-4">
         {/* Title + controls */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-cyan-100">
+            <span className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
               <svg viewBox="0 0 24 24" className="h-5 w-5 text-cyan-700" fill="none" stroke="currentColor">
                 <path strokeWidth="2" d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z" />
               </svg>
@@ -573,7 +561,7 @@ export default function StaffMessagesPage() {
             <ToggleBtn active={mode === "both"} onClick={() => setMode("both")} aria="Show Both">
               Both
             </ToggleBtn>
-            <Button variant="ghost" size="sm" className="ml-2 gap-2" onClick={() => router.push("/staff/dashboard")}>
+            <Button variant="ghost" size="sm" className="gap-2 ml-2" onClick={() => router.push("/staff/dashboard")}>
               <ArrowLeft className="h-4 w-4" /> Back to Dashboard
             </Button>
           </div>
@@ -601,7 +589,7 @@ export default function StaffMessagesPage() {
 
         {/* DM panel */}
         <div className="grid gap-6 md:grid-cols-3">
-          {/* Conversations list */}
+          {/* Conversations */}
           <Card className="md:col-span-1">
             <CardHeader>
               <CardTitle>Direct Messages</CardTitle>
@@ -621,7 +609,7 @@ export default function StaffMessagesPage() {
                     >
                       <Avatar>
                         <AvatarImage src={c.patient_avatar ?? undefined} />
-                        <AvatarFallback>{initials(c.patient_name)}</AvatarFallback>
+                        <AvatarFallback>{initials(c.patient_name ?? c.patient_email)}</AvatarFallback>
                       </Avatar>
 
                       <div className="min-w-0 flex-1">
@@ -630,10 +618,7 @@ export default function StaffMessagesPage() {
                             {c.patient_name ?? c.patient_email ?? "Patient"}
                           </p>
                           <span className="text-xs text-gray-500">
-                            {new Date(c.updated_at).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            {new Date(c.updated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </span>
                         </div>
                         <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
@@ -649,7 +634,7 @@ export default function StaffMessagesPage() {
           </Card>
 
           {/* Active conversation */}
-          <Card className="flex flex-col md:col-span-2">
+          <Card className="md:col-span-2 flex flex-col">
             {!selectedId ? (
               <CardContent className="flex-1 flex items-center justify-center">
                 <div className="text-sm text-gray-500">Select a conversation</div>
@@ -669,9 +654,7 @@ export default function StaffMessagesPage() {
                           >
                             <div className="text-[10px] opacity-60 mb-1">{isOwn ? meName : "Patient"}</div>
                             <div className="whitespace-pre-wrap">{m.content}</div>
-                            <div className="mt-1 text-[10px] opacity-60">
-                              {new Date(m.created_at).toLocaleString()}
-                            </div>
+                            <div className="text-[10px] opacity-60 mt-1">{new Date(m.created_at).toLocaleString()}</div>
                           </div>
                         </div>
                       );
@@ -717,7 +700,7 @@ export default function StaffMessagesPage() {
             </div>
             <div className="p-4">
               <div className="relative mb-3">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
                   placeholder="Search patients…"
                   className="pl-9"
@@ -725,11 +708,11 @@ export default function StaffMessagesPage() {
                   onChange={(e) => setPSearch(e.target.value)}
                 />
               </div>
-              <div className="max-h-80 divide-y overflow-y-auto">
+              <div className="max-h-80 overflow-y-auto divide-y">
                 {filteredPatients.map((p) => (
                   <button
                     key={p.user_id}
-                    className="flex w-full items-center gap-3 p-3 text-left hover:bg-gray-50"
+                    className="w-full text-left p-3 hover:bg-gray-50 flex items-center gap-3"
                     onClick={async () => {
                       const conv = await ensureConversationWithPatient(p.user_id);
                       if (!conv || !meId) return;
@@ -737,6 +720,7 @@ export default function StaffMessagesPage() {
                       await fetchUnread(meId);
                       setSelectedId(conv.id);
                       setModalOpen(false);
+                      router.replace(`/staff/messages?open=${conv.id}`); // keeps deep-link
                     }}
                   >
                     <Avatar>
@@ -744,8 +728,8 @@ export default function StaffMessagesPage() {
                       <AvatarFallback>{initials(p.full_name)}</AvatarFallback>
                     </Avatar>
                     <div className="min-w-0">
-                      <div className="truncate font-medium">{p.full_name ?? "Patient"}</div>
-                      <div className="truncate text-xs text-gray-500">{p.email ?? ""}</div>
+                      <div className="font-medium truncate">{p.full_name ?? "Patient"}</div>
+                      <div className="text-xs text-gray-500 truncate">{p.email ?? ""}</div>
                     </div>
                   </button>
                 ))}
