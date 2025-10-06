@@ -10,8 +10,7 @@ import {
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const DEBUG = Boolean(process.env.NEXT_PUBLIC_SUPABASE_DEBUG);
-// Optional: set to a single shared key (patient + staff) via env for consistency
-const STORAGE_KEY = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_KEY; // e.g. "sb-app-auth"
+const STORAGE_KEY = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_KEY;
 
 declare global {
   // eslint-disable-next-line no-var
@@ -25,6 +24,7 @@ function makeClient(): SupabaseClient {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+      flowType: "pkce",
     },
     db: { schema: "public" },
     global: DEBUG ? { headers: { "x-supabase-debug": "1" } } : undefined,
@@ -45,7 +45,6 @@ export async function getAuthUser(): Promise<User | null> {
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  // Try current session; if missing, one-time refresh (helps right after reloads)
   let { data } = await supabase.auth.getSession();
   let token = data.session?.access_token ?? null;
   if (!token) {
@@ -55,10 +54,10 @@ export async function getAccessToken(): Promise<string | null> {
   return token;
 }
 
-/** Reliable session getter: hydration grace + one auth event wait */
+/** Reliable session getter with hydration grace + first auth event wait */
 export async function ensureSession(opts?: {
-  graceMs?: number;    // wait for localStorage hydration
-  fallbackMs?: number; // one-shot timeout while waiting for auth event
+  graceMs?: number;
+  fallbackMs?: number;
 }): Promise<Session | null> {
   const graceMs = opts?.graceMs ?? 300;
   const fallbackMs = opts?.fallbackMs ?? 500;
