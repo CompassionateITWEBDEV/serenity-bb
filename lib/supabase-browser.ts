@@ -1,121 +1,113 @@
+// File: lib/supabase-browser.ts
+// Why: Single Supabase client + reliable session bootstrap to stop the loading/login loop.
+
 "use client";
 
-import {
-  createClient,
-  type SupabaseClient,
-  type Session,
-  type User,
-} from "@supabase/supabase-js";
+import { createClient, type SupabaseClient, type Session } from "@supabase/supabase-js";
 
-const URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const DEBUG = Boolean(process.env.NEXT_PUBLIC_SUPABASE_DEBUG);
-const STORAGE_KEY = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_KEY;
+type DB = any;
 
+// ---- HMR-safe singleton ----
 declare global {
   // eslint-disable-next-line no-var
-  var __SUPABASE_BROWSER__: SupabaseClient | undefined;
+  var __SB_CLIENT__: SupabaseClient<DB> | undefined;
 }
 
-function makeClient(): SupabaseClient {
-  return createClient(URL, ANON, {
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+// IMPORTANT: one storageKey for *all* web surfaces (staff + patient).
+const STORAGE_KEY = "sb-app-auth";
+
+function makeClient(): SupabaseClient<DB> {
+  return createClient<DB>(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: {
-      ...(STORAGE_KEY ? { storageKey: STORAGE_KEY } : {}),
+      storageKey: STORAGE_KEY, // ← unify key; prevents separate cookies/tokens
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: true,
+      detectSessionInUrl: true, // keep PKCE callback working
       flowType: "pkce",
     },
-    db: { schema: "public" },
-    global: DEBUG ? { headers: { "x-supabase-debug": "1" } } : undefined,
   });
 }
 
-export const supabase: SupabaseClient =
-  globalThis.__SUPABASE_BROWSER__ ?? (globalThis.__SUPABASE_BROWSER__ = makeClient());
+export const supabase: SupabaseClient<DB> = globalThis.__SB_CLIENT__ ?? makeClient();
+if (!globalThis.__SB_CLIENT__) globalThis.__SB_CLIENT__ = supabase;
 
-export async function getAuthSession(): Promise<Session | null> {
-  const { data } = await supabase.auth.getSession();
-  return data?.session ?? null;
-}
+// ---- Robust session bootstrap ----
+// Why: Immediately after first mount, getSession() can be null while Supabase hydrates.
+// We wait briefly for auth state events so we don't bounce to /staff/login unnecessarily.
+async function waitForAuthEvent(timeoutMs = 2500): Promise<Session | null> {
+  return new Promise<Session | null>((resolve) => {
+    let settled = false;
 
-export async function getAuthUser(): Promise<User | null> {
-  const { data } = await supabase.auth.getUser();
-  return data?.user ?? null;
-}
+    const timer = setTimeout(async () => {
+      if (settled) return;
+      settled = true;
+      const { data } = await supabase.auth.getSession();
+      resolve(data.session ?? null);
+    }, timeoutMs);
 
-export async function getAccessToken(): Promise<string | null> {
-  let { data } = await supabase.auth.getSession();
-  let token = data.session?.access_token ?? null;
-  if (!token) {
-    const r = await supabase.auth.refreshSession();
-    token = r.data.session?.access_token ?? null;
-  }
-  return token;
-}
-
-/** Reliable session getter with hydration grace + first auth event wait */
-export async function ensureSession(opts?: {
-  graceMs?: number;
-  fallbackMs?: number;
-}): Promise<Session | null> {
-  const graceMs = opts?.graceMs ?? 300;
-  const fallbackMs = opts?.fallbackMs ?? 500;
-
-  // 1) immediate read
-  let { data } = await supabase.auth.getSession();
-  let session = data?.session ?? null;
-  if (session) return session;
-
-  // 2) grace for hydration
-  await new Promise((r) => setTimeout(r, graceMs));
-  ({ data } = await supabase.auth.getSession());
-  session = data?.session ?? null;
-  if (session) return session;
-
-  // 3) wait for first auth event OR fallback timer
-  return await new Promise<Session | null>((resolve) => {
-    let decided = false;
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, newSession) => {
-      if (decided) return;
-      decided = true;
-      sub.subscription.unsubscribe();
-      resolve(newSession ?? null);
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_evt, _sess) => {
+      if (settled) return;
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(data.session);
+      }
     });
-    setTimeout(async () => {
-      if (decided) return;
-      decided = true;
-      sub.subscription.unsubscribe();
-      const again = (await supabase.auth.getSession()).data.session ?? null;
-      resolve(again);
-    }, fallbackMs);
+
+    // Safety: also check once immediately after subscribing.
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (settled) return;
+      if (data.session) {
+        settled = true;
+        clearTimeout((timer as unknown) as number);
+        sub.subscription.unsubscribe();
+        resolve(data.session);
+      }
+    })().finally(() => {
+      // Clean up subscription when the outer promise resolves.
+      void Promise.resolve().then(() => {
+        if (!settled) return;
+        sub.subscription.unsubscribe();
+      });
+    });
   });
 }
 
-/** Simple realtime subscription helper */
-export function subscribeToTable<T = unknown>(opts: {
-  table: string;
-  schema?: string;
-  event?: "*" | "INSERT" | "UPDATE" | "DELETE";
-  filter?: string;
-  onInsert?: (row: T) => void;
-  onUpdate?: (row: T) => void;
-  onDelete?: (row: T) => void;
-}): () => void {
-  const { table, schema = "public", event = "*", filter, onInsert, onUpdate, onDelete } = opts;
-  const ch = supabase
-    .channel(`realtime:${schema}.${table}${filter ? `?${filter}` : ""}`)
-    .on("postgres_changes", { schema, table, event, filter }, (p: any) => {
-      if (p.eventType === "INSERT") onInsert?.(p.new as T);
-      else if (p.eventType === "UPDATE") onUpdate?.(p.new as T);
-      else if (p.eventType === "DELETE") onDelete?.(p.old as T);
-    })
-    .subscribe();
-  return () => {
-    try {
-      supabase.removeChannel(ch);
-    } catch {}
-  };
+/**
+ * ensureSession
+ * Returns a valid session if found/hydrated; otherwise null.
+ * Never throws; the caller (your page) decides to redirect.
+ */
+export async function ensureSession(): Promise<Session | null> {
+  try {
+    // 1) quick path
+    const { data, error } = await supabase.auth.getSession();
+    if (!error && data.session) return data.session;
+
+    // 2) wait briefly for hydration/auth events (HMR, cold start, PKCE redirect)
+    const hydrated = await waitForAuthEvent(2500);
+    if (hydrated) return hydrated;
+
+    // 3) final check before giving up
+    const again = await supabase.auth.getSession();
+    return again.data.session ?? null;
+  } catch {
+    return null;
+  }
 }
 
-export type { SupabaseClient as SupabaseBrowserClient };
+/** Optional helper used by your header button */
+export async function logout(): Promise<void> {
+  try {
+    await supabase.auth.signOut();
+  } catch {
+    // ignore
+  }
+}
+
+export type { Session } from "@supabase/supabase-js";
