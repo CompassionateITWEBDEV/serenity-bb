@@ -8,19 +8,20 @@ export type ConversationPreview = {
   patient_email: string | null;
   patient_avatar: string | null;
   last_message: string | null;
-  updated_at: string;
+  updated_at: string; // sort key: coalesce(last_message_at, created_at)
 };
 
 export async function ensureConversation(
   patientId: string,
   provider: { id: string; name: string; role: ProviderRole; avatar?: string | null }
 ): Promise<{ id: string }> {
-  const { data: ex } = await supabase
+  const { data: ex, error: exErr } = await supabase
     .from("conversations")
     .select("id")
     .eq("patient_id", patientId)
     .eq("provider_id", provider.id)
     .maybeSingle();
+  if (exErr) throw exErr;
   if (ex?.id) return { id: ex.id };
 
   const { data, error } = await supabase
@@ -60,7 +61,7 @@ export async function listConversationsForProvider(providerId: string): Promise<
   .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
 }
 
-export async function markRead(conversationId: string, _viewer: "patient" | "provider") {
+export async function markRead(conversationId: string) {
   const uid = (await supabase.auth.getUser()).data.user?.id!;
   const { error } = await supabase
     .from("messages")
