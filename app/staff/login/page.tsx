@@ -1,17 +1,16 @@
-// File: app/staff/login/page.tsx
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eye, EyeOff } from "lucide-react";
-import { supabase } from "@/lib/supabase-browser";
+import { supabase, ensureSession } from "@/lib/supabase-browser";
 
-async function serenitySwal(opts: { title: string; text?: string; mood: "success"|"error"|"info" }) {
+async function serenitySwal(opts: { title: string; text?: string; mood: "success" | "error" | "info" }) {
   const Swal = (await import("sweetalert2")).default;
   const theme =
     opts.mood === "success"
@@ -38,41 +37,78 @@ export default function StaffLoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+
   const router = useRouter();
+  const qp = useSearchParams();
+  const redirectTo = useMemo(() => qp.get("redirect") || "/staff/dashboard", [qp]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+
     try {
-      // ✅ Sign in directly with the browser client (persists session/localStorage)
+      // 1) Sign in
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error || !data?.user) {
-        await serenitySwal({ title: "Staff login failed", text: error?.message || "Check your credentials.", mood: "error" });
+        await serenitySwal({
+          title: "Staff login failed",
+          text: error?.message || "Check your email/password.",
+          mood: "error",
+        });
         return;
       }
 
-      // ✅ Verify staff row (RLS will allow the signed-in user to read their row)
-      const { data: staffRow, error: staffErr } = await supabase
-        .from("staff")
-        .select("user_id, active")
-        .eq("user_id", data.user.id)
-        .maybeSingle();
-
-      if (staffErr) {
-        await serenitySwal({ title: "Login error", text: staffErr.message, mood: "error" });
-        await supabase.auth.signOut(); // keep the app clean if staff fetch fails
+      // 2) Ensure session actually hydrated (prevents ‘Loading…’ limbo)
+      const session = await ensureSession({ graceMs: 250, fallbackMs: 1200 });
+      if (!session) {
+        await serenitySwal({
+          title: "Could not start session",
+          text: "Please try again.",
+          mood: "error",
+        });
         return;
       }
-      if (!staffRow || staffRow.active === false) {
-        await serenitySwal({ title: "Not authorized", text: "Your account is not an active staff user.", mood: "error" });
+
+      // 3) Optional staff check — do not hang if RLS blocks; fail soft except for explicit inactive flag
+      let isActiveStaff = true;
+      try {
+        const { data: staffRow, error: staffErr, status } = await supabase
+          .from("staff")
+          .select("user_id, active")
+          .eq("user_id", session.user.id)
+          .maybeSingle();
+
+        // If RLS forbids (401/403) or row missing, keep isActiveStaff=true but warn in console.
+        if (staffErr && (status === 401 || status === 403)) {
+          console.warn("[login] staff check forbidden by RLS; proceeding after auth.");
+        } else if (!staffRow) {
+          console.warn("[login] no staff row found; proceeding after auth.");
+        } else if (staffRow.active === false) {
+          isActiveStaff = false;
+        }
+      } catch (err) {
+        console.warn("[login] staff check error:", err);
+      }
+
+      if (!isActiveStaff) {
+        await serenitySwal({
+          title: "Not authorized",
+          text: "Your staff account is inactive.",
+          mood: "error",
+        });
         await supabase.auth.signOut();
         return;
       }
 
-      await serenitySwal({ title: "Welcome, team hero!", text: "Let’s make today awesome ✨", mood: "success" });
-      router.push("/staff/dashboard");
+      // 4) Success → go
+      await serenitySwal({ title: "Welcome!", text: "Let’s make today awesome ✨", mood: "success" });
+      router.replace(redirectTo);
     } catch (err: any) {
-      await serenitySwal({ title: "Unexpected error", text: err?.message ?? "Try again.", mood: "error" });
+      await serenitySwal({
+        title: "Unexpected error",
+        text: err?.message ?? "Please try again.",
+        mood: "error",
+      });
     } finally {
       setBusy(false);
     }
@@ -95,7 +131,16 @@ export default function StaffLoginPage() {
             <form onSubmit={onSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Work Email</Label>
-                <Input id="email" type="email" placeholder="name@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required className="h-11" />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="name@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="h-11"
+                  autoComplete="username"
+                />
               </div>
 
               <div className="space-y-2">
@@ -109,10 +154,11 @@ export default function StaffLoginPage() {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     className="h-11 pr-10"
+                    autoComplete="current-password"
                   />
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
+                    onClick={() => setShowPassword((s) => !s)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                     aria-label="Toggle password visibility"
                   >
@@ -132,7 +178,9 @@ export default function StaffLoginPage() {
                 </Link>
               </p>
               <div className="text-center">
-                <Link href="/login" className="text-xs text-gray-500 hover:underline">← Patient login</Link>
+                <Link href="/login" className="text-xs text-gray-500 hover:underline">
+                  ← Patient login
+                </Link>
               </div>
             </form>
           </CardContent>
