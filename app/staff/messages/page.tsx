@@ -30,13 +30,7 @@ type ConversationRow = {
   updated_at: string;
   patients?: { full_name?: string | null; avatar?: string | null } | null;
 };
-type Conversation = {
-  id: string;
-  patient_id: string;
-  patient_name: string | null;
-  patient_avatar: string | null;
-  updated_at: string;
-};
+type Conversation = { id: string; patient_id: string; patient_name: string | null; patient_avatar: string | null; updated_at: string };
 type PatientAssigned = { user_id: string; full_name: string | null; email: string | null; avatar: string | null };
 type MessageRow = {
   id: string;
@@ -78,7 +72,6 @@ export default function StaffMessagesPage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"both" | "groups" | "dms">("both");
 
   // auth/staff
@@ -140,14 +133,12 @@ export default function StaffMessagesPage() {
       .select("user_id, full_name, email, avatar")
       .eq("staff_id", uid)
       .order("full_name", { ascending: true });
-
     if (!v.error && v.data) return v.data as PatientAssigned[];
 
     const j = await supabase
       .from("patients")
       .select("user_id, full_name, email, avatar, patient_care_team!inner(staff_id)")
       .eq("patient_care_team.staff_id", uid);
-
     if (j.error) throw j.error;
 
     return (j.data || []).map((r: any) => ({
@@ -166,7 +157,6 @@ export default function StaffMessagesPage() {
       )
       .eq("provider_id", uid)
       .order("updated_at", { ascending: false });
-
     if (q.error) throw q.error;
 
     const rows: ConversationRow[] = (q.data as ConversationRow[]) ?? [];
@@ -184,33 +174,18 @@ export default function StaffMessagesPage() {
     const u = await supabase.from("v_staff_dm_unread").select("conversation_id, unread_from_patient").eq("provider_id", uid);
     if (u.error) return;
     const map: Record<string, number> = {};
-    for (const row of (u.data as any[]) ?? []) {
-      map[row.conversation_id] = Number(row.unread_from_patient) || 0;
-    }
+    for (const row of (u.data as any[]) ?? []) map[row.conversation_id] = Number(row.unread_from_patient) || 0;
     setUnreadMap(map);
   }
 
   async function markRead(conversationId: string) {
-    await supabase
-      .from("messages")
-      .update({ read: true })
-      .eq("conversation_id", conversationId)
-      .eq("read", false)
-      .eq("sender_role", "patient");
-
+    await supabase.from("messages").update({ read: true }).eq("conversation_id", conversationId).eq("read", false).eq("sender_role", "patient");
     setUnreadMap((m) => ({ ...m, [conversationId]: 0 }));
   }
 
   async function ensureConversationWithPatient(patientId: string) {
     if (!meId) return null;
-
-    const found = await supabase
-      .from("conversations")
-      .select("id")
-      .eq("patient_id", patientId)
-      .eq("provider_id", meId)
-      .maybeSingle();
-
+    const found = await supabase.from("conversations").select("id").eq("patient_id", patientId).eq("provider_id", meId).maybeSingle();
     if (!found.error && found.data) return found.data;
 
     const ins = await supabase
@@ -226,7 +201,6 @@ export default function StaffMessagesPage() {
       })
       .select("id")
       .single();
-
     if (ins.error) {
       alert(ins.error.message);
       return null;
@@ -253,7 +227,6 @@ export default function StaffMessagesPage() {
       read: true,
       urgent: false,
     };
-
     setMsgs((m) => [...m, optimistic]);
 
     const ins = await supabase.from("messages").insert({
@@ -266,86 +239,69 @@ export default function StaffMessagesPage() {
       read: true,
       urgent: false,
     });
-
     if (ins.error) alert(ins.error.message);
 
     await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", selectedId);
   }
 
-  // ---- bootstrap auth + data (use ensureSession) ----
+  // ---- bootstrap auth + data (NO auth redirect listener) ----
   useEffect(() => {
-    let mounted = true;
-
-    async function bootstrap(uid: string) {
-      try {
-        setError(null);
-        setMeId(uid);
-
-        const { data: getUserRes } = await supabase.auth.getUser();
-        const u = getUserRes?.user;
-        if (u) {
-          setMeName((u.user_metadata?.full_name as string) || (u.user_metadata?.name as string) || u.email || "Me");
-        }
-
-        const staff = await supabase
-          .from("staff")
-          .select("role, department, first_name, last_name")
-          .eq("user_id", uid)
-          .maybeSingle();
-
-        const role = staff.error ? null : ((staff.data?.role as string | null) ?? null);
-        const dept = staff.error ? null : ((staff.data?.department as string | null) ?? null);
-        setMeRole(mapStaffRole(role, dept));
-
-        const first = (staff.data?.first_name ?? "").trim();
-        const last = (staff.data?.last_name ?? "").trim();
-        if (first || last) setMeName(`${first} ${last}`.trim());
-
-        await Promise.all([
-          fetchConversations(uid),
-          fetchUnread(uid),
-          (async () => {
-            const { count, error: cntErr } = await supabase
-              .from("patient_care_team")
-              .select("patient_id", { count: "exact", head: true })
-              .eq("staff_id", uid);
-            if (cntErr) throw cntErr;
-            if (mounted && typeof count === "number") setAssignedCount(count);
-
-            const list = await fetchAssignedPatients(uid);
-            if (mounted) setPatients(list);
-          })(),
-        ]);
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to load data");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-
+    let alive = true;
     (async () => {
-      try {
-        const session = await ensureSession(); // waits for hydration; avoids false redirects
-        if (!mounted) return;
-        if (!session) {
-          router.replace("/staff/login");
-          return;
-        }
-        await bootstrap(session.user.id);
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to initialize");
-        setLoading(false);
+      const session = await ensureSession({ graceMs: 250, fallbackMs: 800 });
+      if (!alive) return;
+
+      if (!session) {
+        router.replace("/staff/login?redirect=/staff/messages");
+        return;
       }
+
+      const uid = session.user.id;
+      setMeId(uid);
+
+      const { data: getUserRes } = await supabase.auth.getUser();
+      const u = getUserRes?.user;
+      if (u) {
+        setMeName(
+          (u.user_metadata?.full_name as string) ||
+            (u.user_metadata?.name as string) ||
+            u.email ||
+            "Me"
+        );
+      }
+
+      const staff = await supabase
+        .from("staff")
+        .select("role, department, first_name, last_name")
+        .eq("user_id", uid)
+        .maybeSingle();
+
+      const role = staff.error ? null : ((staff.data?.role as string | null) ?? null);
+      const dept = staff.error ? null : ((staff.data?.department as string | null) ?? null);
+      setMeRole(mapStaffRole(role, dept));
+
+      const first = (staff.data?.first_name ?? "").trim();
+      const last = (staff.data?.last_name ?? "").trim();
+      if (first || last) setMeName(`${first} ${last}`.trim());
+
+      await Promise.all([
+        fetchConversations(uid),
+        fetchUnread(uid),
+        (async () => {
+          const { count } = await supabase
+            .from("patient_care_team")
+            .select("patient_id", { count: "exact", head: true })
+            .eq("staff_id", uid);
+          if (typeof count === "number") setAssignedCount(count);
+          const list = await fetchAssignedPatients(uid);
+          setPatients(list);
+        })(),
+      ]);
+
+      setLoading(false);
     })();
-
-    // Redirect only on explicit sign-out (not during nav)
-    const { data: subOut } = supabase.auth.onAuthStateChange((evt) => {
-      if (evt === "SIGNED_OUT") router.replace("/staff/login");
-    });
-
     return () => {
-      mounted = false;
-      subOut.subscription.unsubscribe();
+      alive = false;
     };
   }, [router]);
 
@@ -379,30 +335,42 @@ export default function StaffMessagesPage() {
       )
       .subscribe();
 
+    const msgCh = supabase
+      .channel(`msgs_staff_${meId}`)
+      .on(
+        "postgres_changes",
+        { schema: "public", table: "messages", event: "INSERT" },
+        (payload) => {
+          const m = payload.new as MessageRow;
+          if (m.sender_role !== "patient") return;
+          const belongs = convs.some((c) => c.id === m.conversation_id);
+          if (!belongs) return;
+          setUnreadMap((prev) => {
+            if (selectedId === m.conversation_id) return prev;
+            const curr = prev[m.conversation_id] ?? 0;
+            return { ...prev, [m.conversation_id]: curr + 1 };
+          });
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(convCh);
       supabase.removeChannel(pctCh);
+      supabase.removeChannel(msgCh);
     };
-  }, [meId]); // ← don’t depend on convs/selectedId; prevents resub churn
+  }, [meId, convs, selectedId]);
 
   // Load messages + mark read on selection
   useEffect(() => {
     if (!selectedId) return;
 
     let active = true;
-
     (async () => {
-      const res = await supabase.from("messages").select("*").eq("conversation_id", selectedId).order("created_at", {
-        ascending: true,
-      });
-
+      const res = await supabase.from("messages").select("*").eq("conversation_id", selectedId).order("created_at", { ascending: true });
       if (!res.error && active) setMsgs((res.data as MessageRow[]) || []);
-
       await markRead(selectedId);
-
-      requestAnimationFrame(() =>
-        listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" })
-      );
+      requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }));
     })();
 
     const ch = supabase
@@ -412,24 +380,19 @@ export default function StaffMessagesPage() {
         { schema: "public", table: "messages", event: "*", filter: `conversation_id=eq.${selectedId}` },
         async (payload) => {
           if (!active) return;
-
           if (payload.eventType === "INSERT") {
             setMsgs((m) => [...m, payload.new as MessageRow]);
-            if ((payload.new as MessageRow).sender_role === "patient") {
-              await markRead(selectedId);
-            }
+            if ((payload.new as MessageRow).sender_role === "patient") await markRead(selectedId);
           } else {
             const res = await supabase
               .from("messages")
               .select("*")
               .eq("conversation_id", selectedId)
               .order("created_at", { ascending: true });
-
             if (!res.error && active) setMsgs((res.data as MessageRow[]) || []);
           }
-
           requestAnimationFrame(() =>
-            listRef.current?.scrollTo({ top: listRef.current!.scrollHeight, behavior: "smooth" })
+            listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" })
           );
         }
       )
@@ -446,35 +409,6 @@ export default function StaffMessagesPage() {
     return (
       <div className="min-h-screen grid place-items-center bg-slate-50">
         <div className="text-sm text-slate-500">Loading…</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen grid place-items-center bg-slate-50">
-        <Card className="max-w-lg w-full">
-          <CardHeader>
-            <CardTitle>Messages Error</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-red-600">{error}</p>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => location.reload()}>
-                Retry
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={async () => {
-                  await logout();
-                  router.replace("/staff/login");
-                }}
-              >
-                Sign out
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
       </div>
     );
   }
@@ -516,7 +450,6 @@ export default function StaffMessagesPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-4">
-        {/* Title + controls */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
@@ -546,7 +479,6 @@ export default function StaffMessagesPage() {
           </div>
         </div>
 
-        {/* Panels */}
         {mode === "both" ? (
           <div className="grid gap-6 md:grid-cols-2">
             <div className="w-full">
@@ -566,9 +498,7 @@ export default function StaffMessagesPage() {
           </div>
         )}
 
-        {/* Lightweight built-in DM panel (shows unread badges, compose box) */}
         <div className="grid gap-6 md:grid-cols-3">
-          {/* Conversations list with unread badges */}
           <Card className="md:col-span-1">
             <CardHeader>
               <CardTitle>Direct Messages</CardTitle>
@@ -578,7 +508,6 @@ export default function StaffMessagesPage() {
                 {convs.map((c) => {
                   const active = selectedId === c.id;
                   const un = unreadMap[c.id] ?? 0;
-
                   return (
                     <button
                       key={c.id}
@@ -596,10 +525,7 @@ export default function StaffMessagesPage() {
                         <div className="flex items-center justify-between">
                           <p className="truncate font-medium text-gray-900">{c.patient_name ?? "Patient"}</p>
                           <span className="text-xs text-gray-500">
-                            {new Date(c.updated_at).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            {new Date(c.updated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </span>
                         </div>
                         <p className="text-xs text-gray-500">patient</p>
@@ -615,7 +541,6 @@ export default function StaffMessagesPage() {
             </CardContent>
           </Card>
 
-          {/* Active conversation */}
           <Card className="md:col-span-2 flex flex-col">
             {!selectedId ? (
               <CardContent className="flex-1 flex items-center justify-center">
@@ -669,7 +594,6 @@ export default function StaffMessagesPage() {
         </div>
       </main>
 
-      {/* New Message Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
           <div className="w-full max-w-lg rounded-lg border bg-white">
@@ -683,12 +607,7 @@ export default function StaffMessagesPage() {
             <div className="p-4">
               <div className="relative mb-3">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search patients…"
-                  className="pl-9"
-                  value={pSearch}
-                  onChange={(e) => setPSearch(e.target.value)}
-                />
+                <Input placeholder="Search patients…" className="pl-9" value={pSearch} onChange={(e) => setPSearch(e.target.value)} />
               </div>
 
               <div className="max-h-80 overflow-y-auto divide-y">
@@ -699,7 +618,6 @@ export default function StaffMessagesPage() {
                     onClick={async () => {
                       const conv = await ensureConversationWithPatient(p.user_id);
                       if (!conv || !meId) return;
-
                       await fetchConversations(meId);
                       await fetchUnread(meId);
                       setSelectedId(conv.id);
