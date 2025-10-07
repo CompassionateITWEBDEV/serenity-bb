@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseFromRoute } from "@/lib/supabaseRoute";
 
-export const runtime = "nodejs";
-
 type EnsureConversationParams = { p_patient: string; p_provider: string };
+
+export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   const supabase = supabaseFromRoute();
@@ -22,8 +22,7 @@ export async function POST(req: NextRequest) {
   const content = String(body?.content ?? "").trim();
   if (!content) return NextResponse.json({ error: "empty" }, { status: 400 });
 
-  // Either use provided conversationId or ensure one from patientId
-  let conversationId = body.conversationId;
+  let conversationId = body.conversationId ?? "";
   if (!conversationId) {
     const patientId = String(body?.patientId ?? "");
     if (!patientId) return NextResponse.json({ error: "patientId required" }, { status: 400 });
