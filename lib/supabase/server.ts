@@ -1,5 +1,3 @@
-// File: /lib/supabase/server.ts
-import { cookies } from "next/headers";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient as createSbClient, type SupabaseClient } from "@supabase/supabase-js";
 
@@ -103,3 +101,10 @@ export const createServiceRoleClient = supabaseAdmin;
 export const createRealtimeWithJwt = supabaseRealtimeForToken;
 
 export type { SupabaseClient } from "@supabase/supabase-js";
+
+/** NEW: tiny helper to read Bearer token; avoids duplicate code across routes */
+export function getBearerFromRequest(req: Request): string | null {
+  const header = req.headers.get("authorization") ?? "";
+  const m = header.match(/^Bearer\s+(.+)$/i);
+  return m?.[1] ?? null;
+}
