@@ -97,7 +97,7 @@ export default function StaffMessagesPage() {
   const [q, setQ] = useState("");
   const [qDebounced, setQDebounced] = useState("");
   useEffect(() => {
-    const t = setTimeout(() => setQDebounced(q.trim().toLowerCase()), 200);
+    const t = setTimeout(() => setQDebounced(q.trim().toLowerCase()), 180);
     return () => clearTimeout(t);
   }, [q]);
 
@@ -110,6 +110,19 @@ export default function StaffMessagesPage() {
     if (!v) return patients;
     return patients.filter((p) => (p.full_name ?? "").toLowerCase().includes(v) || (p.email ?? "").toLowerCase().includes(v));
   }, [patients, pSearch]);
+
+  // —— helpers ——
+  function syncUrlOpen(id: string) {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("open", id);
+    window.history.replaceState({}, "", url.toString());
+  }
+  function openConversation(id: string) {
+    setSelectedId(id);
+    setUnreadMap((m) => ({ ...m, [id]: 0 }));
+    syncUrlOpen(id);
+  }
 
   // Bootstrap
   useEffect(() => {
@@ -154,6 +167,13 @@ export default function StaffMessagesPage() {
     })();
   }, [router]);
 
+  // Keep selection valid across refreshes/filters
+  useEffect(() => {
+    if (!selectedId || convs.some((c) => c.id === selectedId)) return;
+    // previously selected id no longer in list; try to fallback to first
+    if (convs.length) openConversation(convs[0].id);
+  }, [convs, selectedId]);
+
   // Realtime list + unread bumps
   useEffect(() => {
     if (!meId) return;
@@ -161,7 +181,7 @@ export default function StaffMessagesPage() {
     let debounceId: ReturnType<typeof setTimeout> | null = null;
     const bump = (update: () => Promise<void>) => {
       if (debounceId) clearTimeout(debounceId);
-      debounceId = setTimeout(() => { void update(); }, 100);
+      debounceId = setTimeout(() => { void update(); }, 90);
     };
 
     const convCh = supabase
@@ -184,6 +204,7 @@ export default function StaffMessagesPage() {
               .map((c) => (c.id === m.conversation_id ? { ...c, last_message: m.content, updated_at: m.created_at } : c))
               .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
           );
+          // only bump unread if that conversation is *not* currently open
           setUnreadMap((prev) => (selectedId === m.conversation_id ? prev : { ...prev, [m.conversation_id]: (prev[m.conversation_id] ?? 0) + 1 }));
         }
       )
@@ -196,29 +217,24 @@ export default function StaffMessagesPage() {
     };
   }, [meId, selectedId]);
 
-  // Clear unread on open
+  // Clear unread on open (server + local)
   useEffect(() => {
     if (!selectedId || !meId) return;
     (async () => {
       await markReadHelper(selectedId, "nurse");
       setUnreadMap((m) => ({ ...m, [selectedId]: 0 }));
-      if (typeof window !== "undefined") {
-        const url = new URL(window.location.href); url.searchParams.set("open", selectedId);
-        window.history.replaceState({}, "", url.toString());
-      }
+      syncUrlOpen(selectedId);
     })();
   }, [selectedId, meId]);
 
-  // Row actions (all are optimistic and gracefully degrade if column missing)
+  // Row actions (optimistic, safe if columns missing)
   async function togglePin(id: string, next: boolean) {
-    try { await supabase.from("conversations").update({ pinned: next }).eq("id", id); }
-    catch {}
+    try { await supabase.from("conversations").update({ pinned: next }).eq("id", id); } catch {}
     setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, pinned: next } : c)));
   }
   async function toggleArchive(id: string, next: boolean) {
     const value = next ? new Date().toISOString() : null;
-    try { await supabase.from("conversations").update({ archived_at: value as any }).eq("id", id); }
-    catch {}
+    try { await supabase.from("conversations").update({ archived_at: value as any }).eq("id", id); } catch {}
     setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, archived_at: value } : c)));
     if (selectedId === id && next) setSelectedId(null);
   }
@@ -229,10 +245,7 @@ export default function StaffMessagesPage() {
 
   // Filtering & sorting
   const filteredConvs = useMemo(() => {
-    let list = convs.slice();
-
-    // Hide archived unless it's currently opened (optional)
-    list = list.filter((c) => !c.archived_at);
+    let list = convs.slice().filter((c) => !c.archived_at); // hide archived
 
     if (tab === "new") list = list.filter((c) => (unreadMap[c.id] ?? 0) > 0);
     if (tab === "pinned") list = list.filter((c) => !!c.pinned);
@@ -244,7 +257,7 @@ export default function StaffMessagesPage() {
       );
     }
 
-    // Sort: pinned first, then by updated_at desc
+    // Pinned first, then recent
     list.sort((a, b) => {
       const ap = a.pinned ? 1 : 0; const bp = b.pinned ? 1 : 0;
       if (ap !== bp) return bp - ap;
@@ -253,16 +266,16 @@ export default function StaffMessagesPage() {
     return list;
   }, [convs, tab, qDebounced, unreadMap]);
 
-  // Keyboard nav
+  // keyboard navigation (optional)
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (!["ArrowDown", "ArrowUp", "Enter"].includes(e.key)) return;
       const ids = filteredConvs.map((c) => c.id);
       if (ids.length === 0) return;
       const idx = selectedId ? Math.max(ids.indexOf(selectedId), 0) : -1;
-      if (e.key === "ArrowDown") setSelectedId(ids[Math.min(idx + 1, ids.length - 1)]);
-      if (e.key === "ArrowUp") setSelectedId(ids[Math.max(idx - 1, 0)]);
-      if (e.key === "Enter" && selectedId == null) setSelectedId(ids[0]);
+      if (e.key === "ArrowDown") openConversation(ids[Math.min(idx + 1, ids.length - 1)]);
+      if (e.key === "ArrowUp") openConversation(ids[Math.max(idx - 1, 0)]);
+      if (e.key === "Enter" && selectedId == null) openConversation(ids[0]);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -272,7 +285,7 @@ export default function StaffMessagesPage() {
     if (!meId) return;
     const { id: convId } = await ensureConversation(patient.user_id, { id: meId, name: meName, role: meRole });
     setConvs(await listConversationsForProvider(meId) as any);
-    setSelectedId(convId);
+    openConversation(convId);
     setModalOpen(false);
   }
 
@@ -371,9 +384,11 @@ export default function StaffMessagesPage() {
                   const un = unreadMap[c.id] ?? 0;
                   return (
                     <li key={c.id}>
-                      <div
-                        onClick={() => setSelectedId(c.id)}
-                        className={`group relative flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition
+                      {/* use a real button so click always fires & is focusable */}
+                      <button
+                        type="button"
+                        onClick={() => openConversation(c.id)}
+                        className={`group relative flex w-full items-center gap-3 rounded-xl border p-3 text-left transition
                           ${active ? "border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-900"}`}
                       >
                         <Avatar className="h-10 w-10">
@@ -416,7 +431,7 @@ export default function StaffMessagesPage() {
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
-                      </div>
+                      </button>
                     </li>
                   );
                 })}
@@ -441,7 +456,6 @@ export default function StaffMessagesPage() {
               providerName={meName}
               providerRole={meRole}
               settings={settings}
-              // optional: pass call links to enable phone/video icons in header
               // phoneHref="tel:+15551234567"
               // videoHref="https://meet.jit.si/your-room"
             />
