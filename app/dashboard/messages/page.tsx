@@ -10,8 +10,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, Phone, Video, Send, Image as ImageIcon, Camera, Mic,
-  MessageCircle, Search
+  MessageCircle, Search, EllipsisVertical, Plus, Trash2, Power, PowerOff
 } from "lucide-react";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog";
 import Swal from "sweetalert2";
 
 /* ------------------------------- Types ---------------------------------- */
@@ -98,6 +104,30 @@ export default function PatientMessagesPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const presenceTimer = useRef<number | null>(null);
 
+  /* -------- Add Staff dialog state -------- */
+  const [addOpen, setAddOpen] = useState(false);
+  const [form, setForm] = useState<{
+    user_id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    title: string;
+    department: string;
+    role: string;
+    avatar_url: string;
+    active: boolean;
+  }>({
+    user_id: "",
+    first_name: "",
+    last_name: "",
+    email: "",
+    title: "",
+    department: "",
+    role: "nurse",
+    avatar_url: "",
+    active: true,
+  });
+
   /* ------------------------- Auth + ensure patient ------------------------ */
   useEffect(() => {
     (async () => {
@@ -178,18 +208,16 @@ export default function PatientMessagesPage() {
   }, [me, params]);
 
   /* ----------------------------- Staff directory ------------------------- */
-  useEffect(() => {
-    if (!me) return;
-    (async () => {
-      const { data, error } = await supabase
-        .from("staff")
-        .select("user_id, first_name, last_name, email, title, department, role, avatar_url, active")
-        .eq("active", true)
-        .order("first_name", { ascending: true });
-      if (error) { await Swal.fire("Load error", error.message, "error"); return; }
-      setStaffDir((data as StaffRow[]) || []);
-    })();
-  }, [me]);
+  const fetchStaff = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("staff")
+      .select("user_id, first_name, last_name, email, title, department, role, avatar_url, active")
+      .order("first_name", { ascending: true });
+    if (error) { await Swal.fire("Load error", error.message, "error"); return; }
+    setStaffDir((data as StaffRow[]) || []);
+  }, []);
+
+  useEffect(() => { if (me) void fetchStaff(); }, [me, fetchStaff]);
 
   /* -------------------- Open/subscribe a conversation thread -------------- */
   useEffect(() => {
@@ -340,6 +368,61 @@ export default function PatientMessagesPage() {
       .eq("id", selectedId);
   }
 
+  /* ------------------------------ Staff CRUD ------------------------------ */
+
+  function validateUuid(v: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+  }
+
+  async function addStaff() {
+    // why: messages rely on provider_id existing; we require an existing Auth user_id
+    if (!form.user_id || !validateUuid(form.user_id)) return Swal.fire("Invalid user_id", "Paste a valid UUID from Auth.users.", "warning");
+    if (!form.email) return Swal.fire("Missing email", "Email is required.", "warning");
+
+    const payload = {
+      user_id: form.user_id,
+      first_name: form.first_name || null,
+      last_name: form.last_name || null,
+      email: form.email,
+      title: form.title || null,
+      department: form.department || null,
+      role: form.role || "nurse",
+      avatar_url: form.avatar_url || null,
+      active: form.active ?? true,
+    };
+
+    const { error } = await supabase.from("staff").insert(payload);
+    if (error) return Swal.fire("Add staff failed", error.message, "error");
+
+    setAddOpen(false);
+    setForm({ user_id: "", first_name: "", last_name: "", email: "", title: "", department: "", role: "nurse", avatar_url: "", active: true });
+    await fetchStaff();
+    await Swal.fire("Staff added", "New staff member inserted.", "success");
+  }
+
+  async function deactivateStaff(s: StaffRow) {
+    const prev = staffDir.slice();
+    setStaffDir((arr) => arr.map((x) => (x.user_id === s.user_id ? { ...x, active: false } : x)));
+    const { error } = await supabase.from("staff").update({ active: false }).eq("user_id", s.user_id);
+    if (error) { setStaffDir(prev); return Swal.fire("Deactivate failed", error.message, "error"); }
+  }
+
+  async function activateStaff(s: StaffRow) {
+    const prev = staffDir.slice();
+    setStaffDir((arr) => arr.map((x) => (x.user_id === s.user_id ? { ...x, active: true } : x)));
+    const { error } = await supabase.from("staff").update({ active: true }).eq("user_id", s.user_id);
+    if (error) { setStaffDir(prev); return Swal.fire("Activate failed", error.message, "error"); }
+  }
+
+  async function deleteStaff(s: StaffRow) {
+    const ok = await Swal.fire({ title: "Delete staff permanently?", text: "This cannot be undone.", icon: "warning", showCancelButton: true, confirmButtonText: "Delete" });
+    if (!ok.isConfirmed) return;
+    const prev = staffDir.slice();
+    setStaffDir((arr) => arr.filter((x) => x.user_id !== s.user_id));
+    const { error } = await supabase.from("staff").delete().eq("user_id", s.user_id);
+    if (error) { setStaffDir(prev); return Swal.fire("Delete failed", error.message, "error"); }
+  }
+
   /* ------------------------------ Derived UI ----------------------------- */
   const search = q.trim().toLowerCase();
   const convsSorted = useMemo(() => {
@@ -353,15 +436,13 @@ export default function PatientMessagesPage() {
   }, [convs]);
 
   const filteredStaff = useMemo(() => {
-    if (!search) return staffDir;
-    return staffDir.filter((s) => {
-      const name = [s.first_name, s.last_name].filter(Boolean).join(" ");
-      return (
-        name.toLowerCase().includes(search) ||
-        (s.email ?? "").toLowerCase().includes(search) ||
-        (s.department ?? "").toLowerCase().includes(search) ||
-        (s.title ?? "").toLowerCase().includes(search)
-      );
+    return (staffDir || []).filter((s) => {
+      const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "";
+      const hit = name.toLowerCase().includes(search)
+        || (s.email ?? "").toLowerCase().includes(search)
+        || (s.department ?? "").toLowerCase().includes(search)
+        || (s.title ?? "").toLowerCase().includes(search);
+      return search ? hit : true;
     });
   }, [staffDir, search]);
 
@@ -387,10 +468,60 @@ export default function PatientMessagesPage() {
         {/* Sidebar */}
         <div className="min-h-0 rounded-xl border bg-white dark:bg-zinc-900 dark:border-zinc-800 flex flex-col">
           <div className="p-4 border-b dark:border-zinc-800">
-            <div className="flex items-center gap-2 mb-3">
-              <MessageCircle className="h-5 w-5" />
-              <div className="font-medium">Direct Message</div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <MessageCircle className="h-5 w-5" />
+                <div className="font-medium">Direct Message</div>
+              </div>
+              {/* Add Staff button */}
+              <Dialog open={addOpen} onOpenChange={setAddOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-1"><Plus className="h-4 w-4" /> Add staff</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader><DialogTitle>Add staff</DialogTitle></DialogHeader>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2">
+                      <label className="text-sm">Auth User ID (UUID)</label>
+                      <Input value={form.user_id} onChange={(e) => setForm((f) => ({ ...f, user_id: e.target.value }))} placeholder="00000000-0000-4000-8000-000000000000" />
+                    </div>
+                    <div>
+                      <label className="text-sm">First name</label>
+                      <Input value={form.first_name} onChange={(e) => setForm((f) => ({ ...f, first_name: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="text-sm">Last name</label>
+                      <Input value={form.last_name} onChange={(e) => setForm((f) => ({ ...f, last_name: e.target.value }))} />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-sm">Email</label>
+                      <Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="text-sm">Title</label>
+                      <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="text-sm">Department</label>
+                      <Input value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="text-sm">Role</label>
+                      <Input value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} placeholder="doctor | nurse | counselor" />
+                    </div>
+                    <div>
+                      <label className="text-sm">Avatar URL</label>
+                      <Input value={form.avatar_url} onChange={(e) => setForm((f) => ({ ...f, avatar_url: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button variant="secondary" onClick={() => setAddOpen(false)}>Cancel</Button>
+                    <Button onClick={addStaff}>Save</Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
+
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
               <Input placeholder="Search staff…" className="pl-10" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -430,17 +561,12 @@ export default function PatientMessagesPage() {
                 );
               })}
 
-            {/* Staff directory */}
+            {/* Staff directory (with actions) */}
             <div className="px-4 py-2 text-xs font-semibold uppercase text-gray-500">Staff directory</div>
             {filteredStaff.map((s) => {
               const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "Staff";
               return (
-                <button
-                  key={`staff-${s.user_id}`}
-                  onClick={() => startChatWith(s)}
-                  disabled={starting}
-                  className="w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900 flex items-center gap-3"
-                >
+                <div key={`staff-${s.user_id}`} className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-zinc-900">
                   <Avatar className="h-9 w-9">
                     <AvatarImage src={s.avatar_url ?? undefined} />
                     <AvatarFallback>{initials(name)}</AvatarFallback>
@@ -451,13 +577,38 @@ export default function PatientMessagesPage() {
                       <div className="text-xs text-gray-500">{s.title ?? s.department ?? ""}</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="capitalize">{toProviderRole(s.role ?? "")}</Badge>
+                      <Badge variant={s.active ? "secondary" : "outline"} className="capitalize">{toProviderRole(s.role ?? "")}</Badge>
                       <p className="truncate text-xs text-gray-500">{s.email}</p>
                     </div>
                   </div>
-                </button>
+                  <div className="shrink-0">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon"><EllipsisVertical className="h-4 w-4" /></Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {s.active ? (
+                          <DropdownMenuItem onClick={() => deactivateStaff(s)}>
+                            <PowerOff className="mr-2 h-4 w-4" /> Deactivate
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={() => activateStaff(s)}>
+                            <Power className="mr-2 h-4 w-4" /> Activate
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem onClick={() => deleteStaff(s)}>
+                          <Trash2 className="mr-2 h-4 w-4" /> Delete permanently
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => startChatWith(s)}>
+                          Start chat
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
               );
             })}
+            {filteredStaff.length === 0 && <div className="p-6 text-sm text-gray-500">No staff found.</div>}
           </div>
         </div>
 
