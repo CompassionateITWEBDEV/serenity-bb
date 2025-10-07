@@ -8,7 +8,7 @@ export function supabaseFromRoute() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        // why: attach auth to API route
+        // why: bind Supabase auth to Next.js cookies for route handlers
         get: (name: string) => store.get(name)?.value,
         set: (name: string, value: string, options: any) => store.set({ name, value, ...options }),
         remove: (name: string, options: any) => store.delete({ name, ...options }),
