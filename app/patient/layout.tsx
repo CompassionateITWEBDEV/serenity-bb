@@ -1,9 +1,9 @@
-import PatientPresenceBeacon from "@/components/presence/PatientPresenceBeacon";
+import PatientHeartbeat from "@/components/presence/PatientHeartbeat";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <>
-      <PatientPresenceBeacon />
+      <PatientHeartbeat />
       {children}
     </>
   );
