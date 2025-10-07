@@ -215,7 +215,39 @@ export default function ChatBox(props: {
     return () => clearInterval(t);
   }, [text, me]);
 
-  // Listen to patient presence channel (REAL online/offline)
+  // ——— PRESENCE: PATIENT BROADCAST (for Online/Offline) ———
+  useEffect(() => {
+    // Only the patient app should advertise their own presence
+    if (mode !== "patient") return;
+
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      const uid = data.user?.id;
+      if (!uid) return;
+
+      const ch = supabase.channel(`online:${uid}`, {
+        config: { presence: { key: uid } },
+      });
+
+      let interval: ReturnType<typeof setInterval> | null = null;
+
+      ch.subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          const ping = () => ch.track({ online: true, at: Date.now() });
+          ping();
+          interval = setInterval(ping, 5000); // heartbeat
+        }
+      });
+
+      // cleanup → presence removed → staff will see Offline
+      return () => {
+        if (interval) clearInterval(interval);
+        try { supabase.removeChannel(ch); } catch {}
+      };
+    })();
+  }, [mode]);
+
+  // ——— PRESENCE: STAFF LISTENER (turn badge/label Online/Offline) ———
   useEffect(() => {
     if (mode !== "staff" || !patientId) return;
 
@@ -248,11 +280,6 @@ export default function ChatBox(props: {
         setResolvedPatient({ name: p2.data.full_name ?? undefined, avatar: p2.data.avatar ?? null });
         return;
       }
-      try {
-        // @ts-ignore optional RPC fallback
-        const p3 = await supabase.rpc("get_user_email", { uid: patientId });
-        if (!cancelled && p3?.data) setResolvedPatient({ email: p3.data as string });
-      } catch {}
     })();
     return () => { cancelled = true; };
   }, [mode, patientId]);
