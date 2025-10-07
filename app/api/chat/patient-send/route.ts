@@ -1,58 +1,110 @@
-import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+// app/api/chat/patient-send/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 
-function srv() {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { get() {}, set() {}, remove() {} } }
-  );
-}
+// Optional: keep Node runtime since RPC/DB needs it
+export const runtime = "nodejs";
 
-export async function POST(req: Request) {
-  const supabase = srv();
-  const { data: au } = await supabase.auth.getUser();
-  const me = au.user;
-  if (!me) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+type EnsureConversationParams = {
+  p_patient: string;
+  p_provider: string;
+};
 
-  const { content } = await req.json();
-  if (!content?.trim()) return NextResponse.json({ error: "empty" }, { status: 400 });
+export async function POST(req: NextRequest) {
+  try {
+    // ✅ Auth: bind Supabase to request cookies so getUser() works
+    const supabase = createRouteHandlerClient({ cookies });
 
-  // choose primary staff (or first)
-  const { data: rel } = await supabase
-    .from("patient_care_team")
-    .select("staff_id, is_primary")
-    .eq("patient_id", me.id)
-    .order("is_primary", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!rel?.staff_id) return NextResponse.json({ error: "no assigned staff" }, { status: 400 });
+    const {
+      data: { user: me },
+      error: authErr,
+    } = await supabase.auth.getUser();
 
-  // ensure convo (rpc avoids race)
-  const { data: convId, error: fnErr } = await supabase
-    .rpc("ensure_conversation", { p_patient: me.id, p_provider: rel.staff_id });
-  if (fnErr) return NextResponse.json({ error: fnErr.message }, { status: 400 });
+    if (authErr) {
+      // why: surface auth middleware/config issues
+      return NextResponse.json({ error: authErr.message }, { status: 401 });
+    }
+    if (!me) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
 
-  const sender_name = (me.user_metadata?.full_name as string) || me.email || "Patient";
-  const { data: msg, error } = await supabase
-    .from("messages")
-    .insert({
-      conversation_id: convId as unknown as string,
-      patient_id: me.id,
-      sender_id: me.id,
-      sender_name,
-      sender_role: "patient",
-      content: String(content).trim(),
-      read: false
-    })
-    .select("*")
-    .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "invalid json" }, { status: 400 });
+    }
 
-  await supabase
-    .from("conversations")
-    .update({ last_message: msg.content, last_message_at: msg.created_at })
-    .eq("id", convId as unknown as string);
+    const content = String((body as { content?: unknown })?.content ?? "").trim();
+    if (!content) {
+      return NextResponse.json({ error: "empty" }, { status: 400 });
+    }
 
-  return NextResponse.json({ conversationId: convId, message: msg });
+    // choose primary staff (or first)
+    const { data: rel, error: relErr } = await supabase
+      .from("patient_care_team")
+      .select("staff_id, is_primary")
+      .eq("patient_id", me.id)
+      .order("is_primary", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (relErr) {
+      return NextResponse.json({ error: relErr.message }, { status: 400 });
+    }
+    if (!rel?.staff_id) {
+      return NextResponse.json({ error: "no assigned staff" }, { status: 400 });
+    }
+
+    // ensure conversation (prefer SECURITY DEFINER on the function)
+    const { data: convId, error: fnErr } = await supabase.rpc(
+      "ensure_conversation",
+      { p_patient: me.id, p_provider: rel.staff_id } as EnsureConversationParams
+    );
+
+    if (fnErr || !convId) {
+      return NextResponse.json(
+        { error: fnErr?.message || "cannot ensure conversation" },
+        { status: 400 }
+      );
+    }
+
+    const sender_name =
+      (me.user_metadata?.full_name as string | undefined) ??
+      me.email ??
+      "Patient";
+
+    const { data: msg, error: msgErr } = await supabase
+      .from("messages")
+      .insert({
+        conversation_id: convId as unknown as string,
+        patient_id: me.id,
+        sender_id: me.id,
+        sender_name,
+        sender_role: "patient",
+        content,
+        read: false,
+      })
+      .select("*")
+      .single();
+
+    if (msgErr || !msg) {
+      return NextResponse.json(
+        { error: msgErr?.message || "failed to send" },
+        { status: 400 }
+      );
+    }
+
+    // fire-and-forget is acceptable; still await to serialize consistency
+    await supabase
+      .from("conversations")
+      .update({ last_message: msg.content, last_message_at: msg.created_at })
+      .eq("id", convId as unknown as string);
+
+    return NextResponse.json({ conversationId: convId, message: msg });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "unexpected error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
