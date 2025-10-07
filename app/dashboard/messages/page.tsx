@@ -89,6 +89,7 @@ export default function MessagesPage() {
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [staffDir, setStaffDir] = useState<StaffRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
 
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -98,38 +99,31 @@ export default function MessagesPage() {
   const [compose, setCompose] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<UiSettings>(() => {
+    if (typeof window === "undefined") return { theme: "light", density: "comfortable", bubbleRadius: "rounded-xl" };
     const raw = localStorage.getItem("chat:settings");
-    return raw
-      ? (JSON.parse(raw) as UiSettings)
-      : { theme: "light", density: "comfortable", bubbleRadius: "rounded-xl" };
+    return raw ? (JSON.parse(raw) as UiSettings) : { theme: "light", density: "comfortable", bubbleRadius: "rounded-xl" };
   });
 
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
     localStorage.setItem("chat:settings", JSON.stringify(settings));
-    if (settings.theme === "dark") {
-      document.documentElement.classList.add("dark");
-    } else if (settings.theme === "light") {
-      document.documentElement.classList.remove("dark");
-    }
+    if (settings.theme === "dark") document.documentElement.classList.add("dark");
+    else if (settings.theme === "light") document.documentElement.classList.remove("dark");
   }, [settings]);
 
-  // Role detection
+  // Detect role
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
       const uid = au.user?.id;
-      if (!uid) {
-        await Swal.fire("Access error", "Please sign in.", "error");
-        return;
-      }
+      if (!uid) return Swal.fire("Access error", "Please sign in.", "error");
+
       const { data: s } = await supabase
-        .from("staff")
-        .select("user_id, first_name, last_name, role, email")
-        .eq("user_id", uid)
-        .maybeSingle();
+        .from("staff").select("user_id, first_name, last_name, role, email")
+        .eq("user_id", uid).maybeSingle();
 
       if (s?.user_id) {
         setMe({
@@ -142,10 +136,8 @@ export default function MessagesPage() {
       }
 
       const { data: p } = await supabase
-        .from("patients")
-        .select("user_id, first_name, last_name, email")
-        .eq("user_id", uid)
-        .maybeSingle();
+        .from("patients").select("user_id, first_name, last_name, email")
+        .eq("user_id", uid).maybeSingle();
 
       if (p?.user_id) {
         setMe({
@@ -155,22 +147,19 @@ export default function MessagesPage() {
         });
         return;
       }
-
       await Swal.fire("Access error", "No profile found.", "error");
     })();
   }, []);
 
-  // Conversations (per role)
+  // Load conversations
   useEffect(() => {
     if (!me) return;
     (async () => {
       if (me.appRole === "staff") {
         const { data, error } = await supabase
           .from("conversations")
-          .select(
-            `id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at,
-             patient:patients!conversations_patient_id_fkey(user_id, full_name, email, avatar)`
-          )
+          .select(`id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at,
+                   patient:patients!conversations_patient_id_fkey(user_id, full_name, email, avatar)`)
           .eq("provider_id", me.id)
           .order("last_message_at", { ascending: false, nullsFirst: false });
         if (error) return Swal.fire("Load error", error.message, "error");
@@ -178,9 +167,7 @@ export default function MessagesPage() {
       } else {
         const { data, error } = await supabase
           .from("conversations")
-          .select(
-            `id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at`
-          )
+          .select(`id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at`)
           .eq("patient_id", me.id)
           .order("last_message_at", { ascending: false, nullsFirst: false });
         if (error) return Swal.fire("Load error", error.message, "error");
@@ -189,7 +176,7 @@ export default function MessagesPage() {
     })();
   }, [me]);
 
-  // Staff directory for patients
+  // Staff directory (patient)
   useEffect(() => {
     if (!me || me.appRole !== "patient") return;
     (async () => {
@@ -216,19 +203,15 @@ export default function MessagesPage() {
           if (me.appRole === "staff") {
             const { data } = await supabase
               .from("conversations")
-              .select(
-                `id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at,
-                 patient:patients!conversations_patient_id_fkey(user_id, full_name, email, avatar)`
-              )
+              .select(`id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at,
+                       patient:patients!conversations_patient_id_fkey(user_id, full_name, email, avatar)`)
               .eq("provider_id", me.id)
               .order("last_message_at", { ascending: false });
             setConvs((data as any) || []);
           } else {
             const { data } = await supabase
               .from("conversations")
-              .select(
-                `id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at`
-              )
+              .select(`id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at`)
               .eq("patient_id", me.id)
               .order("last_message_at", { ascending: false });
             setConvs((data as any) || []);
@@ -284,39 +267,45 @@ export default function MessagesPage() {
     return () => { supabase.removeChannel(ch); alive = false; };
   }, [selectedId, me]);
 
-  // Start/open conversation (patient clicks staff)
+  // Start/open convo on staff click (patient) — via API (reliable)
   const startChatWith = useCallback(async (staff: StaffRow) => {
-    if (!me || me.appRole !== "patient") return;
-    const { data: convId, error } = await supabase.rpc("ensure_conversation", {
-      p_patient: me.id,
-      p_provider: staff.user_id,
-    });
-    if (error || !convId) return Swal.fire("Could not start chat", error?.message || "Unknown error", "error");
-    const id = convId as string;
-    setSelectedId(id);
+    if (!me || me.appRole !== "patient" || starting) return;
+    setStarting(true);
+    try {
+      const res = await fetch("/api/chat/new", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerId: staff.user_id }),
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Failed to start chat");
+      const conv: Conversation = payload.conversation;
 
-    const { data: convRow } = await supabase
-      .from("conversations")
-      .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
-      .eq("id", id)
-      .single();
-
-    if (convRow) {
-      const needsMeta = !convRow.provider_name || !convRow.provider_role;
-      if (needsMeta) {
-        const provider_name = [staff.first_name, staff.last_name].filter(Boolean).join(" ") || staff.email || "Staff";
+      // If missing provider meta, fill from staff (optional)
+      if (!conv.provider_name || !conv.provider_role) {
+        const provider_name =
+          [staff.first_name, staff.last_name].filter(Boolean).join(" ") || staff.email || "Staff";
         const provider_role = toProviderRole(staff.role ?? "");
         const provider_avatar = staff.avatar_url ?? null;
-        await supabase.from("conversations").update({ provider_name, provider_role, provider_avatar }).eq("id", id);
-        convRow.provider_name = provider_name;
-        convRow.provider_role = provider_role;
-        convRow.provider_avatar = provider_avatar;
+        await supabase
+          .from("conversations")
+          .update({ provider_name, provider_role, provider_avatar })
+          .eq("id", conv.id);
+        conv.provider_name = provider_name;
+        conv.provider_role = provider_role;
+        conv.provider_avatar = provider_avatar;
       }
-      setConvs((prev) => upsertConversation(prev, convRow as unknown as Conversation));
-    }
-  }, [me]);
 
-  // Send message
+      setConvs((prev) => upsertConversation(prev, conv));
+      setSelectedId(conv.id);
+    } catch (e: any) {
+      await Swal.fire("Could not start chat", e.message || String(e), "error");
+    } finally {
+      setStarting(false);
+    }
+  }, [me, starting]);
+
+  // Send
   async function send() {
     if (!me || !selectedId || !compose.trim()) return;
 
@@ -371,48 +360,31 @@ export default function MessagesPage() {
       .eq("id", selectedId);
   }
 
-  // Edit message (own only)
+  // Edit/Delete (own only) – requires RLS policies at the end
   async function editMessage(m: MessageRow) {
     setEditingId(m.id);
     setEditingText(m.content);
   }
   async function saveEdit(id: string) {
-    const old = msgs.find((x) => x.id === id);
-    if (!old) return;
-    const next = editingText.trim();
-    if (!next) return;
+    const next = editingText.trim(); if (!next) return;
     setEditingId(null);
-
-    const prevMsgs = msgs.slice();
+    const prev = msgs.slice();
     setMsgs((arr) => arr.map((x) => (x.id === id ? { ...x, content: next } : x)));
-
     const { error } = await supabase.from("messages").update({ content: next }).eq("id", id);
-    if (error) {
-      setMsgs(prevMsgs);
-      await Swal.fire("Edit failed", error.message, "error");
-    }
+    if (error) { setMsgs(prev); await Swal.fire("Edit failed", error.message, "error"); }
   }
-
-  // Delete message (own only)
   async function deleteMessage(m: MessageRow) {
-    const ok = await Swal.fire({ title: "Delete message?", text: "This action cannot be undone.", icon: "warning", showCancelButton: true, confirmButtonText: "Delete" });
+    const ok = await Swal.fire({ title: "Delete message?", icon: "warning", showCancelButton: true, confirmButtonText: "Delete" });
     if (!ok.isConfirmed) return;
-
     const prev = msgs.slice();
     setMsgs((arr) => arr.filter((x) => x.id !== m.id));
-
     const { error } = await supabase.from("messages").delete().eq("id", m.id);
     if (error) {
-      // fallback: try soft delete via content change
       const { error: updErr } = await supabase.from("messages").update({ content: "[deleted]" }).eq("id", m.id);
-      if (updErr) {
-        setMsgs(prev);
-        await Swal.fire("Delete failed", error.message, "error");
-      }
+      if (updErr) { setMsgs(prev); await Swal.fire("Delete failed", error.message, "error"); }
     }
   }
 
-  // Emoji picker (small set)
   const addEmoji = (emoji: string) => {
     const el = textareaRef.current;
     if (!el) { setCompose((v) => v + emoji); return; }
@@ -420,10 +392,7 @@ export default function MessagesPage() {
     const end = el.selectionEnd ?? compose.length;
     const next = compose.slice(0, start) + emoji + compose.slice(end);
     setCompose(next);
-    setTimeout(() => {
-      el.focus();
-      el.selectionStart = el.selectionEnd = start + emoji.length;
-    }, 0);
+    setTimeout(() => { el.focus(); el.selectionStart = el.selectionEnd = start + emoji.length; }, 0);
   };
 
   const search = q.trim().toLowerCase();
@@ -471,113 +440,112 @@ export default function MessagesPage() {
       </div>
 
       <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MessageCircle className="h-5 w-5" /> Conversations
-            </CardTitle>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                placeholder={me?.appRole === "staff" ? "Search patients…" : "Search staff…"}
-                className="pl-10"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="divide-y dark:divide-gray-800">
-              {/* Recent conversations */}
-              {convsSorted
-                .filter((c) => {
-                  const other =
-                    me?.appRole === "staff"
-                      ? c.patient?.full_name ?? c.patient?.email ?? "Patient"
-                      : c.provider_name ?? "Staff";
-                  return search ? (other ?? "").toLowerCase().includes(search) : true;
-                })
-                .map((c) => {
-                  const active = selectedId === c.id;
-                  const other =
-                    me?.appRole === "staff"
-                      ? c.patient?.full_name ?? c.patient?.email ?? "Patient"
-                      : c.provider_name ?? "Staff";
-                  const avatarSrc =
-                    me?.appRole === "staff" ? c.patient?.avatar ?? undefined : c.provider_avatar ?? undefined;
+        <Card className="lg:col-span-1 flex min-h-0">
+          <div className="flex w-full flex-col">
+            <CardHeader className="shrink-0">
+              <CardTitle className="flex items-center gap-2">
+                <MessageCircle className="h-5 w-5" /> Conversations
+              </CardTitle>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Input
+                  placeholder={me?.appRole === "staff" ? "Search patients…" : "Search staff…"}
+                  className="pl-10"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                />
+              </div>
+            </CardHeader>
 
-                  return (
-                    <button
-                      key={`conv-${c.id}`}
-                      onClick={() => setSelectedId(c.id)}
-                      className={`flex w-full items-center gap-3 border-l-4 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-900 ${
-                        active ? "border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20" : "border-transparent"
-                      }`}
-                    >
-                      <Avatar>
-                        <AvatarImage src={avatarSrc} />
-                        <AvatarFallback>{initials(other)}</AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between">
-                          <p className="truncate font-medium text-gray-900 dark:text-gray-100">{other}</p>
-                          <span className="text-xs text-gray-500">
-                            {new Date(c.last_message_at ?? c.created_at).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary" className="capitalize">{c.provider_role ?? "staff"}</Badge>
-                          <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
+            <CardContent className="min-h-0 grow p-0">
+              <div className="h-full overflow-y-auto divide-y dark:divide-gray-800">
+                {/* Recent conversations */}
+                {convsSorted
+                  .filter((c) => {
+                    const other =
+                      me?.appRole === "staff"
+                        ? c.patient?.full_name ?? c.patient?.email ?? "Patient"
+                        : c.provider_name ?? "Staff";
+                    return search ? (other ?? "").toLowerCase().includes(search) : true;
+                  })
+                  .map((c) => {
+                    const active = selectedId === c.id;
+                    const other =
+                      me?.appRole === "staff"
+                        ? c.patient?.full_name ?? c.patient?.email ?? "Patient"
+                        : c.provider_name ?? "Staff";
+                    const avatarSrc =
+                      me?.appRole === "staff" ? c.patient?.avatar ?? undefined : c.provider_avatar ?? undefined;
 
-              {/* Staff directory (patient only) */}
-              {me?.appRole === "patient" &&
-                filteredStaff.map((s) => {
-                  const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "Staff";
-                  return (
-                    <button
-                      key={`staff-${s.user_id}`}
-                      onClick={() => startChatWith(s)}
-                      className="flex w-full items-center gap-3 border-l-4 border-transparent p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-900"
-                      title="Start chat"
-                    >
-                      <Avatar>
-                        <AvatarImage src={s.avatar_url ?? undefined} />
-                        <AvatarFallback>{initials(name)}</AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between">
-                          <p className="truncate font-medium text-gray-900 dark:text-gray-100">{name}</p>
-                          <span className="text-xs text-gray-500">{s.title ?? s.department ?? ""}</span>
+                    return (
+                      <button
+                        key={`conv-${c.id}`}
+                        onClick={() => setSelectedId(c.id)}
+                        className={`flex w-full items-center gap-3 border-l-4 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-900 ${
+                          active ? "border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20" : "border-transparent"
+                        }`}
+                      >
+                        <Avatar>
+                          <AvatarImage src={avatarSrc} />
+                          <AvatarFallback>{initials(other)}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between">
+                            <p className="truncate font-medium text-gray-900 dark:text-gray-100">{other}</p>
+                            <span className="text-xs text-gray-500">
+                              {new Date(c.last_message_at ?? c.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary" className="capitalize">{c.provider_role ?? "staff"}</Badge>
+                            <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary" className="capitalize">{toProviderRole(s.role ?? "")}</Badge>
-                          <p className="truncate text-xs text-gray-500">{s.email}</p>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  })}
 
-              {convsSorted.length === 0 && me?.appRole === "staff" && (
-                <div className="p-6 text-sm text-gray-500">No conversations yet.</div>
-              )}
-              {me?.appRole === "patient" && filteredStaff.length === 0 && (
-                <div className="p-6 text-sm text-gray-500">No staff found.</div>
-              )}
-            </div>
-          </CardContent>
+                {/* Staff directory (patient only) */}
+                {me?.appRole === "patient" && (
+                  <>
+                    <div className="px-4 py-2 text-xs font-semibold uppercase text-gray-500">Staff directory</div>
+                    {filteredStaff.map((s) => {
+                      const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "Staff";
+                      return (
+                        <button
+                          key={`staff-${s.user_id}`}
+                          onClick={() => startChatWith(s)}
+                          disabled={starting}
+                          className="flex w-full items-center gap-3 border-l-4 border-transparent p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-900 disabled:opacity-50"
+                          title="Start chat"
+                        >
+                          <Avatar>
+                            <AvatarImage src={s.avatar_url ?? undefined} />
+                            <AvatarFallback>{initials(name)}</AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between">
+                              <p className="truncate font-medium text-gray-900 dark:text-gray-100">{name}</p>
+                              <span className="text-xs text-gray-500">{s.title ?? s.department ?? ""}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary" className="capitalize">{toProviderRole(s.role ?? "")}</Badge>
+                              <p className="truncate text-xs text-gray-500">{s.email}</p>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                    {filteredStaff.length === 0 && <div className="p-6 text-sm text-gray-500">No staff found.</div>}
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </div>
         </Card>
 
         {/* Thread panel */}
-        <Card className="flex flex-col lg:col-span-2">
+        <Card className="flex min-h-0 flex-col lg:col-span-2">
           {!selectedId ? (
             <CardContent className="flex flex-1 items-center justify-center">
               <div className="text-center">
@@ -587,28 +555,22 @@ export default function MessagesPage() {
             </CardContent>
           ) : (
             <>
-              <CardContent ref={listRef} className="flex-1 overflow-y-auto p-4">
+              <CardContent ref={listRef} className="min-h-0 grow overflow-y-auto p-4">
                 <div className="space-y-4">
                   {msgs.map((m) => {
                     const own = m.sender_id === me?.id;
                     const bubble = own
-                      ? `bg-cyan-500 text-white ${bubbleBase}`
-                      : `bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 ${bubbleBase}`;
+                      ? `bg-cyan-500 text-white ${settings.bubbleRadius} px-4 py-2`
+                      : `bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 ${settings.bubbleRadius} px-4 py-2`;
                     return (
                       <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
                         <div className="max-w-full sm:max-w-lg">
                           <div className={`group relative ${bubble}`}>
                             {editingId === m.id ? (
                               <div className="flex items-end gap-2">
-                                <Input
-                                  value={editingText}
-                                  onChange={(e) => setEditingText(e.target.value)}
-                                  className="text-black"
-                                />
+                                <Input value={editingText} onChange={(e) => setEditingText(e.target.value)} className="text-black" />
                                 <Button size="sm" onClick={() => saveEdit(m.id)}>Save</Button>
-                                <Button size="sm" variant="secondary" onClick={() => setEditingId(null)}>
-                                  Cancel
-                                </Button>
+                                <Button size="sm" variant="secondary" onClick={() => setEditingId(null)}>Cancel</Button>
                               </div>
                             ) : (
                               <>
@@ -620,17 +582,11 @@ export default function MessagesPage() {
                                   <div className="absolute -top-2 -right-2 opacity-0 transition group-hover:opacity-100">
                                     <DropdownMenu>
                                       <DropdownMenuTrigger asChild>
-                                        <Button size="icon" variant="secondary" className="h-6 w-6">
-                                          <EllipsisVertical className="h-4 w-4" />
-                                        </Button>
+                                        <Button size="icon" variant="secondary" className="h-6 w-6"><EllipsisVertical className="h-4 w-4" /></Button>
                                       </DropdownMenuTrigger>
                                       <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => editMessage(m)}>
-                                          <Pencil className="mr-2 h-4 w-4" /> Edit
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => deleteMessage(m)}>
-                                          <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => editMessage(m)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => deleteMessage(m)}><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
                                       </DropdownMenuContent>
                                     </DropdownMenu>
                                   </div>
@@ -651,14 +607,10 @@ export default function MessagesPage() {
                 <div className="flex items-end gap-2">
                   <Dialog>
                     <DialogTrigger asChild>
-                      <Button type="button" variant="secondary" className="shrink-0">
-                        <Smile className="h-4 w-4" />
-                      </Button>
+                      <Button type="button" variant="secondary" className="shrink-0"><Smile className="h-4 w-4" /></Button>
                     </DialogTrigger>
                     <DialogContent className="max-w-sm">
-                      <DialogHeader>
-                        <DialogTitle>Pick an emoji</DialogTitle>
-                      </DialogHeader>
+                      <DialogHeader><DialogTitle>Pick an emoji</DialogTitle></DialogHeader>
                       <EmojiGrid onPick={addEmoji} />
                     </DialogContent>
                   </Dialog>
@@ -669,12 +621,7 @@ export default function MessagesPage() {
                     value={compose}
                     onChange={(e) => setCompose(e.target.value)}
                     className={`min-h-[44px] max-h-[140px] flex-1 ${settings.density === "compact" ? "text-sm" : ""}`}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        void send();
-                      }
-                    }}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
                   />
                   <Button onClick={send} disabled={!compose.trim()} className="shrink-0">
                     <Send className="h-4 w-4" />
@@ -689,17 +636,13 @@ export default function MessagesPage() {
       {/* Settings */}
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
         <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Chat settings</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Chat settings</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div>
               <p className="text-sm font-medium">Theme</p>
               <div className="mt-2 flex gap-2">
                 {(["light", "dark", "system"] as const).map((v) => (
-                  <Button key={v} variant={settings.theme === v ? "default" : "outline"} onClick={() => setSettings((s) => ({ ...s, theme: v }))}>
-                    {v}
-                  </Button>
+                  <Button key={v} variant={settings.theme === v ? "default" : "outline"} onClick={() => setSettings((s) => ({ ...s, theme: v }))}>{v}</Button>
                 ))}
               </div>
             </div>
@@ -707,9 +650,7 @@ export default function MessagesPage() {
               <p className="text-sm font-medium">Density</p>
               <div className="mt-2 flex gap-2">
                 {(["comfortable", "compact"] as const).map((v) => (
-                  <Button key={v} variant={settings.density === v ? "default" : "outline"} onClick={() => setSettings((s) => ({ ...s, density: v }))}>
-                    {v}
-                  </Button>
+                  <Button key={v} variant={settings.density === v ? "default" : "outline"} onClick={() => setSettings((s) => ({ ...s, density: v }))}>{v}</Button>
                 ))}
               </div>
             </div>
@@ -717,9 +658,7 @@ export default function MessagesPage() {
               <p className="text-sm font-medium">Bubble roundness</p>
               <div className="mt-2 flex gap-2">
                 {(["rounded-lg", "rounded-xl", "rounded-2xl"] as const).map((v) => (
-                  <Button key={v} variant={settings.bubbleRadius === v ? "default" : "outline"} onClick={() => setSettings((s) => ({ ...s, bubbleRadius: v }))}>
-                    {v.replace("rounded-", "")}
-                  </Button>
+                  <Button key={v} variant={settings.bubbleRadius === v ? "default" : "outline"} onClick={() => setSettings((s) => ({ ...s, bubbleRadius: v }))}>{v.replace("rounded-","")}</Button>
                 ))}
               </div>
             </div>
@@ -730,7 +669,6 @@ export default function MessagesPage() {
   );
 }
 
-/** Emoji grid with a small curated set – no extra deps */
 function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
   const groups: Record<string, string[]> = {
     "😀 Smileys": ["😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🥳", "😇", "🙂", "🙃", "😌"],
@@ -745,12 +683,7 @@ function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
           <p className="mb-2 text-xs font-medium text-gray-500">{label}</p>
           <div className="grid grid-cols-10 gap-2">
             {list.map((e) => (
-              <button
-                key={e}
-                onClick={() => onPick(e)}
-                className="rounded-md border p-2 text-xl hover:bg-gray-50 dark:hover:bg-gray-900"
-                aria-label={`Insert ${e}`}
-              >
+              <button key={e} onClick={() => onPick(e)} className="rounded-md border p-2 text-xl hover:bg-gray-50 dark:hover:bg-gray-900" aria-label={`Insert ${e}`}>
                 {e}
               </button>
             ))}
