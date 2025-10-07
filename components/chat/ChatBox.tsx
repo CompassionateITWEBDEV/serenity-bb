@@ -9,7 +9,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { ArrowLeft, Phone, Video, MoreVertical, Send, Smile, Image as ImageIcon, Camera, Mic, CheckCheck, X } from "lucide-react";
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
-import usePatientOnline from "@/hooks/usePatientOnline";
 
 type Provider = ProviderRole;
 
@@ -74,10 +73,10 @@ export default function ChatBox(props: {
   const [typing, setTyping] = useState(false);
   const [uploading, setUploading] = useState<{ label: string; pct?: number } | null>(null);
   const [recording, setRecording] = useState<boolean>(false);
-  const [otherInThread, setOtherInThread] = useState<boolean>(false);
+  const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
   const [resolvedPatient, setResolvedPatient] = useState<{ name?: string; email?: string; avatar?: string | null } | null>(null);
-
-  const dbOnline = mode === "staff" ? usePatientOnline(patientId) : false;
+  const [dbOnline, setDbOnline] = useState<boolean>(false);
+  const [rtOnline, setRtOnline] = useState<boolean>(false);
 
   const listRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -194,7 +193,7 @@ export default function ChatBox(props: {
         const others = Object.entries(state).flatMap(([, v]: any) => v) as any[];
         setTyping(others.some((s) => s.status === "typing"));
         const someoneElse = others.some((s) => s.user_id && s.user_id !== me.id);
-        setOtherInThread(someoneElse);
+        setThreadOtherPresent(someoneElse);
       })
       .on(
         "postgres_changes",
@@ -264,53 +263,110 @@ export default function ChatBox(props: {
       const { data } = await supabase.auth.getUser();
       const uid = data.user?.id;
       if (!uid) return;
+
+      const beat = async () => {
+        await supabase.rpc("patient_heartbeat");
+      };
+
+      await beat();
+      const fast = setInterval(beat, 1000);
+      setTimeout(() => clearInterval(fast), 2200);
+      const slow = setInterval(beat, 10000);
+
       const ch = supabase.channel(`online:${uid}`, { config: { presence: { key: uid } } });
-      let interval: ReturnType<typeof setInterval> | null = null;
       ch.subscribe((status) => {
         if (status === "SUBSCRIBED") {
           const ping = () => ch.track({ online: true, at: Date.now() });
           ping();
-          interval = setInterval(ping, 5000);
+          setTimeout(ping, 800);
         }
       });
+
+      const onFocus = () => {
+        void beat();
+        ch.track({ online: true, at: Date.now() });
+      };
+      window.addEventListener("focus", onFocus);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") onFocus();
+      });
+
       return () => {
-        if (interval) clearInterval(interval);
+        clearInterval(slow);
         try {
           supabase.removeChannel(ch);
         } catch {}
+        window.removeEventListener("focus", onFocus);
       };
     })();
   }, [mode]);
 
   useEffect(() => {
     if (mode !== "staff" || !patientId) return;
-    const staffKey = `staff-${crypto.randomUUID()}`;
-    const ch = supabase.channel(`online:${patientId}`, { config: { presence: { key: staffKey } } });
+    let cancelled = false;
 
-    const computeOnline = () => {
-      const state = ch.presenceState() as Record<string, any[]>;
+    const fetchOnce = async () => {
+      const { data } = await supabase
+        .from("v_patient_online")
+        .select("online,last_seen")
+        .eq("user_id", patientId)
+        .maybeSingle();
+      if (!cancelled && data) setDbOnline(!!data.online);
+    };
+
+    const dbCh = supabase
+      .channel(`presence_db_${patientId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "patient_presence", filter: `user_id=eq.${patientId}` },
+        (p) => {
+          const last = new Date(p.new.last_seen as string).getTime();
+          setDbOnline(Date.now() - last < 15000);
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "patient_presence", filter: `user_id=eq.${patientId}` },
+        (p) => {
+          const last = new Date(p.new.last_seen as string).getTime();
+          setDbOnline(Date.now() - last < 15000);
+        }
+      )
+      .subscribe();
+
+    const staffKey = `staff-${crypto.randomUUID()}`;
+    const rtCh = supabase.channel(`online:${patientId}`, { config: { presence: { key: staffKey } } });
+    const computeRtOnline = () => {
+      const state = rtCh.presenceState() as Record<string, any[]>;
       const entries = state[patientId] || [];
       return Array.isArray(entries) && entries.length > 0;
     };
+    const updateRt = () => setRtOnline(computeRtOnline());
 
-    const update = () => setOtherInThread((v) => (computeOnline() ? true : v)); // keep thread flag if true
-
-    ch
-      .on("presence", { event: "sync" }, update)
-      .on("presence", { event: "join" }, update)
-      .on("presence", { event: "leave" }, update)
+    rtCh
+      .on("presence", { event: "sync" }, updateRt)
+      .on("presence", { event: "join" }, updateRt)
+      .on("presence", { event: "leave" }, updateRt)
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
           try {
-            await ch.track({ observer: true, at: Date.now() });
+            await rtCh.track({ observer: true, at: Date.now() });
           } catch {}
-          update();
+          updateRt();
         }
       });
 
+    void fetchOnce();
+    const short = setTimeout(fetchOnce, 800);
+
     return () => {
+      cancelled = true;
+      clearTimeout(short);
       try {
-        supabase.removeChannel(ch);
+        supabase.removeChannel(dbCh);
+      } catch {}
+      try {
+        supabase.removeChannel(rtCh);
       } catch {}
     };
   }, [mode, patientId]);
@@ -476,7 +532,7 @@ export default function ChatBox(props: {
     rec.start();
   }
 
-  const isOnline = mode === "staff" ? dbOnline || otherInThread : false;
+  const isOnline = mode === "staff" ? (dbOnline || rtOnline || threadOtherPresent) : false;
 
   const otherName =
     mode === "staff"
