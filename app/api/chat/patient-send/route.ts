@@ -1,10 +1,30 @@
-// app/api/chat/patient-send/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createServerClient } from "@supabase/ssr";
 
-// Optional: keep Node runtime since RPC/DB needs it
 export const runtime = "nodejs";
+
+function supabaseFromRoute() {
+  const cookieStore = cookies();
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        // why: bind Supabase auth to Next.js request/response cookies
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set(name: string, value: string, options: any) {
+          cookieStore.set({ name, value, ...options });
+        },
+        remove(name: string, options: any) {
+          cookieStore.delete({ name, ...options });
+        },
+      },
+    }
+  );
+}
 
 type EnsureConversationParams = {
   p_patient: string;
@@ -13,21 +33,12 @@ type EnsureConversationParams = {
 
 export async function POST(req: NextRequest) {
   try {
-    // ✅ Auth: bind Supabase to request cookies so getUser() works
-    const supabase = createRouteHandlerClient({ cookies });
+    const supabase = supabaseFromRoute();
 
-    const {
-      data: { user: me },
-      error: authErr,
-    } = await supabase.auth.getUser();
-
-    if (authErr) {
-      // why: surface auth middleware/config issues
-      return NextResponse.json({ error: authErr.message }, { status: 401 });
-    }
-    if (!me) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+    const { data: au, error: authErr } = await supabase.auth.getUser();
+    if (authErr) return NextResponse.json({ error: authErr.message }, { status: 401 });
+    const me = au.user;
+    if (!me) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
     let body: unknown;
     try {
@@ -37,11 +48,8 @@ export async function POST(req: NextRequest) {
     }
 
     const content = String((body as { content?: unknown })?.content ?? "").trim();
-    if (!content) {
-      return NextResponse.json({ error: "empty" }, { status: 400 });
-    }
+    if (!content) return NextResponse.json({ error: "empty" }, { status: 400 });
 
-    // choose primary staff (or first)
     const { data: rel, error: relErr } = await supabase
       .from("patient_care_team")
       .select("staff_id, is_primary")
@@ -49,31 +57,18 @@ export async function POST(req: NextRequest) {
       .order("is_primary", { ascending: false })
       .limit(1)
       .maybeSingle();
+    if (relErr) return NextResponse.json({ error: relErr.message }, { status: 400 });
+    if (!rel?.staff_id) return NextResponse.json({ error: "no assigned staff" }, { status: 400 });
 
-    if (relErr) {
-      return NextResponse.json({ error: relErr.message }, { status: 400 });
-    }
-    if (!rel?.staff_id) {
-      return NextResponse.json({ error: "no assigned staff" }, { status: 400 });
-    }
-
-    // ensure conversation (prefer SECURITY DEFINER on the function)
     const { data: convId, error: fnErr } = await supabase.rpc(
       "ensure_conversation",
       { p_patient: me.id, p_provider: rel.staff_id } as EnsureConversationParams
     );
-
-    if (fnErr || !convId) {
-      return NextResponse.json(
-        { error: fnErr?.message || "cannot ensure conversation" },
-        { status: 400 }
-      );
-    }
+    if (fnErr || !convId)
+      return NextResponse.json({ error: fnErr?.message || "cannot ensure conversation" }, { status: 400 });
 
     const sender_name =
-      (me.user_metadata?.full_name as string | undefined) ??
-      me.email ??
-      "Patient";
+      (me.user_metadata?.full_name as string | undefined) ?? me.email ?? "Patient";
 
     const { data: msg, error: msgErr } = await supabase
       .from("messages")
@@ -88,15 +83,8 @@ export async function POST(req: NextRequest) {
       })
       .select("*")
       .single();
+    if (msgErr || !msg) return NextResponse.json({ error: msgErr?.message || "failed to send" }, { status: 400 });
 
-    if (msgErr || !msg) {
-      return NextResponse.json(
-        { error: msgErr?.message || "failed to send" },
-        { status: 400 }
-      );
-    }
-
-    // fire-and-forget is acceptable; still await to serialize consistency
     await supabase
       .from("conversations")
       .update({ last_message: msg.content, last_message_at: msg.created_at })
