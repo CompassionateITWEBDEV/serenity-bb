@@ -23,7 +23,6 @@ export default function PatientPresenceBeacon() {
         }
       });
 
-      // ensure cleanup on navigation/unmount
       window.addEventListener("beforeunload", () => {
         try { supabase.removeChannel(ch); } catch {}
       });
