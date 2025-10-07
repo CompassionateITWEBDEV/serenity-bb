@@ -1,10 +1,7 @@
-import PatientHeartbeat from "@/components/presence/PatientHeartbeat";
+"use client";
+import usePatientHeartbeat from "@/hooks/usePatientHeartbeat";
 
-export default function Layout({ children }: { children: React.ReactNode }) {
-  return (
-    <>
-      <PatientHeartbeat />
-      {children}
-    </>
-  );
+export default function PatientMessagesPage() {
+  usePatientHeartbeat();
+  // ...rest of your page...
 }
