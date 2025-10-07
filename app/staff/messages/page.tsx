@@ -433,7 +433,7 @@ export default function StaffMessagesPage() {
               providerName={meName}
               providerRole={meRole}
               settings={settings}
-              conversationId={selectedConv.id}   // ← IMPORTANT: pass the actual thread id
+              conversationId={selectedConv.id}   // pass real thread id
             />
           )}
         </div>
