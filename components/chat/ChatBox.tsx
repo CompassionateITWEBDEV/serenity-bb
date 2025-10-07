@@ -5,9 +5,12 @@ import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
-import { Send } from "lucide-react";
+import { Send, Smile } from "lucide-react";
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog";
 
 type MessageRow = {
   id: string;
@@ -22,43 +25,55 @@ type MessageRow = {
   urgent: boolean;
 };
 
+type UiSettings = {
+  theme: "light" | "dark" | "system";
+  density: "comfortable" | "compact";
+  bubbleRadius: "rounded-lg" | "rounded-xl" | "rounded-2xl";
+  enterToSend: boolean;
+  sound: boolean;
+};
+
 export default function ChatBox(props: {
   mode: "staff" | "patient";
   patientId: string;
   providerId?: string;
   providerName?: string;
   providerRole?: ProviderRole;
+  settings?: UiSettings;
 }) {
-  const { mode, patientId } = props;
+  const { mode, patientId, settings } = props;
 
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [me, setMe] = useState<{ id: string; name: string; role: "patient" | ProviderRole } | null>(null);
 
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
   const [text, setText] = useState("");
+  const [typing, setTyping] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
-
-  // keep a single realtime channel ref
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // ===== helpers
+  const bubbleBase =
+    (settings?.bubbleRadius ?? "rounded-xl") +
+    " px-4 py-2 " +
+    ((settings?.density ?? "comfortable") === "compact" ? "text-sm" : "text-[15px]");
+
+  const playDing = useCallback(() => {
+    if (!settings?.sound) return;
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = 880; g.gain.value = 0.001;
+      o.connect(g); g.connect(ctx.destination); o.start(); g.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.12); o.stop(ctx.currentTime + 0.12);
+    } catch {}
+  }, [settings?.sound]);
+
   const scrollToBottom = useCallback((smooth = false) => {
     const el = listRef.current; if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
-  const refetchThread = useCallback(async (cid: string) => {
-    const { data, error } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", cid)
-      .order("created_at", { ascending: true });
-    if (error) return;
-    setMsgs((data as MessageRow[]) ?? []);
-    queueMicrotask(() => scrollToBottom(false));
-  }, [scrollToBottom]);
-
-  // ===== resolve/create conversation + "me"
+  // Resolve/create conversation + me
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
@@ -109,85 +124,91 @@ export default function ChatBox(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, patientId, props.providerId]);
 
-  // ===== initial load + realtime subscription
+  // Load + subscribe (messages + presence typing)
   useEffect(() => {
     if (!conversationId || !me) return;
-
     let mounted = true;
 
     (async () => {
-      await refetchThread(conversationId);
-      await markReadHelper(conversationId, me.role);
+      const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true });
+      if (error) return;
+      if (mounted) {
+        setMsgs((data as MessageRow[]) ?? []);
+        queueMicrotask(() => scrollToBottom(false));
+        await markReadHelper(conversationId, me.role);
+      }
     })();
 
-    // tear down previous channel
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-      channelRef.current = null;
-    }
+    if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
 
     const ch = supabase
-      .channel(`thread_${conversationId}`)
-      // INSERTs: append; UPDATE/DELETE: refetch to keep order consistent
+      .channel(`thread_${conversationId}`, { config: { presence: { key: me.id } } })
+      .on("presence", { event: "sync" }, () => {
+        const state = ch.presenceState();
+        const others = Object.entries(state).flatMap(([, v]: any) => v) as any[];
+        const someoneTyping = others.some((s) => s.status === "typing");
+        setTyping(someoneTyping);
+      })
       .on(
         "postgres_changes",
         { schema: "public", table: "messages", event: "INSERT", filter: `conversation_id=eq.${conversationId}` },
         async (p) => {
-          if (!mounted) return;
           const row = p.new as MessageRow;
-          setMsgs((prev) => {
-            // guard: avoid duplicates if refetch raced
-            if (prev.some((m) => m.id === row.id)) return prev;
-            return [...prev, row];
-          });
+          setMsgs((prev) => (prev.some((x) => x.id === row.id) ? prev : [...prev, row]));
           scrollToBottom(true);
-          if (row.sender_id !== me.id) await markReadHelper(conversationId, me.role);
+          if (row.sender_id !== me.id) {
+            playDing();
+            await markReadHelper(conversationId, me.role);
+          }
         }
       )
       .on(
         "postgres_changes",
         { schema: "public", table: "messages", event: "UPDATE", filter: `conversation_id=eq.${conversationId}` },
-        () => refetchThread(conversationId)
-      )
-      .on(
-        "postgres_changes",
-        { schema: "public", table: "messages", event: "DELETE", filter: `conversation_id=eq.${conversationId}` },
-        () => refetchThread(conversationId)
-      )
-      .subscribe((status) => {
-        // why: helps diagnose reconnects; Supabase auto-retries.
-        // console.debug("[realtime] thread status:", conversationId, status);
-        if (status === "SUBSCRIBED") {
-          // do nothing; already fetched above
+        async () => {
+          const { data } = await supabase
+            .from("messages").select("*")
+            .eq("conversation_id", conversationId)
+            .order("created_at", { ascending: true });
+          setMsgs((data as MessageRow[]) ?? []);
         }
-      });
+      )
+      .subscribe();
 
     channelRef.current = ch;
 
-    // resilience: refresh on visibility/online focus
-    const onFocusOrOnline = async () => {
-      if (!conversationId || !me) return;
-      await refetchThread(conversationId);
+    const refreshOnFocus = async () => {
+      const { data } = await supabase
+        .from("messages").select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true });
+      setMsgs((data as MessageRow[]) ?? []);
       await markReadHelper(conversationId, me.role);
     };
-    window.addEventListener("focus", onFocusOrOnline);
-    window.addEventListener("online", onFocusOrOnline);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") void onFocusOrOnline();
-    });
+    window.addEventListener("focus", refreshOnFocus);
+    window.addEventListener("online", refreshOnFocus);
 
     return () => {
       mounted = false;
-      window.removeEventListener("focus", onFocusOrOnline);
-      window.removeEventListener("online", onFocusOrOnline);
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
+      window.removeEventListener("focus", refreshOnFocus);
+      window.removeEventListener("online", refreshOnFocus);
+      if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
     };
-  }, [conversationId, me, refetchThread, scrollToBottom]);
+  }, [conversationId, me, playDing, scrollToBottom]);
 
-  // ===== send
+  // presence: broadcast typing when user types
+  useEffect(() => {
+    if (!channelRef.current || !me) return;
+    const ch = channelRef.current;
+    const t = setInterval(() => { ch.track({ user_id: me.id, status: text ? "typing" : "idle" }); }, 2000);
+    ch.track({ user_id: me.id, status: text ? "typing" : "idle" });
+    return () => clearInterval(t);
+  }, [text, me]);
+
   const canSend = useMemo(() => !!text.trim() && !!me && !!conversationId, [text, me, conversationId]);
 
   const send = useCallback(async () => {
@@ -207,7 +228,6 @@ export default function ChatBox(props: {
       read: false,
       urgent: false,
     };
-
     setMsgs((m) => [...m, optimistic]);
     scrollToBottom(true);
 
@@ -221,13 +241,23 @@ export default function ChatBox(props: {
       read: false,
       urgent: false,
     });
-
-    if (error) {
-      // rollback optimistic
-      setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
-      alert(`Send failed: ${error.message}`);
-    }
+    if (error) setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
   }, [canSend, me, conversationId, mode, patientId, text, scrollToBottom]);
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const enterToSend = settings?.enterToSend ?? true;
+    if (e.key === "Enter" && !e.shiftKey && enterToSend) { e.preventDefault(); void send(); }
+  };
+
+  const addEmoji = (emoji: string) => {
+    const el = textareaRef.current;
+    if (!el) { setText((v) => v + emoji); return; }
+    const start = el.selectionStart ?? text.length;
+    const end = el.selectionEnd ?? text.length;
+    const next = text.slice(0, start) + emoji + text.slice(end);
+    setText(next);
+    setTimeout(() => { el.focus(); el.selectionStart = el.selectionEnd = start + emoji.length; }, 0);
+  };
 
   return (
     <Card className="h-[540px] w-full">
@@ -236,9 +266,12 @@ export default function ChatBox(props: {
           <div className="space-y-3">
             {msgs.map((m) => {
               const own = m.sender_id === me?.id;
+              const bubble = own
+                ? `bg-cyan-500 text-white ${bubbleBase}`
+                : `bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 ${bubbleBase}`;
               return (
                 <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-full sm:max-w-lg rounded-xl px-4 py-2 ${own ? "bg-cyan-500 text-white" : "bg-gray-100"}`}>
+                  <div className={`max-w-full sm:max-w-lg ${bubble}`}>
                     <div className="whitespace-pre-wrap break-words">{m.content}</div>
                     <div className={`mt-1 text-[11px] ${own ? "text-cyan-100" : "text-gray-500"}`}>
                       {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -247,22 +280,65 @@ export default function ChatBox(props: {
                 </div>
               );
             })}
+            {typing && <div className="text-xs text-gray-500 px-1">Patient is typing…</div>}
             {msgs.length === 0 && <div className="text-center text-sm text-gray-500">No messages yet.</div>}
           </div>
         </div>
+
         <div className="border-t p-3">
           <div className="flex items-end gap-2">
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button type="button" variant="secondary" className="shrink-0"><Smile className="h-4 w-4" /></Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-sm">
+                <DialogHeader><DialogTitle>Pick an emoji</DialogTitle></DialogHeader>
+                <EmojiGrid onPick={addEmoji} />
+              </DialogContent>
+            </Dialog>
+
             <Textarea
+              ref={textareaRef}
               placeholder="Type your message…"
               value={text}
               onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
-              className="min-h-[44px] max-h-[140px] flex-1"
+              onKeyDown={onKeyDown}
+              className={`min-h-[44px] max-h-[140px] flex-1 ${settings?.density === "compact" ? "text-sm" : ""}`}
             />
             <Button disabled={!canSend} onClick={send}><Send className="h-4 w-4" /></Button>
           </div>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
+  const groups: Record<string, string[]> = {
+    "😀 Smileys": ["😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🥳", "😇", "🙂", "🙃", "😌"],
+    "👍 Gestures": ["👍", "👎", "👏", "🙏", "🤝", "👌", "✌️", "🤞", "👋", "💪"],
+    "❤️ Hearts": ["❤️", "💙", "💚", "💛", "🧡", "💜", "🖤", "🤍", "🤎", "💕", "💖"],
+    "🔥 Misc": ["🔥", "🎉", "✨", "⭐", "🌟", "🧠", "💡", "📌", "✅", "❗"],
+  };
+  return (
+    <div className="space-y-4">
+      {Object.entries(groups).map(([label, list]) => (
+        <div key={label}>
+          <p className="mb-2 text-xs font-medium text-gray-500">{label}</p>
+          <div className="grid grid-cols-10 gap-2">
+            {list.map((e) => (
+              <button
+                key={e}
+                onClick={() => onPick(e)}
+                className="rounded-md border p-2 text-xl hover:bg-gray-50 dark:hover:bg-gray-900"
+                aria-label={`Insert ${e}`}
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
