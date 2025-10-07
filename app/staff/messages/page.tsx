@@ -29,7 +29,6 @@ import {
   markRead as markReadHelper,
 } from "@/lib/chat";
 
-/** Types */
 type ConversationPreview = Awaited<ReturnType<typeof listConversationsForProvider>>[number];
 type PatientAssigned = { user_id: string; full_name: string | null; email: string | null; avatar: string | null };
 
@@ -60,7 +59,7 @@ export default function StaffMessagesPage() {
   const router = useRouter();
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Settings
+  // Settings (persisted)
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<UiSettings>(() => {
     if (typeof window === "undefined") {
@@ -111,7 +110,7 @@ export default function StaffMessagesPage() {
     return patients.filter((p) => (p.full_name ?? "").toLowerCase().includes(v) || (p.email ?? "").toLowerCase().includes(v));
   }, [patients, pSearch]);
 
-  // —— helpers ——
+  // URL sync helper
   function syncUrlOpen(id: string) {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
@@ -170,7 +169,6 @@ export default function StaffMessagesPage() {
   // Keep selection valid across refreshes/filters
   useEffect(() => {
     if (!selectedId || convs.some((c) => c.id === selectedId)) return;
-    // previously selected id no longer in list; try to fallback to first
     if (convs.length) openConversation(convs[0].id);
   }, [convs, selectedId]);
 
@@ -204,7 +202,6 @@ export default function StaffMessagesPage() {
               .map((c) => (c.id === m.conversation_id ? { ...c, last_message: m.content, updated_at: m.created_at } : c))
               .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
           );
-          // only bump unread if that conversation is *not* currently open
           setUnreadMap((prev) => (selectedId === m.conversation_id ? prev : { ...prev, [m.conversation_id]: (prev[m.conversation_id] ?? 0) + 1 }));
         }
       )
@@ -227,7 +224,7 @@ export default function StaffMessagesPage() {
     })();
   }, [selectedId, meId]);
 
-  // Row actions (optimistic, safe if columns missing)
+  // Row actions
   async function togglePin(id: string, next: boolean) {
     try { await supabase.from("conversations").update({ pinned: next }).eq("id", id); } catch {}
     setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, pinned: next } : c)));
@@ -245,19 +242,15 @@ export default function StaffMessagesPage() {
 
   // Filtering & sorting
   const filteredConvs = useMemo(() => {
-    let list = convs.slice().filter((c) => !c.archived_at); // hide archived
-
+    let list = convs.slice().filter((c) => !c.archived_at);
     if (tab === "new") list = list.filter((c) => (unreadMap[c.id] ?? 0) > 0);
     if (tab === "pinned") list = list.filter((c) => !!c.pinned);
-
     if (qDebounced) {
       list = list.filter((c) =>
         (c.patient_name ?? c.patient_email ?? "patient").toLowerCase().includes(qDebounced) ||
         (c.last_message ?? "").toLowerCase().includes(qDebounced)
       );
     }
-
-    // Pinned first, then recent
     list.sort((a, b) => {
       const ap = a.pinned ? 1 : 0; const bp = b.pinned ? 1 : 0;
       if (ap !== bp) return bp - ap;
@@ -265,21 +258,6 @@ export default function StaffMessagesPage() {
     });
     return list;
   }, [convs, tab, qDebounced, unreadMap]);
-
-  // keyboard navigation (optional)
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (!["ArrowDown", "ArrowUp", "Enter"].includes(e.key)) return;
-      const ids = filteredConvs.map((c) => c.id);
-      if (ids.length === 0) return;
-      const idx = selectedId ? Math.max(ids.indexOf(selectedId), 0) : -1;
-      if (e.key === "ArrowDown") openConversation(ids[Math.min(idx + 1, ids.length - 1)]);
-      if (e.key === "ArrowUp") openConversation(ids[Math.max(idx - 1, 0)]);
-      if (e.key === "Enter" && selectedId == null) openConversation(ids[0]);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [filteredConvs, selectedId]);
 
   async function startNewMessage(patient: PatientAssigned) {
     if (!meId) return;
@@ -384,7 +362,6 @@ export default function StaffMessagesPage() {
                   const un = unreadMap[c.id] ?? 0;
                   return (
                     <li key={c.id}>
-                      {/* use a real button so click always fires & is focusable */}
                       <button
                         type="button"
                         onClick={() => openConversation(c.id)}
@@ -456,8 +433,7 @@ export default function StaffMessagesPage() {
               providerName={meName}
               providerRole={meRole}
               settings={settings}
-              // phoneHref="tel:+15551234567"
-              // videoHref="https://meet.jit.si/your-room"
+              conversationId={selectedConv.id}   // ← IMPORTANT: pass the actual thread id
             />
           )}
         </div>
