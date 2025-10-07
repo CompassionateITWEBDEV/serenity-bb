@@ -18,23 +18,26 @@ export async function listConversationsForProvider(providerId: string): Promise<
     .from("conversations")
     .select(`
       id, patient_id, provider_id, last_message, last_message_at, created_at,
-      patients!conversations_patient_id_fkey(full_name, email, avatar)
+      patient:patients!conversations_patient_id_fkey(full_name, email, avatar)
     `)
     .eq("provider_id", providerId)
     .order("last_message_at", { ascending: false, nullsFirst: false });
 
   if (error) throw error;
 
-  return (data ?? []).map((r: any) => ({
-    id: r.id,
-    patient_id: r.patient_id,
-    provider_id: r.provider_id,
-    patient_name: r.patients?.full_name ?? null,
-    patient_email: r.patients?.email ?? null,
-    patient_avatar: r.patients?.avatar ?? null,
-    last_message: r.last_message,
-    updated_at: r.last_message_at ?? r.created_at,
-  }));
+  return (data ?? []).map((r: any) => {
+    const p = r.patient as { full_name?: string | null; email?: string | null; avatar?: string | null } | null;
+    return {
+      id: r.id,
+      patient_id: r.patient_id,
+      provider_id: r.provider_id,
+      patient_name: (p?.full_name ?? null) || null,
+      patient_email: (p?.email ?? null) || null,
+      patient_avatar: (p?.avatar ?? null) || null,
+      last_message: r.last_message ?? null,
+      updated_at: r.last_message_at ?? r.created_at,
+    };
+  });
 }
 
 /** Ensures a provider↔patient conversation exists. */
