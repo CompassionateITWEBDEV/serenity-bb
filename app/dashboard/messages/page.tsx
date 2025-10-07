@@ -538,3 +538,4 @@ export default function PatientMessagesPage() {
       </div>
     </div>
   );
+}
