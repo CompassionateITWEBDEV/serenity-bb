@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { ArrowLeft, Phone, Video, MoreVertical, Send, Smile, Image as ImageIcon, Camera, Mic, CheckCheck, X } from "lucide-react";
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
+import usePatientOnline from "@/hooks/usePatientOnline";
 
 type Provider = ProviderRole;
 
@@ -73,9 +74,10 @@ export default function ChatBox(props: {
   const [typing, setTyping] = useState(false);
   const [uploading, setUploading] = useState<{ label: string; pct?: number } | null>(null);
   const [recording, setRecording] = useState<boolean>(false);
-  const [patientOnline, setPatientOnline] = useState<boolean>(false);
   const [otherInThread, setOtherInThread] = useState<boolean>(false);
   const [resolvedPatient, setResolvedPatient] = useState<{ name?: string; email?: string; avatar?: string | null } | null>(null);
+
+  const dbOnline = mode === "staff" ? usePatientOnline(patientId) : false;
 
   const listRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -291,7 +293,7 @@ export default function ChatBox(props: {
       return Array.isArray(entries) && entries.length > 0;
     };
 
-    const update = () => setPatientOnline(computeOnline());
+    const update = () => setOtherInThread((v) => (computeOnline() ? true : v)); // keep thread flag if true
 
     ch
       .on("presence", { event: "sync" }, update)
@@ -474,15 +476,14 @@ export default function ChatBox(props: {
     rec.start();
   }
 
-  const isOnline = patientOnline || otherInThread;
+  const isOnline = mode === "staff" ? dbOnline || otherInThread : false;
 
   const otherName =
     mode === "staff"
       ? resolvedPatient?.name || patientName || resolvedPatient?.email || "Patient"
       : providerName || "Provider";
 
-  const otherAvatar =
-    mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
+  const otherAvatar = mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
 
   return (
     <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
@@ -503,10 +504,7 @@ export default function ChatBox(props: {
                 </div>
               )}
               {mode === "staff" && (
-                <span
-                  className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`}
-                  aria-hidden
-                />
+                <span className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
               )}
             </div>
             <div className="leading-tight">
