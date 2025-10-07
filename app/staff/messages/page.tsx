@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, Plus, Search, Settings as SettingsIcon } from "lucide-react";
+import {
+  LogOut, Plus, Search, Settings as SettingsIcon,
+  Pin, PinOff, Archive, ArchiveRestore, CheckCheck
+} from "lucide-react";
 
 import { supabase } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +13,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -22,6 +29,7 @@ import {
   markRead as markReadHelper,
 } from "@/lib/chat";
 
+/** Types */
 type ConversationPreview = Awaited<ReturnType<typeof listConversationsForProvider>>[number];
 type PatientAssigned = { user_id: string; full_name: string | null; email: string | null; avatar: string | null };
 
@@ -43,18 +51,25 @@ function mapStaffRole(role?: string | null, dept?: string | null): ProviderRole 
   if (r.includes("counsel") || r.includes("therap") || d.includes("therapy")) return "counselor";
   return "nurse";
 }
+function formatTime(iso: string) {
+  try { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+  catch { return ""; }
+}
 
 export default function StaffMessagesPage() {
   const router = useRouter();
+  const listRef = useRef<HTMLDivElement>(null);
 
-  // Settings (persisted)
+  // Settings
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<UiSettings>(() => {
     if (typeof window === "undefined") {
       return { theme: "light", density: "comfortable", bubbleRadius: "rounded-xl", enterToSend: true, sound: true };
     }
     const raw = localStorage.getItem("staff:chat:settings");
-    return raw ? (JSON.parse(raw) as UiSettings) : { theme: "light", density: "comfortable", bubbleRadius: "rounded-xl", enterToSend: true, sound: true };
+    return raw
+      ? (JSON.parse(raw) as UiSettings)
+      : { theme: "light", density: "comfortable", bubbleRadius: "rounded-xl", enterToSend: true, sound: true };
   });
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -68,8 +83,9 @@ export default function StaffMessagesPage() {
   const [meName, setMeName] = useState("Me");
   const [meRole, setMeRole] = useState<ProviderRole>("nurse");
 
-  // Conversations + selection
-  const [convs, setConvs] = useState<ConversationPreview[]>([]);
+  // Conversations
+  const [loading, setLoading] = useState(true);
+  const [convs, setConvs] = useState<(ConversationPreview & { pinned?: boolean; archived_at?: string | null })[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedConv = convs.find((c) => c.id === selectedId) ?? null;
 
@@ -77,8 +93,13 @@ export default function StaffMessagesPage() {
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
 
   // Filters
-  const [tab, setTab] = useState<"all" | "new">("all");
+  const [tab, setTab] = useState<"all" | "new" | "pinned">("all");
   const [q, setQ] = useState("");
+  const [qDebounced, setQDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setQDebounced(q.trim().toLowerCase()), 200);
+    return () => clearTimeout(t);
+  }, [q]);
 
   // New message modal
   const [modalOpen, setModalOpen] = useState(false);
@@ -87,22 +108,8 @@ export default function StaffMessagesPage() {
   const filteredPatients = useMemo(() => {
     const v = pSearch.trim().toLowerCase();
     if (!v) return patients;
-    return patients.filter(
-      (p) =>
-        (p.full_name ?? "").toLowerCase().includes(v) ||
-        (p.email ?? "").toLowerCase().includes(v)
-    );
+    return patients.filter((p) => (p.full_name ?? "").toLowerCase().includes(v) || (p.email ?? "").toLowerCase().includes(v));
   }, [patients, pSearch]);
-
-  const filteredConvs = useMemo(() => {
-    const v = q.trim().toLowerCase();
-    const list = tab === "new" ? convs.filter((c) => (unreadMap[c.id] ?? 0) > 0) : convs;
-    if (!v) return list;
-    return list.filter((c) =>
-      (c.patient_name ?? c.patient_email ?? "patient").toLowerCase().includes(v) ||
-      (c.last_message ?? "").toLowerCase().includes(v)
-    );
-  }, [convs, tab, q, unreadMap]);
 
   // Bootstrap
   useEffect(() => {
@@ -120,13 +127,12 @@ export default function StaffMessagesPage() {
       const first = (staff.data?.first_name ?? "").trim(), last = (staff.data?.last_name ?? "").trim();
       if (first || last) setMeName(`${first} ${last}`.trim());
 
-      setConvs(await listConversationsForProvider(uid));
+      const list = await listConversationsForProvider(uid);
+      setConvs(list as any);
+      setLoading(false);
 
       // Unread snapshot
-      const u = await supabase
-        .from("v_staff_dm_unread")
-        .select("conversation_id, unread_from_patient")
-        .eq("provider_id", uid);
+      const u = await supabase.from("v_staff_dm_unread").select("conversation_id, unread_from_patient").eq("provider_id", uid);
       if (!u.error) {
         const map: Record<string, number> = {};
         for (const r of (u.data as any[]) ?? []) map[r.conversation_id] = Number(r.unread_from_patient) || 0;
@@ -140,17 +146,11 @@ export default function StaffMessagesPage() {
       }
 
       // Assigned patients for modal
-      const v = await supabase.from("v_staff_assigned_patients").select("user_id, full_name, email, avatar").eq("staff_id", uid);
+      const v = await supabase
+        .from("v_staff_assigned_patients")
+        .select("user_id, full_name, email, avatar")
+        .eq("staff_id", uid);
       if (!v.error && v.data) setPatients(v.data as PatientAssigned[]);
-      else {
-        const j = await supabase
-          .from("patients")
-          .select("user_id, full_name, email, avatar, patient_care_team!inner(staff_id)")
-          .eq("patient_care_team.staff_id", uid);
-        if (!j.error && j.data) {
-          setPatients((j.data as any[]).map((r) => ({ user_id: r.user_id, full_name: r.full_name, email: r.email, avatar: r.avatar })));
-        }
-      }
     })();
   }, [router]);
 
@@ -161,14 +161,14 @@ export default function StaffMessagesPage() {
     let debounceId: ReturnType<typeof setTimeout> | null = null;
     const bump = (update: () => Promise<void>) => {
       if (debounceId) clearTimeout(debounceId);
-      debounceId = setTimeout(() => { void update(); }, 120);
+      debounceId = setTimeout(() => { void update(); }, 100);
     };
 
     const convCh = supabase
       .channel(`conv_${meId}`)
       .on("postgres_changes",
         { event: "*", schema: "public", table: "conversations", filter: `provider_id=eq.${meId}` },
-        () => bump(async () => setConvs(await listConversationsForProvider(meId)))
+        () => bump(async () => setConvs(await listConversationsForProvider(meId) as any))
       )
       .subscribe();
 
@@ -209,10 +209,69 @@ export default function StaffMessagesPage() {
     })();
   }, [selectedId, meId]);
 
+  // Row actions (all are optimistic and gracefully degrade if column missing)
+  async function togglePin(id: string, next: boolean) {
+    try { await supabase.from("conversations").update({ pinned: next }).eq("id", id); }
+    catch {}
+    setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, pinned: next } : c)));
+  }
+  async function toggleArchive(id: string, next: boolean) {
+    const value = next ? new Date().toISOString() : null;
+    try { await supabase.from("conversations").update({ archived_at: value as any }).eq("id", id); }
+    catch {}
+    setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, archived_at: value } : c)));
+    if (selectedId === id && next) setSelectedId(null);
+  }
+  async function markRead(id: string) {
+    await markReadHelper(id, "nurse");
+    setUnreadMap((m) => ({ ...m, [id]: 0 }));
+  }
+
+  // Filtering & sorting
+  const filteredConvs = useMemo(() => {
+    let list = convs.slice();
+
+    // Hide archived unless it's currently opened (optional)
+    list = list.filter((c) => !c.archived_at);
+
+    if (tab === "new") list = list.filter((c) => (unreadMap[c.id] ?? 0) > 0);
+    if (tab === "pinned") list = list.filter((c) => !!c.pinned);
+
+    if (qDebounced) {
+      list = list.filter((c) =>
+        (c.patient_name ?? c.patient_email ?? "patient").toLowerCase().includes(qDebounced) ||
+        (c.last_message ?? "").toLowerCase().includes(qDebounced)
+      );
+    }
+
+    // Sort: pinned first, then by updated_at desc
+    list.sort((a, b) => {
+      const ap = a.pinned ? 1 : 0; const bp = b.pinned ? 1 : 0;
+      if (ap !== bp) return bp - ap;
+      return a.updated_at < b.updated_at ? 1 : -1;
+    });
+    return list;
+  }, [convs, tab, qDebounced, unreadMap]);
+
+  // Keyboard nav
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!["ArrowDown", "ArrowUp", "Enter"].includes(e.key)) return;
+      const ids = filteredConvs.map((c) => c.id);
+      if (ids.length === 0) return;
+      const idx = selectedId ? Math.max(ids.indexOf(selectedId), 0) : -1;
+      if (e.key === "ArrowDown") setSelectedId(ids[Math.min(idx + 1, ids.length - 1)]);
+      if (e.key === "ArrowUp") setSelectedId(ids[Math.max(idx - 1, 0)]);
+      if (e.key === "Enter" && selectedId == null) setSelectedId(ids[0]);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [filteredConvs, selectedId]);
+
   async function startNewMessage(patient: PatientAssigned) {
     if (!meId) return;
     const { id: convId } = await ensureConversation(patient.user_id, { id: meId, name: meName, role: meRole });
-    setConvs(await listConversationsForProvider(meId));
+    setConvs(await listConversationsForProvider(meId) as any);
     setSelectedId(convId);
     setModalOpen(false);
   }
@@ -232,25 +291,19 @@ export default function StaffMessagesPage() {
                 <div>
                   <p className="text-sm font-medium">Theme</p>
                   <div className="mt-2 flex gap-2">
-                    {(["light","dark","system"] as const).map((v)=>(
-                      <Button key={v} variant={settings.theme===v?"default":"outline"} onClick={()=>setSettings((s)=>({...s,theme:v}))}>{v}</Button>
-                    ))}
+                    {(["light","dark","system"] as const).map((v)=>(<Button key={v} variant={settings.theme===v?"default":"outline"} onClick={()=>setSettings((s)=>({...s,theme:v}))}>{v}</Button>))}
                   </div>
                 </div>
                 <div>
                   <p className="text-sm font-medium">Density</p>
                   <div className="mt-2 flex gap-2">
-                    {(["comfortable","compact"] as const).map((v)=>(
-                      <Button key={v} variant={settings.density===v?"default":"outline"} onClick={()=>setSettings((s)=>({...s,density:v}))}>{v}</Button>
-                    ))}
+                    {(["comfortable","compact"] as const).map((v)=>(<Button key={v} variant={settings.density===v?"default":"outline"} onClick={()=>setSettings((s)=>({...s,density:v}))}>{v}</Button>))}
                   </div>
                 </div>
                 <div>
                   <p className="text-sm font-medium">Bubble roundness</p>
                   <div className="mt-2 flex gap-2">
-                    {(["rounded-lg","rounded-xl","rounded-2xl"] as const).map((v)=>(
-                      <Button key={v} variant={settings.bubbleRadius===v?"default":"outline"} onClick={()=>setSettings((s)=>({...s,bubbleRadius:v}))}>{v.replace("rounded-","")}</Button>
-                    ))}
+                    {(["rounded-lg","rounded-xl","rounded-2xl"] as const).map((v)=>(<Button key={v} variant={settings.bubbleRadius===v?"default":"outline"} onClick={()=>setSettings((s)=>({...s,bubbleRadius:v}))}>{v.replace("rounded-","")}</Button>))}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -273,8 +326,8 @@ export default function StaffMessagesPage() {
 
       <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Conversations */}
-        <Card className="lg:col-span-1">
-          <CardHeader>
+        <Card className="lg:col-span-1 overflow-hidden">
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center justify-between">
               <span>Conversations</span>
               <div className="flex items-center gap-1 text-xs">
@@ -282,42 +335,92 @@ export default function StaffMessagesPage() {
                 <Button variant={tab === "new" ? "default" : "outline"} size="xs" onClick={() => setTab("new")}>
                   New {Object.values(unreadMap).reduce((a, b) => a + b, 0) ? <Badge className="ml-1">{Object.values(unreadMap).reduce((a, b) => a + b, 0)}</Badge> : null}
                 </Button>
+                <Button variant={tab === "pinned" ? "default" : "outline"} size="xs" onClick={() => setTab("pinned")}>Pinned</Button>
               </div>
             </CardTitle>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
               <Input placeholder="Search patients…" className="pl-10" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="divide-y">
-              {filteredConvs.length === 0 && <div className="p-6 text-sm text-gray-500">{tab === "new" ? "No new requests." : "No conversations yet."}</div>}
-              {filteredConvs.map((c) => {
-                const active = selectedId === c.id;
-                const un = unreadMap[c.id] ?? 0;
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => setSelectedId(c.id)}
-                    className={`flex w-full items-center gap-3 border-l-4 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-900 ${active ? "border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20" : "border-transparent"}`}
-                  >
-                    <Avatar>
-                      <AvatarImage src={c.patient_avatar ?? undefined} />
-                      <AvatarFallback>{initials(c.patient_name || c.patient_email || "Patient")}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between">
-                        <p className="truncate font-medium text-gray-900 dark:text-gray-100">{c.patient_name ?? c.patient_email ?? "Patient"}</p>
-                        <span className="text-xs text-gray-500">
-                          {new Date(c.updated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                        </span>
+            <div ref={listRef} className="max-h-[calc(100vh-320px)] overflow-y-auto">
+              {loading && (
+                <div className="space-y-2 p-4">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="animate-pulse rounded-xl border p-3">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-gray-200" />
+                        <div className="flex-1 space-y-2">
+                          <div className="h-3 w-1/3 rounded bg-gray-200" />
+                          <div className="h-3 w-2/3 rounded bg-gray-200" />
+                        </div>
                       </div>
-                      <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
                     </div>
-                    {!!un && <Badge className="ml-auto">{un}</Badge>}
-                  </button>
-                );
-              })}
+                  ))}
+                </div>
+              )}
+
+              {!loading && filteredConvs.length === 0 && (
+                <div className="p-8 text-center text-sm text-gray-500">No conversations to show.</div>
+              )}
+
+              <ul className="space-y-1 p-2">
+                {filteredConvs.map((c) => {
+                  const active = selectedId === c.id;
+                  const un = unreadMap[c.id] ?? 0;
+                  return (
+                    <li key={c.id}>
+                      <div
+                        onClick={() => setSelectedId(c.id)}
+                        className={`group relative flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition
+                          ${active ? "border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-900"}`}
+                      >
+                        <Avatar className="h-10 w-10">
+                          <AvatarImage src={c.patient_avatar ?? undefined} />
+                          <AvatarFallback>{initials(c.patient_name || c.patient_email || "Patient")}</AvatarFallback>
+                        </Avatar>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between">
+                            <p className="truncate font-medium text-gray-900 dark:text-gray-100">
+                              {c.patient_name ?? c.patient_email ?? "Patient"}
+                            </p>
+                            <span className="ml-2 shrink-0 text-[11px] text-gray-500">{formatTime(c.updated_at)}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
+                            {un > 0 && <Badge variant="default" className="ml-auto">{un}</Badge>}
+                            {c.pinned && <Pin className="h-3.5 w-3.5 text-cyan-500" />}
+                          </div>
+                        </div>
+
+                        {/* row actions */}
+                        <div className="absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-1 group-hover:flex">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button size="sm" variant="ghost" className="h-8 px-2">•••</Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuLabel>Quick actions</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); togglePin(c.id, !c.pinned); }}>
+                                {c.pinned ? <><PinOff className="mr-2 h-4 w-4" /> Unpin</> : <><Pin className="mr-2 h-4 w-4" /> Pin</>}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); markRead(c.id); }}>
+                                <CheckCheck className="mr-2 h-4 w-4" /> Mark read
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); toggleArchive(c.id, !c.archived_at); }}>
+                                {c.archived_at ? <><ArchiveRestore className="mr-2 h-4 w-4" /> Unarchive</> : <><Archive className="mr-2 h-4 w-4" /> Archive</>}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           </CardContent>
         </Card>
@@ -326,7 +429,9 @@ export default function StaffMessagesPage() {
         <div className="lg:col-span-2">
           {!selectedConv ? (
             <Card className="h-[540px] w-full">
-              <CardContent className="h-full grid place-items-center text-sm text-gray-500">Select a conversation</CardContent>
+              <CardContent className="h-full grid place-items-center text-sm text-gray-500">
+                Select a conversation
+              </CardContent>
             </Card>
           ) : (
             <ChatBox
@@ -336,6 +441,9 @@ export default function StaffMessagesPage() {
               providerName={meName}
               providerRole={meRole}
               settings={settings}
+              // optional: pass call links to enable phone/video icons in header
+              // phoneHref="tel:+15551234567"
+              // videoHref="https://meet.jit.si/your-room"
             />
           )}
         </div>
@@ -344,7 +452,7 @@ export default function StaffMessagesPage() {
       {/* New Message Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
-          <div className="w-full max-w-lg rounded-lg border bg-white dark:bg-gray-950">
+          <div className="w-full max-w-lg rounded-2xl border bg-white shadow-xl dark:bg-gray-950">
             <div className="flex items-center justify-between border-b p-4">
               <h3 className="font-semibold">New message</h3>
               <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>Close</Button>
