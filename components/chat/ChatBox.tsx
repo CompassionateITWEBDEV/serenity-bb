@@ -16,7 +16,7 @@ import { markRead as markReadHelper } from "@/lib/chat";
 type Provider = ProviderRole;
 type MessageRow = {
   id: string;
-  conversation_id: string;
+  conversation_id: string | null;
   patient_id: string | null;
   sender_id: string;
   sender_name: string;
@@ -48,10 +48,9 @@ export default function ChatBox(props: {
   patientAvatarUrl?: string | null;
   settings?: UiSettings;
   onBack?: () => void;
-  /** optional call targets for header buttons */
-  phoneHref?: string;    // e.g., "tel:+15551234567"
-  videoHref?: string;    // e.g., "https://meet.jit.si/room-xyz"
-  /** NEW: if provided, use this thread id directly */
+  phoneHref?: string;
+  videoHref?: string;
+  /** if provided, use this thread id directly */
   conversationId?: string;
 }) {
   const {
@@ -84,7 +83,7 @@ export default function ChatBox(props: {
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
     " px-4 py-2 " +
-    ((settings?.density ?? "comfortable") === "compact" ? "text-sm" : "text-[15px]"));
+    ((settings?.density ?? "comfortable") === "compact" ? "text-sm" : "text-[15px]");
 
   const ding = useCallback(() => {
     if (!settings?.sound) return;
@@ -407,6 +406,7 @@ export default function ChatBox(props: {
                   {(otherName || "?").slice(0, 1).toUpperCase()}
                 </div>
               )}
+              {/* live online dot for staff view */}
               {mode === "staff" && (
                 <span
                   className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${patientOnline ? "bg-emerald-500" : "bg-gray-400"}`}
@@ -462,6 +462,7 @@ export default function ChatBox(props: {
                     </div>
                   )}
                   <div className={`max-w-[82%] sm:max-w-[70%] ${bubble}`}>
+                    {/* attachment preview */}
                     {m.attachment_url && m.attachment_type === "image" && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={m.attachment_url} alt="attachment" className="mb-2 max-h-64 w-full rounded-xl object-cover" />
