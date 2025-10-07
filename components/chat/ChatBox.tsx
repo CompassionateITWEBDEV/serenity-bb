@@ -67,6 +67,12 @@ export default function ChatBox(props: {
   const [uploading, setUploading] = useState<{ label: string; pct?: number } | null>(null);
   const [recording, setRecording] = useState<boolean>(false);
 
+  // NEW: live presence + real patient display
+  const [patientOnline, setPatientOnline] = useState<boolean>(false);
+  const [resolvedPatient, setResolvedPatient] = useState<{
+    name?: string; email?: string; avatar?: string | null;
+  } | null>(null);
+
   const listRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const didInitRef = useRef(false);
@@ -146,7 +152,7 @@ export default function ChatBox(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, me]);
 
-  // realtime + presence
+  // realtime thread + presence typing
   useEffect(() => {
     if (!conversationId || !me) return;
     if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
@@ -197,7 +203,7 @@ export default function ChatBox(props: {
     };
   }, [conversationId, me, ding, scrollToBottom]);
 
-  // presence typing
+  // presence typing heartbeat
   useEffect(() => {
     if (!channelRef.current || !me) return;
     const ch = channelRef.current;
@@ -205,6 +211,74 @@ export default function ChatBox(props: {
     ch.track({ user_id: me.id, status: text ? "typing" : "idle" });
     return () => clearInterval(t);
   }, [text, me]);
+
+  // NEW: listen to patient presence channel (real online/offline)
+  useEffect(() => {
+    if (mode !== "staff" || !patientId) return;
+
+    const presenceKey = `staff-listener-${crypto.randomUUID()}`;
+    const onlineCh = supabase.channel(`online:${patientId}`, {
+      config: { presence: { key: presenceKey } },
+    });
+
+    onlineCh.on("presence", { event: "sync" }, () => {
+      // The patient heartbeat uses key = patientId
+      const state = onlineCh.presenceState();
+      setPatientOnline(Object.keys(state).includes(patientId));
+    });
+
+    onlineCh.subscribe();
+
+    return () => { try { supabase.removeChannel(onlineCh); } catch {} };
+  }, [mode, patientId]);
+
+  // NEW: fetch real patient display name + avatar
+  useEffect(() => {
+    if (mode !== "staff" || !patientId) return;
+
+    let cancelled = false;
+    (async () => {
+      // 1) try patients table
+      const p1 = await supabase
+        .from("patients")
+        .select("full_name, email, avatar")
+        .eq("user_id", patientId)
+        .maybeSingle();
+
+      if (!cancelled && p1.data) {
+        setResolvedPatient({
+          name: p1.data.full_name ?? undefined,
+          email: p1.data.email ?? undefined,
+          avatar: p1.data.avatar ?? null,
+        });
+        return;
+      }
+
+      // 2) try profiles table
+      const p2 = await supabase
+        .from("profiles")
+        .select("full_name, avatar")
+        .eq("id", patientId)
+        .maybeSingle();
+
+      if (!cancelled && p2.data) {
+        setResolvedPatient({
+          name: p2.data.full_name ?? undefined,
+          avatar: p2.data.avatar ?? null,
+        });
+        return;
+      }
+
+      // 3) optional RPC to read auth.users email
+      try {
+        // @ts-ignore if you don't have types for rpc
+        const p3 = await supabase.rpc("get_user_email", { uid: patientId });
+        if (!cancelled && p3?.data) setResolvedPatient({ email: p3.data as string });
+      } catch {}
+    })();
+
+    return () => { cancelled = true; };
+  }, [mode, patientId]);
 
   const canSend = useMemo(() => !!text.trim() && !!me && !!conversationId, [text, me, conversationId]);
 
@@ -334,9 +408,20 @@ export default function ChatBox(props: {
   }
 
   // ————— UI —————
-  const otherName = mode === "staff" ? (patientName || "Patient") : (providerName || "Provider");
-  const otherRole = mode === "staff" ? "Online" : providerRole ? providerRole : undefined;
-  const otherAvatar = mode === "staff" ? patientAvatarUrl : providerAvatarUrl;
+
+  // Real patient name + avatar (fallbacks preserved)
+  const otherName =
+    mode === "staff"
+      ? (resolvedPatient?.name ||
+         patientName ||
+         resolvedPatient?.email ||
+         "Patient")
+      : (providerName || "Provider");
+
+  const otherAvatar =
+    mode === "staff"
+      ? (resolvedPatient?.avatar ?? patientAvatarUrl ?? null)
+      : (providerAvatarUrl ?? null);
 
   return (
     <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
@@ -358,11 +443,28 @@ export default function ChatBox(props: {
                   {(otherName || "?").slice(0, 1).toUpperCase()}
                 </div>
               )}
-              <span className="absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
+              {/* live online dot */}
+              {mode === "staff" && (
+                <span
+                  className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${patientOnline ? "bg-emerald-500" : "bg-gray-400"}`}
+                  aria-hidden
+                />
+              )}
             </div>
             <div className="leading-tight">
               <div className="text-[15px] font-semibold">{otherName}</div>
-              <div className="text-[11px] text-gray-500">{otherRole || "Online"}</div>
+              <div className="flex items-center gap-1 text-[11px]">
+                {mode === "staff" ? (
+                  <>
+                    <span className={`inline-block h-2 w-2 rounded-full ${patientOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
+                    <span className={patientOnline ? "text-emerald-600" : "text-gray-500"}>
+                      {patientOnline ? "Online" : "Offline"}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-gray-500">{providerRole || ""}</span>
+                )}
+              </div>
             </div>
           </div>
 
