@@ -30,6 +30,7 @@ export default function ChatBox(props: {
   providerRole?: ProviderRole;
 }) {
   const { mode, patientId } = props;
+
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [me, setMe] = useState<{ id: string; name: string; role: "patient" | ProviderRole } | null>(null);
 
@@ -37,7 +38,27 @@ export default function ChatBox(props: {
   const [text, setText] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Resolve/create conversation and "me"
+  // keep a single realtime channel ref
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  // ===== helpers
+  const scrollToBottom = useCallback((smooth = false) => {
+    const el = listRef.current; if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  }, []);
+
+  const refetchThread = useCallback(async (cid: string) => {
+    const { data, error } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", cid)
+      .order("created_at", { ascending: true });
+    if (error) return;
+    setMsgs((data as MessageRow[]) ?? []);
+    queueMicrotask(() => scrollToBottom(false));
+  }, [scrollToBottom]);
+
+  // ===== resolve/create conversation + "me"
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
@@ -45,7 +66,6 @@ export default function ChatBox(props: {
       if (!uid) return;
 
       if (mode === "staff") {
-        // why: staff UI sends as provider
         const pid = props.providerId!;
         setMe({ id: pid, name: props.providerName || "Me", role: props.providerRole! });
 
@@ -76,7 +96,6 @@ export default function ChatBox(props: {
           setConversationId(created!.id);
         }
       } else {
-        // patient mode
         setMe({ id: uid, name: au.user?.email || "Me", role: "patient" });
         const { data: conv } = await supabase
           .from("conversations")
@@ -90,52 +109,85 @@ export default function ChatBox(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, patientId, props.providerId]);
 
-  // Load history & subscribe realtime
+  // ===== initial load + realtime subscription
   useEffect(() => {
     if (!conversationId || !me) return;
-    let alive = true;
+
+    let mounted = true;
 
     (async () => {
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      if (alive) {
-        setMsgs((data as MessageRow[]) ?? []);
-        queueMicrotask(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight }));
-        // mark read on open
-        await markReadHelper(conversationId, me.role);
-      }
+      await refetchThread(conversationId);
+      await markReadHelper(conversationId, me.role);
     })();
+
+    // tear down previous channel
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
 
     const ch = supabase
       .channel(`thread_${conversationId}`)
+      // INSERTs: append; UPDATE/DELETE: refetch to keep order consistent
       .on(
         "postgres_changes",
-        { schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}`, event: "*" },
+        { schema: "public", table: "messages", event: "INSERT", filter: `conversation_id=eq.${conversationId}` },
         async (p) => {
-          if (p.eventType === "INSERT") {
-            setMsgs((m) => [...m, p.new as MessageRow]);
-            listRef.current?.scrollTo({ top: listRef.current!.scrollHeight, behavior: "smooth" });
-            // auto mark read if inbound
-            const n = p.new as MessageRow;
-            if (n.sender_id !== me.id) await markReadHelper(conversationId, me.role);
-          } else {
-            const { data } = await supabase
-              .from("messages").select("*")
-              .eq("conversation_id", conversationId)
-              .order("created_at", { ascending: true });
-            setMsgs((data as MessageRow[]) ?? []);
-          }
+          if (!mounted) return;
+          const row = p.new as MessageRow;
+          setMsgs((prev) => {
+            // guard: avoid duplicates if refetch raced
+            if (prev.some((m) => m.id === row.id)) return prev;
+            return [...prev, row];
+          });
+          scrollToBottom(true);
+          if (row.sender_id !== me.id) await markReadHelper(conversationId, me.role);
         }
       )
-      .subscribe();
+      .on(
+        "postgres_changes",
+        { schema: "public", table: "messages", event: "UPDATE", filter: `conversation_id=eq.${conversationId}` },
+        () => refetchThread(conversationId)
+      )
+      .on(
+        "postgres_changes",
+        { schema: "public", table: "messages", event: "DELETE", filter: `conversation_id=eq.${conversationId}` },
+        () => refetchThread(conversationId)
+      )
+      .subscribe((status) => {
+        // why: helps diagnose reconnects; Supabase auto-retries.
+        // console.debug("[realtime] thread status:", conversationId, status);
+        if (status === "SUBSCRIBED") {
+          // do nothing; already fetched above
+        }
+      });
 
-    return () => { supabase.removeChannel(ch); alive = false; };
-  }, [conversationId, me]);
+    channelRef.current = ch;
 
+    // resilience: refresh on visibility/online focus
+    const onFocusOrOnline = async () => {
+      if (!conversationId || !me) return;
+      await refetchThread(conversationId);
+      await markReadHelper(conversationId, me.role);
+    };
+    window.addEventListener("focus", onFocusOrOnline);
+    window.addEventListener("online", onFocusOrOnline);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") void onFocusOrOnline();
+    });
+
+    return () => {
+      mounted = false;
+      window.removeEventListener("focus", onFocusOrOnline);
+      window.removeEventListener("online", onFocusOrOnline);
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
+  }, [conversationId, me, refetchThread, scrollToBottom]);
+
+  // ===== send
   const canSend = useMemo(() => !!text.trim() && !!me && !!conversationId, [text, me, conversationId]);
 
   const send = useCallback(async () => {
@@ -157,6 +209,7 @@ export default function ChatBox(props: {
     };
 
     setMsgs((m) => [...m, optimistic]);
+    scrollToBottom(true);
 
     const { error } = await supabase.from("messages").insert({
       conversation_id: conversationId,
@@ -170,10 +223,11 @@ export default function ChatBox(props: {
     });
 
     if (error) {
+      // rollback optimistic
       setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
       alert(`Send failed: ${error.message}`);
     }
-  }, [canSend, me, conversationId, mode, patientId, text]);
+  }, [canSend, me, conversationId, mode, patientId, text, scrollToBottom]);
 
   return (
     <Card className="h-[540px] w-full">
