@@ -75,8 +75,11 @@ export default function ChatBox(props: {
   const [recording, setRecording] = useState<boolean>(false);
   const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
   const [resolvedPatient, setResolvedPatient] = useState<{ name?: string; email?: string; avatar?: string | null } | null>(null);
+
+  // presence states
   const [dbOnline, setDbOnline] = useState<boolean>(false);
   const [rtOnline, setRtOnline] = useState<boolean>(false);
+  const [presenceLoading, setPresenceLoading] = useState<boolean>(true); // avoid false Offline flicker
 
   const listRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -116,6 +119,7 @@ export default function ChatBox(props: {
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
+  // resolve me / conversation
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
@@ -165,6 +169,7 @@ export default function ChatBox(props: {
     })();
   }, [mode, patientId, providerId, providerName, providerRole, conversationIdProp]);
 
+  // load messages
   useLayoutEffect(() => {
     if (!conversationId || !me) return;
     (async () => {
@@ -179,6 +184,7 @@ export default function ChatBox(props: {
     })();
   }, [conversationId, me, scrollToBottom]);
 
+  // message/typing realtime
   useEffect(() => {
     if (!conversationId || !me) return;
     if (channelRef.current) {
@@ -247,6 +253,7 @@ export default function ChatBox(props: {
     };
   }, [conversationId, me, ding, scrollToBottom]);
 
+  // typing presence (thread)
   useEffect(() => {
     if (!channelRef.current || !me) return;
     const ch = channelRef.current;
@@ -257,6 +264,7 @@ export default function ChatBox(props: {
     return () => clearInterval(t);
   }, [text, me]);
 
+  // PATIENT: heartbeat + RT presence
   useEffect(() => {
     if (mode !== "patient") return;
     (async () => {
@@ -265,9 +273,11 @@ export default function ChatBox(props: {
       if (!uid) return;
 
       const beat = async () => {
-        await supabase.rpc("patient_heartbeat");
+        // why: DB heartbeat drives server-derived "online" for staff even if RT missed
+        try { await supabase.rpc("patient_heartbeat"); } catch {}
       };
 
+      // immediate beats to avoid initial "offline"
       await beat();
       const fast = setInterval(beat, 1000);
       setTimeout(() => clearInterval(fast), 2200);
@@ -277,43 +287,44 @@ export default function ChatBox(props: {
       ch.subscribe((status) => {
         if (status === "SUBSCRIBED") {
           const ping = () => ch.track({ online: true, at: Date.now() });
-          ping();
-          setTimeout(ping, 800);
+          ping();           // immediate track
+          setTimeout(ping, 600); // double-tap to ensure server sync
         }
       });
 
-      const onFocus = () => {
-        void beat();
-        ch.track({ online: true, at: Date.now() });
-      };
+      const onFocus = () => { void beat(); try { ch.track({ online: true, at: Date.now() }); } catch {} };
+      const onVis = () => { if (document.visibilityState === "visible") onFocus(); };
+
       window.addEventListener("focus", onFocus);
-      document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") onFocus();
-      });
+      document.addEventListener("visibilitychange", onVis);
 
       return () => {
         clearInterval(slow);
-        try {
-          supabase.removeChannel(ch);
-        } catch {}
+        try { supabase.removeChannel(ch); } catch {}
         window.removeEventListener("focus", onFocus);
+        document.removeEventListener("visibilitychange", onVis);
       };
     })();
   }, [mode]);
 
+  // STAFF: DB + RT presence watcher (with immediate fetch + rechecks)
   useEffect(() => {
     if (mode !== "staff" || !patientId) return;
     let cancelled = false;
+    setPresenceLoading(true);
 
     const fetchOnce = async () => {
-      const { data } = await supabase
-        .from("v_patient_online")
-        .select("online,last_seen")
-        .eq("user_id", patientId)
-        .maybeSingle();
-      if (!cancelled && data) setDbOnline(!!data.online);
+      try {
+        const { data } = await supabase
+          .from("v_patient_online")
+          .select("online,last_seen")
+          .eq("user_id", patientId)
+          .maybeSingle();
+        if (!cancelled && data) setDbOnline(!!data.online);
+      } catch {}
     };
 
+    // DB presence changes (push)
     const dbCh = supabase
       .channel(`presence_db_${patientId}`)
       .on(
@@ -322,6 +333,7 @@ export default function ChatBox(props: {
         (p) => {
           const last = new Date(p.new.last_seen as string).getTime();
           setDbOnline(Date.now() - last < 15000);
+          setPresenceLoading(false);
         }
       )
       .on(
@@ -330,18 +342,24 @@ export default function ChatBox(props: {
         (p) => {
           const last = new Date(p.new.last_seen as string).getTime();
           setDbOnline(Date.now() - last < 15000);
+          setPresenceLoading(false);
         }
       )
       .subscribe();
 
-    const staffKey = `staff-${crypto.randomUUID()}`;
+    // RT presence (presenceState)
+    const staffKey = `staff-${crypto.randomUUID()}`; // why: don't collide with patient key
     const rtCh = supabase.channel(`online:${patientId}`, { config: { presence: { key: staffKey } } });
+
     const computeRtOnline = () => {
       const state = rtCh.presenceState() as Record<string, any[]>;
       const entries = state[patientId] || [];
       return Array.isArray(entries) && entries.length > 0;
     };
-    const updateRt = () => setRtOnline(computeRtOnline());
+    const updateRt = () => {
+      setRtOnline(computeRtOnline());
+      setPresenceLoading(false);
+    };
 
     rtCh
       .on("presence", { event: "sync" }, updateRt)
@@ -349,28 +367,36 @@ export default function ChatBox(props: {
       .on("presence", { event: "leave" }, updateRt)
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
-          try {
-            await rtCh.track({ observer: true, at: Date.now() });
-          } catch {}
-          updateRt();
+          try { await rtCh.track({ observer: true, at: Date.now() }); } catch {}
+          updateRt();                 // compute immediately
+          setTimeout(updateRt, 700);  // second pass to avoid missing early join
         }
       });
 
+    // initial fetches to avoid offline flash
     void fetchOnce();
-    const short = setTimeout(fetchOnce, 800);
+    const t1 = setTimeout(fetchOnce, 600);
+
+    // refetch presence on focus/visibility/online (fast feedback when user comes back)
+    const refetchPresence = () => { void fetchOnce(); updateRt(); };
+    const onVis = () => { if (document.visibilityState === "visible") refetchPresence(); };
+
+    window.addEventListener("focus", refetchPresence);
+    window.addEventListener("online", refetchPresence);
+    document.addEventListener("visibilitychange", onVis);
 
     return () => {
       cancelled = true;
-      clearTimeout(short);
-      try {
-        supabase.removeChannel(dbCh);
-      } catch {}
-      try {
-        supabase.removeChannel(rtCh);
-      } catch {}
+      clearTimeout(t1);
+      try { supabase.removeChannel(dbCh); } catch {}
+      try { supabase.removeChannel(rtCh); } catch {}
+      window.removeEventListener("focus", refetchPresence);
+      window.removeEventListener("online", refetchPresence);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, [mode, patientId]);
 
+  // resolve patient profile for header
   useEffect(() => {
     if (mode !== "staff" || !patientId) return;
     let cancelled = false;
@@ -560,17 +586,28 @@ export default function ChatBox(props: {
                 </div>
               )}
               {mode === "staff" && (
-                <span className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
+                <span
+                  className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${
+                    presenceLoading ? "bg-yellow-400" : isOnline ? "bg-emerald-500" : "bg-gray-400"
+                  }`}
+                />
               )}
             </div>
             <div className="leading-tight">
               <div className="text-[15px] font-semibold">{otherName}</div>
               <div className="flex items-center gap-1 text-[11px]">
                 {mode === "staff" ? (
-                  <>
-                    <span className={`inline-block h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
-                    <span className={isOnline ? "text-emerald-600" : "text-gray-500"}>{isOnline ? "Online" : "Offline"}</span>
-                  </>
+                  presenceLoading ? (
+                    <>
+                      <span className="inline-block h-2 w-2 rounded-full bg-yellow-400" />
+                      <span className="text-yellow-600">Checking…</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className={`inline-block h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
+                      <span className={isOnline ? "text-emerald-600" : "text-gray-500"}>{isOnline ? "Online" : "Offline"}</span>
+                    </>
+                  )
                 ) : (
                   <span className="text-gray-500">{providerRole || ""}</span>
                 )}
