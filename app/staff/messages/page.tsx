@@ -47,14 +47,14 @@ function mapStaffRole(role?: string | null, dept?: string | null): ProviderRole 
 export default function StaffMessagesPage() {
   const router = useRouter();
 
-  // settings (persisted)
+  // Settings (persisted)
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<UiSettings>(() => {
     if (typeof window === "undefined") {
       return { theme: "light", density: "comfortable", bubbleRadius: "rounded-xl", enterToSend: true, sound: true };
     }
     const raw = localStorage.getItem("staff:chat:settings");
-    return raw ? JSON.parse(raw) as UiSettings : { theme: "light", density: "comfortable", bubbleRadius: "rounded-xl", enterToSend: true, sound: true };
+    return raw ? (JSON.parse(raw) as UiSettings) : { theme: "light", density: "comfortable", bubbleRadius: "rounded-xl", enterToSend: true, sound: true };
   });
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -63,24 +63,24 @@ export default function StaffMessagesPage() {
     else if (settings.theme === "light") document.documentElement.classList.remove("dark");
   }, [settings]);
 
-  // me
+  // Me
   const [meId, setMeId] = useState<string | null>(null);
   const [meName, setMeName] = useState("Me");
   const [meRole, setMeRole] = useState<ProviderRole>("nurse");
 
-  // conversations + selection
+  // Conversations + selection
   const [convs, setConvs] = useState<ConversationPreview[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedConv = convs.find((c) => c.id === selectedId) ?? null;
 
-  // unread (drives "New requests" view)
+  // Unread (patient → staff)
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
 
-  // filter UI
+  // Filters
   const [tab, setTab] = useState<"all" | "new">("all");
   const [q, setQ] = useState("");
 
-  // modal: new message to assigned patient
+  // New message modal
   const [modalOpen, setModalOpen] = useState(false);
   const [pSearch, setPSearch] = useState("");
   const [patients, setPatients] = useState<PatientAssigned[]>([]);
@@ -104,7 +104,7 @@ export default function StaffMessagesPage() {
     );
   }, [convs, tab, q, unreadMap]);
 
-  // bootstrap
+  // Bootstrap
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
@@ -113,7 +113,6 @@ export default function StaffMessagesPage() {
       setMeId(uid);
 
       setMeName((au.user?.user_metadata?.full_name as string) || au.user?.email || "Me");
-
       const staff = await supabase.from("staff").select("role, department, first_name, last_name").eq("user_id", uid).maybeSingle();
       const role = staff.error ? null : ((staff.data?.role as string | null) ?? null);
       const dept = staff.error ? null : ((staff.data?.department as string | null) ?? null);
@@ -123,7 +122,7 @@ export default function StaffMessagesPage() {
 
       setConvs(await listConversationsForProvider(uid));
 
-      // unread snapshot
+      // Unread snapshot
       const u = await supabase
         .from("v_staff_dm_unread")
         .select("conversation_id, unread_from_patient")
@@ -134,51 +133,42 @@ export default function StaffMessagesPage() {
         setUnreadMap(map);
       }
 
-      // deep link (?open=)
+      // Deep link (?open=)
       if (typeof window !== "undefined") {
         const id = new URLSearchParams(window.location.search).get("open");
         if (id) setSelectedId(id);
       }
 
-      // assigned patients (for "New message")
-      const v = await supabase
-        .from("v_staff_assigned_patients")
-        .select("user_id, full_name, email, avatar")
-        .eq("staff_id", uid);
-      if (!v.error && v.data) {
-        setPatients(v.data as PatientAssigned[]);
-      } else {
+      // Assigned patients for modal
+      const v = await supabase.from("v_staff_assigned_patients").select("user_id, full_name, email, avatar").eq("staff_id", uid);
+      if (!v.error && v.data) setPatients(v.data as PatientAssigned[]);
+      else {
         const j = await supabase
           .from("patients")
           .select("user_id, full_name, email, avatar, patient_care_team!inner(staff_id)")
           .eq("patient_care_team.staff_id", uid);
         if (!j.error && j.data) {
-          setPatients(
-            (j.data as any[]).map((r) => ({
-              user_id: r.user_id,
-              full_name: r.full_name,
-              email: r.email,
-              avatar: r.avatar,
-            }))
-          );
+          setPatients((j.data as any[]).map((r) => ({ user_id: r.user_id, full_name: r.full_name, email: r.email, avatar: r.avatar })));
         }
       }
     })();
   }, [router]);
 
-  // realtime list + unread bumps
+  // Realtime list + unread bumps
   useEffect(() => {
     if (!meId) return;
+
+    let debounceId: ReturnType<typeof setTimeout> | null = null;
+    const bump = (update: () => Promise<void>) => {
+      if (debounceId) clearTimeout(debounceId);
+      debounceId = setTimeout(() => { void update(); }, 120);
+    };
 
     const convCh = supabase
       .channel(`conv_${meId}`)
       .on("postgres_changes",
-        { event: "INSERT", schema: "public", table: "conversations", filter: `provider_id=eq.${meId}` },
-        async () => setConvs(await listConversationsForProvider(meId))
-      )
-      .on("postgres_changes",
-        { event: "UPDATE", schema: "public", table: "conversations", filter: `provider_id=eq.${meId}` },
-        async () => setConvs(await listConversationsForProvider(meId))
+        { event: "*", schema: "public", table: "conversations", filter: `provider_id=eq.${meId}` },
+        () => bump(async () => setConvs(await listConversationsForProvider(meId)))
       )
       .subscribe();
 
@@ -194,21 +184,19 @@ export default function StaffMessagesPage() {
               .map((c) => (c.id === m.conversation_id ? { ...c, last_message: m.content, updated_at: m.created_at } : c))
               .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
           );
-          setUnreadMap((prev) => {
-            if (selectedId === m.conversation_id) return prev;
-            return { ...prev, [m.conversation_id]: (prev[m.conversation_id] ?? 0) + 1 };
-          });
+          setUnreadMap((prev) => (selectedId === m.conversation_id ? prev : { ...prev, [m.conversation_id]: (prev[m.conversation_id] ?? 0) + 1 }));
         }
       )
       .subscribe();
 
     return () => {
+      if (debounceId) clearTimeout(debounceId);
       supabase.removeChannel(convCh);
       supabase.removeChannel(inboxCh);
     };
   }, [meId, selectedId]);
 
-  // clear unread on open
+  // Clear unread on open
   useEffect(() => {
     if (!selectedId || !meId) return;
     (async () => {
@@ -284,6 +272,7 @@ export default function StaffMessagesPage() {
       </div>
 
       <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Conversations */}
         <Card className="lg:col-span-1">
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
@@ -312,7 +301,10 @@ export default function StaffMessagesPage() {
                     onClick={() => setSelectedId(c.id)}
                     className={`flex w-full items-center gap-3 border-l-4 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-900 ${active ? "border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20" : "border-transparent"}`}
                   >
-                    <Avatar><AvatarImage src={c.patient_avatar ?? undefined} /><AvatarFallback>{initials(c.patient_name || c.patient_email || "Patient")}</AvatarFallback></Avatar>
+                    <Avatar>
+                      <AvatarImage src={c.patient_avatar ?? undefined} />
+                      <AvatarFallback>{initials(c.patient_name || c.patient_email || "Patient")}</AvatarFallback>
+                    </Avatar>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between">
                         <p className="truncate font-medium text-gray-900 dark:text-gray-100">{c.patient_name ?? c.patient_email ?? "Patient"}</p>
@@ -330,6 +322,7 @@ export default function StaffMessagesPage() {
           </CardContent>
         </Card>
 
+        {/* Thread */}
         <div className="lg:col-span-2">
           {!selectedConv ? (
             <Card className="h-[540px] w-full">
@@ -348,6 +341,7 @@ export default function StaffMessagesPage() {
         </div>
       </div>
 
+      {/* New Message Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
           <div className="w-full max-w-lg rounded-lg border bg-white dark:bg-gray-950">
