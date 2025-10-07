@@ -50,7 +50,7 @@ export default function ChatBox(props: {
   onBack?: () => void;
   phoneHref?: string;
   videoHref?: string;
-  /** if provided, use this thread id directly */
+  /** if provided, use this conversation id directly */
   conversationId?: string;
 }) {
   const {
@@ -215,9 +215,8 @@ export default function ChatBox(props: {
     return () => clearInterval(t);
   }, [text, me]);
 
-  // ——— PRESENCE: PATIENT BROADCAST (for Online/Offline) ———
+  // ——— PATIENT BROADCAST: advertise own presence ———
   useEffect(() => {
-    // Only the patient app should advertise their own presence
     if (mode !== "patient") return;
 
     (async () => {
@@ -239,7 +238,6 @@ export default function ChatBox(props: {
         }
       });
 
-      // cleanup → presence removed → staff will see Offline
       return () => {
         if (interval) clearInterval(interval);
         try { supabase.removeChannel(ch); } catch {}
@@ -247,22 +245,35 @@ export default function ChatBox(props: {
     })();
   }, [mode]);
 
-  // ——— PRESENCE: STAFF LISTENER (turn badge/label Online/Offline) ———
+  // ——— STAFF LISTENER: derive Online/Offline from presence state ———
   useEffect(() => {
     if (mode !== "staff" || !patientId) return;
 
-    const presenceKey = `staff-listener-${crypto.randomUUID()}`;
-    const onlineCh = supabase.channel(`online:${patientId}`, {
-      config: { presence: { key: presenceKey } },
+    const staffKey = `staff-${crypto.randomUUID()}`;
+    const ch = supabase.channel(`online:${patientId}`, {
+      config: { presence: { key: staffKey } },
     });
 
-    onlineCh.on("presence", { event: "sync" }, () => {
-      const state = onlineCh.presenceState();
-      setPatientOnline(Object.keys(state).includes(patientId));
-    });
+    const computeOnline = () => {
+      const state = ch.presenceState() as Record<string, any[]>;
+      const entries = state[patientId] || [];
+      return Array.isArray(entries) && entries.length > 0;
+    };
 
-    onlineCh.subscribe();
-    return () => { try { supabase.removeChannel(onlineCh); } catch {} };
+    const update = () => setPatientOnline(computeOnline());
+
+    ch
+      .on("presence", { event: "sync" }, update)
+      .on("presence", { event: "join" }, update)
+      .on("presence", { event: "leave" }, update)
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          try { await ch.track({ observer: true, at: Date.now() }); } catch {}
+          update();
+        }
+      });
+
+    return () => { try { supabase.removeChannel(ch); } catch {} };
   }, [mode, patientId]);
 
   // Fetch real patient display name + avatar
