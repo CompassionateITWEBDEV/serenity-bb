@@ -96,7 +96,6 @@ export default function PatientMessagesPage() {
 
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const threadChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const presenceTimer = useRef<number | null>(null);
 
   /* ------------------------- Auth + ensure patient ------------------------ */
@@ -106,7 +105,6 @@ export default function PatientMessagesPage() {
       const uid = au.user?.id;
       if (!uid) { router.replace("/login"); return; }
 
-      // ensure this user is a patient (not staff)
       const { data: p } = await supabase
         .from("patients")
         .select("user_id, first_name, last_name, email")
@@ -128,10 +126,8 @@ export default function PatientMessagesPage() {
   /* ------------------------------ Heartbeat ------------------------------- */
   useEffect(() => {
     if (!me) return;
-
     const beat = async () => { try { await supabase.rpc("patient_heartbeat"); } catch {} };
 
-    // immediate + burst then slow interval
     (async () => {
       await beat();
       const fast = setInterval(beat, 1000);
@@ -139,7 +135,6 @@ export default function PatientMessagesPage() {
     })();
     const slow = setInterval(beat, 10000);
 
-    // RT presence channel other services can watch: online:<patientId>
     const ch = supabase.channel(`online:${me.id}`, { config: { presence: { key: me.id } } });
     ch.subscribe((status) => {
       if (status === "SUBSCRIBED") {
@@ -174,7 +169,6 @@ export default function PatientMessagesPage() {
       if (error) { await Swal.fire("Load error", error.message, "error"); return; }
       setConvs((data as Conversation[]) || []);
 
-      // optional deep-link ?providerId=... → auto-select/create
       const providerId = params.get("providerId");
       if (providerId) {
         const exists = (data || []).find((c) => c.provider_id === providerId);
@@ -200,7 +194,6 @@ export default function PatientMessagesPage() {
   /* -------------------- Open/subscribe a conversation thread -------------- */
   useEffect(() => {
     if (!selectedId || !me) return;
-
     let alive = true;
     setProviderOnline(false);
 
@@ -212,9 +205,7 @@ export default function PatientMessagesPage() {
       if (error) { await Swal.fire("Load error", error.message, "error"); return; }
       if (alive) {
         setMsgs((data as MessageRow[]) || []);
-        requestAnimationFrame(() =>
-          listRef.current?.scrollTo({ top: listRef.current!.scrollHeight })
-        );
+        requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current!.scrollHeight }));
       }
     })();
 
@@ -226,9 +217,7 @@ export default function PatientMessagesPage() {
         async (payload) => {
           if (payload.eventType === "INSERT") {
             setMsgs((prev) => [...prev, payload.new as MessageRow]);
-            requestAnimationFrame(() =>
-              listRef.current?.scrollTo({ top: listRef.current!.scrollHeight, behavior: "smooth" })
-            );
+            requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current!.scrollHeight, behavior: "smooth" }));
           } else {
             const { data } = await supabase
               .from("messages").select("*")
@@ -239,13 +228,13 @@ export default function PatientMessagesPage() {
         }
       );
 
-    // presence for provider Online/Offline in header
     const compute = () => {
       const state = ch.presenceState() as Record<string, any[]>;
       const others = Object.values(state).flat() as any[];
       const online = others.some((s: any) => s?.uid && s.uid !== me.id);
       setProviderOnline(online);
     };
+
     ch.on("presence", { event: "sync" }, compute)
       .on("presence", { event: "join" }, compute)
       .on("presence", { event: "leave" }, compute)
@@ -262,13 +251,10 @@ export default function PatientMessagesPage() {
       try { ch.track({ uid: me.id, at: Date.now(), status: "idle" }); } catch {}
     }, 1500);
 
-    threadChRef.current = ch;
-
     return () => {
       alive = false;
       clearInterval(keepAlive);
       try { supabase.removeChannel(ch); } catch {}
-      threadChRef.current = null;
     };
   }, [selectedId, me]);
 
@@ -278,7 +264,6 @@ export default function PatientMessagesPage() {
     if (!me || starting) return;
     setStarting(true);
     try {
-      // Most projects create via API to apply server checks; adapt to your API path:
       const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
 
@@ -366,6 +351,7 @@ export default function PatientMessagesPage() {
     });
     return arr;
   }, [convs]);
+
   const filteredStaff = useMemo(() => {
     if (!search) return staffDir;
     return staffDir.filter((s) => {
@@ -387,53 +373,42 @@ export default function PatientMessagesPage() {
   if (loading) return <div className="p-6">Loading…</div>;
 
   return (
-    <div className="w-full flex justify-center bg-slate-50 dark:bg-zinc-950">
-      <div className="w-full max-w-sm min-h-screen bg-white dark:bg-zinc-900 shadow-sm">
-        {/* Top bar */}
-        <div className="px-3 py-2 border-b flex items-center gap-2 sticky top-0 bg-white/90 backdrop-blur dark:bg-zinc-900/80 z-10">
-          <Button variant="ghost" size="icon" onClick={() => setSelectedId(null)} className="rounded-full">
-            <ChevronLeft className="h-5 w-5" />
-          </Button>
-          <Avatar className="h-9 w-9">
-            <AvatarImage src={otherAvatar} />
-            <AvatarFallback>{initials(otherName)}</AvatarFallback>
-          </Avatar>
-          <div className="flex-1 leading-tight">
-            <div className="text-[15px] font-semibold">{selectedId ? otherName : "Direct Message"}</div>
-            {!!selectedId && (
-              <div className="flex items-center gap-1 text-[11px]">
-                <span className={`inline-block h-2 w-2 rounded-full ${providerOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
-                <span className={providerOnline ? "text-emerald-600" : "text-gray-500"}>{providerOnline ? "Online" : "Offline"}</span>
-              </div>
-            )}
-          </div>
-          <Button variant="ghost" size="icon" className="rounded-full"><Phone className="h-5 w-5" /></Button>
-          <Button variant="ghost" size="icon" className="rounded-full"><Video className="h-5 w-5" /></Button>
+    <div className="container mx-auto p-6 max-w-7xl">
+      {/* Header */}
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Messages</h1>
+          <p className="mt-1 text-gray-600 dark:text-gray-300">Chat with your care team</p>
         </div>
+      </div>
 
-        {/* List or Thread */}
-        {!selectedId ? (
-          <div className="p-4">
-            <div className="mb-3 px-3">
-              <div className="text-sm text-gray-500 font-semibold">Direct Message</div>
+      {/* Desktop layout: sidebar + thread */}
+      <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Sidebar */}
+        <div className="min-h-0 rounded-xl border bg-white dark:bg-zinc-900 dark:border-zinc-800 flex flex-col">
+          <div className="p-4 border-b dark:border-zinc-800">
+            <div className="flex items-center gap-2 mb-3">
+              <MessageCircle className="h-5 w-5" />
+              <div className="font-medium">Direct Message</div>
             </div>
-
-            <div className="px-3 pb-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
-                <Input placeholder="Search staff…" className="pl-10" value={q} onChange={(e) => setQ(e.target.value)} />
-              </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input placeholder="Search staff…" className="pl-10" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
+          </div>
 
-            {/* Existing conversations */}
-            <div className="space-y-1">
-              {convsSorted
-                .filter((c) => (search ? (c.provider_name ?? "Staff").toLowerCase().includes(search) : true))
-                .map((c) => (
+          <div className="min-h-0 flex-1 overflow-y-auto divide-y dark:divide-zinc-800">
+            {convsSorted
+              .filter((c) => (search ? (c.provider_name ?? "Staff").toLowerCase().includes(search) : true))
+              .map((c) => {
+                const active = selectedId === c.id;
+                return (
                   <button
                     key={`conv-${c.id}`}
                     onClick={() => setSelectedId(c.id)}
-                    className="w-full px-3 py-2 flex items-center gap-3 hover:bg-gray-50 active:scale-[.99]"
+                    className={`w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900 flex items-center gap-3 border-l-4 ${
+                      active ? "border-cyan-500 bg-cyan-50/40 dark:bg-cyan-900/10" : "border-transparent"
+                    }`}
                   >
                     <Avatar className="h-9 w-9">
                       <AvatarImage src={c.provider_avatar ?? undefined} />
@@ -441,10 +416,10 @@ export default function PatientMessagesPage() {
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between">
-                        <p className="truncate font-medium text-gray-900 dark:text-gray-100">{c.provider_name ?? "Staff"}</p>
-                        <span className="text-[11px] text-gray-500">
+                        <div className="truncate font-medium">{c.provider_name ?? "Staff"}</div>
+                        <div className="text-xs text-gray-500">
                           {new Date(c.last_message_at ?? c.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                        </span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant="secondary" className="capitalize">{c.provider_role ?? "staff"}</Badge>
@@ -452,11 +427,11 @@ export default function PatientMessagesPage() {
                       </div>
                     </div>
                   </button>
-                ))}
-            </div>
+                );
+              })}
 
             {/* Staff directory */}
-            <div className="px-3 pt-4 text-xs font-semibold uppercase text-gray-500">Staff directory</div>
+            <div className="px-4 py-2 text-xs font-semibold uppercase text-gray-500">Staff directory</div>
             {filteredStaff.map((s) => {
               const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "Staff";
               return (
@@ -464,8 +439,7 @@ export default function PatientMessagesPage() {
                   key={`staff-${s.user_id}`}
                   onClick={() => startChatWith(s)}
                   disabled={starting}
-                  className="w-full px-3 py-2 flex items-center gap-3 hover:bg-gray-50 disabled:opacity-50"
-                  title="Start chat"
+                  className="w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900 flex items-center gap-3"
                 >
                   <Avatar className="h-9 w-9">
                     <AvatarImage src={s.avatar_url ?? undefined} />
@@ -473,8 +447,8 @@ export default function PatientMessagesPage() {
                   </Avatar>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between">
-                      <p className="truncate font-medium text-gray-900 dark:text-gray-100">{name}</p>
-                      <span className="text-[11px] text-gray-500">{s.title ?? s.department ?? ""}</span>
+                      <div className="truncate font-medium">{name}</div>
+                      <div className="text-xs text-gray-500">{s.title ?? s.department ?? ""}</div>
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="capitalize">{toProviderRole(s.role ?? "")}</Badge>
@@ -484,57 +458,90 @@ export default function PatientMessagesPage() {
                 </button>
               );
             })}
-            {filteredStaff.length === 0 && <div className="p-6 text-sm text-gray-500">No staff found.</div>}
           </div>
-        ) : (
-          <>
-            {/* Messages */}
-            <div ref={listRef} className="min-h-0 grow overflow-y-auto p-3 space-y-3">
-              {msgs.map((m) => {
-                const own = m.sender_id === me?.id;
-                const bubble = own
-                  ? "bg-cyan-500 text-white rounded-2xl px-4 py-2 shadow-sm"
-                  : "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-2xl px-4 py-2";
-                return (
-                  <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
-                    <div className="max-w-[88%]">
-                      <div className={bubble}>
-                        <p className="whitespace-pre-wrap break-words">{m.content}</p>
-                        <div className={`mt-1 text-[10px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
-                          {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        </div>
+
+        {/* Thread */}
+        <div className="lg:col-span-2 min-h-0 rounded-xl border bg-white dark:bg-zinc-900 dark:border-zinc-800 flex flex-col">
+          {!selectedId ? (
+            <div className="flex flex-1 items-center justify-center">
+              <div className="text-center text-gray-500">
+                <MessageCircle className="mx-auto mb-4 h-12 w-12" />
+                <div className="text-lg font-medium">Select a conversation</div>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Thread header */}
+              <div className="px-4 py-3 border-b dark:border-zinc-800 flex items-center gap-3">
+                <Button variant="ghost" size="icon" onClick={() => setSelectedId(null)} className="rounded-full lg:hidden">
+                  <ChevronLeft className="h-5 w-5" />
+                </Button>
+                <Avatar className="h-9 w-9">
+                  <AvatarImage src={otherAvatar} />
+                  <AvatarFallback>{initials(otherName)}</AvatarFallback>
+                </Avatar>
+                <div className="leading-tight">
+                  <div className="font-semibold">{otherName}</div>
+                  <div className="flex items-center gap-1 text-xs">
+                    <span className={`inline-block h-2 w-2 rounded-full ${providerOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
+                    <span className={providerOnline ? "text-emerald-600" : "text-gray-500"}>{providerOnline ? "Online" : "Offline"}</span>
+                  </div>
+                </div>
+                <div className="ml-auto flex items-center gap-1">
+                  <Button variant="ghost" size="icon" className="rounded-full"><Phone className="h-5 w-5" /></Button>
+                  <Button variant="ghost" size="icon" className="rounded-full"><Video className="h-5 w-5" /></Button>
+                </div>
+              </div>
+
+              {/* Messages */}
+              <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-slate-50 to-white dark:from-zinc-900 dark:to-zinc-950">
+                {msgs.map((m) => {
+                  const own = m.sender_id === me?.id;
+                  const bubble = own
+                    ? "bg-cyan-500 text-white rounded-2xl px-4 py-2 shadow-sm"
+                    : "bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 rounded-2xl px-4 py-2 ring-1 ring-gray-200/60 dark:ring-zinc-700/60";
+                  return (
+                    <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
+                      <div className="max-w-[80%]">
+                        <div className={bubble}>
+                          <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                          <div className={`mt-1 text-[11px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
+                            {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-              {msgs.length === 0 && <div className="text-sm text-gray-500 text-center py-6">No messages yet.</div>}
-            </div>
-
-            {/* Composer */}
-            <div className="border-t p-2">
-              <div className="flex items-end gap-2">
-                <div className="flex shrink-0 gap-1">
-                  <Button type="button" variant="ghost" size="icon" className="rounded-full"><ImageIcon className="h-5 w-5" /></Button>
-                  <Button type="button" variant="ghost" size="icon" className="rounded-full"><Camera className="h-5 w-5" /></Button>
-                  <Button type="button" variant="ghost" size="icon" className="rounded-full"><Mic className="h-5 w-5" /></Button>
-                </div>
-
-                <Textarea
-                  ref={textareaRef}
-                  placeholder="Aa"
-                  value={compose}
-                  onChange={(e) => setCompose(e.target.value)}
-                  className="min-h-[40px] max-h-[120px] flex-1 rounded-full px-4 py-2 bg-slate-100 dark:bg-zinc-800"
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
-                />
-                <Button onClick={send} disabled={!compose.trim()} className="rounded-full h-10 w-10 p-0">
-                  <Send className="h-4 w-4" />
-                </Button>
+                  );
+                })}
+                {msgs.length === 0 && <div className="text-sm text-gray-500 text-center py-6">No messages yet.</div>}
               </div>
-            </div>
-          </>
-        )}
+
+              {/* Composer */}
+              <div className="border-t dark:border-zinc-800 p-3">
+                <div className="flex items-end gap-2">
+                  <div className="flex shrink-0 gap-1">
+                    <Button type="button" variant="ghost" size="icon" className="rounded-full"><ImageIcon className="h-5 w-5" /></Button>
+                    <Button type="button" variant="ghost" size="icon" className="rounded-full"><Camera className="h-5 w-5" /></Button>
+                    <Button type="button" variant="ghost" size="icon" className="rounded-full"><Mic className="h-5 w-5" /></Button>
+                  </div>
+
+                  <Textarea
+                    ref={textareaRef}
+                    placeholder="Type your message…"
+                    value={compose}
+                    onChange={(e) => setCompose(e.target.value)}
+                    className="min-h-[44px] max-h-[140px] flex-1 rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700"
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
+                  />
+                  <Button onClick={send} disabled={!compose.trim()} className="shrink-0 rounded-2xl h-11 px-4 shadow-md">
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
