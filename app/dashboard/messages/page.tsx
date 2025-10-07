@@ -8,9 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { MessageCircle, Search, Send, EllipsisVertical, Pencil, Trash2, Smile, Settings as SettingsIcon } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  MessageCircle, Search, Send, EllipsisVertical, Pencil, Trash2, Smile, Settings as SettingsIcon,
+} from "lucide-react";
 import Swal from "sweetalert2";
 
 type ProviderRole = "doctor" | "nurse" | "counselor";
@@ -114,7 +120,7 @@ export default function MessagesPage() {
     else if (settings.theme === "light") document.documentElement.classList.remove("dark");
   }, [settings]);
 
-  // Detect role
+  // Role
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
@@ -151,7 +157,7 @@ export default function MessagesPage() {
     })();
   }, []);
 
-  // Load conversations
+  // Conversations
   useEffect(() => {
     if (!me) return;
     (async () => {
@@ -176,7 +182,7 @@ export default function MessagesPage() {
     })();
   }, [me]);
 
-  // Staff directory (patient)
+  // Staff dir
   useEffect(() => {
     if (!me || me.appRole !== "patient") return;
     (async () => {
@@ -190,7 +196,7 @@ export default function MessagesPage() {
     })();
   }, [me]);
 
-  // Realtime conv list
+  // Realtime convs
   useEffect(() => {
     if (!me) return;
     const filter = me.appRole === "staff" ? `provider_id=eq.${me.id}` : `patient_id=eq.${me.id}`;
@@ -222,14 +228,13 @@ export default function MessagesPage() {
     return () => { supabase.removeChannel(ch); };
   }, [me]);
 
-  // Thread + realtime
+  // Thread realtime
   useEffect(() => {
     if (!selectedId || !me) return;
     let alive = true;
     (async () => {
       const { data, error } = await supabase
-        .from("messages")
-        .select("*")
+        .from("messages").select("*")
         .eq("conversation_id", selectedId)
         .order("created_at", { ascending: true });
       if (error) return Swal.fire("Load error", error.message, "error");
@@ -254,8 +259,7 @@ export default function MessagesPage() {
             );
           } else {
             const { data } = await supabase
-              .from("messages")
-              .select("*")
+              .from("messages").select("*")
               .eq("conversation_id", selectedId)
               .order("created_at", { ascending: true });
             setMsgs((data as MessageRow[]) || []);
@@ -267,21 +271,28 @@ export default function MessagesPage() {
     return () => { supabase.removeChannel(ch); alive = false; };
   }, [selectedId, me]);
 
-  // Start/open convo on staff click (patient) — via API (reliable)
+  // Start chat via API (Bearer + cookies)
   const startChatWith = useCallback(async (staff: StaffRow) => {
     if (!me || me.appRole !== "patient" || starting) return;
     setStarting(true);
     try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+
       const res = await fetch("/api/chat/new", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ providerId: staff.user_id }),
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || "Failed to start chat");
+
       const conv: Conversation = payload.conversation;
 
-      // If missing provider meta, fill from staff (optional)
       if (!conv.provider_name || !conv.provider_role) {
         const provider_name =
           [staff.first_name, staff.last_name].filter(Boolean).join(" ") || staff.email || "Staff";
@@ -314,8 +325,7 @@ export default function MessagesPage() {
       const { data, error } = await supabase
         .from("conversations")
         .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
-        .eq("id", selectedId)
-        .maybeSingle();
+        .eq("id", selectedId).maybeSingle();
       if (error || !data) return Swal.fire("Send failed", error?.message || "Conversation not found", "error");
       convo = data as Conversation;
       setConvs((prev) => upsertConversation(prev, convo!));
@@ -360,7 +370,7 @@ export default function MessagesPage() {
       .eq("id", selectedId);
   }
 
-  // Edit/Delete (own only) – requires RLS policies at the end
+  // Edit/Delete own messages (requires RLS)
   async function editMessage(m: MessageRow) {
     setEditingId(m.id);
     setEditingText(m.content);
@@ -459,7 +469,6 @@ export default function MessagesPage() {
 
             <CardContent className="min-h-0 grow p-0">
               <div className="h-full overflow-y-auto divide-y dark:divide-gray-800">
-                {/* Recent conversations */}
                 {convsSorted
                   .filter((c) => {
                     const other =
@@ -505,7 +514,6 @@ export default function MessagesPage() {
                     );
                   })}
 
-                {/* Staff directory (patient only) */}
                 {me?.appRole === "patient" && (
                   <>
                     <div className="px-4 py-2 text-xs font-semibold uppercase text-gray-500">Staff directory</div>
@@ -544,7 +552,6 @@ export default function MessagesPage() {
           </div>
         </Card>
 
-        {/* Thread panel */}
         <Card className="flex min-h-0 flex-col lg:col-span-2">
           {!selectedId ? (
             <CardContent className="flex flex-1 items-center justify-center">
@@ -560,8 +567,8 @@ export default function MessagesPage() {
                   {msgs.map((m) => {
                     const own = m.sender_id === me?.id;
                     const bubble = own
-                      ? `bg-cyan-500 text-white ${settings.bubbleRadius} px-4 py-2`
-                      : `bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 ${settings.bubbleRadius} px-4 py-2`;
+                      ? `bg-cyan-500 text-white ${bubbleBase}`
+                      : `bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 ${bubbleBase}`;
                     return (
                       <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
                         <div className="max-w-full sm:max-w-lg">
@@ -602,7 +609,6 @@ export default function MessagesPage() {
                 </div>
               </CardContent>
 
-              {/* Composer */}
               <div className="border-t p-3 sm:p-4">
                 <div className="flex items-end gap-2">
                   <Dialog>
@@ -633,7 +639,6 @@ export default function MessagesPage() {
         </Card>
       </div>
 
-      {/* Settings */}
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Chat settings</DialogTitle></DialogHeader>
@@ -683,7 +688,12 @@ function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
           <p className="mb-2 text-xs font-medium text-gray-500">{label}</p>
           <div className="grid grid-cols-10 gap-2">
             {list.map((e) => (
-              <button key={e} onClick={() => onPick(e)} className="rounded-md border p-2 text-xl hover:bg-gray-50 dark:hover:bg-gray-900" aria-label={`Insert ${e}`}>
+              <button
+                key={e}
+                onClick={() => onPick(e)}
+                className="rounded-md border p-2 text-xl hover:bg-gray-50 dark:hover:bg-gray-900"
+                aria-label={`Insert ${e}`}
+              >
                 {e}
               </button>
             ))}
