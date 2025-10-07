@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, Plus, Search } from "lucide-react";
+import { LogOut, Plus, Search, Settings as SettingsIcon } from "lucide-react";
 
 import { supabase } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog";
 
 import ChatBox from "@/components/chat/ChatBox";
 import type { ProviderRole } from "@/lib/chat";
@@ -21,6 +24,14 @@ import {
 
 type ConversationPreview = Awaited<ReturnType<typeof listConversationsForProvider>>[number];
 type PatientAssigned = { user_id: string; full_name: string | null; email: string | null; avatar: string | null };
+
+type UiSettings = {
+  theme: "light" | "dark" | "system";
+  density: "comfortable" | "compact";
+  bubbleRadius: "rounded-lg" | "rounded-xl" | "rounded-2xl";
+  enterToSend: boolean;
+  sound: boolean;
+};
 
 function initials(s?: string | null) {
   const v = (s ?? "U").trim();
@@ -35,6 +46,22 @@ function mapStaffRole(role?: string | null, dept?: string | null): ProviderRole 
 
 export default function StaffMessagesPage() {
   const router = useRouter();
+
+  // settings (persisted)
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<UiSettings>(() => {
+    if (typeof window === "undefined") {
+      return { theme: "light", density: "comfortable", bubbleRadius: "rounded-xl", enterToSend: true, sound: true };
+    }
+    const raw = localStorage.getItem("staff:chat:settings");
+    return raw ? JSON.parse(raw) as UiSettings : { theme: "light", density: "comfortable", bubbleRadius: "rounded-xl", enterToSend: true, sound: true };
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("staff:chat:settings", JSON.stringify(settings));
+    if (settings.theme === "dark") document.documentElement.classList.add("dark");
+    else if (settings.theme === "light") document.documentElement.classList.remove("dark");
+  }, [settings]);
 
   // me
   const [meId, setMeId] = useState<string | null>(null);
@@ -69,10 +96,7 @@ export default function StaffMessagesPage() {
 
   const filteredConvs = useMemo(() => {
     const v = q.trim().toLowerCase();
-    const list =
-      tab === "new"
-        ? convs.filter((c) => (unreadMap[c.id] ?? 0) > 0)
-        : convs;
+    const list = tab === "new" ? convs.filter((c) => (unreadMap[c.id] ?? 0) > 0) : convs;
     if (!v) return list;
     return list.filter((c) =>
       (c.patient_name ?? c.patient_email ?? "patient").toLowerCase().includes(v) ||
@@ -142,7 +166,7 @@ export default function StaffMessagesPage() {
     })();
   }, [router]);
 
-  // Realtime: keep list fresh + unread bumps (patient sends)
+  // realtime list + unread bumps
   useEffect(() => {
     if (!meId) return;
 
@@ -165,7 +189,6 @@ export default function StaffMessagesPage() {
         (payload) => {
           const m = payload.new as { conversation_id: string; sender_role: string; content: string; created_at: string };
           if (m.sender_role !== "patient") return;
-
           setConvs((cur) =>
             cur
               .map((c) => (c.id === m.conversation_id ? { ...c, last_message: m.content, updated_at: m.created_at } : c))
@@ -185,11 +208,11 @@ export default function StaffMessagesPage() {
     };
   }, [meId, selectedId]);
 
-  // When opening a thread from “New” tab, clear unread (patient → staff)
+  // clear unread on open
   useEffect(() => {
     if (!selectedId || !meId) return;
     (async () => {
-      await markReadHelper(selectedId, "nurse"); // viewer is staff; any provider role ok here
+      await markReadHelper(selectedId, "nurse");
       setUnreadMap((m) => ({ ...m, [selectedId]: 0 }));
       if (typeof window !== "undefined") {
         const url = new URL(window.location.href); url.searchParams.set("open", selectedId);
@@ -209,8 +232,50 @@ export default function StaffMessagesPage() {
   return (
     <div className="mx-auto max-w-7xl p-6 space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900">Messages</h1>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Messages</h1>
         <div className="flex items-center gap-2">
+          <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2"><SettingsIcon className="h-4 w-4" /> Settings</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader><DialogTitle>Chat settings</DialogTitle></DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm font-medium">Theme</p>
+                  <div className="mt-2 flex gap-2">
+                    {(["light","dark","system"] as const).map((v)=>(
+                      <Button key={v} variant={settings.theme===v?"default":"outline"} onClick={()=>setSettings((s)=>({...s,theme:v}))}>{v}</Button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Density</p>
+                  <div className="mt-2 flex gap-2">
+                    {(["comfortable","compact"] as const).map((v)=>(
+                      <Button key={v} variant={settings.density===v?"default":"outline"} onClick={()=>setSettings((s)=>({...s,density:v}))}>{v}</Button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Bubble roundness</p>
+                  <div className="mt-2 flex gap-2">
+                    {(["rounded-lg","rounded-xl","rounded-2xl"] as const).map((v)=>(
+                      <Button key={v} variant={settings.bubbleRadius===v?"default":"outline"} onClick={()=>setSettings((s)=>({...s,bubbleRadius:v}))}>{v.replace("rounded-","")}</Button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant={settings.enterToSend?"default":"outline"} onClick={()=>setSettings((s)=>({...s,enterToSend:!s.enterToSend}))}>
+                    {settings.enterToSend ? "Enter sends" : "Enter adds line"}
+                  </Button>
+                  <Button variant={settings.sound?"default":"outline"} onClick={()=>setSettings((s)=>({...s,sound:!s.sound}))}>
+                    {settings.sound ? "Sounds on" : "Sounds off"}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
           <Button size="sm" className="gap-2" onClick={() => setModalOpen(true)}><Plus className="h-4 w-4" /> New message</Button>
           <Button variant="outline" size="sm" onClick={async () => { await supabase.auth.signOut(); router.refresh(); }}>
             <LogOut className="h-4 w-4" /> Logout
@@ -219,7 +284,6 @@ export default function StaffMessagesPage() {
       </div>
 
       <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Conversations + New requests filter */}
         <Card className="lg:col-span-1">
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
@@ -246,12 +310,12 @@ export default function StaffMessagesPage() {
                   <button
                     key={c.id}
                     onClick={() => setSelectedId(c.id)}
-                    className={`flex w-full items-center gap-3 border-l-4 p-4 text-left hover:bg-gray-50 ${active ? "border-cyan-500 bg-cyan-50" : "border-transparent"}`}
+                    className={`flex w-full items-center gap-3 border-l-4 p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-900 ${active ? "border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20" : "border-transparent"}`}
                   >
-                    <Avatar><AvatarImage src={c.patient_avatar ?? undefined} /><AvatarFallback>{initials(c.patient_name ?? c.patient_email)}</AvatarFallback></Avatar>
+                    <Avatar><AvatarImage src={c.patient_avatar ?? undefined} /><AvatarFallback>{initials(c.patient_name || c.patient_email || "Patient")}</AvatarFallback></Avatar>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between">
-                        <p className="truncate font-medium text-gray-900">{c.patient_name ?? c.patient_email ?? "Patient"}</p>
+                        <p className="truncate font-medium text-gray-900 dark:text-gray-100">{c.patient_name ?? c.patient_email ?? "Patient"}</p>
                         <span className="text-xs text-gray-500">
                           {new Date(c.updated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </span>
@@ -266,7 +330,6 @@ export default function StaffMessagesPage() {
           </CardContent>
         </Card>
 
-        {/* Thread (ChatBox) */}
         <div className="lg:col-span-2">
           {!selectedConv ? (
             <Card className="h-[540px] w-full">
@@ -279,15 +342,15 @@ export default function StaffMessagesPage() {
               providerId={meId!}
               providerName={meName}
               providerRole={meRole}
+              settings={settings}
             />
           )}
         </div>
       </div>
 
-      {/* New Message Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
-          <div className="w-full max-w-lg rounded-lg border bg-white">
+          <div className="w-full max-w-lg rounded-lg border bg-white dark:bg-gray-950">
             <div className="flex items-center justify-between border-b p-4">
               <h3 className="font-semibold">New message</h3>
               <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>Close</Button>
@@ -302,7 +365,7 @@ export default function StaffMessagesPage() {
                 {filteredPatients.map((p) => (
                   <button
                     key={p.user_id}
-                    className="w-full text-left p-3 hover:bg-gray-50 flex items-center gap-3"
+                    className="w-full text-left p-3 hover:bg-gray-50 dark:hover:bg-gray-900 flex items-center gap-3"
                     onClick={() => startNewMessage(p)}
                   >
                     <Avatar><AvatarImage src={p.avatar ?? undefined} /><AvatarFallback>{initials(p.full_name)}</AvatarFallback></Avatar>
