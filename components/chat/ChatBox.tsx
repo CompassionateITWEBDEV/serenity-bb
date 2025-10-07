@@ -2,235 +2,213 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent } from "@/components/ui/card";
+import { Send } from "lucide-react";
+import type { ProviderRole } from "@/lib/chat";
+import { markRead as markReadHelper } from "@/lib/chat";
 
-type Role = "patient" | "doctor" | "nurse" | "counselor";
-type Mode = "patient" | "staff";
-
-type Message = {
+type MessageRow = {
   id: string;
   conversation_id: string;
+  patient_id: string | null;
   sender_id: string;
   sender_name: string;
-  sender_role: Role;
+  sender_role: "patient" | ProviderRole;
   content: string;
   created_at: string;
   read: boolean;
+  urgent: boolean;
 };
 
-type Props = {
-  mode: Mode;
-  patientId?: string;
+export default function ChatBox(props: {
+  mode: "staff" | "patient";
+  patientId: string;
   providerId?: string;
   providerName?: string;
-  providerRole?: Exclude<Role, "patient">;
-  conversationId?: string; // optional deep-link
-};
+  providerRole?: ProviderRole;
+}) {
+  const { mode, patientId } = props;
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [me, setMe] = useState<{ id: string; name: string; role: "patient" | ProviderRole } | null>(null);
 
-export default function ChatBox({
-  mode,
-  patientId,
-  providerId,
-  providerName,
-  providerRole,
-  conversationId,
-}: Props) {
-  const [convId, setConvId] = useState<string | null>(conversationId ?? null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [msgs, setMsgs] = useState<MessageRow[]>([]);
   const [text, setText] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [sending, setSending] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
-  const chanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const canSend = useMemo(() => text.trim().length > 0 && !sending, [text, sending]);
-
-  // Ensure conversation for staff when patient/provider are known
-  const ensureForStaff = useCallback(async () => {
-    if (mode !== "staff") return null;
-    if (!patientId || !providerId || !providerName || !providerRole) return null;
-    const res = await fetch("/api/chat/ensure", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        patientId,
-        providerId,
-        providerName,
-        providerRole,
-        providerAvatar: null,
-      }),
-    });
-    const j = await res.json();
-    if (!res.ok) throw new Error(j.error || "ensure failed");
-    return j.id as string;
-  }, [mode, patientId, providerId, providerName, providerRole]);
-
-  // Load messages for a conversation + subscribe realtime
-  const loadMessages = useCallback(
-    async (cid: string) => {
-      setLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from("messages")
-          .select("*")
-          .eq("conversation_id", cid)
-          .order("created_at", { ascending: true });
-        if (error) throw error;
-        setMessages((data as Message[]) ?? []);
-
-        // mark read (viewing thread)
-        await fetch("/api/chat/read", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ conversationId: cid }),
-        }).catch(() => {});
-
-        // realtime subscribe
-        if (chanRef.current) supabase.removeChannel(chanRef.current);
-        const ch = supabase
-          .channel(`msg_${cid}`)
-          .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${cid}` }, (payload) => {
-            const m = payload.new as Message;
-            setMessages((cur) => [...cur, m]);
-          })
-          .subscribe();
-        chanRef.current = ch;
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
-
-  // Initialize conv id resolution
+  // Resolve/create conversation and "me"
   useEffect(() => {
-    let cancelled = false;
     (async () => {
-      try {
-        if (conversationId) {
-          if (!cancelled) setConvId(conversationId);
-          await loadMessages(conversationId);
-          return;
+      const { data: au } = await supabase.auth.getUser();
+      const uid = au.user?.id;
+      if (!uid) return;
+
+      if (mode === "staff") {
+        // why: staff UI sends as provider
+        const pid = props.providerId!;
+        setMe({ id: pid, name: props.providerName || "Me", role: props.providerRole! });
+
+        const { data: conv, error } = await supabase
+          .from("conversations")
+          .select("id")
+          .eq("patient_id", patientId)
+          .eq("provider_id", pid)
+          .maybeSingle();
+
+        if (!error && conv) {
+          setConversationId(conv.id);
+        } else {
+          const { data: created, error: insErr } = await supabase
+            .from("conversations")
+            .upsert(
+              {
+                patient_id: patientId,
+                provider_id: pid,
+                provider_name: props.providerName ?? null,
+                provider_role: props.providerRole ?? null,
+              },
+              { onConflict: "patient_id,provider_id" }
+            )
+            .select("id")
+            .single();
+          if (insErr) throw insErr;
+          setConversationId(created!.id);
         }
-        if (mode === "staff" && !convId) {
-          const id = await ensureForStaff();
-          if (id && !cancelled) {
-            setConvId(id);
-            await loadMessages(id);
-          }
-        }
-        // patient mode: wait until first send if no convId
-      } catch (e: any) {
-        alert(e.message || "Failed to initialize chat");
+      } else {
+        // patient mode
+        setMe({ id: uid, name: au.user?.email || "Me", role: "patient" });
+        const { data: conv } = await supabase
+          .from("conversations")
+          .select("id")
+          .eq("patient_id", uid)
+          .eq("provider_id", props.providerId!)
+          .maybeSingle();
+        if (conv) setConversationId(conv.id);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId, mode, ensureForStaff]);
+  }, [mode, patientId, props.providerId]);
 
-  // Auto-scroll to bottom on new messages
+  // Load history & subscribe realtime
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages.length]);
+    if (!conversationId || !me) return;
+    let alive = true;
 
-  // Cleanup channel on unmount / conv change
-  useEffect(() => {
-    return () => {
-      if (chanRef.current) supabase.removeChannel(chanRef.current);
-      chanRef.current = null;
-    };
-  }, [convId]);
-
-  async function send() {
-    if (!canSend) return;
-    setSending(true);
-    const content = text.trim();
-    try {
-      if (mode === "patient" && !convId) {
-        // First message from patient: API creates convo + inserts message
-        const res = await fetch("/api/chat/patient-send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content }),
-        });
-        const j = await res.json();
-        if (!res.ok) throw new Error(j.error || "send failed");
-        const newConvId = j.conversationId as string;
-        setConvId(newConvId);
-        // load history after first send to catch any prior staff messages (rare)
-        await loadMessages(newConvId);
-      } else {
-        // Ensure conv for staff (or patient with existing conv)
-        let id = convId;
-        if (!id) {
-          id = await ensureForStaff();
-          if (!id) throw new Error("No conversation available");
-          setConvId(id);
-          await loadMessages(id);
-        }
-        const res = await fetch("/api/chat/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ conversationId: id, content }),
-        });
-        const j = await res.json();
-        if (!res.ok) throw new Error(j.error || "send failed");
-        // optimistic add; realtime will also push, but we keep UI snappy.
-        setMessages((cur) => [...cur, j.message as Message]);
+    (async () => {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      if (alive) {
+        setMsgs((data as MessageRow[]) ?? []);
+        queueMicrotask(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight }));
+        // mark read on open
+        await markReadHelper(conversationId, me.role);
       }
-      setText("");
-    } catch (e: any) {
-      alert(e.message || "Failed to send");
-    } finally {
-      setSending(false);
+    })();
+
+    const ch = supabase
+      .channel(`thread_${conversationId}`)
+      .on(
+        "postgres_changes",
+        { schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}`, event: "*" },
+        async (p) => {
+          if (p.eventType === "INSERT") {
+            setMsgs((m) => [...m, p.new as MessageRow]);
+            listRef.current?.scrollTo({ top: listRef.current!.scrollHeight, behavior: "smooth" });
+            // auto mark read if inbound
+            const n = p.new as MessageRow;
+            if (n.sender_id !== me.id) await markReadHelper(conversationId, me.role);
+          } else {
+            const { data } = await supabase
+              .from("messages").select("*")
+              .eq("conversation_id", conversationId)
+              .order("created_at", { ascending: true });
+            setMsgs((data as MessageRow[]) ?? []);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(ch); alive = false; };
+  }, [conversationId, me]);
+
+  const canSend = useMemo(() => !!text.trim() && !!me && !!conversationId, [text, me, conversationId]);
+
+  const send = useCallback(async () => {
+    if (!canSend || !me || !conversationId) return;
+    const content = text.trim();
+    setText("");
+
+    const optimistic: MessageRow = {
+      id: `tmp-${crypto.randomUUID()}`,
+      conversation_id: conversationId,
+      patient_id: mode === "patient" ? me.id : patientId,
+      sender_id: me.id,
+      sender_name: me.name,
+      sender_role: me.role,
+      content,
+      created_at: new Date().toISOString(),
+      read: false,
+      urgent: false,
+    };
+
+    setMsgs((m) => [...m, optimistic]);
+
+    const { error } = await supabase.from("messages").insert({
+      conversation_id: conversationId,
+      patient_id: optimistic.patient_id,
+      sender_id: me.id,
+      sender_name: me.name,
+      sender_role: me.role,
+      content,
+      read: false,
+      urgent: false,
+    });
+
+    if (error) {
+      setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
+      alert(`Send failed: ${error.message}`);
     }
-  }
+  }, [canSend, me, conversationId, mode, patientId, text]);
 
-  // Simple bubble UI
   return (
-    <div className="flex h-[540px] flex-col rounded-lg border">
-      <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-2">
-        {loading && <div className="text-xs text-gray-500">Loading…</div>}
-        {!loading && messages.length === 0 && (
-          <div className="text-xs text-gray-500">No messages yet.</div>
-        )}
-        {messages.map((m) => {
-          const mine = mode === "patient" ? m.sender_role === "patient" : m.sender_role !== "patient";
-          return (
-            <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm ${mine ? "bg-cyan-500 text-white" : "bg-gray-100 text-gray-900"}`}>
-                <div className="whitespace-pre-wrap break-words">{m.content}</div>
-                <div className={`mt-1 text-[10px] opacity-70 ${mine ? "text-white" : "text-gray-500"}`}>
-                  {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+    <Card className="h-[540px] w-full">
+      <CardContent className="flex h-full flex-col p-0">
+        <div ref={listRef} className="flex-1 overflow-y-auto p-4">
+          <div className="space-y-3">
+            {msgs.map((m) => {
+              const own = m.sender_id === me?.id;
+              return (
+                <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-full sm:max-w-lg rounded-xl px-4 py-2 ${own ? "bg-cyan-500 text-white" : "bg-gray-100"}`}>
+                    <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                    <div className={`mt-1 text-[11px] ${own ? "text-cyan-100" : "text-gray-500"}`}>
+                      {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="mt-auto flex gap-2 p-3 border-t">
-        <input
-          className="flex-1 rounded border px-3 py-2"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-          placeholder={mode === "patient" ? "Message your provider..." : "Type your message..."}
-        />
-        <button
-          className="rounded bg-cyan-600 px-4 py-2 text-white disabled:opacity-50"
-          onClick={send}
-          disabled={!canSend}
-        >
-          Send
-        </button>
-      </div>
-    </div>
+              );
+            })}
+            {msgs.length === 0 && <div className="text-center text-sm text-gray-500">No messages yet.</div>}
+          </div>
+        </div>
+        <div className="border-t p-3">
+          <div className="flex items-end gap-2">
+            <Textarea
+              placeholder="Type your message…"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
+              className="min-h-[44px] max-h-[140px] flex-1"
+            />
+            <Button disabled={!canSend} onClick={send}><Send className="h-4 w-4" /></Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
