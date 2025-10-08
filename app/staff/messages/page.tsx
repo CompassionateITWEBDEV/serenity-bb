@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   LogOut, Plus, Search, Settings as SettingsIcon,
-  Pin, PinOff, Archive, ArchiveRestore, CheckCheck
+  Pin, PinOff, Archive, ArchiveRestore, CheckCheck,
+  ArrowLeft, // ← added
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase/client";
@@ -240,6 +241,12 @@ export default function StaffMessagesPage() {
     setUnreadMap((m) => ({ ...m, [id]: 0 }));
   }
 
+  // Back to dashboard
+  const handleBack = () => {
+    // Why: central route to allow easy change if dashboard path changes.
+    router.push("/staff/dashboard");
+  };
+
   // Filtering & sorting
   const filteredConvs = useMemo(() => {
     let list = convs.slice().filter((c) => !c.archived_at);
@@ -270,7 +277,14 @@ export default function StaffMessagesPage() {
   return (
     <div className="mx-auto max-w-7xl p-6 space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Messages</h1>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={handleBack} className="gap-1">
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Messages</h1>
+        </div>
+
         <div className="flex items-center gap-2">
           <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
             <DialogTrigger asChild>
@@ -433,7 +447,7 @@ export default function StaffMessagesPage() {
               providerName={meName}
               providerRole={meRole}
               settings={settings}
-              conversationId={selectedConv.id}   // pass real thread id
+              conversationId={selectedConv.id}
             />
           )}
         </div>
