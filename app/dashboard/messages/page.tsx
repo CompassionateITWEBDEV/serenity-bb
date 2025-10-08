@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, Phone, Video, Send, Image as ImageIcon, Camera, Mic,
-  MessageCircle, Search, EllipsisVertical, Plus, Trash2, Power, PowerOff
+  MessageCircle, Search, EllipsisVertical, Plus, Trash2, Power, PowerOff, X
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -63,6 +63,9 @@ type StaffRow = {
 
 /* ---------------------------- Utils/helpers ----------------------------- */
 
+const CHAT_BUCKET =
+  process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET?.trim() || "chat";
+
 function initials(name?: string | null) {
   const s = (name ?? "").trim();
   if (!s) return "U";
@@ -103,6 +106,27 @@ export default function PatientMessagesPage() {
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const presenceTimer = useRef<number | null>(null);
+
+  // Draft media (staged before sending)
+  const [draft, setDraft] = useState<{
+    blob: Blob;
+    type: "image" | "audio" | "file";
+    name?: string;
+    previewUrl: string; // object URL for preview
+    duration_sec?: number;
+  } | null>(null);
+
+  // revoke preview URL when draft changes
+  useEffect(() => {
+    return () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); };
+  }, [draft?.previewUrl]);
+
+  // Media recording
+  const [recording, setRecording] = useState(false);
+  const mediaRecRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   /* -------- Add Staff dialog state -------- */
   const [addOpen, setAddOpen] = useState(false);
@@ -323,12 +347,70 @@ export default function PatientMessagesPage() {
     }
   }, [me, starting]);
 
+  /* ------------------------- Storage helper (public/signed) --------------- */
+  async function uploadToChat(fileOrBlob: Blob, fileName?: string) {
+    if (!selectedId || !me) throw new Error("Missing conversation");
+    const detected = (fileOrBlob as File).type || (fileOrBlob as any).type || "";
+    const extFromName = (fileName || "").split(".").pop() || "";
+    const ext = extFromName || (detected.startsWith("image/") ? detected.split("/")[1] : detected ? "webm" : "bin");
+    const path = `${selectedId}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
+
+    const { error: upErr } = await supabase
+      .storage
+      .from(CHAT_BUCKET)
+      .upload(path, fileOrBlob, {
+        contentType: detected || "application/octet-stream",
+        upsert: false,
+      });
+
+    if (upErr) {
+      if (/not found/i.test(upErr.message) || /No such file/i.test(upErr.message)) {
+        throw new Error(`Storage bucket "${CHAT_BUCKET}" not found or not accessible.`);
+      }
+      throw upErr;
+    }
+
+    const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
+    if (pub?.data?.publicUrl) return pub.data.publicUrl;
+
+    const { data: signed, error: signErr } = await supabase
+      .storage
+      .from(CHAT_BUCKET)
+      .createSignedUrl(path, 60 * 60); // 1 hour
+
+    if (signErr || !signed?.signedUrl) throw new Error("Uploaded, but cannot generate a URL.");
+    return signed.signedUrl;
+  }
+
   /* --------------------------------- Send -------------------------------- */
+  const canSend = useMemo(
+    () => (!!compose.trim() || !!draft) && !!me && !!selectedId,
+    [compose, draft, me, selectedId]
+  );
+
   async function send() {
-    if (!me || !selectedId || !compose.trim()) return;
+    if (!me || !selectedId || !canSend) return;
 
     const conv = convs.find((c) => c.id === selectedId);
-    const content = compose.trim();
+    const caption = compose.trim();
+
+    // Upload if there's a draft
+    let meta: MessageRow["meta"] | null = null;
+    try {
+      if (draft) {
+        let url = await uploadToChat(
+          draft.blob,
+          draft.name || (draft.type === "image" ? "image.jpg" : draft.type === "audio" ? "voice.webm" : "file.bin")
+        );
+        if (draft.type === "image") meta = { image_url: url };
+        else if (draft.type === "audio") meta = { audio_url: url, duration_sec: draft.duration_sec };
+        else meta = { image_url: undefined, audio_url: undefined }; // generic file (you can expand to file_url if you add it to meta)
+      }
+    } catch (e: any) {
+      await Swal.fire("Upload failed", e.message || "Could not upload media.", "error");
+      return;
+    }
+
     const optimistic: MessageRow = {
       id: `tmp-${crypto.randomUUID()}`,
       conversation_id: selectedId,
@@ -336,14 +418,17 @@ export default function PatientMessagesPage() {
       sender_id: me.id,
       sender_name: me.name,
       sender_role: "patient",
-      content,
+      content: caption || (draft?.type === "audio" ? "(voice note)" : draft?.type === "image" ? "(image)" : ""),
       created_at: new Date().toISOString(),
       read: false,
       urgent: false,
+      meta,
     };
 
     setMsgs((m) => [...m, optimistic]);
     setCompose("");
+    if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+    setDraft(null);
 
     const { error: insErr } = await supabase.from("messages").insert({
       conversation_id: selectedId,
@@ -351,9 +436,10 @@ export default function PatientMessagesPage() {
       sender_id: me.id,
       sender_name: me.name,
       sender_role: "patient",
-      content,
+      content: optimistic.content,
       read: false,
       urgent: false,
+      meta,
     });
 
     if (insErr) {
@@ -364,7 +450,7 @@ export default function PatientMessagesPage() {
 
     await supabase
       .from("conversations")
-      .update({ last_message: content, last_message_at: new Date().toISOString() })
+      .update({ last_message: optimistic.content || (meta?.image_url ? "(image)" : meta?.audio_url ? "(voice note)" : ""), last_message_at: new Date().toISOString() })
       .eq("id", selectedId);
   }
 
@@ -375,7 +461,6 @@ export default function PatientMessagesPage() {
   }
 
   async function addStaff() {
-    // why: messages rely on provider_id existing; we require an existing Auth user_id
     if (!form.user_id || !validateUuid(form.user_id)) return Swal.fire("Invalid user_id", "Paste a valid UUID from Auth.users.", "warning");
     if (!form.email) return Swal.fire("Missing email", "Email is required.", "warning");
 
@@ -421,6 +506,92 @@ export default function PatientMessagesPage() {
     setStaffDir((arr) => arr.filter((x) => x.user_id !== s.user_id));
     const { error } = await supabase.from("staff").delete().eq("user_id", s.user_id);
     if (error) { setStaffDir(prev); return Swal.fire("Delete failed", error.message, "error"); }
+  }
+
+  /* ------------------------------ Media pickers --------------------------- */
+
+  function openFilePicker() { fileInputRef.current?.click(); }
+
+  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      await Swal.fire("Too large", "Please choose a file under 10 MB.", "info");
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    const kind: "image" | "audio" | "file" =
+      file.type.startsWith("image/") ? "image" :
+      file.type.startsWith("audio/") ? "audio" : "file";
+
+    setDraft({ blob: file, type: kind, name: file.name, previewUrl });
+  }
+
+  async function takePhoto() {
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const video = document.createElement("video");
+      video.srcObject = stream as any; await video.play();
+
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(video, 0, 0);
+
+      const blob = await new Promise<Blob>((res, rej) =>
+        canvas.toBlob((b) => (b ? res(b) : rej(new Error("No photo"))), "image/jpeg", 0.9)!
+      );
+
+      const previewUrl = URL.createObjectURL(blob);
+      setDraft({ blob, type: "image", name: "photo.jpg", previewUrl });
+    } catch (err: any) {
+      await Swal.fire("Camera error", err?.message || "Cannot access camera.", "error");
+    } finally {
+      stream?.getTracks().forEach((t) => t.stop());
+    }
+  }
+
+  async function toggleRecord() {
+    if (recording) { mediaRecRef.current?.stop(); return; }
+
+    if (typeof window.MediaRecorder === "undefined") {
+      await Swal.fire("Unsupported", "Voice recording isn’t supported by this browser.", "info");
+      return;
+    }
+
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      await Swal.fire("Permission", "Microphone permission denied.", "info");
+      return;
+    }
+
+    const mime =
+      MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" :
+      MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+
+    chunksRef.current = [];
+    const startedAt = Date.now();
+    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    rec.ondataavailable = (e) => { if (e.data?.size) chunksRef.current.push(e.data); };
+    rec.onstop = () => {
+      stream?.getTracks().forEach((t) => t.stop());
+      setRecording(false);
+
+      const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
+      const previewUrl = URL.createObjectURL(blob);
+      const duration = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+      setDraft({ blob, type: "audio", name: "voice.webm", previewUrl, duration_sec: duration });
+    };
+    mediaRecRef.current = rec;
+    setRecording(true);
+    rec.start();
   }
 
   /* ------------------------------ Derived UI ----------------------------- */
@@ -656,7 +827,24 @@ export default function PatientMessagesPage() {
                     <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
                       <div className="max-w-[80%]">
                         <div className={bubble}>
-                          <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                          {/* Media */}
+                          {m.meta?.image_url && (
+                            <img
+                              src={m.meta.image_url}
+                              alt="image"
+                              className="mb-2 max-h-64 w-full rounded-xl object-cover"
+                              loading="lazy"
+                            />
+                          )}
+                          {m.meta?.audio_url && (
+                            <audio className="mb-2 w-full" controls src={m.meta.audio_url} />
+                          )}
+
+                          {/* Text content */}
+                          {m.content && (
+                            <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                          )}
+
                           <div className={`mt-1 text-[11px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
                             {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </div>
@@ -670,11 +858,37 @@ export default function PatientMessagesPage() {
 
               {/* Composer */}
               <div className="border-t dark:border-zinc-800 p-3">
+                {/* Draft preview chip */}
+                {draft && (
+                  <div className="mx-1 mb-2 flex items-center gap-3 rounded-xl border bg-white p-2 pr-3 text-sm shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+                    <div className="max-h-20 max-w-[180px] overflow-hidden rounded-lg ring-1 ring-gray-200 dark:ring-zinc-700">
+                      {draft.type === "image" && <img src={draft.previewUrl} alt="preview" className="h-20 w-auto object-cover" />}
+                      {draft.type === "audio" && <audio controls src={draft.previewUrl} className="h-10 w-[180px]" />}
+                      {draft.type === "file"  && <div className="p-3">📎 {draft.name || "file"}</div>}
+                    </div>
+                    <button
+                      type="button"
+                      className="ml-auto rounded-full p-1.5 hover:bg-gray-100 dark:hover:bg-zinc-700"
+                      onClick={() => { if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl); setDraft(null); }}
+                      aria-label="Remove attachment"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex items-end gap-2">
                   <div className="flex shrink-0 gap-1">
-                    <Button type="button" variant="ghost" size="icon" className="rounded-full"><ImageIcon className="h-5 w-5" /></Button>
-                    <Button type="button" variant="ghost" size="icon" className="rounded-full"><Camera className="h-5 w-5" /></Button>
-                    <Button type="button" variant="ghost" size="icon" className="rounded-full"><Mic className="h-5 w-5" /></Button>
+                    <Button type="button" variant="ghost" size="icon" onClick={openFilePicker} className="rounded-full">
+                      <ImageIcon className="h-5 w-5" />
+                    </Button>
+                    <input ref={fileInputRef} type="file" hidden accept="image/*,audio/*" onChange={onPickFile} />
+                    <Button type="button" variant="ghost" size="icon" onClick={takePhoto} className="rounded-full">
+                      <Camera className="h-5 w-5" />
+                    </Button>
+                    <Button type="button" variant="ghost" size="icon" onClick={toggleRecord} className={`rounded-full ${recording ? "animate-pulse" : ""}`}>
+                      <Mic className="h-5 w-5" />
+                    </Button>
                   </div>
 
                   <Textarea
@@ -685,7 +899,7 @@ export default function PatientMessagesPage() {
                     className="min-h-[44px] max-h-[140px] flex-1 rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700"
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
                   />
-                  <Button onClick={send} disabled={!compose.trim()} className="shrink-0 rounded-2xl h-11 px-4 shadow-md">
+                  <Button onClick={send} disabled={!canSend} className="shrink-0 rounded-2xl h-11 px-4 shadow-md">
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
