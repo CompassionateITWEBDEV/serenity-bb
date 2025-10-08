@@ -20,7 +20,6 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
-import { useToast } from "@/components/ui/use-toast"; // ← toast
 
 import ChatBox from "@/components/chat/ChatBox";
 import type { ProviderRole } from "@/lib/chat";
@@ -56,10 +55,19 @@ function formatTime(iso: string) {
   catch { return ""; }
 }
 
+type Notice = { id: number; text: string; tone?: "ok" | "warn" | "err" };
+
 export default function StaffMessagesPage() {
   const router = useRouter();
-  const { toast } = useToast(); // ← toast hook
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Simple in-page notifier (no external deps)
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const notify = (text: string, tone: Notice["tone"] = "ok") => {
+    const id = Date.now();
+    setNotice({ id, text, tone });
+    setTimeout(() => setNotice((n) => (n?.id === id ? null : n)), 2000);
+  };
 
   // Settings (persisted)
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -145,7 +153,6 @@ export default function StaffMessagesPage() {
       setConvs(list);
       setLoading(false);
 
-      // Unread snapshot
       const u = await supabase.from("v_staff_dm_unread").select("conversation_id, unread_from_patient").eq("provider_id", uid);
       if (!u.error) {
         const map: Record<string, number> = {};
@@ -153,13 +160,11 @@ export default function StaffMessagesPage() {
         setUnreadMap(map);
       }
 
-      // Deep link (?open=)
       if (typeof window !== "undefined") {
         const id = new URLSearchParams(window.location.search).get("open");
         if (id) setSelectedId(id);
       }
 
-      // Assigned patients for modal
       const v = await supabase
         .from("v_staff_assigned_patients")
         .select("user_id, full_name, email, avatar")
@@ -168,13 +173,13 @@ export default function StaffMessagesPage() {
     })();
   }, [router]);
 
-  // Keep selection valid across refreshes/filters
+  // Keep selection valid
   useEffect(() => {
     if (!selectedId || convs.some((c) => c.id === selectedId)) return;
     if (convs.length) openConversation(convs[0].id);
   }, [convs, selectedId]);
 
-  // Realtime list + unread bumps
+  // Realtime
   useEffect(() => {
     if (!meId) return;
 
@@ -216,18 +221,18 @@ export default function StaffMessagesPage() {
     };
   }, [meId, selectedId]);
 
-  // Clear unread on open (server + local)
+  // Clear unread on open
   useEffect(() => {
     if (!selectedId || !meId) return;
     (async () => {
       await markReadHelper(selectedId, "nurse");
       setUnreadMap((m) => ({ ...m, [selectedId]: 0 }));
       syncUrlOpen(selectedId);
-      toast({ title: "Marked as read" }); // feedback
+      notify("Marked as read");
     })();
-  }, [selectedId, meId]); // eslint-disable-line
+  }, [selectedId, meId]);
 
-  // Row actions (persist + merge returned DB truth) + toasts
+  // Row actions + feedback
   async function togglePin(id: string, next: boolean) {
     const { data, error } = await supabase
       .from("conversations")
@@ -235,12 +240,9 @@ export default function StaffMessagesPage() {
       .eq("id", id)
       .select("id,pinned,archived_at,updated_at")
       .single();
-    if (error) {
-      toast({ title: "Failed to update pin", variant: "destructive" });
-      return;
-    }
+    if (error) { notify("Failed to update pin", "err"); return; }
     setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
-    toast({ title: next ? "Pinned" : "Unpinned" });
+    notify(next ? "Pinned" : "Unpinned");
   }
 
   async function toggleArchive(id: string, next: boolean) {
@@ -251,29 +253,26 @@ export default function StaffMessagesPage() {
       .eq("id", id)
       .select("id,pinned,archived_at,updated_at")
       .single();
-    if (error) {
-      toast({ title: "Failed to update archive", variant: "destructive" });
-      return;
-    }
+    if (error) { notify("Failed to update archive", "err"); return; }
     setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
     if (next && selectedId === id) setSelectedId(null);
-    toast({ title: next ? "Archived" : "Unarchived" }); // ← visible feedback
+    notify(next ? "Archived" : "Unarchived");
   }
 
   async function markRead(id: string) {
     try {
       await markReadHelper(id, "nurse");
       setUnreadMap((m) => ({ ...m, [id]: 0 }));
-      toast({ title: "Marked as read" });
+      notify("Marked as read");
     } catch {
-      toast({ title: "Failed to mark as read", variant: "destructive" });
+      notify("Failed to mark as read", "err");
     }
   }
 
-  // Back to dashboard
+  // Back
   const handleBack = () => router.push("/staff/dashboard");
 
-  // Derived counts
+  // Counts
   const counts = useMemo(() => {
     const archived = convs.filter((c) => !!c.archived_at).length;
     const pinned = convs.filter((c) => !!c.pinned && !c.archived_at).length;
@@ -281,7 +280,7 @@ export default function StaffMessagesPage() {
     return { archived, pinned, newCount };
   }, [convs, unreadMap]);
 
-  // Filtering & sorting
+  // Filter & sort
   const filteredConvs = useMemo(() => {
     let list = convs.slice();
     if (tab === "archived") list = list.filter((c) => !!c.archived_at);
@@ -310,11 +309,24 @@ export default function StaffMessagesPage() {
     setConvs(await listConversationsForProvider(meId));
     openConversation(convId);
     setModalOpen(false);
-    toast({ title: "Conversation started" });
+    notify("Conversation started");
   }
 
   return (
     <div className="mx-auto max-w-7xl p-6 space-y-4">
+      {/* notifier */}
+      {notice && (
+        <div
+          className={`fixed right-6 top-6 z-50 rounded-lg px-3 py-2 text-sm shadow ${
+            notice.tone === "err" ? "bg-red-600 text-white" :
+            notice.tone === "warn" ? "bg-amber-500 text-black" :
+            "bg-gray-900 text-white"
+          }`}
+        >
+          {notice.text}
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={handleBack} className="gap-1">
@@ -375,17 +387,15 @@ export default function StaffMessagesPage() {
             <CardTitle className="flex items-center justify-between">
               <span>Conversations</span>
               <div className="flex items-center gap-1 text-xs">
-                <Button variant={tab === "all" ? "default" : "outline"} size="xs" onClick={() => setTab("all")}>
-                  All
-                </Button>
+                <Button variant={tab === "all" ? "default" : "outline"} size="xs" onClick={() => setTab("all")}>All</Button>
                 <Button variant={tab === "new" ? "default" : "outline"} size="xs" onClick={() => setTab("new")}>
-                  New {counts.newCount ? <Badge className="ml-1">{counts.newCount}</Badge> : null}
+                  New {Object.values(unreadMap).reduce((a, b) => a + b, 0) ? <Badge className="ml-1">{Object.values(unreadMap).reduce((a, b) => a + b, 0)}</Badge> : null}
                 </Button>
                 <Button variant={tab === "pinned" ? "default" : "outline"} size="xs" onClick={() => setTab("pinned")}>
-                  Pinned {counts.pinned ? <Badge className="ml-1">{counts.pinned}</Badge> : null}
+                  Pinned {convs.filter((c)=>!!c.pinned && !c.archived_at).length ? <Badge className="ml-1">{convs.filter((c)=>!!c.pinned && !c.archived_at).length}</Badge> : null}
                 </Button>
                 <Button variant={tab === "archived" ? "default" : "outline"} size="xs" onClick={() => setTab("archived")}>
-                  Archived {counts.archived ? <Badge className="ml-1">{counts.archived}</Badge> : null}
+                  Archived {convs.filter((c)=>!!c.archived_at).length ? <Badge className="ml-1">{convs.filter((c)=>!!c.archived_at).length}</Badge> : null}
                 </Button>
               </div>
             </CardTitle>
