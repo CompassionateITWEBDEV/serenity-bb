@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   LogOut, Plus, Search, Settings as SettingsIcon,
   Pin, PinOff, Archive, ArchiveRestore, CheckCheck,
-  ArrowLeft, // ← added
+  ArrowLeft,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase/client";
@@ -85,7 +85,7 @@ export default function StaffMessagesPage() {
 
   // Conversations
   const [loading, setLoading] = useState(true);
-  const [convs, setConvs] = useState<(ConversationPreview & { pinned?: boolean; archived_at?: string | null })[]>([]);
+  const [convs, setConvs] = useState<ConversationPreview[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedConv = convs.find((c) => c.id === selectedId) ?? null;
 
@@ -141,7 +141,7 @@ export default function StaffMessagesPage() {
       if (first || last) setMeName(`${first} ${last}`.trim());
 
       const list = await listConversationsForProvider(uid);
-      setConvs(list as any);
+      setConvs(list);
       setLoading(false);
 
       // Unread snapshot
@@ -187,7 +187,7 @@ export default function StaffMessagesPage() {
       .channel(`conv_${meId}`)
       .on("postgres_changes",
         { event: "*", schema: "public", table: "conversations", filter: `provider_id=eq.${meId}` },
-        () => bump(async () => setConvs(await listConversationsForProvider(meId) as any))
+        () => bump(async () => setConvs(await listConversationsForProvider(meId)))
       )
       .subscribe();
 
@@ -200,7 +200,11 @@ export default function StaffMessagesPage() {
           if (m.sender_role !== "patient") return;
           setConvs((cur) =>
             cur
-              .map((c) => (c.id === m.conversation_id ? { ...c, last_message: m.content, updated_at: m.created_at } : c))
+              .map((c) =>
+                c.id === m.conversation_id
+                  ? { ...c, last_message: m.content, updated_at: m.created_at } // keep pinned/archived_at as-is
+                  : c
+              )
               .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
           );
           setUnreadMap((prev) => (selectedId === m.conversation_id ? prev : { ...prev, [m.conversation_id]: (prev[m.conversation_id] ?? 0) + 1 }));
@@ -225,17 +229,31 @@ export default function StaffMessagesPage() {
     })();
   }, [selectedId, meId]);
 
-  // Row actions
+  // Row actions (persist + merge returned DB truth)
   async function togglePin(id: string, next: boolean) {
-    try { await supabase.from("conversations").update({ pinned: next }).eq("id", id); } catch {}
-    setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, pinned: next } : c)));
+    const { data, error } = await supabase
+      .from("conversations")
+      .update({ pinned: next })
+      .eq("id", id)
+      .select("id,pinned,archived_at,updated_at")
+      .single();
+    if (error) return;
+    setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
   }
+
   async function toggleArchive(id: string, next: boolean) {
     const value = next ? new Date().toISOString() : null;
-    try { await supabase.from("conversations").update({ archived_at: value as any }).eq("id", id); } catch {}
-    setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, archived_at: value } : c)));
-    if (selectedId === id && next) setSelectedId(null);
+    const { data, error } = await supabase
+      .from("conversations")
+      .update({ archived_at: value as any })
+      .eq("id", id)
+      .select("id,pinned,archived_at,updated_at")
+      .single();
+    if (error) return;
+    setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
+    if (next && selectedId === id) setSelectedId(null);
   }
+
   async function markRead(id: string) {
     await markReadHelper(id, "nurse");
     setUnreadMap((m) => ({ ...m, [id]: 0 }));
@@ -243,7 +261,6 @@ export default function StaffMessagesPage() {
 
   // Back to dashboard
   const handleBack = () => {
-    // Why: central route to allow easy change if dashboard path changes.
     router.push("/staff/dashboard");
   };
 
@@ -269,7 +286,7 @@ export default function StaffMessagesPage() {
   async function startNewMessage(patient: PatientAssigned) {
     if (!meId) return;
     const { id: convId } = await ensureConversation(patient.user_id, { id: meId, name: meName, role: meRole });
-    setConvs(await listConversationsForProvider(meId) as any);
+    setConvs(await listConversationsForProvider(meId));
     openConversation(convId);
     setModalOpen(false);
   }
