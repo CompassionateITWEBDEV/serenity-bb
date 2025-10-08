@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -11,29 +10,21 @@ import { ArrowLeft, Phone, Video, MoreVertical, Send, Smile, Image as ImageIcon,
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
 
-// NEW: use the shared upload helpers
-import { uploadToStorage, sendAttachmentMessage } from "@/lib/chat_upload";
-
 type Provider = ProviderRole;
 
 type MessageRow = {
   id: string;
-  conversation_id: string | null;
-  patient_id: string | null;
+  conversation_id: string;
+  patient_id: string;
   sender_id: string;
   sender_name: string;
   sender_role: "patient" | Provider;
-  content: string;                      // text or URL (when type != 'text')
+  content: string;
   created_at: string;
   read: boolean;
   urgent: boolean;
-
-  // legacy attachment columns (still supported for reading)
   attachment_url?: string | null;
   attachment_type?: "image" | "audio" | "file" | null;
-
-  // new column
-  type?: "text" | "image" | "audio" | null;
 };
 
 type UiSettings = {
@@ -77,7 +68,6 @@ export default function ChatBox(props: {
   const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
   const [resolvedPatient, setResolvedPatient] = useState<{ name?: string; email?: string; avatar?: string | null } | null>(null);
 
-  // presence states
   const [dbOnline, setDbOnline] = useState<boolean>(false);
   const [rtOnline, setRtOnline] = useState<boolean>(false);
   const [presenceLoading, setPresenceLoading] = useState<boolean>(true);
@@ -88,8 +78,7 @@ export default function ChatBox(props: {
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  useEffect(() => { setConversationId(conversationIdProp ?? null); }, [conversationIdProp]);
-
+  // ---- UI helpers
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
     " px-4 py-2 " +
@@ -112,7 +101,9 @@ export default function ChatBox(props: {
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
-  // resolve me / conversation
+  // ---- Resolve me + conversation
+  useEffect(() => setConversationId(conversationIdProp ?? null), [conversationIdProp]);
+
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
@@ -121,19 +112,21 @@ export default function ChatBox(props: {
       if (mode === "staff") {
         const pid = providerId!;
         setMe({ id: pid, name: providerName || "Me", role: providerRole! });
+
         if (!conversationIdProp) {
-          const { data: conv } = await supabase
+          const { data: conv, error } = await supabase
             .from("conversations").select("id")
             .eq("patient_id", patientId).eq("provider_id", pid).maybeSingle();
-          if (conv) setConversationId(conv.id);
+          if (conv?.id) setConversationId(conv.id);
           else {
-            const { data: created } = await supabase
+            const { data: created, error: upErr } = await supabase
               .from("conversations")
               .upsert(
                 { patient_id: patientId, provider_id: pid, provider_name: providerName ?? null, provider_role: providerRole ?? null },
                 { onConflict: "patient_id,provider_id" }
               )
               .select("id").single();
+            if (upErr) { alert(`Failed to ensure conversation.\n\n${upErr.message}`); return; }
             setConversationId(created!.id);
           }
         }
@@ -143,28 +136,29 @@ export default function ChatBox(props: {
           const { data: conv } = await supabase
             .from("conversations").select("id")
             .eq("patient_id", uid).eq("provider_id", providerId!).maybeSingle();
-          if (conv) setConversationId(conv.id);
+          if (conv?.id) setConversationId(conv.id);
         }
       }
     })();
   }, [mode, patientId, providerId, providerName, providerRole, conversationIdProp]);
 
-  // load messages
+  // ---- Load messages
   useLayoutEffect(() => {
     if (!conversationId || !me) return;
     (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("messages")
         .select("*")
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
+      if (error) { alert(`Failed to load messages.\n\n${error.message}`); return; }
       setMsgs((data as MessageRow[]) ?? []);
       scrollToBottom(false);
       await markReadHelper(conversationId, me.role);
     })();
   }, [conversationId, me, scrollToBottom]);
 
-  // message/typing realtime
+  // ---- Live changes + typing presence
   useEffect(() => {
     if (!conversationId || !me) return;
     if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
@@ -217,7 +211,7 @@ export default function ChatBox(props: {
     };
   }, [conversationId, me, ding, scrollToBottom]);
 
-  // typing presence (thread)
+  // ---- Typing beacon
   useEffect(() => {
     if (!channelRef.current || !me) return;
     const ch = channelRef.current;
@@ -226,11 +220,7 @@ export default function ChatBox(props: {
     return () => clearInterval(t);
   }, [text, me]);
 
-  // PATIENT heartbeat + RT presence; STAFF presence watcher ... (unchanged)
-  // --- snip (keep your full presence code as-is) ---
-  // For brevity, I keep the rest of your presence logic identical.
-  // Paste your presence hooks here without changes.
-  // --- start of unchanged presence code ---
+  // ---- Presence (kept same as your previous working code)
   useEffect(() => {
     if (mode !== "patient") return;
     (async () => {
@@ -273,9 +263,8 @@ export default function ChatBox(props: {
     window.addEventListener("focus", refetchPresence); window.addEventListener("online", refetchPresence); document.addEventListener("visibilitychange", onVis);
     return () => { cancelled = true; clearTimeout(t1); try { supabase.removeChannel(dbCh); } catch {} try { supabase.removeChannel(rtCh); } catch {} window.removeEventListener("focus", refetchPresence); window.removeEventListener("online", refetchPresence); document.removeEventListener("visibilitychange", onVis); };
   }, [mode, patientId]);
-  // --- end of unchanged presence code ---
 
-  // resolve patient profile for header
+  // ---- Resolve patient profile for header
   useEffect(() => {
     if (mode !== "staff" || !patientId) return;
     let cancelled = false;
@@ -288,35 +277,82 @@ export default function ChatBox(props: {
     return () => { cancelled = true; };
   }, [mode, patientId]);
 
+  // ---- Message helpers (use only existing DB columns)
   const canSend = useMemo(() => !!text.trim() && !!me && !!conversationId, [text, me, conversationId]);
 
-  async function insertTextMessage(content: string) {
+  async function insertMessage(payload: {
+    content: string;
+    attachment_url?: string | null;
+    attachment_type?: "image" | "audio" | "file" | null;
+  }) {
     if (!me || !conversationId) return;
-    // optimistic
+
     const optimistic: MessageRow = {
       id: `tmp-${crypto.randomUUID()}`,
       conversation_id: conversationId,
       patient_id: mode === "patient" ? me.id : patientId,
-      sender_id: me.id, sender_name: me.name, sender_role: me.role,
-      content, created_at: new Date().toISOString(), read: false, urgent: false,
-      type: "text",
+      sender_id: me.id,
+      sender_name: me.name,
+      sender_role: me.role,
+      content: payload.content,
+      created_at: new Date().toISOString(),
+      read: false,
+      urgent: false,
+      attachment_url: payload.attachment_url ?? null,
+      attachment_type: payload.attachment_type ?? null,
     };
-    setMsgs((m) => [...m, optimistic]); scrollToBottom(true);
+    setMsgs((m) => [...m, optimistic]);
+    scrollToBottom(true);
 
     const { error } = await supabase.from("messages").insert({
-      conversation_id: conversationId,
+      conversation_id: optimistic.conversation_id,
       patient_id: optimistic.patient_id,
-      sender_id: me.id, sender_name: me.name, sender_role: me.role,
-      content, read: false, urgent: false, type: "text",
+      sender_id: optimistic.sender_id,
+      sender_name: optimistic.sender_name,
+      sender_role: optimistic.sender_role,
+      content: optimistic.content,
+      read: false,
+      urgent: false,
+      attachment_url: optimistic.attachment_url,
+      attachment_type: optimistic.attachment_type,
     });
-    if (error) setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
+
+    if (error) {
+      setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
+      throw error; // let caller show message
+    }
   }
 
+  async function uploadToChat(fileOrBlob: File | Blob, extFromName?: string) {
+    if (!conversationId || !me) throw new Error("Missing conversation");
+    const ext = (extFromName || "").split(".").pop() || guessExt(fileOrBlob.type) || "bin";
+    const path = `${conversationId}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
+    const { error } = await supabase.storage.from("chat").upload(path, fileOrBlob, {
+      contentType: (fileOrBlob as File).type || (fileOrBlob as any).type || "application/octet-stream",
+      upsert: false,
+    });
+    if (error) throw error;
+    const { data: pub } = supabase.storage.from("chat").getPublicUrl(path);
+    return pub.publicUrl;
+  }
+
+  function guessExt(mime: string) {
+    if (!mime) return null;
+    if (mime.startsWith("image/")) return mime.split("/")[1];
+    if (mime.startsWith("audio/")) return "webm";
+    return null;
+  }
+
+  // ---- Send text
   const send = useCallback(async () => {
     if (!canSend) return;
     const content = text.trim();
     setText("");
-    await insertTextMessage(content);
+    try {
+      await insertMessage({ content });
+    } catch (err: any) {
+      alert(`Failed to send.\n\n${err?.message ?? ""}`);
+    }
   }, [canSend, text]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -324,68 +360,78 @@ export default function ChatBox(props: {
     if (e.key === "Enter" && !e.shiftKey && enterToSend) { e.preventDefault(); void send(); }
   };
 
-  // ---------- Attachments ----------
-
+  // ---- Attachments
   function pickFile() { fileInputRef.current?.click(); }
 
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; e.target.value = "";
     if (!file || !me || !conversationId) return;
-    setUploading({ label: file.type.startsWith("image/") ? "Uploading image…" : "Uploading file…" });
+    setUploading({ label: "Uploading image…" });
     try {
-      const { publicUrl } = await uploadToStorage(file, { conversationId, kind: "image", userId: me.id });
-      await sendAttachmentMessage({
-        conversationId, senderRole: me.role, url: publicUrl,
-        kind: "image",
-      });
-    } catch (err) {
-      console.error(err); alert("Failed to send image.");
+      const publicUrl = await uploadToChat(file, file.name);
+      await insertMessage({ content: "(image)", attachment_url: publicUrl, attachment_type: "image" });
+    } catch (err: any) {
+      alert(`Failed to send image.\n\n${err?.message ?? ""}`);
     } finally { setUploading(null); }
   }
 
   async function takePhoto() {
     if (!me || !conversationId) return;
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    const video = document.createElement("video");
-    video.srcObject = stream as any; await video.play();
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext("2d")!; ctx.drawImage(video, 0, 0);
-    stream.getTracks().forEach((t) => t.stop());
-    const blob = await new Promise<Blob>((res) => canvas.toBlob((b) => res(b as Blob), "image/jpeg", 0.9)!);
-
-    setUploading({ label: "Uploading photo…" });
+    let stream: MediaStream | null = null;
     try {
-      const { publicUrl } = await uploadToStorage(blob, { conversationId, kind: "image", userId: me.id });
-      await sendAttachmentMessage({ conversationId, senderRole: me.role, url: publicUrl, kind: "image" });
-    } catch (err) {
-      console.error(err); alert("Failed to send photo.");
-    } finally { setUploading(null); }
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const video = document.createElement("video");
+      video.srcObject = stream as any; await video.play();
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext("2d")!; ctx.drawImage(video, 0, 0);
+      const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => b ? res(b) : rej(new Error("No photo")), "image/jpeg", 0.9)!);
+      setUploading({ label: "Uploading photo…" });
+      const publicUrl = await uploadToChat(blob, "photo.jpg");
+      await insertMessage({ content: "(photo)", attachment_url: publicUrl, attachment_type: "image" });
+    } catch (err: any) {
+      alert(`Failed to send photo.\n\n${err?.message ?? ""}`);
+    } finally {
+      stream?.getTracks().forEach((t) => t.stop());
+      setUploading(null);
+    }
   }
 
   async function toggleRecord() {
     if (recording) { mediaRecRef.current?.stop(); return; }
     if (!me || !conversationId) return;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const rec = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      alert("Microphone permission denied.");
+      return;
+    }
+
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus"
+               : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
+               : "";
+
+    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     chunksRef.current = [];
     rec.ondataavailable = (e) => { if (e.data?.size) chunksRef.current.push(e.data); };
     rec.onstop = async () => {
-      stream.getTracks().forEach((t) => t.stop());
+      stream?.getTracks().forEach((t) => t.stop());
       setRecording(false);
-      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+      const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
       setUploading({ label: "Uploading voice note…" });
       try {
-        const { publicUrl } = await uploadToStorage(blob, { conversationId, kind: "audio", userId: me.id });
-        await sendAttachmentMessage({ conversationId, senderRole: me.role, url: publicUrl, kind: "audio" });
-      } catch (err) {
-        console.error(err); alert("Failed to send voice message.");
+        const publicUrl = await uploadToChat(blob, "voice.webm");
+        await insertMessage({ content: "(voice note)", attachment_url: publicUrl, attachment_type: "audio" });
+      } catch (err: any) {
+        alert(`Failed to send voice message.\n\n${err?.message ?? ""}`);
       } finally { setUploading(null); }
     };
     mediaRecRef.current = rec; setRecording(true); rec.start();
   }
 
-  // ---------- Render helpers ----------
+  // ---- Render helpers
   const isOnline = mode === "staff" ? (dbOnline || rtOnline || threadOtherPresent) : false;
 
   const otherName =
@@ -394,14 +440,6 @@ export default function ChatBox(props: {
       : providerName || "Provider";
 
   const otherAvatar = mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
-
-  const resolveAttachment = (m: MessageRow): { url?: string; kind?: "image" | "audio" | "file" } => {
-    // prefer new schema
-    if (m.type && m.type !== "text") return { url: m.content, kind: m.type as "image" | "audio" };
-    // fallback to legacy fields
-    if (m.attachment_url && m.attachment_type) return { url: m.attachment_url, kind: m.attachment_type };
-    return {};
-  };
 
   return (
     <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
@@ -466,8 +504,6 @@ export default function ChatBox(props: {
                 ? `bg-cyan-500 text-white ${bubbleBase} shadow-md`
                 : `bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 ${bubbleBase} ring-1 ring-gray-200/70 dark:ring-zinc-700`;
 
-              const att = resolveAttachment(m);
-
               return (
                 <div key={m.id} className={`flex items-end gap-2 ${own ? "justify-end" : "justify-start"}`}>
                   {!own && (
@@ -478,16 +514,16 @@ export default function ChatBox(props: {
                     </div>
                   )}
                   <div className={`max-w-[82%] sm:max-w-[70%] ${bubble}`}>
-                    {att.url && att.kind === "image" && (
-                      <img src={att.url} alt="attachment" className="mb-2 max-h-64 w-full rounded-xl object-cover" />
+                    {m.attachment_url && m.attachment_type === "image" && (
+                      <img src={m.attachment_url} alt="attachment" className="mb-2 max-h-64 w-full rounded-xl object-cover" />
                     )}
-                    {att.url && att.kind === "audio" && <audio className="mb-2 w-full" controls src={att.url} />}
-                    {!att.url && m.attachment_url && m.attachment_type === "file" && (
+                    {m.attachment_url && m.attachment_type === "audio" && (
+                      <audio className="mb-2 w-full" controls src={m.attachment_url} />
+                    )}
+                    {m.attachment_url && m.attachment_type === "file" && (
                       <a className="mb-2 block underline" href={m.attachment_url} target="_blank" rel="noreferrer">Download file</a>
                     )}
-                    {m.content && (!m.type || m.type === "text") && (
-                      <div className="whitespace-pre-wrap break-words">{m.content}</div>
-                    )}
+                    {m.content && <div className="whitespace-pre-wrap break-words">{m.content}</div>}
                     <div className={`mt-1 flex items-center gap-1 text-[10px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
                       {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       {own && m.read && <CheckCheck className="ml-0.5 inline h-3.5 w-3.5 opacity-90" />}
@@ -538,7 +574,7 @@ export default function ChatBox(props: {
               onChange={(e) => setText(e.target.value)}
               onKeyDown={onKeyDown}
               placeholder="Type your message…"
-              className={`min-h[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${
+              className={`min-h-[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${
                 settings?.density === "compact" ? "text-sm" : ""
               }`}
             />
