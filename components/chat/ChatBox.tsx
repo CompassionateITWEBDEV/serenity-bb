@@ -13,6 +13,8 @@ import {
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
 
+/* ----------------------------- Types & settings ---------------------------- */
+
 type Provider = ProviderRole;
 
 type MessageRow = {
@@ -40,7 +42,33 @@ type UiSettings = {
 
 const CHAT_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET?.trim() || "chat";
 
+/* -------------------------------- Component -------------------------------- */
+
 export default function ChatBox(props: {
+  mode: "staff" | "patient";
+  patientId: string;
+  providerId?: string;
+  providerName?: string;
+  providerRole?: ProviderRole;
+  providerAvatarUrl?: string | null;
+  patientName?: string | null;
+  patientAvatarUrl?: string | null;
+  settings?: UiSettings;
+  onBack?: () => void;
+  phoneHref?: string;
+  videoHref?: string;
+  conversationId?: string;
+}) {
+  return (
+    <ErrorBoundary>
+      <ChatBoxInner {...props} />
+    </ErrorBoundary>
+  );
+}
+
+/* ------------------------------ Inner (logic) ------------------------------ */
+
+function ChatBoxInner(props: {
   mode: "staff" | "patient";
   patientId: string;
   providerId?: string;
@@ -423,7 +451,7 @@ export default function ChatBox(props: {
     }
   };
 
-  // helpers shared with bubble
+  // helpers for bubble
   function shouldShowPlainContent(content?: string | null) {
     const t = (content ?? "").trim().toLowerCase();
     return !!t && t !== "(image)" && t !== "(photo)";
@@ -439,7 +467,7 @@ export default function ChatBox(props: {
   }
   function isHttp(u?: string | null) { return !!u && /^https?:\/\//i.test(u); }
 
-  // SAFE: never throw; returns null if it cannot sign.
+  // SAFE resolver – never throw
   async function toUrlFromPath(path: string) {
     try {
       const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
@@ -551,7 +579,10 @@ export default function ChatBox(props: {
             <Textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
-              onKeyDown={onKeyDown}
+              onKeyDown={(e) => {
+                const enterToSend = settings?.enterToSend ?? true;
+                if (e.key === "Enter" && !e.shiftKey && enterToSend) { e.preventDefault(); void send(); }
+              }}
               onPaste={onPaste}
               placeholder="Type your message…"
               className={`min-h-[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${
@@ -568,6 +599,8 @@ export default function ChatBox(props: {
     </Card>
   );
 }
+
+/* ------------------------------ Small helpers ------------------------------ */
 
 function IconButton({ children, aria, onClick }: { children: React.ReactNode; aria: string; onClick?: () => void }) {
   return (
@@ -623,14 +656,12 @@ function MessageBubble({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Resolve attachments first
       if (m.attachment_url) {
         if (isHttp(m.attachment_url)) { if (!cancelled) setAttUrl(m.attachment_url); return; }
         const url = await toUrlFromPath(m.attachment_url);
         if (!cancelled) setAttUrl(url);
         return;
       }
-      // Fallback for legacy image URL in content
       const fromContent = extractImageUrlFromContent(m.content);
       if (!cancelled) setAttUrl(fromContent || null);
     })();
@@ -672,4 +703,24 @@ function MessageBubble({
       </div>
     </div>
   );
+}
+
+/* ----------------------------- Error Boundary ------------------------------ */
+
+class ErrorBoundary extends (require("react").Component as any)<
+  { children: React.ReactNode }, { hasError: boolean }
+> {
+  constructor(props: any) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError() { return { hasError: true }; } // why: avoid white screen
+  componentDidCatch(err: any) { console.error("[ChatBox] crashed:", err); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-4 text-sm text-red-600">
+          Chat failed to render. Please reload this page. If it persists, check Storage permissions and message attachments.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
