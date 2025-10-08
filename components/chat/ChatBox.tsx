@@ -1,38 +1,12 @@
 "use client";
 
-import React from "react";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  ArrowLeft,
-  Phone,
-  Video,
-  MoreVertical,
-  Send,
-  Smile,
-  Image as ImageIcon,
-  Camera,
-  Mic,
-  CheckCheck,
-  X,
-} from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ArrowLeft, Phone, Video, MoreVertical, Send, Smile, Image as ImageIcon, Camera, Mic, CheckCheck, X } from "lucide-react";
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
 
@@ -63,8 +37,7 @@ type UiSettings = {
   sound?: boolean;
 };
 
-const CHAT_BUCKET =
-  process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET?.trim() || "chat";
+const CHAT_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET?.trim() || "chat";
 
 /* -------------------------------- Component -------------------------------- */
 
@@ -123,14 +96,8 @@ function ChatBoxInner(props: {
     conversationId: conversationIdProp,
   } = props;
 
-  const [conversationId, setConversationId] = useState<string | null>(
-    conversationIdProp ?? null
-  );
-  const [me, setMe] = useState<{
-    id: string;
-    name: string;
-    role: "patient" | Provider;
-  } | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(conversationIdProp ?? null);
+  const [me, setMe] = useState<{ id: string; name: string; role: "patient" | Provider } | null>(null);
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
   const [text, setText] = useState("");
   const [typing, setTyping] = useState(false);
@@ -138,13 +105,8 @@ function ChatBoxInner(props: {
   const [uploading, setUploading] = useState<{ label: string } | null>(null);
   const [recording, setRecording] = useState<boolean>(false);
 
-  const [threadOtherPresent, setThreadOtherPresent] =
-    useState<boolean>(false);
-  const [resolvedPatient, setResolvedPatient] = useState<{
-    name?: string;
-    email?: string;
-    avatar?: string | null;
-  } | null>(null);
+  const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
+  const [resolvedPatient, setResolvedPatient] = useState<{ name?: string; email?: string; avatar?: string | null } | null>(null);
 
   const [dbOnline, setDbOnline] = useState<boolean>(false);
   const [rtOnline, setRtOnline] = useState<boolean>(false);
@@ -157,12 +119,7 @@ function ChatBoxInner(props: {
   const chunksRef = useRef<Blob[]>([]);
 
   // staged media (before send)
-  const [draft, setDraft] = useState<{
-    blob: Blob;
-    type: "image" | "audio" | "file";
-    name?: string;
-    previewUrl: string;
-  } | null>(null);
+  const [draft, setDraft] = useState<{ blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string } | null>(null);
   useEffect(
     () => () => {
       if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
@@ -173,15 +130,12 @@ function ChatBoxInner(props: {
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
     " px-4 py-2 " +
-    ((settings?.density ?? "comfortable") === "compact"
-      ? "text-sm"
-      : "text-[15px]");
+    ((settings?.density ?? "comfortable") === "compact" ? "text-sm" : "text-[15px]");
 
   const ding = useCallback(() => {
     if (!settings?.sound) return;
     try {
-      const ctx = new (window.AudioContext ||
-        (window as any).webkitAudioContext)();
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const o = ctx.createOscillator();
       const g = ctx.createGain();
       o.type = "sine";
@@ -202,9 +156,7 @@ function ChatBoxInner(props: {
   }, []);
 
   // resolve me + conversation
-  useEffect(() => setConversationId(conversationIdProp ?? null), [
-    conversationIdProp,
-  ]);
+  useEffect(() => setConversationId(conversationIdProp ?? null), [conversationIdProp]);
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
@@ -257,14 +209,7 @@ function ChatBoxInner(props: {
         }
       }
     })();
-  }, [
-    mode,
-    patientId,
-    providerId,
-    providerName,
-    providerRole,
-    conversationIdProp,
-  ]);
+  }, [mode, patientId, providerId, providerName, providerRole, conversationIdProp]);
 
   // initial load
   useLayoutEffect(() => {
@@ -299,18 +244,11 @@ function ChatBoxInner(props: {
         const s = ch.presenceState();
         const others = Object.entries(s).flatMap(([, v]: any) => v) as any[];
         setTyping(others.some((x) => x.status === "typing"));
-        setThreadOtherPresent(
-          others.some((x) => x.user_id && x.user_id !== me.id)
-        );
+        setThreadOtherPresent(others.some((x) => x.user_id && x.user_id !== me.id));
       })
       .on(
         "postgres_changes",
-        {
-          schema: "public",
-          table: "messages",
-          event: "INSERT",
-          filter: `conversation_id=eq.${conversationId}`,
-        },
+        { schema: "public", table: "messages", event: "INSERT", filter: `conversation_id=eq.${conversationId}` },
         async (p) => {
           const row = p.new as MessageRow;
           setMsgs((prev) => (prev.some((x) => x.id === row.id) ? prev : [...prev, row]));
@@ -323,12 +261,7 @@ function ChatBoxInner(props: {
       )
       .on(
         "postgres_changes",
-        {
-          schema: "public",
-          table: "messages",
-          event: "UPDATE",
-          filter: `conversation_id=eq.${conversationId}`,
-        },
+        { schema: "public", table: "messages", event: "UPDATE", filter: `conversation_id=eq.${conversationId}` },
         async () => {
           const { data } = await supabase
             .from("messages")
@@ -391,9 +324,7 @@ function ChatBoxInner(props: {
       const fast = setInterval(beat, 1000);
       setTimeout(() => clearInterval(fast), 2200);
       const slow = setInterval(beat, 10000);
-      const ch = supabase.channel(`online:${uid}`, {
-        config: { presence: { key: uid } },
-      });
+      const ch = supabase.channel(`online:${uid}`, { config: { presence: { key: uid } } });
       ch.subscribe((status) => {
         if (status === "SUBSCRIBED") {
           const ping = () => ch.track({ online: true, at: Date.now() });
@@ -430,11 +361,7 @@ function ChatBoxInner(props: {
     setPresenceLoading(true);
     const fetchOnce = async () => {
       try {
-        const { data } = await supabase
-          .from("v_patient_online")
-          .select("online,last_seen")
-          .eq("user_id", patientId)
-          .maybeSingle();
+        const { data } = await supabase.from("v_patient_online").select("online,last_seen").eq("user_id", patientId).maybeSingle();
         if (!cancelled && data) setDbOnline(!!data.online);
       } catch {}
     };
@@ -442,12 +369,7 @@ function ChatBoxInner(props: {
       .channel(`presence_db_${patientId}`)
       .on(
         "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "patient_presence",
-          filter: `user_id=eq.${patientId}`,
-        },
+        { event: "INSERT", schema: "public", table: "patient_presence", filter: `user_id=eq.${patientId}` },
         (p) => {
           const last = new Date(p.new.last_seen as string).getTime();
           setDbOnline(Date.now() - last < 15000);
@@ -456,12 +378,7 @@ function ChatBoxInner(props: {
       )
       .on(
         "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "patient_presence",
-          filter: `user_id=eq.${patientId}`,
-        },
+        { event: "UPDATE", schema: "public", table: "patient_presence", filter: `user_id=eq.${patientId}` },
         (p) => {
           const last = new Date(p.new.last_seen as string).getTime();
           setDbOnline(Date.now() - last < 15000);
@@ -470,9 +387,7 @@ function ChatBoxInner(props: {
       )
       .subscribe();
     const staffKey = `staff-${crypto.randomUUID()}`;
-    const rtCh = supabase.channel(`online:${patientId}`, {
-      config: { presence: { key: staffKey } },
-    });
+    const rtCh = supabase.channel(`online:${patientId}`, { config: { presence: { key: staffKey } } });
     const computeRtOnline = () => {
       const state = rtCh.presenceState() as Record<string, any[]>;
       const entries = state[patientId] || [];
@@ -482,19 +397,15 @@ function ChatBoxInner(props: {
       setRtOnline(computeRtOnline());
       setPresenceLoading(false);
     };
-    rtCh
-      .on("presence", { event: "sync" }, updateRt)
-      .on("presence", { event: "join" }, updateRt)
-      .on("presence", { event: "leave" }, updateRt)
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          try {
-            await rtCh.track({ observer: true, at: Date.now() });
-          } catch {}
-          updateRt();
-          setTimeout(updateRt, 700);
-        }
-      });
+    rtCh.on("presence", { event: "sync" }, updateRt).on("presence", { event: "join" }, updateRt).on("presence", { event: "leave" }, updateRt).subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        try {
+          await rtCh.track({ observer: true, at: Date.now() });
+        } catch {}
+        updateRt();
+        setTimeout(updateRt, 700);
+      }
+    });
     void fetchOnce();
     const t1 = setTimeout(fetchOnce, 600);
     const refetchPresence = () => {
@@ -523,30 +434,13 @@ function ChatBoxInner(props: {
   }, [mode, patientId]);
 
   // derived
-  const canSend = useMemo(
-    () => (!!text.trim() || !!draft) && !!me && !!conversationId,
-    [text, me, conversationId, draft]
-  );
-  const isOnline =
-    mode === "staff" ? dbOnline || rtOnline || threadOtherPresent : false;
-  const otherName =
-    mode === "staff"
-      ? resolvedPatient?.name ||
-        patientName ||
-        resolvedPatient?.email ||
-        "Patient"
-      : providerName || "Provider";
-  const otherAvatar =
-    mode === "staff"
-      ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null
-      : providerAvatarUrl ?? null;
+  const canSend = useMemo(() => (!!text.trim() || !!draft) && !!me && !!conversationId, [text, me, conversationId, draft]);
+  const isOnline = mode === "staff" ? dbOnline || rtOnline || threadOtherPresent : false;
+  const otherName = mode === "staff" ? resolvedPatient?.name || patientName || resolvedPatient?.email || "Patient" : providerName || "Provider";
+  const otherAvatar = mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
 
   // DB insert
-  async function insertMessage(payload: {
-    content: string;
-    attachment_url?: string | null;
-    attachment_type?: "image" | "audio" | "file" | null;
-  }) {
+  async function insertMessage(payload: { content: string; attachment_url?: string | null; attachment_type?: "image" | "audio" | "file" | null }) {
     if (!me || !conversationId) return;
 
     const optimistic: MessageRow = {
@@ -588,27 +482,18 @@ function ChatBoxInner(props: {
   // upload: return storage PATH (not URL)
   async function uploadToChat(fileOrBlob: Blob, fileName?: string) {
     if (!conversationId || !me) throw new Error("Missing conversation");
-    const detected =
-      (fileOrBlob as File).type || (fileOrBlob as any).type || "";
+    const detected = (fileOrBlob as File).type || (fileOrBlob as any).type || "";
     const extFromName = (fileName || "").split(".").pop() || "";
     const ext =
-      extFromName ||
-      (detected.startsWith("image/")
-        ? detected.split("/")[1]
-        : detected
-        ? "webm"
-        : "bin");
+      extFromName || (detected.startsWith("image/") ? detected.split("/")[1] : detected ? "webm" : "bin");
     const path = `${conversationId}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
 
-    const { error: upErr } = await supabase.storage
-      .from(CHAT_BUCKET)
-      .upload(path, fileOrBlob, {
-        contentType: detected || "application/octet-stream",
-        upsert: false,
-      });
+    const { error: upErr } = await supabase.storage.from(CHAT_BUCKET).upload(path, fileOrBlob, {
+      contentType: detected || "application/octet-stream",
+      upsert: false,
+    });
     if (upErr) {
-      if (/not found/i.test(upErr.message))
-        throw new Error(`Bucket "${CHAT_BUCKET}" not found.`);
+      if (/not found/i.test(upErr.message)) throw new Error(`Bucket "${CHAT_BUCKET}" not found.`);
       throw upErr;
     }
     return path; // store only the path
@@ -624,15 +509,9 @@ function ChatBoxInner(props: {
         setUploading({ label: "Sending…" });
         const storagePath = await uploadToChat(
           draft.blob,
-          draft.name ||
-            (draft.type === "image"
-              ? "image.jpg"
-              : draft.type === "audio"
-              ? "voice.webm"
-              : "file.bin")
+          draft.name || (draft.type === "image" ? "image.jpg" : draft.type === "audio" ? "voice.webm" : "file.bin")
         );
-        const content =
-          draft.type === "audio" ? contentText || "(voice note)" : contentText;
+        const content = draft.type === "audio" ? contentText || "(voice note)" : contentText;
         await insertMessage({
           content: content || "",
           attachment_url: storagePath,
@@ -681,11 +560,7 @@ function ChatBoxInner(props: {
       const ctx = canvas.getContext("2d")!;
       ctx.drawImage(video, 0, 0);
       const blob = await new Promise<Blob>((res, rej) =>
-        canvas.toBlob(
-          (b) => (b ? res(b) : rej(new Error("No photo"))),
-          "image/jpeg",
-          0.9
-        )!
+        canvas.toBlob((b) => (b ? res(b) : rej(new Error("No photo"))), "image/jpeg", 0.9)!
       );
       const previewUrl = URL.createObjectURL(blob);
       setDraft({ blob, type: "image", name: "photo.jpg", previewUrl });
@@ -744,12 +619,7 @@ function ChatBoxInner(props: {
         return;
       }
       const url = URL.createObjectURL(file);
-      setDraft({
-        blob: file,
-        type: "image",
-        name: file.name || "pasted.jpg",
-        previewUrl: url,
-      });
+      setDraft({ blob: file, type: "image", name: file.name || "pasted.jpg", previewUrl: url });
     }
   };
 
@@ -762,32 +632,25 @@ function ChatBoxInner(props: {
     if (!content) return null;
     try {
       const maybe = JSON.parse(content);
-      if (
-        maybe &&
-        typeof maybe === "object" &&
-        maybe.type === "image" &&
-        typeof maybe.url === "string"
-      )
+      if (maybe && typeof maybe === "object" && maybe.type === "image" && typeof maybe.url === "string")
         return maybe.url as string;
     } catch {}
-    const match = content.match(
-      /https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp|heic|svg)(?:\?\S*)?/i
-    );
+    const match = content.match(/https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp|heic|svg)(?:\?\S*)?/i);
     return match?.[0] ?? null;
   }
   function isHttp(u?: string | null) {
     return !!u && /^https?:\/\//i.test(u);
   }
 
-  // SAFE resolver – never throw
+  // **FIX**: Prefer signed URL first. getPublicUrl is not a permission check.
   async function toUrlFromPath(path: string) {
     try {
+      const { data } = await supabase.storage.from(CHAT_BUCKET).createSignedUrl(path, 60 * 60 * 24);
+      if (data?.signedUrl) return data.signedUrl;
+    } catch {}
+    try {
       const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
-      if (pub?.data?.publicUrl) return pub.data.publicUrl; // bucket public
-      const { data } = await supabase.storage
-        .from(CHAT_BUCKET)
-        .createSignedUrl(path, 60 * 60 * 24); // 24h
-      return data?.signedUrl ?? null;
+      return pub?.data?.publicUrl ?? null;
     } catch {
       return null;
     }
@@ -799,11 +662,7 @@ function ChatBoxInner(props: {
         <div className="flex items-center gap-3 border-b bg-white/80 px-3 py-2 backdrop-blur dark:bg-zinc-900/70">
           <div className="flex items-center gap-2">
             {onBack && (
-              <button
-                className="rounded-full p-2 hover:bg-gray-100 dark:hover:bg-zinc-800"
-                onClick={onBack}
-                aria-label="Back"
-              >
+              <button className="rounded-full p-2 hover:bg-gray-100 dark:hover:bg-zinc-800" onClick={onBack} aria-label="Back">
                 <ArrowLeft className="h-5 w-5" />
               </button>
             )}
@@ -818,11 +677,7 @@ function ChatBoxInner(props: {
               {mode === "staff" && (
                 <span
                   className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${
-                    presenceLoading
-                      ? "bg-yellow-400"
-                      : isOnline
-                      ? "bg-emerald-500"
-                      : "bg-gray-400"
+                    presenceLoading ? "bg-yellow-400" : isOnline ? "bg-emerald-500" : "bg-gray-400"
                   }`}
                 />
               )}
@@ -838,18 +693,8 @@ function ChatBoxInner(props: {
                     </>
                   ) : (
                     <>
-                      <span
-                        className={`inline-block h-2 w-2 rounded-full ${
-                          isOnline ? "bg-emerald-500" : "bg-gray-400"
-                        }`}
-                      />
-                      <span
-                        className={
-                          isOnline ? "text-emerald-600" : "text-gray-500"
-                        }
-                      >
-                        {isOnline ? "Online" : "Offline"}
-                      </span>
+                      <span className={`inline-block h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
+                      <span className={isOnline ? "text-emerald-600" : "text-gray-500"}>{isOnline ? "Online" : "Offline"}</span>
                     </>
                   )
                 ) : (
@@ -860,16 +705,10 @@ function ChatBoxInner(props: {
           </div>
 
           <div className="ml-auto flex items-center gap-1">
-            <IconButton
-              aria="Voice call"
-              onClick={() => phoneHref && window.open(phoneHref, "_blank")}
-            >
+            <IconButton aria="Voice call" onClick={() => phoneHref && window.open(phoneHref, "_blank")}>
               <Phone className="h-5 w-5" />
             </IconButton>
-            <IconButton
-              aria="Video call"
-              onClick={() => videoHref && window.open(videoHref, "_blank")}
-            >
+            <IconButton aria="Video call" onClick={() => videoHref && window.open(videoHref, "_blank")}>
               <Video className="h-5 w-5" />
             </IconButton>
             <IconButton aria="More">
@@ -878,10 +717,7 @@ function ChatBoxInner(props: {
           </div>
         </div>
 
-        <div
-          ref={listRef}
-          className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 to-white p-4 dark:from-zinc-900 dark:to-zinc-950"
-        >
+        <div ref={listRef} className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 to-white p-4 dark:from-zinc-900 dark:to-zinc-950">
           <div className="mx-auto max-w-xl space-y-3">
             {msgs.map((m) => {
               const own = m.sender_id === me?.id;
@@ -898,14 +734,8 @@ function ChatBoxInner(props: {
                 />
               );
             })}
-            {typing && (
-              <div className="px-1 text-xs text-gray-500">…typing</div>
-            )}
-            {msgs.length === 0 && (
-              <div className="py-10 text-center text-sm text-gray-500">
-                No messages yet. Say hello 👋
-              </div>
-            )}
+            {typing && <div className="px-1 text-xs text-gray-500">…typing</div>}
+            {msgs.length === 0 && <div className="py-10 text-center text-sm text-gray-500">No messages yet. Say hello 👋</div>}
           </div>
         </div>
 
@@ -913,19 +743,9 @@ function ChatBoxInner(props: {
           <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2">
             <div className="flex items-center gap-2 rounded-xl border bg-white px-2 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-800">
               <div className="max-h-16 max-w-[160px] overflow-hidden rounded-md ring-1 ring-gray-200 dark:ring-zinc-700">
-                {draft.type === "image" && (
-                  <img
-                    src={draft.previewUrl}
-                    alt="preview"
-                    className="h-16 w-auto object-cover"
-                  />
-                )}
-                {draft.type === "audio" && (
-                  <audio controls src={draft.previewUrl} className="h-10 w-[160px]" />
-                )}
-                {draft.type === "file" && (
-                  <div className="px-2 py-3">📎 {draft.name || "file"}</div>
-                )}
+                {draft.type === "image" && <img src={draft.previewUrl} alt="preview" className="h-16 w-auto object-cover" />}
+                {draft.type === "audio" && <audio controls src={draft.previewUrl} className="h-10 w-[160px]" />}
+                {draft.type === "file" && <div className="px-2 py-3">📎 {draft.name || "file"}</div>}
               </div>
               <button
                 className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-zinc-700"
@@ -958,19 +778,10 @@ function ChatBoxInner(props: {
                 </DialogContent>
               </Dialog>
 
-              <IconButton
-                aria="Attach image"
-                onClick={() => fileInputRef.current?.click()}
-              >
+              <IconButton aria="Attach image" onClick={() => fileInputRef.current?.click()}>
                 <ImageIcon className="h-5 w-5" />
               </IconButton>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,audio/*"
-                hidden
-                onChange={onPickFile}
-              />
+              <input ref={fileInputRef} type="file" accept="image/*,audio/*" hidden onChange={onPickFile} />
               <IconButton aria="Camera" onClick={takePhoto}>
                 <Camera className="h-5 w-5" />
               </IconButton>
@@ -996,12 +807,7 @@ function ChatBoxInner(props: {
               }`}
             />
 
-            <Button
-              disabled={!canSend}
-              onClick={send}
-              className="h-11 rounded-2xl px-4 shadow-md"
-              aria-busy={!!uploading}
-            >
+            <Button disabled={!canSend} onClick={send} className="h-11 rounded-2xl px-4 shadow-md" aria-busy={!!uploading}>
               <Send className="h-4 w-4" />
             </Button>
           </div>
@@ -1013,22 +819,9 @@ function ChatBoxInner(props: {
 
 /* ------------------------------ Small helpers ------------------------------ */
 
-function IconButton({
-  children,
-  aria,
-  onClick,
-}: {
-  children: React.ReactNode;
-  aria: string;
-  onClick?: () => void;
-}) {
+function IconButton({ children, aria, onClick }: { children: React.ReactNode; aria: string; onClick?: () => void }) {
   return (
-    <button
-      type="button"
-      aria-label={aria}
-      onClick={onClick}
-      className="rounded-full p-2 hover:bg-gray-100 active:scale-95 dark:hover:bg-zinc-800"
-    >
+    <button type="button" aria-label={aria} onClick={onClick} className="rounded-full p-2 hover:bg-gray-100 active:scale-95 dark:hover:bg-zinc-800">
       {children}
     </button>
   );
@@ -1106,15 +899,7 @@ function MessageBubble({
     return () => {
       cancelled = true;
     };
-  }, [
-    m.id,
-    m.attachment_type,
-    m.attachment_url,
-    m.content,
-    isHttp,
-    toUrlFromPath,
-    extractImageUrlFromContent,
-  ]);
+  }, [m.id, m.attachment_type, m.attachment_url, m.content, isHttp, toUrlFromPath, extractImageUrlFromContent]);
 
   const showText = shouldShowPlainContent(m.content);
 
@@ -1133,16 +918,11 @@ function MessageBubble({
             src={attUrl}
             alt="image"
             className="mb-2 max-h-64 w-full rounded-xl object-cover"
-            onError={() => setAttUrl(null)} // why: hide broken images instead of crashing
+            onError={() => setAttUrl(null)} // hide broken images
           />
         )}
         {m.attachment_type === "audio" && attUrl && (
-          <audio
-            className="mb-2 w-full"
-            controls
-            src={attUrl}
-            onError={() => setAttUrl(null)}
-          />
+          <audio className="mb-2 w-full" controls src={attUrl} onError={() => setAttUrl(null)} />
         )}
         {m.attachment_type === "file" && attUrl && (
           <a className="mb-2 block underline" href={attUrl} target="_blank" rel="noreferrer">
@@ -1151,18 +931,9 @@ function MessageBubble({
         )}
 
         {showText && <div className="whitespace-pre-wrap break-words">{m.content}</div>}
-        <div
-          className={`mt-1 flex items-center gap-1 text-[10px] ${
-            own ? "text-cyan-100/90" : "text-gray-500"
-          }`}
-        >
-          {new Date(m.created_at).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-          {own && m.read && (
-            <CheckCheck className="ml-0.5 inline h-3.5 w-3.5 opacity-90" />
-          )}
+        <div className={`mt-1 flex items-center gap-1 text-[10px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
+          {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          {own && m.read && <CheckCheck className="ml-0.5 inline h-3.5 w-3.5 opacity-90" />}
         </div>
       </div>
     </div>
@@ -1171,10 +942,7 @@ function MessageBubble({
 
 /* ----------------------------- Error Boundary ------------------------------ */
 
-class ErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  { hasError: boolean }
-> {
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { hasError: false };
@@ -1189,8 +957,7 @@ class ErrorBoundary extends React.Component<
     if (this.state.hasError) {
       return (
         <div className="p-4 text-sm text-red-600">
-          Chat failed to render. Please reload this page. If it persists, check
-          Storage permissions and message attachments.
+          Chat failed to render. Please reload this page. If it persists, check Storage permissions and message attachments.
         </div>
       );
     }
