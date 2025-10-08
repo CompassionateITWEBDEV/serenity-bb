@@ -154,7 +154,8 @@ export default function ChatBox(props: {
     if (!conversationId || !me) return;
     (async () => {
       const { data, error } = await supabase
-        .from("messages").select("*")
+        .from("messages")
+        .select("*")
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
       if (error) { alert(`Failed to load messages.\n\n${error.message}`); return; }
@@ -437,12 +438,17 @@ export default function ChatBox(props: {
     return match?.[0] ?? null;
   }
   function isHttp(u?: string | null) { return !!u && /^https?:\/\//i.test(u); }
+
+  // SAFE: never throw; returns null if it cannot sign.
   async function toUrlFromPath(path: string) {
-    const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
-    if (pub?.data?.publicUrl) return pub.data.publicUrl;            // if bucket public
-    const { data } = await supabase.storage.from(CHAT_BUCKET).createSignedUrl(path, 60 * 60 * 24); // 24h
-    if (!data?.signedUrl) throw new Error("Cannot sign URL");
-    return data.signedUrl;
+    try {
+      const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
+      if (pub?.data?.publicUrl) return pub.data.publicUrl; // bucket public
+      const { data } = await supabase.storage.from(CHAT_BUCKET).createSignedUrl(path, 60 * 60 * 24); // 24h
+      return data?.signedUrl ?? null;
+    } catch {
+      return null;
+    }
   }
 
   return (
@@ -596,7 +602,7 @@ function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
   );
 }
 
-/** Message bubble (separate component so hooks are not inside .map()) */
+/** Message bubble: resolves storage paths to usable URLs (all types). */
 function MessageBubble({
   m, own, bubbleBase, shouldShowPlainContent, extractImageUrlFromContent, isHttp, toUrlFromPath,
 }: {
@@ -606,29 +612,32 @@ function MessageBubble({
   shouldShowPlainContent: (c?: string | null) => boolean;
   extractImageUrlFromContent: (c?: string | null) => string | null;
   isHttp: (u?: string | null) => boolean;
-  toUrlFromPath: (p: string) => Promise<string>;
+  toUrlFromPath: (p: string) => Promise<string | null>;
 }) {
   const bubble = own
     ? `bg-cyan-500 text-white ${bubbleBase} shadow-md`
     : `bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 ${bubbleBase} ring-1 ring-gray-200/70 dark:ring-zinc-700`;
 
-  const [imgUrl, setImgUrl] = useState<string | null>(null);
+  const [attUrl, setAttUrl] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // prefer attachment
-      if (m.attachment_type === "image" && m.attachment_url) {
-        if (isHttp(m.attachment_url)) { if (!cancelled) setImgUrl(m.attachment_url); return; }
-        try { const url = await toUrlFromPath(m.attachment_url); if (!cancelled) setImgUrl(url); } catch { if (!cancelled) setImgUrl(null); }
+      // Resolve attachments first
+      if (m.attachment_url) {
+        if (isHttp(m.attachment_url)) { if (!cancelled) setAttUrl(m.attachment_url); return; }
+        const url = await toUrlFromPath(m.attachment_url);
+        if (!cancelled) setAttUrl(url);
         return;
       }
-      // fallback: check content for URL
+      // Fallback for legacy image URL in content
       const fromContent = extractImageUrlFromContent(m.content);
-      if (!cancelled) setImgUrl(fromContent || null);
+      if (!cancelled) setAttUrl(fromContent || null);
     })();
     return () => { cancelled = true; };
   }, [m.id, m.attachment_type, m.attachment_url, m.content, isHttp, toUrlFromPath, extractImageUrlFromContent]);
+
+  const showText = shouldShowPlainContent(m.content);
 
   return (
     <div className={`flex items-end gap-2 ${own ? "justify-end" : "justify-start"}`}>
@@ -640,16 +649,22 @@ function MessageBubble({
         </div>
       )}
       <div className={`max-w-[82%] sm:max-w-[70%] ${bubble}`}>
-        {imgUrl && <img src={imgUrl} alt="attachment" className="mb-2 max-h-64 w-full rounded-xl object-cover" />}
-        {m.attachment_url && m.attachment_type === "audio" && (
-          <audio className="mb-2 w-full" controls src={isHttp(m.attachment_url) ? m.attachment_url : undefined} />
+        {m.attachment_type === "image" && attUrl && (
+          <img
+            src={attUrl}
+            alt="image"
+            className="mb-2 max-h-64 w-full rounded-xl object-cover"
+            onError={() => setAttUrl(null)} // why: hide broken images instead of crashing
+          />
         )}
-        {m.attachment_url && m.attachment_type === "file" && (
-          <a className="mb-2 block underline" href={isHttp(m.attachment_url) ? m.attachment_url : undefined} target="_blank" rel="noreferrer">
-            Download file
-          </a>
+        {m.attachment_type === "audio" && attUrl && (
+          <audio className="mb-2 w-full" controls src={attUrl} onError={() => setAttUrl(null)} />
         )}
-        {shouldShowPlainContent(m.content) && <div className="whitespace-pre-wrap break-words">{m.content}</div>}
+        {m.attachment_type === "file" && attUrl && (
+          <a className="mb-2 block underline" href={attUrl} target="_blank" rel="noreferrer">Download file</a>
+        )}
+
+        {showText && <div className="whitespace-pre-wrap break-words">{m.content}</div>}
         <div className={`mt-1 flex items-center gap-1 text-[10px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
           {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           {own && m.read && <CheckCheck className="ml-0.5 inline h-3.5 w-3.5 opacity-90" />}
