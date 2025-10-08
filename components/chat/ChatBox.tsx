@@ -23,7 +23,7 @@ type MessageRow = {
   created_at: string;
   read: boolean;
   urgent: boolean;
-  attachment_url?: string | null;
+  attachment_url?: string | null; // stores either a storage path like "folder/file.jpg" OR a full URL (legacy)
   attachment_type?: "image" | "audio" | "file" | null;
 };
 
@@ -80,6 +80,7 @@ export default function ChatBox(props: {
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
+  // Staged media before sending
   const [draft, setDraft] = useState<{
     blob: Blob;
     type: "image" | "audio" | "file";
@@ -89,6 +90,7 @@ export default function ChatBox(props: {
 
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
+  // ---- UI helpers
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
     " px-4 py-2 " +
@@ -111,6 +113,7 @@ export default function ChatBox(props: {
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
+  // ---- Resolve me + conversation
   useEffect(() => setConversationId(conversationIdProp ?? null), [conversationIdProp]);
 
   useEffect(() => {
@@ -151,6 +154,7 @@ export default function ChatBox(props: {
     })();
   }, [mode, patientId, providerId, providerName, providerRole, conversationIdProp]);
 
+  // ---- Load messages
   useLayoutEffect(() => {
     if (!conversationId || !me) return;
     (async () => {
@@ -166,6 +170,7 @@ export default function ChatBox(props: {
     })();
   }, [conversationId, me, scrollToBottom]);
 
+  // ---- Live changes + typing presence
   useEffect(() => {
     if (!conversationId || !me) return;
     if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
@@ -218,6 +223,7 @@ export default function ChatBox(props: {
     };
   }, [conversationId, me, ding, scrollToBottom]);
 
+  // ---- Typing beacon
   useEffect(() => {
     if (!channelRef.current || !me) return;
     const ch = channelRef.current;
@@ -226,6 +232,7 @@ export default function ChatBox(props: {
     return () => clearInterval(t);
   }, [text, me]);
 
+  // ---- Presence for patient UI (unchanged)
   useEffect(() => {
     if (mode !== "patient") return;
     (async () => {
@@ -242,6 +249,7 @@ export default function ChatBox(props: {
     })();
   }, [mode]);
 
+  // ---- Staff presence indicators (unchanged)
   useEffect(() => {
     if (mode !== "staff" || !patientId) return;
     let cancelled = false; setPresenceLoading(true);
@@ -269,23 +277,13 @@ export default function ChatBox(props: {
     return () => { cancelled = true; clearTimeout(t1); try { supabase.removeChannel(dbCh); } catch {} try { supabase.removeChannel(rtCh); } catch {} window.removeEventListener("focus", refetchPresence); window.removeEventListener("online", refetchPresence); document.removeEventListener("visibilitychange", onVis); };
   }, [mode, patientId]);
 
-  useEffect(() => {
-    if (mode !== "staff" || !patientId) return;
-    let cancelled = false;
-    (async () => {
-      const p1 = await supabase.from("patients").select("full_name, email, avatar").eq("user_id", patientId).maybeSingle();
-      if (!cancelled && p1.data) { setResolvedPatient({ name: p1.data.full_name ?? undefined, email: p1.data.email ?? undefined, avatar: p1.data.avatar ?? null }); return; }
-      const p2 = await supabase.from("profiles").select("full_name, avatar").eq("id", patientId).maybeSingle();
-      if (!cancelled && p2.data) { setResolvedPatient({ name: p2.data.full_name ?? undefined, avatar: p2.data.avatar ?? null }); return; }
-    })();
-    return () => { cancelled = true; };
-  }, [mode, patientId]);
-
+  // ---- Derived
   const canSend = useMemo(() => (!!text.trim() || !!draft) && !!me && !!conversationId, [text, me, conversationId, draft]);
 
+  // ---- DB insert
   async function insertMessage(payload: {
     content: string;
-    attachment_url?: string | null;
+    attachment_url?: string | null;     // we store storage path here
     attachment_type?: "image" | "audio" | "file" | null;
   }) {
     if (!me || !conversationId) return;
@@ -326,6 +324,7 @@ export default function ChatBox(props: {
     }
   }
 
+  // ---- Storage: upload + return STORAGE PATH (not URL)
   async function uploadToChat(fileOrBlob: Blob, fileName?: string) {
     if (!conversationId || !me) throw new Error("Missing conversation");
     const detected = (fileOrBlob as File).type || (fileOrBlob as any).type || "";
@@ -341,15 +340,11 @@ export default function ChatBox(props: {
       if (/not found/i.test(upErr.message)) throw new Error(`Bucket "${CHAT_BUCKET}" not found.`);
       throw upErr;
     }
-
-    const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
-    if (pub?.data?.publicUrl) return pub.data.publicUrl;
-
-    const { data: signed, error: signErr } = await supabase.storage.from(CHAT_BUCKET).createSignedUrl(path, 60 * 60);
-    if (signErr || !signed?.signedUrl) throw new Error("Uploaded, but cannot generate a URL.");
-    return signed.signedUrl;
+    // Return just the storage path; resolver will make URL later.
+    return path;
   }
 
+  // ---- URL resolvers for render-time
   function extractImageUrlFromContent(content: string | null | undefined): string | null {
     if (!content) return null;
     try {
@@ -360,11 +355,30 @@ export default function ChatBox(props: {
     return match?.[0] ?? null;
   }
 
-  function getImageUrl(m: MessageRow): string | null {
-    if (m.attachment_url && m.attachment_type === "image") return m.attachment_url;
-    return extractImageUrlFromContent(m.content);
+  function isLikelyUrl(v?: string | null) {
+    return !!v && /^https?:\/\//i.test(v);
   }
 
+  async function urlForStoragePath(path: string): Promise<string> {
+    // Try public URL first (works if bucket is public)
+    const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
+    if (pub?.data?.publicUrl) return pub.data.publicUrl;
+    // Private bucket: make a signed URL (1 day is usually enough for chat views)
+    const { data } = await supabase.storage.from(CHAT_BUCKET).createSignedUrl(path, 60 * 60 * 24);
+    if (!data?.signedUrl) throw new Error("Cannot create signed URL");
+    return data.signedUrl;
+  }
+
+  function getImageCandidate(m: MessageRow): { type: "url" | "path"; value: string } | null {
+    if (m.attachment_type === "image" && m.attachment_url) {
+      return isLikelyUrl(m.attachment_url) ? { type: "url", value: m.attachment_url } : { type: "path", value: m.attachment_url };
+    }
+    const fromContent = extractImageUrlFromContent(m.content);
+    if (fromContent) return { type: "url", value: fromContent };
+    return null;
+  }
+
+  // ---- Send
   const send = useCallback(async () => {
     if (!canSend) return;
     const contentText = text.trim();
@@ -373,14 +387,14 @@ export default function ChatBox(props: {
     try {
       if (draft) {
         setUploading({ label: "Sending…" });
-        const url = await uploadToChat(
+        const storagePath = await uploadToChat(
           draft.blob,
           draft.name || (draft.type === "image" ? "image.jpg" : draft.type === "audio" ? "voice.webm" : "file.bin")
         );
-        const content = draft.type === "audio" ? contentText || "(voice note)" : contentText;
+        const content = draft.type === "audio" ? contentText || "(voice note)" : contentText; // no placeholder for images/files
         await insertMessage({
           content: content || "",
-          attachment_url: url,
+          attachment_url: storagePath,    // store path
           attachment_type: draft.type,
         });
         if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
@@ -397,7 +411,7 @@ export default function ChatBox(props: {
   }, [canSend, text, draft]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const enterToSend = settings?.enterToSend ?? true;
+    const enterToSend = (settings?.enterToSend ?? true);
     if (e.key === "Enter" && !e.shiftKey && enterToSend) { e.preventDefault(); void send(); }
   };
 
@@ -437,18 +451,14 @@ export default function ChatBox(props: {
     if (recording) { mediaRecRef.current?.stop(); return; }
     if (!me || !conversationId) return;
 
-    if (typeof window.MediaRecorder === "undefined") {
-      alert("Voice recording isn’t supported by this browser.");
-      return;
-    }
+    if (typeof window.MediaRecorder === "undefined") { alert("Voice recording isn’t supported by this browser."); return; }
 
     let stream: MediaStream | null = null;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
     catch { alert("Microphone permission denied."); return; }
 
     const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus"
-               : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
-               : "";
+               : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
 
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     chunksRef.current = [];
@@ -463,10 +473,14 @@ export default function ChatBox(props: {
     mediaRecRef.current = rec; setRecording(true); rec.start();
   }
 
+  // ---- Derived UI
   const isOnline = mode === "staff" ? (dbOnline || rtOnline || threadOtherPresent) : false;
-  const otherName = mode === "staff" ? (resolvedPatient?.name || patientName || resolvedPatient?.email || "Patient") : (providerName || "Provider");
+  const otherName = mode === "staff"
+    ? resolvedPatient?.name || patientName || resolvedPatient?.email || "Patient"
+    : providerName || "Provider";
   const otherAvatar = mode === "staff" ? (resolvedPatient?.avatar ?? patientAvatarUrl ?? null) : (providerAvatarUrl ?? null);
 
+  // Paste image from clipboard
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const file = Array.from(e.clipboardData.files || [])[0];
     if (file && file.type.startsWith("image/")) {
@@ -484,6 +498,7 @@ export default function ChatBox(props: {
     return true;
   }
 
+  // ---- Render
   return (
     <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
       <CardContent className="flex h-full flex-col p-0">
@@ -547,7 +562,22 @@ export default function ChatBox(props: {
                 ? `bg-cyan-500 text-white ${bubbleBase} shadow-md`
                 : `bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 ${bubbleBase} ring-1 ring-gray-200/70 dark:ring-zinc-700`;
 
-              const imageUrl = getImageUrl(m);
+              const img = getImageCandidate(m);
+              const [imgUrl, setImgUrl] = useState<string | null>(null);
+
+              // Resolve image URL (public or signed) once the row mounts/changes
+              useEffect(() => {
+                let cancelled = false;
+                (async () => {
+                  if (!img) { setImgUrl(null); return; }
+                  if (img.type === "url") { setImgUrl(img.value); return; }
+                  try {
+                    const url = await urlForStoragePath(img.value);
+                    if (!cancelled) setImgUrl(url);
+                  } catch { if (!cancelled) setImgUrl(null); }
+                })();
+                return () => { cancelled = true; };
+              }, [m.id, img?.type, img?.value]);
 
               return (
                 <div key={m.id} className={`flex items-end gap-2 ${own ? "justify-end" : "justify-start"}`}>
@@ -559,14 +589,18 @@ export default function ChatBox(props: {
                     </div>
                   )}
                   <div className={`max-w-[82%] sm:max-w-[70%] ${bubble}`}>
-                    {imageUrl && (
-                      <img src={imageUrl} alt="attachment" className="mb-2 max-h-64 w-full rounded-xl object-cover" />
-                    )}
+                    {imgUrl && <img src={imgUrl} alt="attachment" className="mb-2 max-h-64 w-full rounded-xl object-cover" />}
                     {m.attachment_url && m.attachment_type === "audio" && (
-                      <audio className="mb-2 w-full" controls src={m.attachment_url} />
+                      <audio className="mb-2 w-full" controls src={isLikelyUrl(m.attachment_url) ? m.attachment_url : undefined} />
                     )}
                     {m.attachment_url && m.attachment_type === "file" && (
-                      <a className="mb-2 block underline" href={m.attachment_url} target="_blank" rel="noreferrer">Download file</a>
+                      <a
+                        className="mb-2 block underline"
+                        href={isLikelyUrl(m.attachment_url) ? m.attachment_url : undefined}
+                        target="_blank" rel="noreferrer"
+                      >
+                        Download file
+                      </a>
                     )}
                     {shouldShowPlainContent(m.content) && (
                       <div className="whitespace-pre-wrap break-words">{m.content}</div>
@@ -584,6 +618,7 @@ export default function ChatBox(props: {
           </div>
         </div>
 
+        {/* Draft preview */}
         {draft && (
           <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2">
             <div className="flex items-center gap-2 rounded-xl border bg-white px-2 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-800">
