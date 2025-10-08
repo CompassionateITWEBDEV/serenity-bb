@@ -4,8 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   LogOut, Plus, Search, Settings as SettingsIcon,
-  Pin, PinOff, Archive, ArchiveRestore, CheckCheck, ArrowLeft,
-  ChevronDown,
+  Pin, PinOff, Archive, ArchiveRestore, CheckCheck, ArrowLeft, ChevronDown,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase/client";
@@ -62,7 +61,7 @@ export default function StaffMessagesPage() {
   const router = useRouter();
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Simple inline notifier (no external lib)
+  // Simple inline notifier
   const [notice, setNotice] = useState<Notice | null>(null);
   const notify = (text: string, tone: Notice["tone"] = "ok") => {
     const id = Date.now();
@@ -70,7 +69,7 @@ export default function StaffMessagesPage() {
     setTimeout(() => setNotice((n) => (n?.id === id ? null : n)), 2200);
   };
 
-  // Settings
+  // Settings (persisted)
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<UiSettings>(() => {
     if (typeof window === "undefined") {
@@ -99,7 +98,7 @@ export default function StaffMessagesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedConv = convs.find((c) => c.id === selectedId) ?? null;
 
-  // Unread
+  // Unread (patient → staff)
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
 
   // Filters
@@ -121,7 +120,7 @@ export default function StaffMessagesPage() {
     return patients.filter((p) => (p.full_name ?? "").toLowerCase().includes(v) || (p.email ?? "").toLowerCase().includes(v));
   }, [patients, pSearch]);
 
-  // URL sync
+  // URL sync helper
   function syncUrlOpen(id: string) {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
@@ -154,6 +153,7 @@ export default function StaffMessagesPage() {
       setConvs(list);
       setLoading(false);
 
+      // Unread snapshot
       const u = await supabase.from("v_staff_dm_unread").select("conversation_id, unread_from_patient").eq("provider_id", uid);
       if (!u.error) {
         const map: Record<string, number> = {};
@@ -161,11 +161,13 @@ export default function StaffMessagesPage() {
         setUnreadMap(map);
       }
 
+      // Deep link (?open=)
       if (typeof window !== "undefined") {
         const id = new URLSearchParams(window.location.search).get("open");
         if (id) setSelectedId(id);
       }
 
+      // Assigned patients for modal
       const v = await supabase
         .from("v_staff_assigned_patients")
         .select("user_id, full_name, email, avatar")
@@ -174,13 +176,13 @@ export default function StaffMessagesPage() {
     })();
   }, [router]);
 
-  // Keep selection valid
+  // Keep selection valid across refreshes/filters
   useEffect(() => {
     if (!selectedId || convs.some((c) => c.id === selectedId)) return;
     if (convs.length) openConversation(convs[0].id);
   }, [convs, selectedId]);
 
-  // Realtime
+  // Realtime list + unread bumps
   useEffect(() => {
     if (!meId) return;
 
@@ -222,28 +224,45 @@ export default function StaffMessagesPage() {
     };
   }, [meId, selectedId]);
 
-  // Clear unread on open
+  // Clear unread on open (server + local)
   useEffect(() => {
     if (!selectedId || !meId) return;
     (async () => {
       await markReadHelper(selectedId, "nurse");
       setUnreadMap((m) => ({ ...m, [selectedId]: 0 }));
       syncUrlOpen(selectedId);
-      // notifier: gives immediate user feedback
       notify("Marked as read");
     })();
   }, [selectedId, meId]);
 
-  // Row actions (persist + merge DB truth)
+  // helpers: merge updated row safely
+  function mergeRowFromDb<T extends { id: string; pinned?: boolean | null; archived_at?: string | null; last_message_at?: string | null; created_at?: string | null }>(row: T) {
+    setConvs((cur) =>
+      cur.map((c) =>
+        c.id === row.id
+          ? {
+              ...c,
+              pinned: row.pinned ?? c.pinned,
+              archived_at: (row.archived_at as any) ?? c.archived_at,
+              updated_at: (row.last_message_at ?? row.created_at ?? c.updated_at) as string,
+            }
+          : c
+      )
+    );
+  }
+
+  // Row actions (persist + merge DB truth) — FIXED selects
   async function togglePin(id: string, next: boolean) {
     const { data, error } = await supabase
       .from("conversations")
       .update({ pinned: next })
       .eq("id", id)
-      .select("id,pinned,archived_at,updated_at")
+      // DO NOT select non-existing columns (updated_at). Select existing ones:
+      .select("id, pinned, archived_at, last_message_at, created_at")
       .single();
-    if (error) { notify("Failed to update pin", "err"); return; }
-    setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
+
+    if (error) { notify(`Failed to update pin`, "err"); return; }
+    if (data) mergeRowFromDb(data);
     notify(next ? "Pinned" : "Unpinned");
   }
 
@@ -253,10 +272,12 @@ export default function StaffMessagesPage() {
       .from("conversations")
       .update({ archived_at: value as any })
       .eq("id", id)
-      .select("id,pinned,archived_at,updated_at")
+      // DO NOT select non-existing columns (updated_at). Select existing ones:
+      .select("id, pinned, archived_at, last_message_at, created_at")
       .single();
-    if (error) { notify("Failed to update archive", "err"); return; }
-    setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
+
+    if (error) { notify(`Failed to update archive`, "err"); return; }
+    if (data) mergeRowFromDb(data);
     if (next && selectedId === id) setSelectedId(null);
     notify(next ? "Archived" : "Unarchived");
   }
@@ -271,7 +292,7 @@ export default function StaffMessagesPage() {
     }
   }
 
-  // Bulk actions (current tab scope)
+  // Bulk actions (optional, kept)
   async function bulkArchive() {
     if (!meId) return;
     const { data, error } = await supabase
@@ -279,13 +300,12 @@ export default function StaffMessagesPage() {
       .update({ archived_at: new Date().toISOString() as any })
       .eq("provider_id", meId)
       .is("archived_at", null)
-      .select("id, archived_at, pinned, updated_at");
+      .select("id, archived_at, pinned, last_message_at, created_at");
     if (error) { notify("Failed to archive all", "err"); return; }
-    const ids = new Set((data ?? []).map((d) => d.id));
-    setConvs((cur) => cur.map((c) => (ids.has(c.id) ? { ...c, archived_at: (data!.find(d=>d.id===c.id) as any).archived_at } : c)));
-    if (selectedId && ids.has(selectedId)) setSelectedId(null);
-    notify("Archived all");
+    (data ?? []).forEach((row) => mergeRowFromDb(row));
+    if (selectedId && (data ?? []).some((d) => d.id === selectedId)) setSelectedId(null);
     setTab("archived");
+    notify("Archived all");
   }
 
   async function bulkUnarchive() {
@@ -295,12 +315,11 @@ export default function StaffMessagesPage() {
       .update({ archived_at: null as any })
       .eq("provider_id", meId)
       .not("archived_at", "is", null)
-      .select("id, archived_at, pinned, updated_at");
+      .select("id, archived_at, pinned, last_message_at, created_at");
     if (error) { notify("Failed to unarchive all", "err"); return; }
-    const ids = new Set((data ?? []).map((d) => d.id));
-    setConvs((cur) => cur.map((c) => (ids.has(c.id) ? { ...c, archived_at: null } : c)));
-    notify("Unarchived all");
+    (data ?? []).forEach((row) => mergeRowFromDb(row));
     setTab("all");
+    notify("Unarchived all");
   }
 
   // Back
@@ -314,7 +333,7 @@ export default function StaffMessagesPage() {
     return { archived, pinned, newCount };
   }, [convs, unreadMap]);
 
-  // Filter & sort
+  // Filtering & sorting
   const filteredConvs = useMemo(() => {
     let list = convs.slice();
     if (tab === "archived") list = list.filter((c) => !!c.archived_at);
