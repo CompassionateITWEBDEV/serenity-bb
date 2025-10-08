@@ -2,6 +2,8 @@ import { supabase } from "@/lib/supabase/client";
 
 export type AttachmentKind = "image" | "audio";
 
+const BUCKET = "chat"; // ← use the same bucket your old code used
+
 function extFromType(mime: string): string {
   const map: Record<string, string> = {
     "image/jpeg": "jpg",
@@ -18,50 +20,67 @@ function extFromType(mime: string): string {
   return map[mime] ?? "bin";
 }
 
-/** Upload a file/blob to Supabase Storage and return its public URL. */
+/** Uploads to Storage and returns a public URL. */
 export async function uploadToStorage(
   file: File | Blob,
   opts: { conversationId: string; kind: AttachmentKind; userId?: string }
 ): Promise<{ path: string; publicUrl: string }> {
   const mime = (file as File).type || "application/octet-stream";
-  const ext = extFromType(mime);
+  const ext = (file as File).name ? ((file as File).name.split(".").pop() || extFromType(mime)) : extFromType(mime);
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
   const prefix = `${opts.conversationId}/${opts.kind}/${opts.userId ?? "n"}`;
   const fullPath = `${prefix}/${filename}`;
 
-  const { error } = await supabase.storage.from("chat-uploads").upload(fullPath, file, {
+  const { error } = await supabase.storage.from(BUCKET).upload(fullPath, file, {
     contentType: mime,
     cacheControl: "3600",
     upsert: false,
   });
-  if (error) throw error;
 
-  const { data } = supabase.storage.from("chat-uploads").getPublicUrl(fullPath);
-  if (!data?.publicUrl) throw new Error("Failed generating public URL");
+  if (error) {
+    // Why: make failures diagnosable in your console + UI alert already shows generic message
+    console.error("[storage.upload] failed", { bucket: BUCKET, fullPath, mime, error });
+    throw error;
+  }
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(fullPath);
+  if (!data?.publicUrl) {
+    console.error("[storage.getPublicUrl] returned empty url", { bucket: BUCKET, fullPath });
+    throw new Error("No public URL");
+  }
   return { path: fullPath, publicUrl: data.publicUrl };
 }
 
-/** Insert an attachment message that points to a URL. */
+/** Inserts an attachment message and bumps conversation preview. */
 export async function sendAttachmentMessage(params: {
   conversationId: string;
   senderRole: "patient" | "doctor" | "nurse" | "counselor";
   url: string;
   kind: AttachmentKind;
 }) {
-  const { error } = await supabase.from("messages").insert({
+  // Insert message (using 'type' + 'content' = URL)
+  const { error: msgErr } = await supabase.from("messages").insert({
     conversation_id: params.conversationId,
     sender_role: params.senderRole,
-    type: params.kind,           // 'image' | 'audio'
-    content: params.url,         // URL to the uploaded media
+    type: params.kind,     // 'image' | 'audio'
+    content: params.url,   // URL in content
     read: false,
+    urgent: false,
   });
-  if (error) throw error;
+  if (msgErr) {
+    console.error("[messages.insert] failed", msgErr);
+    throw msgErr;
+  }
 
-  // Optionally bump conversation preview fields
-  await supabase.from("conversations")
-    .update({
-      last_message: params.kind === "image" ? "[image]" : "[voice]",
-      last_message_at: new Date().toISOString(),
-    })
+  // Update conversation preview
+  const preview = params.kind === "image" ? "[image]" : "[voice]";
+  const { error: convErr } = await supabase
+    .from("conversations")
+    .update({ last_message: preview, last_message_at: new Date().toISOString() })
     .eq("id", params.conversationId);
+
+  if (convErr) {
+    // Non-fatal; UI will still show the new message via realtime
+    console.warn("[conversations.update preview] failed", convErr);
+  }
 }
