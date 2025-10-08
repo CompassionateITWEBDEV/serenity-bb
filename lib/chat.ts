@@ -11,13 +11,22 @@ export type ConversationPreview = {
   patient_avatar: string | null;
   last_message: string | null;
   updated_at: string;
+  pinned: boolean | null;        // ← added
+  archived_at: string | null;    // ← added
 };
 
 export async function listConversationsForProvider(providerId: string): Promise<ConversationPreview[]> {
   const { data, error } = await supabase
     .from("conversations")
     .select(`
-      id, patient_id, provider_id, last_message, last_message_at, created_at,
+      id,
+      patient_id,
+      provider_id,
+      last_message,
+      last_message_at,
+      created_at,
+      pinned,               -- ← added
+      archived_at,          -- ← added
       patient:patients!conversations_patient_id_fkey(full_name, email, avatar)
     `)
     .eq("provider_id", providerId)
@@ -36,6 +45,8 @@ export async function listConversationsForProvider(providerId: string): Promise<
       patient_avatar: (p?.avatar ?? null) || null,
       last_message: r.last_message ?? null,
       updated_at: r.last_message_at ?? r.created_at,
+      pinned: r.pinned ?? null,            // ← added
+      archived_at: r.archived_at ?? null,  // ← added
     };
   });
 }
