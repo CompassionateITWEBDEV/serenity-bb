@@ -97,7 +97,6 @@ export default function ChatBox(props: {
     return () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); };
   }, [draft?.previewUrl]);
 
-  // ---- UI helpers
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
     " px-4 py-2 " +
@@ -120,7 +119,7 @@ export default function ChatBox(props: {
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
-  // ---- Resolve me + conversation
+  // Resolve conversation & identity
   useEffect(() => setConversationId(conversationIdProp ?? null), [conversationIdProp]);
 
   useEffect(() => {
@@ -161,7 +160,7 @@ export default function ChatBox(props: {
     })();
   }, [mode, patientId, providerId, providerName, providerRole, conversationIdProp]);
 
-  // ---- Load messages
+  // Load messages
   useLayoutEffect(() => {
     if (!conversationId || !me) return;
     (async () => {
@@ -177,7 +176,7 @@ export default function ChatBox(props: {
     })();
   }, [conversationId, me, scrollToBottom]);
 
-  // ---- Live changes + typing presence
+  // Live changes + typing presence
   useEffect(() => {
     if (!conversationId || !me) return;
     if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
@@ -230,7 +229,7 @@ export default function ChatBox(props: {
     };
   }, [conversationId, me, ding, scrollToBottom]);
 
-  // ---- Typing beacon
+  // Typing beacon
   useEffect(() => {
     if (!channelRef.current || !me) return;
     const ch = channelRef.current;
@@ -239,7 +238,7 @@ export default function ChatBox(props: {
     return () => clearInterval(t);
   }, [text, me]);
 
-  // ---- Presence (unchanged)
+  // Presence (unchanged)
   useEffect(() => {
     if (mode !== "patient") return;
     (async () => {
@@ -283,7 +282,7 @@ export default function ChatBox(props: {
     return () => { cancelled = true; clearTimeout(t1); try { supabase.removeChannel(dbCh); } catch {} try { supabase.removeChannel(rtCh); } catch {} window.removeEventListener("focus", refetchPresence); window.removeEventListener("online", refetchPresence); document.removeEventListener("visibilitychange", onVis); };
   }, [mode, patientId]);
 
-  // ---- Resolve patient profile for header
+  // Resolve patient profile for header
   useEffect(() => {
     if (mode !== "staff" || !patientId) return;
     let cancelled = false;
@@ -296,10 +295,9 @@ export default function ChatBox(props: {
     return () => { cancelled = true; };
   }, [mode, patientId]);
 
-  // ---- Derived
   const canSend = useMemo(() => (!!text.trim() || !!draft) && !!me && !!conversationId, [text, me, conversationId, draft]);
 
-  // ---- Insert message (DB)
+  // DB insert
   async function insertMessage(payload: {
     content: string;
     attachment_url?: string | null;
@@ -343,7 +341,7 @@ export default function ChatBox(props: {
     }
   }
 
-  // ---- Storage helpers
+  // Storage helpers
   async function uploadToChat(fileOrBlob: Blob, fileName?: string) {
     if (!conversationId || !me) throw new Error("Missing conversation");
     const detected = (fileOrBlob as File).type || (fileOrBlob as any).type || "";
@@ -368,29 +366,46 @@ export default function ChatBox(props: {
     return signed.signedUrl;
   }
 
-  function guessExt(mime: string) {
-    if (!mime) return null;
-    if (mime.startsWith("image/")) return mime.split("/")[1];
-    if (mime.startsWith("audio/")) return "webm";
+  function extractImageUrlFromContent(content: string | null | undefined): string | null {
+    if (!content) return null;
+    // JSON {"type":"image","url":"..."}
+    try {
+      const maybe = JSON.parse(content);
+      if (maybe && typeof maybe === "object" && maybe.type === "image" && typeof maybe.url === "string") {
+        return maybe.url as string;
+      }
+    } catch {}
+    // Plain URL ending with image extension
+    const match = content.match(/https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp|heic|svg)(?:\?\S*)?/i);
+    if (match?.[0]) return match[0];
     return null;
   }
 
-  // ---- Send
+  function getImageUrl(m: MessageRow): string | null {
+    if (m.attachment_url && m.attachment_type === "image") return m.attachment_url;
+    return extractImageUrlFromContent(m.content);
+  }
+
+  // Send
   const send = useCallback(async () => {
     if (!canSend) return;
-    const content = text.trim();
+    const contentText = text.trim();
     setText("");
 
     try {
-      // If there’s staged media, upload it first and include in message
       if (draft) {
         setUploading({ label: "Sending…" });
         const url = await uploadToChat(
           draft.blob,
           draft.name || (draft.type === "image" ? "image.jpg" : draft.type === "audio" ? "voice.webm" : "file.bin")
         );
+        // why: avoid showing "(image)" placeholder – render actual image
+        const content =
+          draft.type === "audio"
+            ? contentText || "(voice note)"
+            : contentText; // image/file: empty if no caption
         await insertMessage({
-          content: content || (draft.type === "audio" ? "(voice note)" : draft.type === "image" ? "(image)" : ""),
+          content: content || "", // allow empty when it's just the image
           attachment_url: url,
           attachment_type: draft.type,
         });
@@ -400,8 +415,7 @@ export default function ChatBox(props: {
         return;
       }
 
-      // text-only
-      await insertMessage({ content });
+      await insertMessage({ content: contentText });
     } catch (err: any) {
       alert(`Failed to send.\n\n${err?.message ?? ""}`);
       setUploading(null);
@@ -413,7 +427,7 @@ export default function ChatBox(props: {
     if (e.key === "Enter" && !e.shiftKey && enterToSend) { e.preventDefault(); void send(); }
   };
 
-  // ---- Attachments: stage (do not auto-send)
+  // Attachments: stage (do not auto-send)
   function pickFile() { fileInputRef.current?.click(); }
 
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -482,7 +496,6 @@ export default function ChatBox(props: {
     mediaRecRef.current = rec; setRecording(true); rec.start();
   }
 
-  // ---- Render helpers
   const isOnline = mode === "staff" ? (dbOnline || rtOnline || threadOtherPresent) : false;
 
   const otherName =
@@ -491,6 +504,24 @@ export default function ChatBox(props: {
       : providerName || "Provider";
 
   const otherAvatar = mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
+
+  // why: allow pasting images straight from clipboard
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const file = Array.from(e.clipboardData.files || [])[0];
+    if (file && file.type.startsWith("image/")) {
+      e.preventDefault();
+      if (file.size > 10 * 1024 * 1024) { alert("File too large (max 10 MB)."); return; }
+      const url = URL.createObjectURL(file);
+      setDraft({ blob: file, type: "image", name: file.name || "pasted.jpg", previewUrl: url });
+    }
+  };
+
+  function shouldShowPlainContent(content: string | null | undefined) {
+    if (!content) return false;
+    const trimmed = content.trim().toLowerCase();
+    if (trimmed === "(image)" || trimmed === "(photo)") return false;
+    return true;
+  }
 
   return (
     <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
@@ -555,6 +586,8 @@ export default function ChatBox(props: {
                 ? `bg-cyan-500 text-white ${bubbleBase} shadow-md`
                 : `bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 ${bubbleBase} ring-1 ring-gray-200/70 dark:ring-zinc-700`;
 
+              const imageUrl = getImageUrl(m);
+
               return (
                 <div key={m.id} className={`flex items-end gap-2 ${own ? "justify-end" : "justify-start"}`}>
                   {!own && (
@@ -565,8 +598,8 @@ export default function ChatBox(props: {
                     </div>
                   )}
                   <div className={`max-w-[82%] sm:max-w-[70%] ${bubble}`}>
-                    {m.attachment_url && m.attachment_type === "image" && (
-                      <img src={m.attachment_url} alt="attachment" className="mb-2 max-h-64 w-full rounded-xl object-cover" />
+                    {imageUrl && (
+                      <img src={imageUrl} alt="attachment" className="mb-2 max-h-64 w-full rounded-xl object-cover" />
                     )}
                     {m.attachment_url && m.attachment_type === "audio" && (
                       <audio className="mb-2 w-full" controls src={m.attachment_url} />
@@ -574,7 +607,9 @@ export default function ChatBox(props: {
                     {m.attachment_url && m.attachment_type === "file" && (
                       <a className="mb-2 block underline" href={m.attachment_url} target="_blank" rel="noreferrer">Download file</a>
                     )}
-                    {m.content && <div className="whitespace-pre-wrap break-words">{m.content}</div>}
+                    {shouldShowPlainContent(m.content) && (
+                      <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                    )}
                     <div className={`mt-1 flex items-center gap-1 text-[10px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
                       {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       {own && m.read && <CheckCheck className="ml-0.5 inline h-3.5 w-3.5 opacity-90" />}
@@ -622,14 +657,7 @@ export default function ChatBox(props: {
               </Dialog>
 
               <IconButton aria="Attach image" onClick={() => fileInputRef.current?.click()}><ImageIcon className="h-5 w-5" /></IconButton>
-              <input ref={fileInputRef} type="file" accept="image/*,audio/*" hidden onChange={(e) => {
-                const f = e.target.files?.[0]; e.target.value = "";
-                if (!f) return;
-                if (f.size > 10 * 1024 * 1024) { alert("File too large (max 10 MB)."); return; }
-                const url = URL.createObjectURL(f);
-                const kind: "image" | "audio" | "file" = f.type.startsWith("image/") ? "image" : f.type.startsWith("audio/") ? "audio" : "file";
-                setDraft({ blob: f, type: kind, name: f.name, previewUrl: url });
-              }} />
+              <input ref={fileInputRef} type="file" accept="image/*,audio/*" hidden onChange={onPickFile} />
               <IconButton aria="Camera" onClick={takePhoto}><Camera className="h-5 w-5" /></IconButton>
               <IconButton aria="Voice note" onClick={toggleRecord}><Mic className={`h-5 w-5 ${recording ? "animate-pulse" : ""}`} /></IconButton>
             </div>
@@ -638,13 +666,14 @@ export default function ChatBox(props: {
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={onKeyDown}
+              onPaste={onPaste}
               placeholder="Type your message…"
               className={`min-h-[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${
                 settings?.density === "compact" ? "text-sm" : ""
               }`}
             />
 
-            <Button disabled={!canSend} onClick={send} className="h-11 rounded-2xl px-4 shadow-md">
+            <Button disabled={!canSend} onClick={send} className="h-11 rounded-2xl px-4 shadow-md" aria-busy={!!uploading}>
               <Send className="h-4 w-4" />
             </Button>
           </div>
