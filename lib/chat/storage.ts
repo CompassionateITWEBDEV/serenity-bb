@@ -1,8 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 
 export type AttachmentKind = "image" | "audio";
-
-// Single source of truth for bucket name
 export const CHAT_BUCKET =
   (process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET ?? "chat").trim();
 
@@ -21,7 +19,6 @@ function extFromType(m: string) {
   };
   return map[m] ?? "bin";
 }
-
 const isHttp = (u?: string | null) => !!u && /^https?:\/\//i.test(u);
 
 /** Upload and return STORAGE PATH (not URL). */
@@ -44,7 +41,6 @@ export async function uploadToStorage(
       cacheControl: "3600",
       upsert: false,
     });
-
   if (error) {
     console.error("[upload]", error);
     throw error;
@@ -52,40 +48,32 @@ export async function uploadToStorage(
   return { path };
 }
 
-/** Resolve storage path (or legacy http URL) to a usable URL for <img>/<audio>. */
-export async function urlForAttachment(
-  attachmentUrlOrPath: string
-): Promise<string | null> {
+/** Resolve path (or legacy http URL) to a usable URL. */
+export async function urlForAttachment(attachmentUrlOrPath: string) {
   try {
     if (isHttp(attachmentUrlOrPath)) return attachmentUrlOrPath;
-
-    // Prefer signed URL first (needed for private buckets).
     const signed = await supabase.storage
       .from(CHAT_BUCKET)
       .createSignedUrl(attachmentUrlOrPath, 60 * 60 * 24);
     if (signed?.data?.signedUrl) return signed.data.signedUrl;
   } catch (e) {
-    // why: if client role can't sign or RLS blocks, fall back to public URL
     console.warn("[urlForAttachment] signed url failed", e);
   }
-
   try {
-    const pub = supabase.storage
-      .from(CHAT_BUCKET)
-      .getPublicUrl(attachmentUrlOrPath);
+    const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(attachmentUrlOrPath);
     return pub?.data?.publicUrl ?? null;
   } catch (e) {
     console.warn("[urlForAttachment] public url failed", e);
-    return null; // never throw → prevents UI crash
+    return null;
   }
 }
 
-/** Insert message, storing the STORAGE PATH in `attachment_url`. */
+/** Insert message; store STORAGE PATH in `attachment_url`. */
 export async function sendAttachmentMessage(params: {
   conversationId: string;
   senderRole: "patient" | "doctor" | "nurse" | "counselor";
-  path: string; // from uploadToStorage().path
-  kind: AttachmentKind; // "image" | "audio"
+  path: string;
+  kind: AttachmentKind;
   senderId?: string;
   senderName?: string;
   patientId?: string;
@@ -100,7 +88,7 @@ export async function sendAttachmentMessage(params: {
     content: placeholder,
     read: false,
     urgent: false,
-    attachment_url: params.path, // store PATH, not URL
+    attachment_url: params.path,
     attachment_type: params.kind,
   });
   if (error) {
