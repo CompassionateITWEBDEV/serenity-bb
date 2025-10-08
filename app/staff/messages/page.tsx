@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   LogOut, Plus, Search, Settings as SettingsIcon,
   Pin, PinOff, Archive, ArchiveRestore, CheckCheck, ArrowLeft,
+  ChevronDown,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase/client";
@@ -61,15 +62,15 @@ export default function StaffMessagesPage() {
   const router = useRouter();
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Simple in-page notifier (no external deps)
+  // Simple inline notifier (no external lib)
   const [notice, setNotice] = useState<Notice | null>(null);
   const notify = (text: string, tone: Notice["tone"] = "ok") => {
     const id = Date.now();
     setNotice({ id, text, tone });
-    setTimeout(() => setNotice((n) => (n?.id === id ? null : n)), 2000);
+    setTimeout(() => setNotice((n) => (n?.id === id ? null : n)), 2200);
   };
 
-  // Settings (persisted)
+  // Settings
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<UiSettings>(() => {
     if (typeof window === "undefined") {
@@ -98,7 +99,7 @@ export default function StaffMessagesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedConv = convs.find((c) => c.id === selectedId) ?? null;
 
-  // Unread (patient → staff)
+  // Unread
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
 
   // Filters
@@ -120,7 +121,7 @@ export default function StaffMessagesPage() {
     return patients.filter((p) => (p.full_name ?? "").toLowerCase().includes(v) || (p.email ?? "").toLowerCase().includes(v));
   }, [patients, pSearch]);
 
-  // URL sync helper
+  // URL sync
   function syncUrlOpen(id: string) {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
@@ -228,11 +229,12 @@ export default function StaffMessagesPage() {
       await markReadHelper(selectedId, "nurse");
       setUnreadMap((m) => ({ ...m, [selectedId]: 0 }));
       syncUrlOpen(selectedId);
+      // notifier: gives immediate user feedback
       notify("Marked as read");
     })();
   }, [selectedId, meId]);
 
-  // Row actions + feedback
+  // Row actions (persist + merge DB truth)
   async function togglePin(id: string, next: boolean) {
     const { data, error } = await supabase
       .from("conversations")
@@ -269,10 +271,42 @@ export default function StaffMessagesPage() {
     }
   }
 
+  // Bulk actions (current tab scope)
+  async function bulkArchive() {
+    if (!meId) return;
+    const { data, error } = await supabase
+      .from("conversations")
+      .update({ archived_at: new Date().toISOString() as any })
+      .eq("provider_id", meId)
+      .is("archived_at", null)
+      .select("id, archived_at, pinned, updated_at");
+    if (error) { notify("Failed to archive all", "err"); return; }
+    const ids = new Set((data ?? []).map((d) => d.id));
+    setConvs((cur) => cur.map((c) => (ids.has(c.id) ? { ...c, archived_at: (data!.find(d=>d.id===c.id) as any).archived_at } : c)));
+    if (selectedId && ids.has(selectedId)) setSelectedId(null);
+    notify("Archived all");
+    setTab("archived");
+  }
+
+  async function bulkUnarchive() {
+    if (!meId) return;
+    const { data, error } = await supabase
+      .from("conversations")
+      .update({ archived_at: null as any })
+      .eq("provider_id", meId)
+      .not("archived_at", "is", null)
+      .select("id, archived_at, pinned, updated_at");
+    if (error) { notify("Failed to unarchive all", "err"); return; }
+    const ids = new Set((data ?? []).map((d) => d.id));
+    setConvs((cur) => cur.map((c) => (ids.has(c.id) ? { ...c, archived_at: null } : c)));
+    notify("Unarchived all");
+    setTab("all");
+  }
+
   // Back
   const handleBack = () => router.push("/staff/dashboard");
 
-  // Counts
+  // Derived counts
   const counts = useMemo(() => {
     const archived = convs.filter((c) => !!c.archived_at).length;
     const pinned = convs.filter((c) => !!c.pinned && !c.archived_at).length;
@@ -397,6 +431,25 @@ export default function StaffMessagesPage() {
                 <Button variant={tab === "archived" ? "default" : "outline"} size="xs" onClick={() => setTab("archived")}>
                   Archived {convs.filter((c)=>!!c.archived_at).length ? <Badge className="ml-1">{convs.filter((c)=>!!c.archived_at).length}</Badge> : null}
                 </Button>
+
+                {/* Bulk actions */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="xs" className="ml-2 gap-1">
+                      Bulk <ChevronDown className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuLabel>Bulk actions</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={bulkArchive}>
+                      <Archive className="mr-2 h-4 w-4" /> Archive all
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={bulkUnarchive}>
+                      <ArchiveRestore className="mr-2 h-4 w-4" /> Unarchive all
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </CardTitle>
             <div className="relative">
