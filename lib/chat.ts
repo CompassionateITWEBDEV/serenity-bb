@@ -11,8 +11,8 @@ export type ConversationPreview = {
   patient_avatar: string | null;
   last_message: string | null;
   updated_at: string;
-  pinned: boolean | null;        // ← added
-  archived_at: string | null;    // ← added
+  pinned: boolean | null;
+  archived_at: string | null;
 };
 
 export async function listConversationsForProvider(providerId: string): Promise<ConversationPreview[]> {
@@ -25,8 +25,8 @@ export async function listConversationsForProvider(providerId: string): Promise<
       last_message,
       last_message_at,
       created_at,
-      pinned,               -- ← added
-      archived_at,          -- ← added
+      pinned,
+      archived_at,
       patient:patients!conversations_patient_id_fkey(full_name, email, avatar)
     `)
     .eq("provider_id", providerId)
@@ -35,18 +35,18 @@ export async function listConversationsForProvider(providerId: string): Promise<
   if (error) throw error;
 
   return (data ?? []).map((r: any) => {
-    const p = r.patient as { full_name?: string | null; email?: string | null; avatar?: string | null } | null;
+    const p = (r.patient ?? null) as { full_name?: string | null; email?: string | null; avatar?: string | null } | null;
     return {
       id: r.id,
       patient_id: r.patient_id,
       provider_id: r.provider_id,
-      patient_name: (p?.full_name ?? null) || null,
-      patient_email: (p?.email ?? null) || null,
-      patient_avatar: (p?.avatar ?? null) || null,
+      patient_name: p?.full_name ?? null,
+      patient_email: p?.email ?? null,
+      patient_avatar: p?.avatar ?? null,
       last_message: r.last_message ?? null,
       updated_at: r.last_message_at ?? r.created_at,
-      pinned: r.pinned ?? null,            // ← added
-      archived_at: r.archived_at ?? null,  // ← added
+      pinned: r.pinned ?? null,
+      archived_at: r.archived_at ?? null,
     };
   });
 }
