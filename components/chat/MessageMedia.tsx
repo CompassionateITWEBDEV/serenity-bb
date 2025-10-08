@@ -1,67 +1,65 @@
 "use client";
-
 import { useEffect, useState } from "react";
-import { urlFromChatPath } from "@/lib/chat/storage";
+import { supabase } from "@/lib/supabase/client";
 
-export type MessageMeta = {
-  image_path?: string | null;
-  audio_path?: string | null;
-  // legacy:
-  image_url?: string | null;
-  audio_url?: string | null;
-  duration_sec?: number | null;
-};
+const CHAT_BUCKET = (process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET ?? "chat").trim();
+const isHttp = (u?: string|null) => !!u && /^https?:\/\//i.test(u);
 
-export default function MessageMedia({ meta }: { meta?: MessageMeta | null }) {
-  const [imgUrl, setImgUrl] = useState<string | null>(null);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+async function toUrl(pathOrUrl?: string|null): Promise<string|null> {
+  if (!pathOrUrl) return null;
+  if (isHttp(pathOrUrl)) return pathOrUrl; // legacy direct URL
+  try {
+    const { data, error } = await supabase
+      .storage.from(CHAT_BUCKET)
+      .createSignedUrl(pathOrUrl, 60 * 60);
+    if (error) {
+      console.warn("[media] sign failed", { bucket: CHAT_BUCKET, pathOrUrl, error });
+      return null;
+    }
+    return data?.signedUrl ?? null;
+  } catch (e) {
+    console.warn("[media] sign threw", e);
+    try {
+      const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(pathOrUrl);
+      return pub?.data?.publicUrl ?? null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+export function MessageMedia({
+  // Supports either schema:
+  // a) attachment_* on the row
+  attachment_type,
+  attachment_url,
+  // b) or meta object (new schema)
+  meta,
+}: {
+  attachment_type?: "image" | "audio" | "file" | null;
+  attachment_url?: string | null;       // path or legacy URL
+  meta?: { image_path?: string|null; audio_path?: string|null; image_url?: string|null; audio_url?: string|null } | null;
+}) {
+  const [img, setImg] = useState<string|null>(null);
+  const [aud, setAud] = useState<string|null>(null);
 
   useEffect(() => {
     let dead = false;
-
     (async () => {
-      // Resolve image
-      const imgInput = meta?.image_path || meta?.image_url || null;
-      if (imgInput) {
-        const u = await urlFromChatPath(imgInput);
-        if (!dead) setImgUrl(u);
-      } else {
-        setImgUrl(null);
-      }
+      // decide source
+      const imgSrc = meta?.image_path ?? meta?.image_url ?? (attachment_type === "image" ? attachment_url ?? null : null);
+      const audSrc = meta?.audio_path ?? meta?.audio_url ?? (attachment_type === "audio" ? attachment_url ?? null : null);
 
-      // Resolve audio
-      const audInput = meta?.audio_path || meta?.audio_url || null;
-      if (audInput) {
-        const u = await urlFromChatPath(audInput);
-        if (!dead) setAudioUrl(u);
-      } else {
-        setAudioUrl(null);
-      }
+      const [uImg, uAud] = await Promise.all([toUrl(imgSrc ?? null), toUrl(audSrc ?? null)]);
+      if (!dead) { setImg(uImg); setAud(uAud); }
     })();
-
-    return () => {
-      dead = true;
-    };
-  }, [meta?.image_path, meta?.image_url, meta?.audio_path, meta?.audio_url]);
+    return () => { dead = true; };
+  }, [attachment_type, attachment_url, meta?.image_path, meta?.image_url, meta?.audio_path, meta?.audio_url]);
 
   return (
     <>
-      {imgUrl && (
-        <img
-          src={imgUrl}
-          alt="image"
-          className="mb-2 max-h-64 w-full rounded-xl object-cover"
-          onError={() => setImgUrl(null)} // why: hide broken media
-        />
-      )}
-      {audioUrl && (
-        <audio
-          className="mb-2 w-full"
-          controls
-          src={audioUrl}
-          onError={() => setAudioUrl(null)}
-        />
-      )}
+      {img && <img src={img} alt="" className="mb-2 max-h-64 w-full rounded-xl object-cover" onError={() => setImg(null)} />}
+      {aud && <audio className="mb-2 w-full" controls src={aud} onError={() => setAud(null)} />}
     </>
   );
 }
