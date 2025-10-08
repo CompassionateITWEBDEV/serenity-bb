@@ -20,6 +20,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/use-toast"; // ← toast
 
 import ChatBox from "@/components/chat/ChatBox";
 import type { ProviderRole } from "@/lib/chat";
@@ -57,6 +58,7 @@ function formatTime(iso: string) {
 
 export default function StaffMessagesPage() {
   const router = useRouter();
+  const { toast } = useToast(); // ← toast hook
   const listRef = useRef<HTMLDivElement>(null);
 
   // Settings (persisted)
@@ -92,7 +94,7 @@ export default function StaffMessagesPage() {
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
 
   // Filters
-  const [tab, setTab] = useState<"all" | "new" | "pinned">("all");
+  const [tab, setTab] = useState<"all" | "new" | "pinned" | "archived">("all");
   const [q, setQ] = useState("");
   const [qDebounced, setQDebounced] = useState("");
   useEffect(() => {
@@ -221,10 +223,11 @@ export default function StaffMessagesPage() {
       await markReadHelper(selectedId, "nurse");
       setUnreadMap((m) => ({ ...m, [selectedId]: 0 }));
       syncUrlOpen(selectedId);
+      toast({ title: "Marked as read" }); // feedback
     })();
-  }, [selectedId, meId]);
+  }, [selectedId, meId]); // eslint-disable-line
 
-  // Row actions (persist + merge returned DB truth)
+  // Row actions (persist + merge returned DB truth) + toasts
   async function togglePin(id: string, next: boolean) {
     const { data, error } = await supabase
       .from("conversations")
@@ -232,7 +235,12 @@ export default function StaffMessagesPage() {
       .eq("id", id)
       .select("id,pinned,archived_at,updated_at")
       .single();
-    if (!error && data) setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
+    if (error) {
+      toast({ title: "Failed to update pin", variant: "destructive" });
+      return;
+    }
+    setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
+    toast({ title: next ? "Pinned" : "Unpinned" });
   }
 
   async function toggleArchive(id: string, next: boolean) {
@@ -243,25 +251,45 @@ export default function StaffMessagesPage() {
       .eq("id", id)
       .select("id,pinned,archived_at,updated_at")
       .single();
-    if (!error && data) setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
+    if (error) {
+      toast({ title: "Failed to update archive", variant: "destructive" });
+      return;
+    }
+    setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
     if (next && selectedId === id) setSelectedId(null);
+    toast({ title: next ? "Archived" : "Unarchived" }); // ← visible feedback
   }
 
   async function markRead(id: string) {
-    await markReadHelper(id, "nurse");
-    setUnreadMap((m) => ({ ...m, [id]: 0 }));
+    try {
+      await markReadHelper(id, "nurse");
+      setUnreadMap((m) => ({ ...m, [id]: 0 }));
+      toast({ title: "Marked as read" });
+    } catch {
+      toast({ title: "Failed to mark as read", variant: "destructive" });
+    }
   }
 
   // Back to dashboard
-  const handleBack = () => {
-    router.push("/staff/dashboard");
-  };
+  const handleBack = () => router.push("/staff/dashboard");
+
+  // Derived counts
+  const counts = useMemo(() => {
+    const archived = convs.filter((c) => !!c.archived_at).length;
+    const pinned = convs.filter((c) => !!c.pinned && !c.archived_at).length;
+    const newCount = Object.values(unreadMap).reduce((a, b) => a + b, 0);
+    return { archived, pinned, newCount };
+  }, [convs, unreadMap]);
 
   // Filtering & sorting
   const filteredConvs = useMemo(() => {
-    let list = convs.slice().filter((c) => !c.archived_at);
+    let list = convs.slice();
+    if (tab === "archived") list = list.filter((c) => !!c.archived_at);
+    else list = list.filter((c) => !c.archived_at);
+
     if (tab === "new") list = list.filter((c) => (unreadMap[c.id] ?? 0) > 0);
     if (tab === "pinned") list = list.filter((c) => !!c.pinned);
+
     if (qDebounced) {
       list = list.filter((c) =>
         (c.patient_name ?? c.patient_email ?? "patient").toLowerCase().includes(qDebounced) ||
@@ -269,15 +297,12 @@ export default function StaffMessagesPage() {
       );
     }
     list.sort((a, b) => {
-      const ap = cBool(a.pinned) ? 1 : 0;
-      const bp = cBool(b.pinned) ? 1 : 0;
+      const ap = a.pinned ? 1 : 0; const bp = b.pinned ? 1 : 0;
       if (ap !== bp) return bp - ap;
       return a.updated_at < b.updated_at ? 1 : -1;
     });
     return list;
   }, [convs, tab, qDebounced, unreadMap]);
-
-  function cBool(v: boolean | null | undefined) { return !!v; }
 
   async function startNewMessage(patient: PatientAssigned) {
     if (!meId) return;
@@ -285,6 +310,7 @@ export default function StaffMessagesPage() {
     setConvs(await listConversationsForProvider(meId));
     openConversation(convId);
     setModalOpen(false);
+    toast({ title: "Conversation started" });
   }
 
   return (
@@ -349,11 +375,18 @@ export default function StaffMessagesPage() {
             <CardTitle className="flex items-center justify-between">
               <span>Conversations</span>
               <div className="flex items-center gap-1 text-xs">
-                <Button variant={tab === "all" ? "default" : "outline"} size="xs" onClick={() => setTab("all")}>All</Button>
-                <Button variant={tab === "new" ? "default" : "outline"} size="xs" onClick={() => setTab("new")}>
-                  New {Object.values(unreadMap).reduce((a, b) => a + b, 0) ? <Badge className="ml-1">{Object.values(unreadMap).reduce((a, b) => a + b, 0)}</Badge> : null}
+                <Button variant={tab === "all" ? "default" : "outline"} size="xs" onClick={() => setTab("all")}>
+                  All
                 </Button>
-                <Button variant={tab === "pinned" ? "default" : "outline"} size="xs" onClick={() => setTab("pinned")}>Pinned</Button>
+                <Button variant={tab === "new" ? "default" : "outline"} size="xs" onClick={() => setTab("new")}>
+                  New {counts.newCount ? <Badge className="ml-1">{counts.newCount}</Badge> : null}
+                </Button>
+                <Button variant={tab === "pinned" ? "default" : "outline"} size="xs" onClick={() => setTab("pinned")}>
+                  Pinned {counts.pinned ? <Badge className="ml-1">{counts.pinned}</Badge> : null}
+                </Button>
+                <Button variant={tab === "archived" ? "default" : "outline"} size="xs" onClick={() => setTab("archived")}>
+                  Archived {counts.archived ? <Badge className="ml-1">{counts.archived}</Badge> : null}
+                </Button>
               </div>
             </CardTitle>
             <div className="relative">
@@ -410,7 +443,7 @@ export default function StaffMessagesPage() {
                           <div className="flex items-center gap-2">
                             <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
                             {un > 0 && <Badge variant="default" className="ml-auto">{un}</Badge>}
-                            {c.pinned && <Pin className="h-3.5 w-3.5 text-cyan-500" />}
+                            {c.pinned && !c.archived_at && <Pin className="h-3.5 w-3.5 text-cyan-500" />}
                           </div>
                         </div>
 
