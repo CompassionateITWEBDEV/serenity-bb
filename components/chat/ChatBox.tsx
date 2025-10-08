@@ -80,7 +80,6 @@ export default function ChatBox(props: {
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  // staged media before sending
   const [draft, setDraft] = useState<{
     blob: Blob;
     type: "image" | "audio" | "file";
@@ -90,137 +89,6 @@ export default function ChatBox(props: {
 
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
-  const bubbleBase =
-    (settings?.bubbleRadius ?? "rounded-2xl") +
-    " px-4 py-2 " +
-    ((settings?.density ?? "comfortable") === "compact" ? "text-sm" : "text-[15px]");
-
-  const ding = useCallback(() => {
-    if (!settings?.sound) return;
-    try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const o = ctx.createOscillator(); const g = ctx.createGain();
-      o.type = "sine"; o.frequency.value = 920; g.gain.value = 0.001;
-      o.connect(g); g.connect(ctx.destination); o.start();
-      g.g
-
-
-
-
-You said:
-  continue
-
-
-Code Copilot said:
-TL;DR: Here’s the complete ChatBox with image rendering fixed. Images now show as real <img> bubbles (no more (photo)), even for legacy rows where the URL is in content. Also supports paste-to-image.
-
-Plan
-Detect image URL via getImageUrl() (prefers attachment_*, falls back to URL/JSON inside content).
-
-send() uploads file, sets attachment_type/url, keeps content empty for pure images.
-
-Renderer hides lone (image)/(photo) strings and shows <img>.
-
-Add clipboard paste support for images.
-
-tsx
-Copy code
-// app/components/ChatBox.tsx
-"use client";
-
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "@/lib/supabase/client";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowLeft, Phone, Video, MoreVertical, Send, Smile, Image as ImageIcon, Camera, Mic, CheckCheck, X } from "lucide-react";
-import type { ProviderRole } from "@/lib/chat";
-import { markRead as markReadHelper } from "@/lib/chat";
-
-type Provider = ProviderRole;
-
-type MessageRow = {
-  id: string;
-  conversation_id: string;
-  patient_id: string;
-  sender_id: string;
-  sender_name: string;
-  sender_role: "patient" | Provider;
-  content: string;
-  created_at: string;
-  read: boolean;
-  urgent: boolean;
-  attachment_url?: string | null;
-  attachment_type?: "image" | "audio" | "file" | null;
-};
-
-type UiSettings = {
-  theme?: "light" | "dark" | "system";
-  density?: "comfortable" | "compact";
-  bubbleRadius?: "rounded-lg" | "rounded-xl" | "rounded-2xl";
-  enterToSend?: boolean;
-  sound?: boolean;
-};
-
-const CHAT_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET?.trim() || "chat";
-
-export default function ChatBox(props: {
-  mode: "staff" | "patient";
-  patientId: string;
-  providerId?: string;
-  providerName?: string;
-  providerRole?: ProviderRole;
-  providerAvatarUrl?: string | null;
-  patientName?: string | null;
-  patientAvatarUrl?: string | null;
-  settings?: UiSettings;
-  onBack?: () => void;
-  phoneHref?: string;
-  videoHref?: string;
-  conversationId?: string;
-}) {
-  const {
-    mode, patientId, providerId, providerName, providerRole,
-    providerAvatarUrl, patientName, patientAvatarUrl,
-    settings, onBack, phoneHref, videoHref, conversationId: conversationIdProp,
-  } = props;
-
-  const [conversationId, setConversationId] = useState<string | null>(conversationIdProp ?? null);
-  const [me, setMe] = useState<{ id: string; name: string; role: "patient" | Provider } | null>(null);
-  const [msgs, setMsgs] = useState<MessageRow[]>([]);
-  const [text, setText] = useState("");
-  const [typing, setTyping] = useState(false);
-
-  const [uploading, setUploading] = useState<{ label: string } | null>(null);
-  const [recording, setRecording] = useState<boolean>(false);
-
-  const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
-  const [resolvedPatient, setResolvedPatient] = useState<{ name?: string; email?: string; avatar?: string | null } | null>(null);
-
-  const [dbOnline, setDbOnline] = useState<boolean>(false);
-  const [rtOnline, setRtOnline] = useState<boolean>(false);
-  const [presenceLoading, setPresenceLoading] = useState<boolean>(true);
-
-  const listRef = useRef<HTMLDivElement>(null);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const mediaRecRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-
-  // Staged media before sending
-  const [draft, setDraft] = useState<{
-    blob: Blob;
-    type: "image" | "audio" | "file";
-    name?: string;
-    previewUrl: string;
-  } | null>(null);
-
-  useEffect(() => {
-    return () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); };
-  }, [draft?.previewUrl]);
-
-  // ---- UI helpers
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
     " px-4 py-2 " +
@@ -243,7 +111,6 @@ export default function ChatBox(props: {
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
-  // ---- Resolve me + conversation
   useEffect(() => setConversationId(conversationIdProp ?? null), [conversationIdProp]);
 
   useEffect(() => {
@@ -284,7 +151,6 @@ export default function ChatBox(props: {
     })();
   }, [mode, patientId, providerId, providerName, providerRole, conversationIdProp]);
 
-  // ---- Load messages
   useLayoutEffect(() => {
     if (!conversationId || !me) return;
     (async () => {
@@ -300,7 +166,6 @@ export default function ChatBox(props: {
     })();
   }, [conversationId, me, scrollToBottom]);
 
-  // ---- Live changes + typing presence
   useEffect(() => {
     if (!conversationId || !me) return;
     if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
@@ -353,7 +218,6 @@ export default function ChatBox(props: {
     };
   }, [conversationId, me, ding, scrollToBottom]);
 
-  // ---- Typing beacon
   useEffect(() => {
     if (!channelRef.current || !me) return;
     const ch = channelRef.current;
@@ -362,7 +226,6 @@ export default function ChatBox(props: {
     return () => clearInterval(t);
   }, [text, me]);
 
-  // ---- Presence (unchanged)
   useEffect(() => {
     if (mode !== "patient") return;
     (async () => {
@@ -406,7 +269,6 @@ export default function ChatBox(props: {
     return () => { cancelled = true; clearTimeout(t1); try { supabase.removeChannel(dbCh); } catch {} try { supabase.removeChannel(rtCh); } catch {} window.removeEventListener("focus", refetchPresence); window.removeEventListener("online", refetchPresence); document.removeEventListener("visibilitychange", onVis); };
   }, [mode, patientId]);
 
-  // ---- Resolve patient profile for header
   useEffect(() => {
     if (mode !== "staff" || !patientId) return;
     let cancelled = false;
@@ -419,10 +281,8 @@ export default function ChatBox(props: {
     return () => { cancelled = true; };
   }, [mode, patientId]);
 
-  // ---- Derived
   const canSend = useMemo(() => (!!text.trim() || !!draft) && !!me && !!conversationId, [text, me, conversationId, draft]);
 
-  // ---- Insert message (DB)
   async function insertMessage(payload: {
     content: string;
     attachment_url?: string | null;
@@ -466,7 +326,6 @@ export default function ChatBox(props: {
     }
   }
 
-  // ---- Storage helpers
   async function uploadToChat(fileOrBlob: Blob, fileName?: string) {
     if (!conversationId || !me) throw new Error("Missing conversation");
     const detected = (fileOrBlob as File).type || (fileOrBlob as any).type || "";
@@ -491,20 +350,14 @@ export default function ChatBox(props: {
     return signed.signedUrl;
   }
 
-  // ---- Content helpers
   function extractImageUrlFromContent(content: string | null | undefined): string | null {
     if (!content) return null;
-    // JSON {"type":"image","url":"..."}
     try {
       const maybe = JSON.parse(content);
-      if (maybe && typeof maybe === "object" && maybe.type === "image" && typeof maybe.url === "string") {
-        return maybe.url as string;
-      }
+      if (maybe && typeof maybe === "object" && maybe.type === "image" && typeof maybe.url === "string") return maybe.url as string;
     } catch {}
-    // Plain URL ending with image extension
     const match = content.match(/https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp|heic|svg)(?:\?\S*)?/i);
-    if (match?.[0]) return match[0];
-    return null;
+    return match?.[0] ?? null;
   }
 
   function getImageUrl(m: MessageRow): string | null {
@@ -512,25 +365,19 @@ export default function ChatBox(props: {
     return extractImageUrlFromContent(m.content);
   }
 
-  // ---- Send
   const send = useCallback(async () => {
     if (!canSend) return;
     const contentText = text.trim();
     setText("");
 
     try {
-      // With staged media: upload first
       if (draft) {
         setUploading({ label: "Sending…" });
         const url = await uploadToChat(
           draft.blob,
           draft.name || (draft.type === "image" ? "image.jpg" : draft.type === "audio" ? "voice.webm" : "file.bin")
         );
-        // why: avoid placeholder text for images/files
-        const content =
-          draft.type === "audio"
-            ? contentText || "(voice note)"
-            : contentText; // image/file: allow empty caption
+        const content = draft.type === "audio" ? contentText || "(voice note)" : contentText;
         await insertMessage({
           content: content || "",
           attachment_url: url,
@@ -542,7 +389,6 @@ export default function ChatBox(props: {
         return;
       }
 
-      // text-only
       await insertMessage({ content: contentText });
     } catch (err: any) {
       alert(`Failed to send.\n\n${err?.message ?? ""}`);
@@ -554,9 +400,6 @@ export default function ChatBox(props: {
     const enterToSend = settings?.enterToSend ?? true;
     if (e.key === "Enter" && !e.shiftKey && enterToSend) { e.preventDefault(); void send(); }
   };
-
-  // ---- Attachments: stage (do not auto-send)
-  function pickFile() { fileInputRef.current?.click(); }
 
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; e.target.value = "";
@@ -600,12 +443,8 @@ export default function ChatBox(props: {
     }
 
     let stream: MediaStream | null = null;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      alert("Microphone permission denied.");
-      return;
-    }
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { alert("Microphone permission denied."); return; }
 
     const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus"
                : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
@@ -624,17 +463,10 @@ export default function ChatBox(props: {
     mediaRecRef.current = rec; setRecording(true); rec.start();
   }
 
-  // ---- Derived UI
   const isOnline = mode === "staff" ? (dbOnline || rtOnline || threadOtherPresent) : false;
+  const otherName = mode === "staff" ? (resolvedPatient?.name || patientName || resolvedPatient?.email || "Patient") : (providerName || "Provider");
+  const otherAvatar = mode === "staff" ? (resolvedPatient?.avatar ?? patientAvatarUrl ?? null) : (providerAvatarUrl ?? null);
 
-  const otherName =
-    mode === "staff"
-      ? resolvedPatient?.name || patientName || resolvedPatient?.email || "Patient"
-      : providerName || "Provider";
-
-  const otherAvatar = mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
-
-  // Paste-to-image
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const file = Array.from(e.clipboardData.files || [])[0];
     if (file && file.type.startsWith("image/")) {
@@ -652,7 +484,6 @@ export default function ChatBox(props: {
     return true;
   }
 
-  // ---- Render
   return (
     <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
       <CardContent className="flex h-full flex-col p-0">
@@ -753,7 +584,6 @@ export default function ChatBox(props: {
           </div>
         </div>
 
-        {/* Draft preview */}
         {draft && (
           <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2">
             <div className="flex items-center gap-2 rounded-xl border bg-white px-2 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-800">
