@@ -1,98 +1,57 @@
 import { supabase } from "@/lib/supabase/client";
 
-export type AttachmentKind = "image" | "audio";
 export const CHAT_BUCKET =
   (process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET ?? "chat").trim();
 
-function extFromType(m: string) {
-  const map: Record<string, string> = {
-    "image/jpeg": "jpg",
-    "image/jpg": "jpg",
-    "image/png": "png",
-    "image/webp": "webp",
-    "image/heic": "heic",
-    "audio/webm": "webm",
-    "audio/ogg": "ogg",
-    "audio/mpeg": "mp3",
-    "audio/mp4": "m4a",
-    "audio/wav": "wav",
-  };
-  return map[m] ?? "bin";
-}
-const isHttp = (u?: string | null) => !!u && /^https?:\/\//i.test(u);
-
-/** Upload and return STORAGE PATH (not URL). */
-export async function uploadToStorage(
+/** Upload a Blob/File and return the STORAGE PATH (never a URL). */
+export async function chatUploadToPath(
   file: File | Blob,
-  opts: { conversationId: string; kind: AttachmentKind; userId?: string }
-): Promise<{ path: string }> {
+  opts: { conversationId: string; kind: "image" | "audio"; fileName?: string }
+): Promise<string> {
   const mime = (file as File).type || "application/octet-stream";
+  const extFromName =
+    (opts.fileName || (file as any).name || "").split(".").pop() || "";
   const ext =
-    (file as File).name?.split(".").pop()?.toLowerCase() || extFromType(mime);
-  const filename = `${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2)}.${ext}`;
-  const path = `${opts.conversationId}/${opts.kind}/${opts.userId ?? "n"}/${filename}`;
+    extFromName ||
+    (mime.startsWith("image/") ? mime.split("/")[1] : mime ? "webm" : "bin");
+
+  const key = `${opts.conversationId}/${Date.now()}-${crypto
+    .randomUUID()
+    .slice(0, 8)}.${ext}`;
 
   const { error } = await supabase.storage
     .from(CHAT_BUCKET)
-    .upload(path, file, {
+    .upload(key, file, {
       contentType: mime,
-      cacheControl: "3600",
       upsert: false,
+      cacheControl: "3600",
     });
+
   if (error) {
-    console.error("[upload]", error);
+    if (/not found/i.test(error.message)) {
+      throw new Error(`Bucket "${CHAT_BUCKET}" not found or inaccessible.`);
+    }
     throw error;
   }
-  return { path };
+  return key; // <- STORAGE PATH
 }
 
-/** Resolve path (or legacy http URL) to a usable URL. */
-export async function urlForAttachment(attachmentUrlOrPath: string) {
+/** Resolve a STORAGE PATH (or legacy http URL) into a browser-usable URL. */
+export async function urlFromChatPath(pathOrUrl: string): Promise<string | null> {
+  if (!pathOrUrl) return null;
+  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl; // legacy kept working
   try {
-    if (isHttp(attachmentUrlOrPath)) return attachmentUrlOrPath;
-    const signed = await supabase.storage
+    const { data } = await supabase
+      .storage
       .from(CHAT_BUCKET)
-      .createSignedUrl(attachmentUrlOrPath, 60 * 60 * 24);
-    if (signed?.data?.signedUrl) return signed.data.signedUrl;
-  } catch (e) {
-    console.warn("[urlForAttachment] signed url failed", e);
-  }
+      .createSignedUrl(pathOrUrl, 60 * 60); // 1 hour
+    if (data?.signedUrl) return data.signedUrl;
+  } catch {}
   try {
-    const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(attachmentUrlOrPath);
+    // bucket public fallback
+    const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(pathOrUrl);
     return pub?.data?.publicUrl ?? null;
-  } catch (e) {
-    console.warn("[urlForAttachment] public url failed", e);
+  } catch {
     return null;
-  }
-}
-
-/** Insert message; store STORAGE PATH in `attachment_url`. */
-export async function sendAttachmentMessage(params: {
-  conversationId: string;
-  senderRole: "patient" | "doctor" | "nurse" | "counselor";
-  path: string;
-  kind: AttachmentKind;
-  senderId?: string;
-  senderName?: string;
-  patientId?: string;
-}) {
-  const placeholder = params.kind === "image" ? "(image)" : "(voice note)";
-  const { error } = await supabase.from("messages").insert({
-    conversation_id: params.conversationId,
-    patient_id: params.patientId ?? null,
-    sender_id: params.senderId ?? null,
-    sender_name: params.senderName ?? null,
-    sender_role: params.senderRole,
-    content: placeholder,
-    read: false,
-    urgent: false,
-    attachment_url: params.path,
-    attachment_type: params.kind,
-  });
-  if (error) {
-    console.error("[messages.insert]", error);
-    throw error;
   }
 }
