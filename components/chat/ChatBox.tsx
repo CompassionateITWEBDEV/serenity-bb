@@ -10,6 +10,9 @@ import { ArrowLeft, Phone, Video, MoreVertical, Send, Smile, Image as ImageIcon,
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
 
+// NEW: use the shared upload helpers
+import { uploadToStorage, sendAttachmentMessage } from "@/lib/chat_upload";
+
 type Provider = ProviderRole;
 
 type MessageRow = {
@@ -19,12 +22,17 @@ type MessageRow = {
   sender_id: string;
   sender_name: string;
   sender_role: "patient" | Provider;
-  content: string;
+  content: string;                      // text or URL (when type != 'text')
   created_at: string;
   read: boolean;
   urgent: boolean;
+
+  // legacy attachment columns (still supported for reading)
   attachment_url?: string | null;
   attachment_type?: "image" | "audio" | "file" | null;
+
+  // new column
+  type?: "text" | "image" | "audio" | null;
 };
 
 type UiSettings = {
@@ -51,19 +59,9 @@ export default function ChatBox(props: {
   conversationId?: string;
 }) {
   const {
-    mode,
-    patientId,
-    providerId,
-    providerName,
-    providerRole,
-    providerAvatarUrl,
-    patientName,
-    patientAvatarUrl,
-    settings,
-    onBack,
-    phoneHref,
-    videoHref,
-    conversationId: conversationIdProp,
+    mode, patientId, providerId, providerName, providerRole,
+    providerAvatarUrl, patientName, patientAvatarUrl,
+    settings, onBack, phoneHref, videoHref, conversationId: conversationIdProp,
   } = props;
 
   const [conversationId, setConversationId] = useState<string | null>(conversationIdProp ?? null);
@@ -71,15 +69,17 @@ export default function ChatBox(props: {
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
   const [text, setText] = useState("");
   const [typing, setTyping] = useState(false);
-  const [uploading, setUploading] = useState<{ label: string; pct?: number } | null>(null);
+
+  const [uploading, setUploading] = useState<{ label: string } | null>(null);
   const [recording, setRecording] = useState<boolean>(false);
+
   const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
   const [resolvedPatient, setResolvedPatient] = useState<{ name?: string; email?: string; avatar?: string | null } | null>(null);
 
   // presence states
   const [dbOnline, setDbOnline] = useState<boolean>(false);
   const [rtOnline, setRtOnline] = useState<boolean>(false);
-  const [presenceLoading, setPresenceLoading] = useState<boolean>(true); // avoid false Offline flicker
+  const [presenceLoading, setPresenceLoading] = useState<boolean>(true);
 
   const listRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -87,9 +87,7 @@ export default function ChatBox(props: {
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  useEffect(() => {
-    setConversationId(conversationIdProp ?? null);
-  }, [conversationIdProp]);
+  useEffect(() => { setConversationId(conversationIdProp ?? null); }, [conversationIdProp]);
 
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
@@ -100,22 +98,16 @@ export default function ChatBox(props: {
     if (!settings?.sound) return;
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = "sine";
-      o.frequency.value = 920;
-      g.gain.value = 0.001;
-      o.connect(g);
-      g.connect(ctx.destination);
-      o.start();
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = 920; g.gain.value = 0.001;
+      o.connect(g); g.connect(ctx.destination); o.start();
       g.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.12);
       o.stop(ctx.currentTime + 0.12);
     } catch {}
   }, [settings?.sound]);
 
   const scrollToBottom = useCallback((smooth = false) => {
-    const el = listRef.current;
-    if (!el) return;
+    const el = listRef.current; if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
@@ -123,34 +115,24 @@ export default function ChatBox(props: {
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
-      const uid = au.user?.id;
-      if (!uid) return;
+      const uid = au.user?.id; if (!uid) return;
 
       if (mode === "staff") {
         const pid = providerId!;
         setMe({ id: pid, name: providerName || "Me", role: providerRole! });
         if (!conversationIdProp) {
           const { data: conv } = await supabase
-            .from("conversations")
-            .select("id")
-            .eq("patient_id", patientId)
-            .eq("provider_id", pid)
-            .maybeSingle();
+            .from("conversations").select("id")
+            .eq("patient_id", patientId).eq("provider_id", pid).maybeSingle();
           if (conv) setConversationId(conv.id);
           else {
             const { data: created } = await supabase
               .from("conversations")
               .upsert(
-                {
-                  patient_id: patientId,
-                  provider_id: pid,
-                  provider_name: providerName ?? null,
-                  provider_role: providerRole ?? null,
-                },
+                { patient_id: patientId, provider_id: pid, provider_name: providerName ?? null, provider_role: providerRole ?? null },
                 { onConflict: "patient_id,provider_id" }
               )
-              .select("id")
-              .single();
+              .select("id").single();
             setConversationId(created!.id);
           }
         }
@@ -158,11 +140,8 @@ export default function ChatBox(props: {
         setMe({ id: uid, name: au.user?.email || "Me", role: "patient" });
         if (!conversationIdProp) {
           const { data: conv } = await supabase
-            .from("conversations")
-            .select("id")
-            .eq("patient_id", uid)
-            .eq("provider_id", providerId!)
-            .maybeSingle();
+            .from("conversations").select("id")
+            .eq("patient_id", uid).eq("provider_id", providerId!).maybeSingle();
           if (conv) setConversationId(conv.id);
         }
       }
@@ -187,53 +166,40 @@ export default function ChatBox(props: {
   // message/typing realtime
   useEffect(() => {
     if (!conversationId || !me) return;
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-      channelRef.current = null;
-    }
+    if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
 
     const ch = supabase
       .channel(`thread_${conversationId}`, { config: { presence: { key: me.id } } })
       .on("presence", { event: "sync" }, () => {
-        const state = ch.presenceState();
-        const others = Object.entries(state).flatMap(([, v]: any) => v) as any[];
+        const state = ch.presenceState(); const others = Object.entries(state).flatMap(([, v]: any) => v) as any[];
         setTyping(others.some((s) => s.status === "typing"));
         const someoneElse = others.some((s) => s.user_id && s.user_id !== me.id);
         setThreadOtherPresent(someoneElse);
       })
-      .on(
-        "postgres_changes",
+      .on("postgres_changes",
         { schema: "public", table: "messages", event: "INSERT", filter: `conversation_id=eq.${conversationId}` },
         async (p) => {
           const row = p.new as MessageRow;
           setMsgs((prev) => (prev.some((x) => x.id === row.id) ? prev : [...prev, row]));
           scrollToBottom(true);
-          if (row.sender_id !== me.id) {
-            ding();
-            await markReadHelper(conversationId, me.role);
-          }
-        }
-      )
-      .on(
-        "postgres_changes",
+          if (row.sender_id !== me.id) { ding(); await markReadHelper(conversationId, me.role); }
+        })
+      .on("postgres_changes",
         { schema: "public", table: "messages", event: "UPDATE", filter: `conversation_id=eq.${conversationId}` },
         async () => {
           const { data } = await supabase
-            .from("messages")
-            .select("*")
+            .from("messages").select("*")
             .eq("conversation_id", conversationId)
             .order("created_at", { ascending: true });
           setMsgs((data as MessageRow[]) ?? []);
-        }
-      )
+        })
       .subscribe();
 
     channelRef.current = ch;
 
     const refetch = async () => {
       const { data } = await supabase
-        .from("messages")
-        .select("*")
+        .from("messages").select("*")
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
       setMsgs((data as MessageRow[]) ?? []);
@@ -246,10 +212,7 @@ export default function ChatBox(props: {
     return () => {
       window.removeEventListener("focus", refetch);
       window.removeEventListener("online", refetch);
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
+      if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
     };
   }, [conversationId, me, ding, scrollToBottom]);
 
@@ -257,217 +220,93 @@ export default function ChatBox(props: {
   useEffect(() => {
     if (!channelRef.current || !me) return;
     const ch = channelRef.current;
-    const t = setInterval(() => {
-      ch.track({ user_id: me.id, status: text ? "typing" : "idle" });
-    }, 1500);
+    const t = setInterval(() => { ch.track({ user_id: me.id, status: text ? "typing" : "idle" }); }, 1500);
     ch.track({ user_id: me.id, status: text ? "typing" : "idle" });
     return () => clearInterval(t);
   }, [text, me]);
 
-  // PATIENT: heartbeat + RT presence
+  // PATIENT heartbeat + RT presence; STAFF presence watcher ... (unchanged)
+  // --- snip (keep your full presence code as-is) ---
+  // For brevity, I keep the rest of your presence logic identical.
+  // Paste your presence hooks here without changes.
+  // --- start of unchanged presence code ---
   useEffect(() => {
     if (mode !== "patient") return;
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      const uid = data.user?.id;
-      if (!uid) return;
-
-      const beat = async () => {
-        // why: DB heartbeat drives server-derived "online" for staff even if RT missed
-        try { await supabase.rpc("patient_heartbeat"); } catch {}
-      };
-
-      // immediate beats to avoid initial "offline"
-      await beat();
-      const fast = setInterval(beat, 1000);
-      setTimeout(() => clearInterval(fast), 2200);
+      const { data } = await supabase.auth.getUser(); const uid = data.user?.id; if (!uid) return;
+      const beat = async () => { try { await supabase.rpc("patient_heartbeat"); } catch {} };
+      await beat(); const fast = setInterval(beat, 1000); setTimeout(() => clearInterval(fast), 2200);
       const slow = setInterval(beat, 10000);
-
       const ch = supabase.channel(`online:${uid}`, { config: { presence: { key: uid } } });
-      ch.subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          const ping = () => ch.track({ online: true, at: Date.now() });
-          ping();           // immediate track
-          setTimeout(ping, 600); // double-tap to ensure server sync
-        }
-      });
-
+      ch.subscribe((status) => { if (status === "SUBSCRIBED") { const ping = () => ch.track({ online: true, at: Date.now() }); ping(); setTimeout(ping, 600); } });
       const onFocus = () => { void beat(); try { ch.track({ online: true, at: Date.now() }); } catch {} };
       const onVis = () => { if (document.visibilityState === "visible") onFocus(); };
-
-      window.addEventListener("focus", onFocus);
-      document.addEventListener("visibilitychange", onVis);
-
-      return () => {
-        clearInterval(slow);
-        try { supabase.removeChannel(ch); } catch {}
-        window.removeEventListener("focus", onFocus);
-        document.removeEventListener("visibilitychange", onVis);
-      };
+      window.addEventListener("focus", onFocus); document.addEventListener("visibilitychange", onVis);
+      return () => { clearInterval(slow); try { supabase.removeChannel(ch); } catch {} window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVis); };
     })();
   }, [mode]);
 
-  // STAFF: DB + RT presence watcher (with immediate fetch + rechecks)
   useEffect(() => {
     if (mode !== "staff" || !patientId) return;
-    let cancelled = false;
-    setPresenceLoading(true);
-
+    let cancelled = false; setPresenceLoading(true);
     const fetchOnce = async () => {
-      try {
-        const { data } = await supabase
-          .from("v_patient_online")
-          .select("online,last_seen")
-          .eq("user_id", patientId)
-          .maybeSingle();
-        if (!cancelled && data) setDbOnline(!!data.online);
-      } catch {}
+      try { const { data } = await supabase.from("v_patient_online").select("online,last_seen").eq("user_id", patientId).maybeSingle();
+        if (!cancelled && data) setDbOnline(!!data.online); } catch {}
     };
-
-    // DB presence changes (push)
     const dbCh = supabase
       .channel(`presence_db_${patientId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "patient_presence", filter: `user_id=eq.${patientId}` },
-        (p) => {
-          const last = new Date(p.new.last_seen as string).getTime();
-          setDbOnline(Date.now() - last < 15000);
-          setPresenceLoading(false);
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "patient_presence", filter: `user_id=eq.${patientId}` },
-        (p) => {
-          const last = new Date(p.new.last_seen as string).getTime();
-          setDbOnline(Date.now() - last < 15000);
-          setPresenceLoading(false);
-        }
-      )
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "patient_presence", filter: `user_id=eq.${patientId}` },
+        (p) => { const last = new Date(p.new.last_seen as string).getTime(); setDbOnline(Date.now() - last < 15000); setPresenceLoading(false); })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "patient_presence", filter: `user_id=eq.${patientId}` },
+        (p) => { const last = new Date(p.new.last_seen as string).getTime(); setDbOnline(Date.now() - last < 15000); setPresenceLoading(false); })
       .subscribe();
-
-    // RT presence (presenceState)
-    const staffKey = `staff-${crypto.randomUUID()}`; // why: don't collide with patient key
+    const staffKey = `staff-${crypto.randomUUID()}`;
     const rtCh = supabase.channel(`online:${patientId}`, { config: { presence: { key: staffKey } } });
-
-    const computeRtOnline = () => {
-      const state = rtCh.presenceState() as Record<string, any[]>;
-      const entries = state[patientId] || [];
-      return Array.isArray(entries) && entries.length > 0;
-    };
-    const updateRt = () => {
-      setRtOnline(computeRtOnline());
-      setPresenceLoading(false);
-    };
-
-    rtCh
-      .on("presence", { event: "sync" }, updateRt)
-      .on("presence", { event: "join" }, updateRt)
-      .on("presence", { event: "leave" }, updateRt)
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          try { await rtCh.track({ observer: true, at: Date.now() }); } catch {}
-          updateRt();                 // compute immediately
-          setTimeout(updateRt, 700);  // second pass to avoid missing early join
-        }
-      });
-
-    // initial fetches to avoid offline flash
-    void fetchOnce();
-    const t1 = setTimeout(fetchOnce, 600);
-
-    // refetch presence on focus/visibility/online (fast feedback when user comes back)
+    const computeRtOnline = () => { const state = rtCh.presenceState() as Record<string, any[]>; const entries = state[patientId] || []; return Array.isArray(entries) && entries.length > 0; };
+    const updateRt = () => { setRtOnline(computeRtOnline()); setPresenceLoading(false); };
+    rtCh.on("presence", { event: "sync" }, updateRt).on("presence", { event: "join" }, updateRt).on("presence", { event: "leave" }, updateRt)
+      .subscribe(async (status) => { if (status === "SUBSCRIBED") { try { await rtCh.track({ observer: true, at: Date.now() }); } catch {} updateRt(); setTimeout(updateRt, 700); } });
+    void fetchOnce(); const t1 = setTimeout(fetchOnce, 600);
     const refetchPresence = () => { void fetchOnce(); updateRt(); };
     const onVis = () => { if (document.visibilityState === "visible") refetchPresence(); };
-
-    window.addEventListener("focus", refetchPresence);
-    window.addEventListener("online", refetchPresence);
-    document.addEventListener("visibilitychange", onVis);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(t1);
-      try { supabase.removeChannel(dbCh); } catch {}
-      try { supabase.removeChannel(rtCh); } catch {}
-      window.removeEventListener("focus", refetchPresence);
-      window.removeEventListener("online", refetchPresence);
-      document.removeEventListener("visibilitychange", onVis);
-    };
+    window.addEventListener("focus", refetchPresence); window.addEventListener("online", refetchPresence); document.addEventListener("visibilitychange", onVis);
+    return () => { cancelled = true; clearTimeout(t1); try { supabase.removeChannel(dbCh); } catch {} try { supabase.removeChannel(rtCh); } catch {} window.removeEventListener("focus", refetchPresence); window.removeEventListener("online", refetchPresence); document.removeEventListener("visibilitychange", onVis); };
   }, [mode, patientId]);
+  // --- end of unchanged presence code ---
 
   // resolve patient profile for header
   useEffect(() => {
     if (mode !== "staff" || !patientId) return;
     let cancelled = false;
     (async () => {
-      const p1 = await supabase
-        .from("patients")
-        .select("full_name, email, avatar")
-        .eq("user_id", patientId)
-        .maybeSingle();
-      if (!cancelled && p1.data) {
-        setResolvedPatient({
-          name: p1.data.full_name ?? undefined,
-          email: p1.data.email ?? undefined,
-          avatar: p1.data.avatar ?? null,
-        });
-        return;
-      }
-      const p2 = await supabase
-        .from("profiles")
-        .select("full_name, avatar")
-        .eq("id", patientId)
-        .maybeSingle();
-      if (!cancelled && p2.data) {
-        setResolvedPatient({
-          name: p2.data.full_name ?? undefined,
-          avatar: p2.data.avatar ?? null,
-        });
-        return;
-      }
+      const p1 = await supabase.from("patients").select("full_name, email, avatar").eq("user_id", patientId).maybeSingle();
+      if (!cancelled && p1.data) { setResolvedPatient({ name: p1.data.full_name ?? undefined, email: p1.data.email ?? undefined, avatar: p1.data.avatar ?? null }); return; }
+      const p2 = await supabase.from("profiles").select("full_name, avatar").eq("id", patientId).maybeSingle();
+      if (!cancelled && p2.data) { setResolvedPatient({ name: p2.data.full_name ?? undefined, avatar: p2.data.avatar ?? null }); return; }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [mode, patientId]);
 
   const canSend = useMemo(() => !!text.trim() && !!me && !!conversationId, [text, me, conversationId]);
 
-  async function insertMessage(payload: {
-    content: string;
-    attachment_url?: string | null;
-    attachment_type?: "image" | "audio" | "file" | null;
-  }) {
+  async function insertTextMessage(content: string) {
     if (!me || !conversationId) return;
+    // optimistic
     const optimistic: MessageRow = {
       id: `tmp-${crypto.randomUUID()}`,
       conversation_id: conversationId,
       patient_id: mode === "patient" ? me.id : patientId,
-      sender_id: me.id,
-      sender_name: me.name,
-      sender_role: me.role,
-      content: payload.content,
-      created_at: new Date().toISOString(),
-      read: false,
-      urgent: false,
-      attachment_url: payload.attachment_url ?? null,
-      attachment_type: payload.attachment_type ?? null,
+      sender_id: me.id, sender_name: me.name, sender_role: me.role,
+      content, created_at: new Date().toISOString(), read: false, urgent: false,
+      type: "text",
     };
-    setMsgs((m) => [...m, optimistic]);
-    scrollToBottom(true);
+    setMsgs((m) => [...m, optimistic]); scrollToBottom(true);
 
     const { error } = await supabase.from("messages").insert({
       conversation_id: conversationId,
       patient_id: optimistic.patient_id,
-      sender_id: me.id,
-      sender_name: me.name,
-      sender_role: me.role,
-      content: payload.content,
-      read: false,
-      urgent: false,
-      attachment_url: payload.attachment_url ?? null,
-      attachment_type: payload.attachment_type ?? null,
+      sender_id: me.id, sender_name: me.name, sender_role: me.role,
+      content, read: false, urgent: false, type: "text",
     });
     if (error) setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
   }
@@ -476,88 +315,76 @@ export default function ChatBox(props: {
     if (!canSend) return;
     const content = text.trim();
     setText("");
-    await insertMessage({ content });
+    await insertTextMessage(content);
   }, [canSend, text]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const enterToSend = settings?.enterToSend ?? true;
-    if (e.key === "Enter" && !e.shiftKey && enterToSend) {
-      e.preventDefault();
-      void send();
-    }
+    if (e.key === "Enter" && !e.shiftKey && enterToSend) { e.preventDefault(); void send(); }
   };
 
-  async function uploadToStorage(blob: Blob, ext: string, kind: "image" | "audio" | "file") {
-    if (!conversationId) throw new Error("no conversation");
-    const path = `${conversationId}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
-    setUploading({ label: kind === "audio" ? "Uploading voice note…" : "Uploading…" });
-    const { error } = await supabase.storage.from("chat").upload(path, blob, {
-      contentType: blob.type,
-      upsert: false,
-    });
-    setUploading(null);
-    if (error) throw error;
-    const { data: pub } = supabase.storage.from("chat").getPublicUrl(path);
-    return pub.publicUrl;
-  }
+  // ---------- Attachments ----------
 
-  function pickFile() {
-    fileInputRef.current?.click();
-  }
+  function pickFile() { fileInputRef.current?.click(); }
 
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    const ext = (file.name.split(".").pop() || "bin").toLowerCase();
-    const kind: "image" | "file" = file.type.startsWith("image/") ? "image" : "file";
-    const url = await uploadToStorage(file, ext, kind === "image" ? "image" : "file");
-    await insertMessage({
-      content: kind === "image" ? "(image)" : "(file)",
-      attachment_url: url,
-      attachment_type: kind,
-    });
+    const file = e.target.files?.[0]; e.target.value = "";
+    if (!file || !me || !conversationId) return;
+    setUploading({ label: file.type.startsWith("image/") ? "Uploading image…" : "Uploading file…" });
+    try {
+      const { publicUrl } = await uploadToStorage(file, { conversationId, kind: "image", userId: me.id });
+      await sendAttachmentMessage({
+        conversationId, senderRole: me.role, url: publicUrl,
+        kind: "image",
+      });
+    } catch (err) {
+      console.error(err); alert("Failed to send image.");
+    } finally { setUploading(null); }
   }
 
   async function takePhoto() {
+    if (!me || !conversationId) return;
     const stream = await navigator.mediaDevices.getUserMedia({ video: true });
     const video = document.createElement("video");
-    video.srcObject = stream as any;
-    await video.play();
+    video.srcObject = stream as any; await video.play();
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext("2d")!;
-    ctx.drawImage(video, 0, 0);
+    canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext("2d")!; ctx.drawImage(video, 0, 0);
     stream.getTracks().forEach((t) => t.stop());
     const blob = await new Promise<Blob>((res) => canvas.toBlob((b) => res(b as Blob), "image/jpeg", 0.9)!);
-    const url = await uploadToStorage(blob, "jpg", "image");
-    await insertMessage({ content: "(photo)", attachment_url: url, attachment_type: "image" });
+
+    setUploading({ label: "Uploading photo…" });
+    try {
+      const { publicUrl } = await uploadToStorage(blob, { conversationId, kind: "image", userId: me.id });
+      await sendAttachmentMessage({ conversationId, senderRole: me.role, url: publicUrl, kind: "image" });
+    } catch (err) {
+      console.error(err); alert("Failed to send photo.");
+    } finally { setUploading(null); }
   }
 
   async function toggleRecord() {
-    if (recording) {
-      mediaRecRef.current?.stop();
-      return;
-    }
+    if (recording) { mediaRecRef.current?.stop(); return; }
+    if (!me || !conversationId) return;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const rec = new MediaRecorder(stream, { mimeType: "audio/webm" });
     chunksRef.current = [];
-    rec.ondataavailable = (e) => {
-      if (e.data?.size) chunksRef.current.push(e.data);
-    };
+    rec.ondataavailable = (e) => { if (e.data?.size) chunksRef.current.push(e.data); };
     rec.onstop = async () => {
       stream.getTracks().forEach((t) => t.stop());
       setRecording(false);
       const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-      const url = await uploadToStorage(blob, "webm", "audio");
-      await insertMessage({ content: "(voice note)", attachment_url: url, attachment_type: "audio" });
+      setUploading({ label: "Uploading voice note…" });
+      try {
+        const { publicUrl } = await uploadToStorage(blob, { conversationId, kind: "audio", userId: me.id });
+        await sendAttachmentMessage({ conversationId, senderRole: me.role, url: publicUrl, kind: "audio" });
+      } catch (err) {
+        console.error(err); alert("Failed to send voice message.");
+      } finally { setUploading(null); }
     };
-    mediaRecRef.current = rec;
-    setRecording(true);
-    rec.start();
+    mediaRecRef.current = rec; setRecording(true); rec.start();
   }
 
+  // ---------- Render helpers ----------
   const isOnline = mode === "staff" ? (dbOnline || rtOnline || threadOtherPresent) : false;
 
   const otherName =
@@ -566,6 +393,14 @@ export default function ChatBox(props: {
       : providerName || "Provider";
 
   const otherAvatar = mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
+
+  const resolveAttachment = (m: MessageRow): { url?: string; kind?: "image" | "audio" | "file" } => {
+    // prefer new schema
+    if (m.type && m.type !== "text") return { url: m.content, kind: m.type as "image" | "audio" };
+    // fallback to legacy fields
+    if (m.attachment_url && m.attachment_type) return { url: m.attachment_url, kind: m.attachment_type };
+    return {};
+  };
 
   return (
     <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
@@ -616,15 +451,9 @@ export default function ChatBox(props: {
           </div>
 
           <div className="ml-auto flex items-center gap-1">
-            <IconButton aria="Voice call" onClick={() => phoneHref && window.open(phoneHref, "_blank")}>
-              <Phone className="h-5 w-5" />
-            </IconButton>
-            <IconButton aria="Video call" onClick={() => videoHref && window.open(videoHref, "_blank")}>
-              <Video className="h-5 w-5" />
-            </IconButton>
-            <IconButton aria="More">
-              <MoreVertical className="h-5 w-5" />
-            </IconButton>
+            <IconButton aria="Voice call" onClick={() => phoneHref && window.open(phoneHref, "_blank")}><Phone className="h-5 w-5" /></IconButton>
+            <IconButton aria="Video call" onClick={() => videoHref && window.open(videoHref, "_blank")}><Video className="h-5 w-5" /></IconButton>
+            <IconButton aria="More"><MoreVertical className="h-5 w-5" /></IconButton>
           </div>
         </div>
 
@@ -636,6 +465,8 @@ export default function ChatBox(props: {
                 ? `bg-cyan-500 text-white ${bubbleBase} shadow-md`
                 : `bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 ${bubbleBase} ring-1 ring-gray-200/70 dark:ring-zinc-700`;
 
+              const att = resolveAttachment(m);
+
               return (
                 <div key={m.id} className={`flex items-end gap-2 ${own ? "justify-end" : "justify-start"}`}>
                   {!own && (
@@ -646,16 +477,16 @@ export default function ChatBox(props: {
                     </div>
                   )}
                   <div className={`max-w-[82%] sm:max-w-[70%] ${bubble}`}>
-                    {m.attachment_url && m.attachment_type === "image" && (
-                      <img src={m.attachment_url} alt="attachment" className="mb-2 max-h-64 w-full rounded-xl object-cover" />
+                    {att.url && att.kind === "image" && (
+                      <img src={att.url} alt="attachment" className="mb-2 max-h-64 w-full rounded-xl object-cover" />
                     )}
-                    {m.attachment_url && m.attachment_type === "audio" && <audio className="mb-2 w-full" controls src={m.attachment_url} />}
-                    {m.attachment_url && m.attachment_type === "file" && (
-                      <a className="mb-2 block underline" href={m.attachment_url} target="_blank" rel="noreferrer">
-                        Download file
-                      </a>
+                    {att.url && att.kind === "audio" && <audio className="mb-2 w-full" controls src={att.url} />}
+                    {!att.url && m.attachment_url && m.attachment_type === "file" && (
+                      <a className="mb-2 block underline" href={m.attachment_url} target="_blank" rel="noreferrer">Download file</a>
                     )}
-                    {m.content && <div className="whitespace-pre-wrap break-words">{m.content}</div>}
+                    {m.content && (!m.type || m.type === "text") && (
+                      <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                    )}
                     <div className={`mt-1 flex items-center gap-1 text-[10px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
                       {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       {own && m.read && <CheckCheck className="ml-0.5 inline h-3.5 w-3.5 opacity-90" />}
@@ -673,7 +504,6 @@ export default function ChatBox(props: {
           <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
             <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
               {recording ? "Recording… tap mic to stop" : uploading?.label}
-              {!recording && uploading?.pct != null && <span>{Math.round(uploading.pct)}%</span>}
               {!recording && (
                 <button className="ml-1 rounded-full p-1 hover:bg-white/20" onClick={() => setUploading(null)}>
                   <X className="h-3 w-3" />
@@ -688,28 +518,18 @@ export default function ChatBox(props: {
             <div className="flex shrink-0 items-center gap-1">
               <Dialog>
                 <DialogTrigger asChild>
-                  <IconButton aria="Emoji picker">
-                    <Smile className="h-5 w-5" />
-                  </IconButton>
+                  <IconButton aria="Emoji picker"><Smile className="h-5 w-5" /></IconButton>
                 </DialogTrigger>
                 <DialogContent className="max-w-sm">
-                  <DialogHeader>
-                    <DialogTitle>Pick an emoji</DialogTitle>
-                  </DialogHeader>
+                  <DialogHeader><DialogTitle>Pick an emoji</DialogTitle></DialogHeader>
                   <EmojiGrid onPick={(e) => setText((v) => v + e)} />
                 </DialogContent>
               </Dialog>
 
-              <IconButton aria="Attach image" onClick={pickFile}>
-                <ImageIcon className="h-5 w-5" />
-              </IconButton>
+              <IconButton aria="Attach image" onClick={pickFile}><ImageIcon className="h-5 w-5" /></IconButton>
               <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={onPickFile} />
-              <IconButton aria="Camera" onClick={takePhoto}>
-                <Camera className="h-5 w-5" />
-              </IconButton>
-              <IconButton aria="Voice note" onClick={toggleRecord}>
-                <Mic className={`h-5 w-5 ${recording ? "animate-pulse" : ""}`} />
-              </IconButton>
+              <IconButton aria="Camera" onClick={takePhoto}><Camera className="h-5 w-5" /></IconButton>
+              <IconButton aria="Voice note" onClick={toggleRecord}><Mic className={`h-5 w-5 ${recording ? "animate-pulse" : ""}`} /></IconButton>
             </div>
 
             <Textarea
@@ -717,7 +537,7 @@ export default function ChatBox(props: {
               onChange={(e) => setText(e.target.value)}
               onKeyDown={onKeyDown}
               placeholder="Type your message…"
-              className={`min-h-[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${
+              className={`min-h[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${
                 settings?.density === "compact" ? "text-sm" : ""
               }`}
             />
@@ -742,10 +562,10 @@ function IconButton({ children, aria, onClick }: { children: React.ReactNode; ar
 
 function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
   const groups: Record<string, string[]> = {
-    "😀 Smileys": ["😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🥳", "😇", "🙂", "🙃", "😌"],
-    "👍 Gestures": ["👍", "👎", "👏", "🙏", "🤝", "👌", "✌️", "🤞", "👋", "💪"],
-    "❤️ Hearts": ["❤️", "💙", "💚", "💛", "🧡", "💜", "🖤", "🤍", "🤎", "💕", "💖"],
-    "🔥 Misc": ["🔥", "🎉", "✨", "⭐", "🌟", "🧠", "💡", "📌", "✅", "❗"],
+    "😀 Smileys": ["😀","😁","😂","🤣","😊","😍","😘","😎","🥳","😇","🙂","🙃","😌"],
+    "👍 Gestures": ["👍","👎","👏","🙏","🤝","👌","✌️","🤞","👋","💪"],
+    "❤️ Hearts": ["❤️","💙","💚","💛","🧡","💜","🖤","🤍","🤎","💕","💖"],
+    "🔥 Misc": ["🔥","🎉","✨","⭐","🌟","🧠","💡","📌","✅","❗"],
   };
   return (
     <div className="space-y-4">
@@ -754,12 +574,7 @@ function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
           <p className="mb-2 text-xs font-medium text-gray-500">{label}</p>
           <div className="grid grid-cols-10 gap-2">
             {list.map((e) => (
-              <button
-                key={e}
-                onClick={() => onPick(e)}
-                className="rounded-md border p-2 text-xl hover:bg-gray-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-                aria-label={`Insert ${e}`}
-              >
+              <button key={e} onClick={() => onPick(e)} className="rounded-md border p-2 text-xl hover:bg-gray-50 dark:border-zinc-700 dark:hover:bg-zinc-900" aria-label={`Insert ${e}`}>
                 {e}
               </button>
             ))}
