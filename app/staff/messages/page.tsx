@@ -4,8 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   LogOut, Plus, Search, Settings as SettingsIcon,
-  Pin, PinOff, Archive, ArchiveRestore, CheckCheck,
-  ArrowLeft,
+  Pin, PinOff, Archive, ArchiveRestore, CheckCheck, ArrowLeft,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase/client";
@@ -200,11 +199,7 @@ export default function StaffMessagesPage() {
           if (m.sender_role !== "patient") return;
           setConvs((cur) =>
             cur
-              .map((c) =>
-                c.id === m.conversation_id
-                  ? { ...c, last_message: m.content, updated_at: m.created_at } // keep pinned/archived_at as-is
-                  : c
-              )
+              .map((c) => (c.id === m.conversation_id ? { ...c, last_message: m.content, updated_at: m.created_at } : c))
               .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
           );
           setUnreadMap((prev) => (selectedId === m.conversation_id ? prev : { ...prev, [m.conversation_id]: (prev[m.conversation_id] ?? 0) + 1 }));
@@ -237,8 +232,7 @@ export default function StaffMessagesPage() {
       .eq("id", id)
       .select("id,pinned,archived_at,updated_at")
       .single();
-    if (error) return;
-    setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
+    if (!error && data) setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
   }
 
   async function toggleArchive(id: string, next: boolean) {
@@ -249,8 +243,7 @@ export default function StaffMessagesPage() {
       .eq("id", id)
       .select("id,pinned,archived_at,updated_at")
       .single();
-    if (error) return;
-    setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
+    if (!error && data) setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, ...data } : c)));
     if (next && selectedId === id) setSelectedId(null);
   }
 
@@ -276,12 +269,15 @@ export default function StaffMessagesPage() {
       );
     }
     list.sort((a, b) => {
-      const ap = a.pinned ? 1 : 0; const bp = b.pinned ? 1 : 0;
+      const ap = cBool(a.pinned) ? 1 : 0;
+      const bp = cBool(b.pinned) ? 1 : 0;
       if (ap !== bp) return bp - ap;
       return a.updated_at < b.updated_at ? 1 : -1;
     });
     return list;
   }, [convs, tab, qDebounced, unreadMap]);
+
+  function cBool(v: boolean | null | undefined) { return !!v; }
 
   async function startNewMessage(patient: PatientAssigned) {
     if (!meId) return;
