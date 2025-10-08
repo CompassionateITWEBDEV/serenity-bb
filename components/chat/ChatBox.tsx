@@ -5,8 +5,13 @@ import { supabase } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowLeft, Phone, Video, MoreVertical, Send, Smile, Image as ImageIcon, Camera, Mic, CheckCheck, X } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger
+} from "@/components/ui/dialog";
+import {
+  ArrowLeft, Phone, Video, MoreVertical, Send, Smile, Image as ImageIcon,
+  Camera, Mic, CheckCheck, X
+} from "lucide-react";
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
 
@@ -34,6 +39,8 @@ type UiSettings = {
   enterToSend?: boolean;
   sound?: boolean;
 };
+
+const CHAT_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET?.trim() || "chat";
 
 export default function ChatBox(props: {
   mode: "staff" | "patient";
@@ -78,6 +85,18 @@ export default function ChatBox(props: {
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
+  // Stage media before sending
+  const [draft, setDraft] = useState<{
+    blob: Blob;
+    type: "image" | "audio" | "file";
+    name?: string;
+    previewUrl: string;
+  } | null>(null);
+
+  useEffect(() => {
+    return () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); };
+  }, [draft?.previewUrl]);
+
   // ---- UI helpers
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
@@ -114,7 +133,7 @@ export default function ChatBox(props: {
         setMe({ id: pid, name: providerName || "Me", role: providerRole! });
 
         if (!conversationIdProp) {
-          const { data: conv, error } = await supabase
+          const { data: conv } = await supabase
             .from("conversations").select("id")
             .eq("patient_id", patientId).eq("provider_id", pid).maybeSingle();
           if (conv?.id) setConversationId(conv.id);
@@ -220,7 +239,7 @@ export default function ChatBox(props: {
     return () => clearInterval(t);
   }, [text, me]);
 
-  // ---- Presence (kept same as your previous working code)
+  // ---- Presence (unchanged)
   useEffect(() => {
     if (mode !== "patient") return;
     (async () => {
@@ -277,9 +296,10 @@ export default function ChatBox(props: {
     return () => { cancelled = true; };
   }, [mode, patientId]);
 
-  // ---- Message helpers (use only existing DB columns)
-  const canSend = useMemo(() => !!text.trim() && !!me && !!conversationId, [text, me, conversationId]);
+  // ---- Derived
+  const canSend = useMemo(() => (!!text.trim() || !!draft) && !!me && !!conversationId, [text, me, conversationId, draft]);
 
+  // ---- Insert message (DB)
   async function insertMessage(payload: {
     content: string;
     attachment_url?: string | null;
@@ -319,21 +339,33 @@ export default function ChatBox(props: {
 
     if (error) {
       setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
-      throw error; // let caller show message
+      throw error;
     }
   }
 
-  async function uploadToChat(fileOrBlob: File | Blob, extFromName?: string) {
+  // ---- Storage helpers
+  async function uploadToChat(fileOrBlob: Blob, fileName?: string) {
     if (!conversationId || !me) throw new Error("Missing conversation");
-    const ext = (extFromName || "").split(".").pop() || guessExt(fileOrBlob.type) || "bin";
+    const detected = (fileOrBlob as File).type || (fileOrBlob as any).type || "";
+    const extFromName = (fileName || "").split(".").pop() || "";
+    const ext = extFromName || (detected.startsWith("image/") ? detected.split("/")[1] : detected ? "webm" : "bin");
     const path = `${conversationId}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
-    const { error } = await supabase.storage.from("chat").upload(path, fileOrBlob, {
-      contentType: (fileOrBlob as File).type || (fileOrBlob as any).type || "application/octet-stream",
+
+    const { error: upErr } = await supabase.storage.from(CHAT_BUCKET).upload(path, fileOrBlob, {
+      contentType: detected || "application/octet-stream",
       upsert: false,
     });
-    if (error) throw error;
-    const { data: pub } = supabase.storage.from("chat").getPublicUrl(path);
-    return pub.publicUrl;
+    if (upErr) {
+      if (/not found/i.test(upErr.message)) throw new Error(`Bucket "${CHAT_BUCKET}" not found.`);
+      throw upErr;
+    }
+
+    const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
+    if (pub?.data?.publicUrl) return pub.data.publicUrl;
+
+    const { data: signed, error: signErr } = await supabase.storage.from(CHAT_BUCKET).createSignedUrl(path, 60 * 60);
+    if (signErr || !signed?.signedUrl) throw new Error("Uploaded, but cannot generate a URL.");
+    return signed.signedUrl;
   }
 
   function guessExt(mime: string) {
@@ -343,36 +375,57 @@ export default function ChatBox(props: {
     return null;
   }
 
-  // ---- Send text
+  // ---- Send
   const send = useCallback(async () => {
     if (!canSend) return;
     const content = text.trim();
     setText("");
+
     try {
+      // If there’s staged media, upload it first and include in message
+      if (draft) {
+        setUploading({ label: "Sending…" });
+        const url = await uploadToChat(
+          draft.blob,
+          draft.name || (draft.type === "image" ? "image.jpg" : draft.type === "audio" ? "voice.webm" : "file.bin")
+        );
+        await insertMessage({
+          content: content || (draft.type === "audio" ? "(voice note)" : draft.type === "image" ? "(image)" : ""),
+          attachment_url: url,
+          attachment_type: draft.type,
+        });
+        if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+        setDraft(null);
+        setUploading(null);
+        return;
+      }
+
+      // text-only
       await insertMessage({ content });
     } catch (err: any) {
       alert(`Failed to send.\n\n${err?.message ?? ""}`);
+      setUploading(null);
     }
-  }, [canSend, text]);
+  }, [canSend, text, draft]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const enterToSend = settings?.enterToSend ?? true;
     if (e.key === "Enter" && !e.shiftKey && enterToSend) { e.preventDefault(); void send(); }
   };
 
-  // ---- Attachments
+  // ---- Attachments: stage (do not auto-send)
   function pickFile() { fileInputRef.current?.click(); }
 
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; e.target.value = "";
     if (!file || !me || !conversationId) return;
-    setUploading({ label: "Uploading image…" });
-    try {
-      const publicUrl = await uploadToChat(file, file.name);
-      await insertMessage({ content: "(image)", attachment_url: publicUrl, attachment_type: "image" });
-    } catch (err: any) {
-      alert(`Failed to send image.\n\n${err?.message ?? ""}`);
-    } finally { setUploading(null); }
+    if (file.size > 10 * 1024 * 1024) { alert("File too large (max 10 MB)."); return; }
+
+    const previewUrl = URL.createObjectURL(file);
+    const kind: "image" | "audio" | "file" =
+      file.type.startsWith("image/") ? "image" :
+      file.type.startsWith("audio/") ? "audio" : "file";
+    setDraft({ blob: file, type: kind, name: file.name, previewUrl });
   }
 
   async function takePhoto() {
@@ -386,14 +439,12 @@ export default function ChatBox(props: {
       canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480;
       const ctx = canvas.getContext("2d")!; ctx.drawImage(video, 0, 0);
       const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => b ? res(b) : rej(new Error("No photo")), "image/jpeg", 0.9)!);
-      setUploading({ label: "Uploading photo…" });
-      const publicUrl = await uploadToChat(blob, "photo.jpg");
-      await insertMessage({ content: "(photo)", attachment_url: publicUrl, attachment_type: "image" });
+      const previewUrl = URL.createObjectURL(blob);
+      setDraft({ blob, type: "image", name: "photo.jpg", previewUrl });
     } catch (err: any) {
-      alert(`Failed to send photo.\n\n${err?.message ?? ""}`);
+      alert(`Camera error.\n\n${err?.message ?? ""}`);
     } finally {
       stream?.getTracks().forEach((t) => t.stop());
-      setUploading(null);
     }
   }
 
@@ -401,10 +452,15 @@ export default function ChatBox(props: {
     if (recording) { mediaRecRef.current?.stop(); return; }
     if (!me || !conversationId) return;
 
+    if (typeof window.MediaRecorder === "undefined") {
+      alert("Voice recording isn’t supported by this browser.");
+      return;
+    }
+
     let stream: MediaStream | null = null;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (e) {
+    } catch {
       alert("Microphone permission denied.");
       return;
     }
@@ -416,17 +472,12 @@ export default function ChatBox(props: {
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     chunksRef.current = [];
     rec.ondataavailable = (e) => { if (e.data?.size) chunksRef.current.push(e.data); };
-    rec.onstop = async () => {
+    rec.onstop = () => {
       stream?.getTracks().forEach((t) => t.stop());
       setRecording(false);
       const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
-      setUploading({ label: "Uploading voice note…" });
-      try {
-        const publicUrl = await uploadToChat(blob, "voice.webm");
-        await insertMessage({ content: "(voice note)", attachment_url: publicUrl, attachment_type: "audio" });
-      } catch (err: any) {
-        alert(`Failed to send voice message.\n\n${err?.message ?? ""}`);
-      } finally { setUploading(null); }
+      const previewUrl = URL.createObjectURL(blob);
+      setDraft({ blob, type: "audio", name: "voice.webm", previewUrl });
     };
     mediaRecRef.current = rec; setRecording(true); rec.start();
   }
@@ -537,15 +588,22 @@ export default function ChatBox(props: {
           </div>
         </div>
 
-        {(uploading || recording) && (
-          <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
-            <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-xs text-white">
-              {recording ? "Recording… tap mic to stop" : uploading?.label}
-              {!recording && (
-                <button className="ml-1 rounded-full p-1 hover:bg-white/20" onClick={() => setUploading(null)}>
-                  <X className="h-3 w-3" />
-                </button>
-              )}
+        {/* Draft preview */}
+        {draft && (
+          <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2">
+            <div className="flex items-center gap-2 rounded-xl border bg-white px-2 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-800">
+              <div className="max-h-16 max-w-[160px] overflow-hidden rounded-md ring-1 ring-gray-200 dark:ring-zinc-700">
+                {draft.type === "image" && <img src={draft.previewUrl} alt="preview" className="h-16 w-auto object-cover" />}
+                {draft.type === "audio" && <audio controls src={draft.previewUrl} className="h-10 w-[160px]" />}
+                {draft.type === "file" && <div className="px-2 py-3">📎 {draft.name || "file"}</div>}
+              </div>
+              <button
+                className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-zinc-700"
+                onClick={() => { if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl); setDraft(null); }}
+                aria-label="Remove attachment"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
           </div>
         )}
@@ -563,8 +621,15 @@ export default function ChatBox(props: {
                 </DialogContent>
               </Dialog>
 
-              <IconButton aria="Attach image" onClick={pickFile}><ImageIcon className="h-5 w-5" /></IconButton>
-              <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={onPickFile} />
+              <IconButton aria="Attach image" onClick={() => fileInputRef.current?.click()}><ImageIcon className="h-5 w-5" /></IconButton>
+              <input ref={fileInputRef} type="file" accept="image/*,audio/*" hidden onChange={(e) => {
+                const f = e.target.files?.[0]; e.target.value = "";
+                if (!f) return;
+                if (f.size > 10 * 1024 * 1024) { alert("File too large (max 10 MB)."); return; }
+                const url = URL.createObjectURL(f);
+                const kind: "image" | "audio" | "file" = f.type.startsWith("image/") ? "image" : f.type.startsWith("audio/") ? "audio" : "file";
+                setDraft({ blob: f, type: kind, name: f.name, previewUrl: url });
+              }} />
               <IconButton aria="Camera" onClick={takePhoto}><Camera className="h-5 w-5" /></IconButton>
               <IconButton aria="Voice note" onClick={toggleRecord}><Mic className={`h-5 w-5 ${recording ? "animate-pulse" : ""}`} /></IconButton>
             </div>
