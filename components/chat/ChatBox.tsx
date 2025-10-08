@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -707,12 +708,17 @@ function MessageBubble({
 
 /* ----------------------------- Error Boundary ------------------------------ */
 
-class ErrorBoundary extends (require("react").Component as any)<
-  { children: React.ReactNode }, { hasError: boolean }
-> {
-  constructor(props: any) { super(props); this.state = { hasError: false }; }
-  static getDerivedStateFromError() { return { hasError: true }; } // why: avoid white screen
-  componentDidCatch(err: any) { console.error("[ChatBox] crashed:", err); }
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(err: any, info: any) {
+    console.error("[ChatBox] crashed:", err, info);
+  }
   render() {
     if (this.state.hasError) {
       return (
