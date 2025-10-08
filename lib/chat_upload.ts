@@ -2,7 +2,7 @@ import { supabase } from "@/lib/supabase/client";
 
 export type AttachmentKind = "image" | "audio";
 
-const BUCKET = "chat"; // ← use the same bucket your old code used
+const BUCKET = "chat"; // same bucket your older code used
 
 function extFromType(mime: string): string {
   const map: Record<string, string> = {
@@ -20,14 +20,18 @@ function extFromType(mime: string): string {
   return map[mime] ?? "bin";
 }
 
-/** Uploads to Storage and returns a public URL. */
+/** Upload a file/blob to Supabase Storage (bucket: chat) and return its public URL. */
 export async function uploadToStorage(
   file: File | Blob,
   opts: { conversationId: string; kind: AttachmentKind; userId?: string }
 ): Promise<{ path: string; publicUrl: string }> {
   const mime = (file as File).type || "application/octet-stream";
-  const ext = (file as File).name ? ((file as File).name.split(".").pop() || extFromType(mime)) : extFromType(mime);
-  const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const ext =
+    (file as File).name?.split(".").pop()?.toLowerCase() ||
+    extFromType(mime);
+  const filename = `${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}.${ext}`;
   const prefix = `${opts.conversationId}/${opts.kind}/${opts.userId ?? "n"}`;
   const fullPath = `${prefix}/${filename}`;
 
@@ -36,51 +40,54 @@ export async function uploadToStorage(
     cacheControl: "3600",
     upsert: false,
   });
-
   if (error) {
-    // Why: make failures diagnosable in your console + UI alert already shows generic message
-    console.error("[storage.upload] failed", { bucket: BUCKET, fullPath, mime, error });
+    console.error("[storage.upload] failed", { BUCKET, fullPath, mime, error });
     throw error;
   }
 
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(fullPath);
   if (!data?.publicUrl) {
-    console.error("[storage.getPublicUrl] returned empty url", { bucket: BUCKET, fullPath });
+    console.error("[storage.getPublicUrl] empty", { BUCKET, fullPath });
     throw new Error("No public URL");
   }
   return { path: fullPath, publicUrl: data.publicUrl };
 }
 
-/** Inserts an attachment message and bumps conversation preview. */
+/** Insert a message row with attachment_url/attachment_type and bump preview. */
 export async function sendAttachmentMessage(params: {
   conversationId: string;
   senderRole: "patient" | "doctor" | "nurse" | "counselor";
   url: string;
-  kind: AttachmentKind;
+  kind: AttachmentKind; // "image" | "audio"
 }) {
-  // Insert message (using 'type' + 'content' = URL)
-  const { error: msgErr } = await supabase.from("messages").insert({
+  // messages.content is NOT NULL → we use a placeholder text
+  const placeholder = params.kind === "image" ? "(image)" : "(voice note)";
+
+  const { error: insErr } = await supabase.from("messages").insert({
     conversation_id: params.conversationId,
+    // patient_id, sender_id, sender_name are set by your ChatBox insert path.
+    // When using this helper from ChatBox, those are not required because your
+    // real-time list uses the same table and will refresh. If your RLS requires
+    // them, you can extend this insert with those fields.
     sender_role: params.senderRole,
-    type: params.kind,     // 'image' | 'audio'
-    content: params.url,   // URL in content
+    content: placeholder,
     read: false,
     urgent: false,
+    attachment_url: params.url,
+    attachment_type: params.kind, // "image" | "audio"
   });
-  if (msgErr) {
-    console.error("[messages.insert] failed", msgErr);
-    throw msgErr;
+
+  if (insErr) {
+    console.error("[messages.insert] failed", insErr);
+    throw insErr;
   }
 
-  // Update conversation preview
-  const preview = params.kind === "image" ? "[image]" : "[voice]";
-  const { error: convErr } = await supabase
+  // Bump conversation preview (not critical if it fails)
+  const last = params.kind === "image" ? "[image]" : "[voice]";
+  const { error: updErr } = await supabase
     .from("conversations")
-    .update({ last_message: preview, last_message_at: new Date().toISOString() })
+    .update({ last_message: last, last_message_at: new Date().toISOString() })
     .eq("id", params.conversationId);
 
-  if (convErr) {
-    // Non-fatal; UI will still show the new message via realtime
-    console.warn("[conversations.update preview] failed", convErr);
-  }
+  if (updErr) console.warn("[conversations.preview] failed", updErr);
 }
