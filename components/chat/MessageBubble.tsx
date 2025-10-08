@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { CheckCheck } from "lucide-react";
-import { urlForAttachment } from "@/lib/chat/storage";
+import { publicUrlForAttachment } from "@/lib/storage/url";
 import type { MessageRow } from "./types";
 
 function looksLikeImage(u?: string | null) {
@@ -35,18 +35,19 @@ export default function MessageBubble({
 
   useEffect(() => {
     let dead = false;
-    (async () => {
-      if (m.attachment_url) {
-        const u = await urlForAttachment(m.attachment_url);
-        if (!dead) setMediaUrl(u);
-        return;
-      }
-      const url =
-        m.content?.match(
-          /https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp|heic|svg)(?:\?\S*)?/i
-        )?.[0] ?? null;
-      if (!dead) setMediaUrl(url);
-    })();
+    // prefer attachment_url → via our proxy; fallback to image URL in content
+    const fromAttachment = publicUrlForAttachment(m.attachment_url);
+    if (fromAttachment) {
+      if (!dead) setMediaUrl(fromAttachment);
+      return () => {
+        dead = true;
+      };
+    }
+    const fromContent =
+      m.content?.match(
+        /https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp|heic|svg)(?:\?\S*)?/i
+      )?.[0] ?? null;
+    if (!dead) setMediaUrl(fromContent);
     return () => {
       dead = true;
     };
@@ -54,9 +55,9 @@ export default function MessageBubble({
 
   const showText = useMemo(() => {
     const t = (m.content || "").trim().toLowerCase();
-    const isPlaceholder = t === "(image)" || t === "(photo)" || t === "(voice note)";
-    return !isPlaceholder && (!!t || !mediaUrl); // hide placeholder when media is shown
-  }, [m.content, mediaUrl]);
+    const placeholder = t === "(image)" || t === "(photo)" || t === "(voice note)";
+    return !placeholder;
+  }, [m.content]);
 
   return (
     <div className={`flex items-end gap-2 ${own ? "justify-end" : "justify-start"}`}>
@@ -66,7 +67,7 @@ export default function MessageBubble({
             src={mediaUrl}
             alt="image"
             className="mb-2 max-h-64 w-full rounded-xl object-cover"
-            onError={() => setMediaUrl(null)} // why: avoid broken media
+            onError={() => setMediaUrl(null)} // why: hide broken media
           />
         )}
         {inferredKind === "audio" && mediaUrl && (
@@ -77,9 +78,7 @@ export default function MessageBubble({
             Download file
           </a>
         )}
-
         {showText && <div className="whitespace-pre-wrap break-words">{m.content}</div>}
-
         <div className={`mt-1 flex items-center gap-1 text-[10px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
           {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           {own && m.read && <CheckCheck className="ml-0.5 inline h-3.5 w-3.5 opacity-90" />}
