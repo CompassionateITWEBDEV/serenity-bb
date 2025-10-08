@@ -9,22 +9,19 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, Phone, Video, Send, Image as ImageIcon, Camera, Mic,
-  MessageCircle, Search, EllipsisVertical, Plus, Trash2, Power, PowerOff, X
+  MessageCircle, Search, Plus, X
 } from "lucide-react";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
-import { CHAT_BUCKET, chatUploadToPath } from "@/lib/chat/storage";
+import { chatUploadToPath } from "@/lib/chat/storage";
 
 /* ------------------------------- Types ---------------------------------- */
 type ProviderRole = "doctor" | "nurse" | "counselor";
 
-type MessageRow = {
+export type MessageRow = {
   id: string;
   conversation_id: string;
   patient_id: string | null;
@@ -35,7 +32,11 @@ type MessageRow = {
   created_at: string;
   read: boolean;
   urgent: boolean;
-  meta?: MessageMeta | null;
+
+  // ✅ support both schemas
+  meta?: MessageMeta | null;                           // new
+  attachment_url?: string | null;                     // legacy
+  attachment_type?: "image" | "audio" | "file" | null;// legacy
 };
 
 type Conversation = {
@@ -98,7 +99,7 @@ export default function PatientMessagesPage() {
 
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Draft media
+  // Draft media (staged before sending)
   const [draft, setDraft] = useState<{
     blob: Blob;
     type: "image" | "audio" | "file";
@@ -106,9 +107,9 @@ export default function PatientMessagesPage() {
     previewUrl: string;
     duration_sec?: number;
   } | null>(null);
-
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
+  // recording
   const [recording, setRecording] = useState(false);
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -119,10 +120,7 @@ export default function PatientMessagesPage() {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
       const uid = au.user?.id;
-      if (!uid) {
-        location.href = "/login";
-        return;
-      }
+      if (!uid) { location.href = "/login"; return; }
       const { data: p } = await supabase
         .from("patients")
         .select("user_id, first_name, last_name, email")
@@ -333,7 +331,7 @@ export default function PatientMessagesPage() {
 
     const caption = compose.trim();
 
-    // Upload if there's a draft → get a STORAGE PATH
+    // Upload if there's a draft → get a STORAGE PATH and write into meta.*
     let meta: MessageMeta | null = null;
     try {
       if (draft) {
@@ -352,7 +350,6 @@ export default function PatientMessagesPage() {
           });
           meta = { audio_path: path, duration_sec: draft.duration_sec ?? null };
         } else {
-          // you can extend meta to support generic files later
           meta = {};
         }
       }
@@ -388,7 +385,7 @@ export default function PatientMessagesPage() {
       content: optimistic.content,
       read: false,
       urgent: false,
-      meta,
+      meta, // ⬅️ write new schema
     });
     if (insErr) {
       setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
@@ -464,7 +461,7 @@ export default function PatientMessagesPage() {
                 </DialogTrigger>
                 <DialogContent className="max-w-lg">
                   <DialogHeader><DialogTitle>Add staff</DialogTitle></DialogHeader>
-                  {/* … keep your form here (unchanged) … */}
+                  {/* Add-your-staff form here if needed */}
                 </DialogContent>
               </Dialog>
             </div>
@@ -559,7 +556,11 @@ export default function PatientMessagesPage() {
                     <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
                       <div className="max-w-[80%]">
                         <div className={bubble}>
-                          <MessageMedia meta={m.meta} />
+                          <MessageMedia
+                            meta={m.meta}
+                            attachment_type={m.attachment_type}
+                            attachment_url={m.attachment_url}
+                          />
                           {showText && <p className="whitespace-pre-wrap break-words">{m.content}</p>}
                           <div className={`mt-1 text-[11px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
                             {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
