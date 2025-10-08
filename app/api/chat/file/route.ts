@@ -1,36 +1,43 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-export async function GET(req: Request) {
+export const runtime = "nodejs";
+
+export async function GET(request: Request): Promise<Response> {
   try {
-    const { searchParams } = new URL(req.url);
-    const bucket = (searchParams.get("bucket") || "").trim();
-    const path = (searchParams.get("path") || "").trim();
+    const { searchParams } = new URL(request.url);
+    const bucket = searchParams.get("bucket")?.trim() ?? "";
+    const path = searchParams.get("path")?.trim() ?? "";
 
     if (!bucket || !path) {
-      return NextResponse.json({ error: "Missing bucket or path" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing bucket or path" },
+        { status: 400 }
+      );
     }
 
-    // Download bytes from Supabase Storage
-    const { data, error } = await supabaseAdmin.storage.from(bucket).download(path);
+    const { data, error } = await supabaseAdmin.storage
+      .from(bucket)
+      .download(path);
+
     if (error || !data) {
-      // Avoid leaking internals
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    // Try to guess content-type from metadata (falls back to octet-stream)
-    // @ts-expect-error: data has type Blob with optional 'type'
-    const type: string = (data as any).type || "application/octet-stream";
-    const arrBuf = await data.arrayBuffer();
+    // `data` is a Blob
+    const contentType: string = (data as any).type || "application/octet-stream";
+    const buf = await data.arrayBuffer();
 
-    return new NextResponse(arrBuf, {
+    return new NextResponse(buf, {
       status: 200,
       headers: {
-        "Content-Type": type,
+        "Content-Type": contentType,
         "Cache-Control": "public, max-age=60, s-maxage=60",
-        "Content-Length": String(arrBuf.byteLength),
+        "Content-Length": String(buf.byteLength),
       },
     });
-  } catch {
+  } catch (err) {
+    console.error("GET /api/chat/file error:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
+}
