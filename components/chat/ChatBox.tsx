@@ -119,7 +119,7 @@ function ChatBoxInner(props: {
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
     " px-4 py-2 " +
-    ((settings?.density ?? "comfortable") === "compact" ? "text-sm" : "text-[15px]");
+    ((settings?.density ?? "comfortable") === "compact" ? "text-sm" : "text-[15px]"));
 
   const ding = useCallback(() => {
     if (!settings?.sound) return;
@@ -201,8 +201,12 @@ function ChatBoxInner(props: {
 
     const ch = supabase
       .channel(`thread_${conversationId}`, { config: { presence: { key: me.id } } })
-      .on("presence", { event: "sync" }, () => {
-        const s = ch.presenceState(); const others = Object.entries(s).flatMap(([, v]: any) => v) as any[];
+      .on("presence", {
+
+event: "sync"
+      }, () => {
+        const s = ch.presenceState();
+        const others = Object.entries(s).flatMap(([, v]: any) => v) as any[];
         setTyping(others.some((x) => x.status === "typing"));
         setThreadOtherPresent(others.some((x) => x.user_id && x.user_id !== me.id));
       })
@@ -468,7 +472,7 @@ function ChatBoxInner(props: {
   }
   function isHttp(u?: string | null) { return !!u && /^https?:\/\//i.test(u); }
 
-  // SAFE resolver – never throw
+  // SAFE resolver – never throw; returns null if cannot resolve
   async function toUrlFromPath(path: string) {
     try {
       const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
@@ -663,6 +667,7 @@ function MessageBubble({
         if (!cancelled) setAttUrl(url);
         return;
       }
+      // legacy messages where the URL is in content
       const fromContent = extractImageUrlFromContent(m.content);
       if (!cancelled) setAttUrl(fromContent || null);
     })();
@@ -686,7 +691,7 @@ function MessageBubble({
             src={attUrl}
             alt="image"
             className="mb-2 max-h-64 w-full rounded-xl object-cover"
-            onError={() => setAttUrl(null)} // why: hide broken images instead of crashing
+            onError={() => setAttUrl(null)}
           />
         )}
         {m.attachment_type === "audio" && attUrl && (
