@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, Phone, Video, Send, Image as ImageIcon, Camera, Mic,
-  MessageCircle, Search, Plus, X
+  MessageCircle, Search, Plus, X, Maximize2, Minimize2, MicOff, VideoOff, Volume2, VolumeX, Clock
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import Swal from "sweetalert2";
@@ -30,7 +30,6 @@ type MessageRow = {
   created_at: string;
   read: boolean;
   urgent: boolean;
-
   meta?: MessageMeta | null;
   attachment_url?: string | null;
   attachment_type?: "image" | "audio" | "file" | null;
@@ -54,7 +53,7 @@ type StaffRow = {
   last_name: string | null;
   email: string | null;
   role: string | null;
-  phone?: string | null; // not used for calling
+  phone?: string | null;
   avatar_url?: string | null;
 };
 
@@ -64,25 +63,22 @@ function initials(name?: string | null) {
   if (!s) return "U";
   return s.split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 }
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 /* ------------------------------ Page (PATIENT) -------------------------- */
 export default function DashboardMessagesPage() {
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
-
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [staffDir, setStaffDir] = useState<StaffRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
-
   const [q, setQ] = useState("");
   const [compose, setCompose] = useState("");
   const [loading, setLoading] = useState(true);
-
   const [providerOnline, setProviderOnline] = useState(false);
 
   const listRef = useRef<HTMLDivElement>(null);
 
-  // drafts
   const [draft, setDraft] = useState<{
     blob: Blob;
     type: "image" | "audio" | "file";
@@ -92,7 +88,6 @@ export default function DashboardMessagesPage() {
   } | null>(null);
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
-  // recorder
   const [recording, setRecording] = useState(false);
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -100,7 +95,7 @@ export default function DashboardMessagesPage() {
 
   const [sending, setSending] = useState(false);
 
-  // calling state
+  // call state + signaling
   const [incomingCall, setIncomingCall] = useState<{ fromName: string; room: string; mode: "audio" | "video" } | null>(null);
   const [showCall, setShowCall] = useState(false);
   const [callRole, setCallRole] = useState<"caller" | "callee">("caller");
@@ -108,7 +103,6 @@ export default function DashboardMessagesPage() {
   const callRoomRef = useRef<string | null>(null);
   const ringAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // **Signaling channel (reused & subscribed)**
   const callChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const callChReadyRef = useRef(false);
 
@@ -161,7 +155,7 @@ export default function DashboardMessagesPage() {
   }, []);
   useEffect(() => { if (me) void fetchStaff(); }, [me, fetchStaff]);
 
-  /* --------- Thread: messages + presence + signaling subscribe ----------- */
+  /* --------- Thread + signaling subscribe ----------- */
   useEffect(() => {
     if (!selectedId || !me) return;
     let alive = true;
@@ -191,11 +185,10 @@ export default function DashboardMessagesPage() {
       );
     void ch.subscribe();
 
-    // presence ping (best-effort)
     const ping = () => { try { ch.track({ user_id: me.id, at: Date.now() }); } catch {} };
     const keepAlive = setInterval(ping, 1500); ping();
 
-    // **Signaling channel – subscribe once per conversation**
+    // signaling channel for calls
     callChReadyRef.current = false;
     const callCh = supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } });
     callChRef.current = callCh;
@@ -231,7 +224,6 @@ export default function DashboardMessagesPage() {
 
   /* ------------------------------ PICKERS -------------------------------- */
   function openFilePicker() { fileInputRef.current?.click(); }
-
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -246,7 +238,6 @@ export default function DashboardMessagesPage() {
       file.type.startsWith("audio/") ? "audio" : "file";
     setDraft({ blob: file, type: kind, name: file.name, previewUrl });
   }
-
   async function takePhoto() {
     let stream: MediaStream | null = null;
     try {
@@ -269,7 +260,6 @@ export default function DashboardMessagesPage() {
       stream?.getTracks().forEach((t) => t.stop());
     }
   }
-
   async function toggleRecord() {
     if (recording) { mediaRecRef.current?.stop(); return; }
     if (typeof window.MediaRecorder === "undefined") {
@@ -308,77 +298,41 @@ export default function DashboardMessagesPage() {
     () => (!!compose.trim() || !!draft) && !!me && !!selectedId && !sending,
     [compose, draft, me, selectedId, sending]
   );
-
   async function send() {
     if (!me || !selectedId || !canSend) return;
     setSending(true);
     const caption = compose.trim();
-
     let meta: MessageMeta | null = null;
     try {
       if (draft) {
         if (draft.type === "image") {
-          const path = await chatUploadToPath(draft.blob, {
-            conversationId: selectedId,
-            kind: "image",
-            fileName: draft.name || "image.jpg",
-          });
+          const path = await chatUploadToPath(draft.blob, { conversationId: selectedId, kind: "image", fileName: draft.name || "image.jpg" });
           meta = { image_path: path, duration_sec: null };
         } else if (draft.type === "audio") {
-          const path = await chatUploadToPath(draft.blob, {
-            conversationId: selectedId,
-            kind: "audio",
-            fileName: draft.name || "voice.webm",
-          });
+          const path = await chatUploadToPath(draft.blob, { conversationId: selectedId, kind: "audio", fileName: draft.name || "voice.webm" });
           meta = { audio_path: path, duration_sec: draft.duration_sec ?? null };
-        } else {
-          meta = {};
-        }
+        } else { meta = {}; }
       }
     } catch (e: any) {
       await Swal.fire("Upload failed", e.message || "Could not upload media.", "error");
       setSending(false);
       return;
     }
-
     const content = caption || (meta?.audio_path ? "(voice note)" : meta?.image_path ? "(image)" : "");
-
     const { error: insErr } = await supabase.from("messages").insert({
-      conversation_id: selectedId,
-      patient_id: me.id,
-      sender_id: me.id,
-      sender_name: me.name,
-      sender_role: "patient",
-      content,
-      read: false,
-      urgent: false,
-      meta,
+      conversation_id: selectedId, patient_id: me.id, sender_id: me.id, sender_name: me.name, sender_role: "patient",
+      content, read: false, urgent: false, meta,
     });
-
-    if (insErr) {
-      await Swal.fire("Send failed", insErr.message, "error");
-      setSending(false);
-      return;
-    }
-
+    if (insErr) { await Swal.fire("Send failed", insErr.message, "error"); setSending(false); return; }
     setCompose("");
     if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
     setDraft(null);
-
-    await supabase
-      .from("conversations")
-      .update({ last_message: content || "", last_message_at: new Date().toISOString() })
-      .eq("id", selectedId);
-
+    await supabase.from("conversations").update({ last_message: content || "", last_message_at: new Date().toISOString() }).eq("id", selectedId);
     setSending(false);
   }
 
   /* ------------------------------ CALLING -------------------------------- */
-  const selectedConv = useMemo(
-    () => convs.find((c) => c.id === selectedId) || null,
-    [convs, selectedId]
-  );
-
+  const selectedConv = useMemo(() => convs.find((c) => c.id === selectedId) || null, [convs, selectedId]);
   const providerInfo = useMemo(() => {
     const s = staffDir.find((x) => x.user_id === selectedConv?.provider_id);
     const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
@@ -388,34 +342,22 @@ export default function DashboardMessagesPage() {
   function playRing(loop = true) {
     try {
       if (!ringAudioRef.current) {
-        const a = new Audio("data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..."); // replace in production
+        const a = new Audio("data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..."); // replace in prod
         a.loop = loop;
         ringAudioRef.current = a;
       }
       ringAudioRef.current.currentTime = 0;
-      // Autoplay policy: play only after a user gesture (the click that opened call)
       ringAudioRef.current.play().catch(() => {});
     } catch {}
   }
-  function stopRing() {
-    try {
-      ringAudioRef.current?.pause();
-      if (ringAudioRef.current) ringAudioRef.current.currentTime = 0;
-    } catch {}
-  }
+  function stopRing() { try { ringAudioRef.current?.pause(); if (ringAudioRef.current) ringAudioRef.current.currentTime = 0; } catch {} }
 
-  // helper: wait until signaling channel is ready
   async function ensureSignalReady() {
     const deadline = Date.now() + 4000;
-    while (!callChReadyRef.current && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    if (!callChReadyRef.current || !callChRef.current) {
-      throw new Error("Signaling not ready");
-    }
+    while (!callChReadyRef.current && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    if (!callChReadyRef.current || !callChRef.current) throw new Error("Signaling not ready");
     return callChRef.current;
   }
-
   async function startCall(mode: "audio" | "video") {
     if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
     try {
@@ -431,10 +373,6 @@ export default function DashboardMessagesPage() {
       await Swal.fire("Call failed", e?.message || "Signaling not ready.", "error");
     }
   }
-
-  function startAudioCall() { void startCall("audio"); }
-  function startVideoCall() { void startCall("video"); }
-
   function acceptIncoming(room: string, mode: "audio" | "video") {
     callRoomRef.current = room;
     setCallRole("callee");
@@ -444,33 +382,19 @@ export default function DashboardMessagesPage() {
     try { callChRef.current?.send({ type: "broadcast", event: "answered", payload: { room } }); } catch {}
     setShowCall(true);
   }
-
   function declineIncoming() {
     setIncomingCall(null);
     stopRing();
     try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: {} }); } catch {}
   }
 
-  /* --------------------------------- UI ---------------------------------- */
   const search = q.trim().toLowerCase();
-
-  const convsSorted = useMemo(() => {
-    const arr = convs.slice();
-    arr.sort((a, b) => {
-      const ta = a.last_message_at || a.created_at || "";
-      const tb = b.last_message_at || b.created_at || "";
-      return tb.localeCompare(ta);
-    });
-    return arr;
-  }, [convs]);
-
-  const filteredConvs = useMemo(() => {
-    return convsSorted.filter((c) => {
-      const s = staffDir.find((x) => x.user_id === c.provider_id);
-      const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
-      return search ? name.toLowerCase().includes(search) : true;
-    });
-  }, [convsSorted, staffDir, search]);
+  const convsSorted = useMemo(() => [...convs].sort((a, b) => (b.last_message_at || b.created_at || "").localeCompare(a.last_message_at || a.created_at || "")), [convs]);
+  const filteredConvs = useMemo(() => convsSorted.filter((c) => {
+    const s = staffDir.find((x) => x.user_id === c.provider_id);
+    const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
+    return search ? name.toLowerCase().includes(search) : true;
+  }), [convsSorted, staffDir, search]);
 
   if (loading) return <div className="p-6">Loading…</div>;
 
@@ -552,7 +476,6 @@ export default function DashboardMessagesPage() {
             </div>
           ) : (
             <>
-              {/* Header */}
               <div className="px-4 py-3 border-b dark:border-zinc-800 flex items-center gap-3">
                 <Button variant="ghost" size="icon" onClick={() => setSelectedId(null)} className="rounded-full lg:hidden">
                   <ChevronLeft className="h-5 w-5" />
@@ -569,16 +492,15 @@ export default function DashboardMessagesPage() {
                   </div>
                 </div>
                 <div className="ml-auto flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="rounded-full" onClick={startAudioCall} title="Start audio call">
+                  <Button variant="ghost" size="icon" className="rounded-full" onClick={() => startCall("audio")} title="Start audio call">
                     <Phone className="h-5 w-5" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="rounded-full" onClick={startVideoCall} title="Start video call">
+                  <Button variant="ghost" size="icon" className="rounded-full" onClick={() => startCall("video")} title="Start video call">
                     <Video className="h-5 w-5" />
                   </Button>
                 </div>
               </div>
 
-              {/* Incoming call banner */}
               {incomingCall && (
                 <div className="mx-4 mt-3 rounded-lg border bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-100 flex items-center gap-3">
                   <span>{incomingCall.mode === "audio" ? "📞" : "📹"} Incoming {incomingCall.mode} call from <b>{incomingCall.fromName}</b></span>
@@ -589,7 +511,6 @@ export default function DashboardMessagesPage() {
                 </div>
               )}
 
-              {/* Messages */}
               <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-slate-50 to-white dark:from-zinc-900 dark:to-zinc-950">
                 {msgs.map((m) => {
                   const own = m.sender_id === me?.id;
@@ -618,7 +539,6 @@ export default function DashboardMessagesPage() {
                 {msgs.length === 0 && <div className="text-sm text-gray-500 text-center py-6">No messages yet.</div>}
               </div>
 
-              {/* Composer */}
               <div className="border-t dark:border-zinc-800 p-3">
                 {draft && (
                   <div className="mx-1 mb-2 flex items-center gap-3 rounded-xl border bg-white p-2 pr-3 text-sm shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
@@ -669,7 +589,6 @@ export default function DashboardMessagesPage() {
         </div>
       </div>
 
-      {/* Call Modal */}
       <CallModal
         open={showCall}
         onClose={() => {
@@ -702,6 +621,19 @@ function CallModal({
   roomId: string;
   mode: "audio" | "video";
 }) {
+  const [isMax, setIsMax] = useState(true);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(mode === "video");
+  const [speakerOn, setSpeakerOn] = useState(true);
+
+  // window pos/size for restore mode
+  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [size, setSize] = useState<{ w: number; h: number }>({ w: 780, h: 520 });
+  const prevWin = useRef<{ pos: { x: number; y: number }; size: { w: number; h: number } } | null>(null);
+  const draggingRef = useRef<{ dx: number; dy: number } | null>(null);
+  const resizingRef = useRef<{ w0: number; h0: number; x0: number; y0: number } | null>(null);
+
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localAudioRef = useRef<HTMLAudioElement>(null);
@@ -710,16 +642,36 @@ function CallModal({
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const timerRef = useRef<number | null>(null);
 
-  // WHY: add TURN for NAT traversal
   const pcInit: RTCConfiguration = useMemo(() => ({
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
-      // Replace with your TURN in production (Twilio / Coturn)
+      // Replace with real TURN in production
       { urls: ["turn:global.turn.twilio.com:3478?transport=udp"], username: "demo", credential: "demo" },
     ],
   }), []);
 
+  // start/stop timer
+  useEffect(() => {
+    if (!open) return;
+    timerRef.current = window.setInterval(() => setElapsedSec((s) => s + 1), 1000);
+    return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } setElapsedSec(0); };
+  }, [open]);
+
+  // ESC/micro/cam shortcuts
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "m") toggleMic();
+      if (e.key.toLowerCase() === "c") toggleCam();
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  // setup WebRTC
   useEffect(() => {
     if (!open || !conversationId || !roomId) return;
 
@@ -751,7 +703,12 @@ function CallModal({
       streamRef.current = await navigator.mediaDevices.getUserMedia(
         mode === "video" ? { video: true, audio: true } : { audio: true, video: false }
       );
+      // apply initial mic/cam state
+      streamRef.current.getAudioTracks().forEach((t) => (t.enabled = micOn));
+      streamRef.current.getVideoTracks().forEach((t) => (t.enabled = camOn));
+
       streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
+
       if (mode === "video") {
         if (localVideoRef.current) localVideoRef.current.srcObject = streamRef.current;
       } else {
@@ -784,7 +741,7 @@ function CallModal({
 
       ch.on("broadcast", { event: "hangup" }, () => { if (!ended) cleanup(); });
 
-      await ch.subscribe(); // IMPORTANT: subscribe before sending/offer
+      await ch.subscribe();
 
       if (role === "caller") {
         const offer = await pc.createOffer();
@@ -807,37 +764,180 @@ function CallModal({
 
     setup();
     return () => { if (!ended) cleanup(); };
-  }, [open, role, conversationId, roomId, pcInit, onClose, mode]);
+  }, [open, role, conversationId, roomId, pcInit, onClose, mode, micOn, camOn]);
+
+  // toggles
+  function toggleMic() {
+    setMicOn((v) => {
+      streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !v));
+      return !v;
+    });
+  }
+  function toggleCam() {
+    if (mode !== "video") return;
+    setCamOn((v) => {
+      streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !v));
+      return !v;
+    });
+  }
+  function toggleSpeaker() {
+    setSpeakerOn((v) => {
+      if (remoteAudioRef.current) remoteAudioRef.current.muted = v;
+      if (remoteVideoRef.current) remoteVideoRef.current.muted = v;
+      return !v;
+    });
+  }
+
+  // window controls
+  function toggleMax() {
+    if (isMax) {
+      prevWin.current = { pos, size };
+      // initial restore position: bottom-right padding
+      const vw = window.innerWidth, vh = window.innerHeight;
+      setPos({ x: vw - size.w - 16, y: vh - size.h - 16 });
+      setIsMax(false);
+    } else {
+      if (prevWin.current) {
+        setPos(prevWin.current.pos);
+        setSize(prevWin.current.size);
+      }
+      setIsMax(true);
+    }
+  }
+
+  // drag
+  function onHeaderPointerDown(e: React.PointerEvent) {
+    if (isMax) return;
+    const startX = e.clientX, startY = e.clientY;
+    draggingRef.current = { dx: startX - pos.x, dy: startY - pos.y };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+  function onHeaderPointerMove(e: React.PointerEvent) {
+    if (!draggingRef.current || isMax) return;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const nx = clamp(e.clientX - draggingRef.current.dx, 0, vw - size.w);
+    const ny = clamp(e.clientY - draggingRef.current.dy, 0, vh - size.h);
+    setPos({ x: nx, y: ny });
+  }
+  function onHeaderPointerUp(e: React.PointerEvent) {
+    if (!draggingRef.current) return;
+    draggingRef.current = null;
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+  }
+
+  // resize (bottom-right handle)
+  function onResizeDown(e: React.PointerEvent) {
+    if (isMax) return;
+    resizingRef.current = { w0: size.w, h0: size.h, x0: e.clientX, y0: e.clientY };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+  function onResizeMove(e: React.PointerEvent) {
+    const st = resizingRef.current;
+    if (!st || isMax) return;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const newW = clamp(st.w0 + (e.clientX - st.x0), 420, vw - pos.x - 8);
+    const newH = clamp(st.h0 + (e.clientY - st.y0), 320, vh - pos.y - 8);
+    setSize({ w: newW, h: newH });
+  }
+  function onResizeUp(e: React.PointerEvent) {
+    if (!resizingRef.current) return;
+    resizingRef.current = null;
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+  }
+
+  const hhmmss = useMemo(() => {
+    const s = elapsedSec;
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const ss = s % 60;
+    return [h, m, ss].map((n, i) => (i === 0 ? String(n).padStart(2, "0") : String(n).padStart(2, "0"))).join(":");
+  }, [elapsedSec]);
 
   if (!open) return null;
 
+  const containerStyle = isMax
+    ? { inset: 0 }
+    : { top: pos.y, left: pos.x, width: size.w, height: size.h };
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60">
-      <div className="mx-4 w-full max-w-3xl rounded-2xl bg-white p-4 shadow-xl dark:bg-zinc-900">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">{mode === "video" ? "Video Call" : "Audio Call"}</h2>
-          <Button size="sm" variant="outline" onClick={onClose}>End</Button>
+    <div className="fixed inset-0 z-[60] bg-black/50">
+      <div
+        className="fixed z-[70] bg-white dark:bg-zinc-900 shadow-2xl border dark:border-zinc-800 rounded-2xl overflow-hidden"
+        style={containerStyle as any}
+        role="dialog"
+        aria-modal="true"
+      >
+        {/* Title bar */}
+        <div
+          className="flex items-center gap-2 border-b dark:border-zinc-800 px-3 py-2 select-none"
+          onDoubleClick={toggleMax}
+          onPointerDown={onHeaderPointerDown}
+          onPointerMove={onHeaderPointerMove}
+          onPointerUp={onHeaderPointerUp}
+        >
+          <div className="flex items-center gap-2 text-sm">
+            <Clock className="h-4 w-4" />
+            <span className="tabular-nums">{hhmmss}</span>
+          </div>
+          <div className="ml-auto flex items-center gap-1">
+            <Button size="icon" variant="ghost" className="rounded-full" onClick={toggleMax} title={isMax ? "Restore down" : "Maximize"}>
+              {isMax ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </Button>
+            <Button size="sm" variant="outline" onClick={onClose}>End</Button>
+          </div>
         </div>
 
-        {mode === "video" ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            <video ref={localVideoRef} autoPlay muted playsInline className="h-64 w-full rounded-lg bg-black object-cover" />
-            <video ref={remoteVideoRef} autoPlay playsInline className="h-64 w-full rounded-lg bg-black object-cover" />
+        {/* Body */}
+        <div className={`p-3 ${isMax ? "h-[calc(100vh-60px)]" : "h-[calc(100%-44px)]"} flex flex-col gap-3`}>
+          {/* Media area */}
+          <div className="flex-1 grid gap-3 md:grid-cols-2">
+            {mode === "video" ? (
+              <>
+                <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full min-h-[220px] rounded-lg bg-black object-cover" />
+                <video ref={remoteVideoRef} autoPlay playsInline muted={!speakerOn} className="w-full h-full min-h-[220px] rounded-lg bg-black object-cover" />
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
+                  <div className="text-sm text-gray-600 dark:text-gray-300">You (mic {micOn ? "on" : "off"})</div>
+                  <audio ref={localAudioRef} autoPlay muted />
+                </div>
+                <div className="flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
+                  <div className="text-sm text-gray-600 dark:text-gray-300">Peer</div>
+                  <audio ref={remoteAudioRef} autoPlay muted={!speakerOn} />
+                </div>
+              </>
+            )}
           </div>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="flex h-56 w-full items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-              <div className="text-sm text-gray-600 dark:text-gray-300">You (mic on)</div>
-              <audio ref={localAudioRef} autoPlay muted />
-            </div>
-            <div className="flex h-56 w-full items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-              <div className="text-sm text-gray-600 dark:text-gray-300">Peer</div>
-              <audio ref={remoteAudioRef} autoPlay />
-            </div>
-          </div>
-        )}
 
-        <p className="mt-2 text-xs text-gray-500">Use a TURN server in production for reliability.</p>
+          {/* Controls */}
+          <div className="flex items-center justify-center gap-2">
+            <Button size="sm" variant="outline" className="rounded-full" onClick={toggleMic} title="Toggle mic (M)">
+              {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+            </Button>
+            {mode === "video" && (
+              <Button size="sm" variant="outline" className="rounded-full" onClick={toggleCam} title="Toggle camera (C)">
+                {camOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+              </Button>
+            )}
+            <Button size="sm" variant="outline" className="rounded-full" onClick={toggleSpeaker} title="Toggle speaker">
+              {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            </Button>
+            <Button size="sm" variant="destructive" className="rounded-full" onClick={onClose}>End</Button>
+          </div>
+        </div>
+
+        {/* Resize handle (bottom-right) */}
+        {!isMax && (
+          <div
+            className="absolute bottom-1 right-1 h-4 w-4 cursor-nwse-resize opacity-60"
+            onPointerDown={onResizeDown}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeUp}
+            aria-label="Resize"
+            title="Resize"
+          />
+        )}
       </div>
     </div>
   );
