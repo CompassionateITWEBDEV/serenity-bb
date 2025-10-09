@@ -69,6 +69,40 @@ function normalizeProviderRole(r?: string | null): ProviderRole | null {
   return v === "doctor" || v === "nurse" || v === "counselor" ? (v as ProviderRole) : null;
 }
 
+/* ----------------------------- Robust signaling helpers ----------------------------- */
+// subscribe with retry + longer timeout; mark channel as joined to skip later
+async function subscribeWithRetry(
+  ch: ReturnType<typeof sigChannel>,
+  { tries = 3, timeoutMs = 6000, delayMs = 800 }: { tries?: number; timeoutMs?: number; delayMs?: number } = {}
+) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      await ensureSubscribed(ch, timeoutMs);
+      (ch as any)._joined = true; // soft flag for fast path
+      return ch;
+    } catch (e) {
+      if (i === tries - 1) throw e;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  return ch;
+}
+async function getSignalChannel(
+  ref: React.MutableRefObject<ReturnType<typeof sigChannel> | null>,
+  conversationId: string,
+  self = true
+) {
+  let ch = ref.current;
+  if (!ch) {
+    ch = sigChannel(conversationId, self);
+    ref.current = ch;
+  }
+  if (!(ch as any)._joined) {
+    await subscribeWithRetry(ch);
+  }
+  return ch;
+}
+
 /* -------------------------------- Component -------------------------------- */
 export default function ChatBox(props: {
   mode: "staff" | "patient";
@@ -403,49 +437,62 @@ function ChatBoxInner(props: {
   }
   function stopRing() { try { ringAudioRef.current?.pause(); if (ringAudioRef.current) ringAudioRef.current.currentTime = 0; } catch {} }
 
+  // ---- Signaling subscribe (robust) ----
   useEffect(() => {
     if (!conversationId || !me) return;
-    if (signalRef.current) { try { supabase.removeChannel(signalRef.current); } catch {} signalRef.current = null; }
 
-    const ch = sigChannel(conversationId, true);
-    signalRef.current = ch;
+    let mounted = true;
+    (async () => {
+      try {
+        const ch = await getSignalChannel(signalRef, conversationId, true);
 
-    ch
-      .on("broadcast", { event: "ring" }, (p) => {
-        const { room, fromName, mode } = (p.payload || {}) as { room: string; fromName: string; mode: "audio" | "video" };
-        setIncomingCall({ room, fromName: fromName || "Caller", mode: mode || "audio" });
-        playRing(true);
-      })
-      .on("broadcast", { event: "hangup" }, () => { stopRing(); setIncomingCall(null); })
-      .on("broadcast", { event: "answered" }, () => { stopRing(); });
+        ch
+          .on("broadcast", { event: "ring" }, (p) => {
+            if (!mounted) return;
+            const { room, fromName, mode } = (p.payload || {}) as { room: string; fromName: string; mode: "audio" | "video" };
+            setIncomingCall({ room, fromName: fromName || "Caller", mode: mode || "audio" });
+            playRing(true);
+          })
+          .on("broadcast", { event: "hangup" }, () => { if (mounted) { stopRing(); setIncomingCall(null); } })
+          .on("broadcast", { event: "answered" }, () => { if (mounted) stopRing(); });
+      } catch (e) {
+        console.warn("[chat] signaling subscribe failed:", e);
+      }
+    })();
 
-    void ensureSubscribed(ch).catch(() => {});
     return () => {
+      mounted = false;
+      stopRing();
       try { if (signalRef.current) supabase.removeChannel(signalRef.current); } catch {}
       signalRef.current = null;
-      stopRing();
     };
   }, [conversationId, me]);
 
+  // ---- Call actions (await ready channel) ----
   async function startCall(mode: "audio" | "video") {
     if (!conversationId || !me) { alert("Open a conversation first."); return; }
     try {
-      const ch = signalRef.current ?? sigChannel(conversationId, true);
-      await ensureSubscribed(ch);
+      const ch = await getSignalChannel(signalRef, conversationId, true);
       const room = `${conversationId}`;
       callRoomRef.current = room;
       setCallRole("caller"); setCallMode(mode); setShowCall(true); playRing(true);
       await ch.send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name, mode } });
     } catch (e: any) { alert(`Call failed.\n\n${e?.message || "Signaling not ready."}`); }
   }
-  function acceptIncoming(room: string, mode: "audio" | "video") {
+  async function acceptIncoming(room: string, mode: "audio" | "video") {
     callRoomRef.current = room; setCallRole("callee"); setCallMode(mode); setIncomingCall(null); stopRing();
-    try { signalRef.current?.send({ type: "broadcast", event: "answered", payload: { room } }); } catch {}
+    try {
+      const ch = await getSignalChannel(signalRef, conversationId!, true);
+      await ch.send({ type: "broadcast", event: "answered", payload: { room } });
+    } catch {}
     setShowCall(true);
   }
-  function declineIncoming() {
+  async function declineIncoming() {
     setIncomingCall(null); stopRing();
-    try { signalRef.current?.send({ type: "broadcast", event: "hangup", payload: {} }); } catch {}
+    try {
+      const ch = await getSignalChannel(signalRef, conversationId!, true);
+      await ch.send({ type: "broadcast", event: "hangup", payload: {} });
+    } catch {}
   }
 
   /* ---------------- message send/upload ---------------- */
@@ -808,7 +855,14 @@ function ChatBoxInner(props: {
         open={showCall}
         onClose={() => {
           setShowCall(false);
-          try { signalRef.current?.send({ type: "broadcast", event: "hangup", payload: {} }); } catch {}
+          (async () => {
+            try {
+              if (conversationId) {
+                const ch = await getSignalChannel(signalRef, conversationId, true);
+                await ch.send({ type: "broadcast", event: "hangup", payload: {} });
+              }
+            } catch {}
+          })();
         }}
         role={callRole}
         conversationId={conversationId || ""}
@@ -984,6 +1038,7 @@ function CallWindow({
       const ch = sigChannel(conversationId, false);
       chanRef.current = ch;
 
+      // handlers
       ch.on("broadcast", { event: "offer" }, async (p) => {
         const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -1004,7 +1059,8 @@ function CallWindow({
 
       ch.on("broadcast", { event: "hangup" }, () => { if (!ended) cleanup(); });
 
-      await ensureSubscribed(ch);
+      // ensure subscribed (robust)
+      await subscribeWithRetry(ch);
 
       if (role === "caller") {
         const offer = await pc.createOffer();
