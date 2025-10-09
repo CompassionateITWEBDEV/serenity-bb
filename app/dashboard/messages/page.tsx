@@ -9,58 +9,34 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, Phone, Video, Send, Image as ImageIcon, Camera, Mic,
-  MessageCircle, Search, Plus, X, Maximize2, Minimize2, MicOff, VideoOff, Volume2, VolumeX, Clock
+  MessageCircle, Search, Plus, X, Maximize2, Minimize2, MicOff, VideoOff,
+  Volume2, VolumeX, Clock, MonitorUp, MonitorX
 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
 
 /* ------------------------------- Types ---------------------------------- */
 type ProviderRole = "doctor" | "nurse" | "counselor";
-
 type MessageRow = {
-  id: string;
-  conversation_id: string;
-  patient_id: string | null;
-  sender_id: string;
-  sender_name: string;
-  sender_role: "patient" | ProviderRole;
-  content: string;
-  created_at: string;
-  read: boolean;
-  urgent: boolean;
-  meta?: MessageMeta | null;
-  attachment_url?: string | null;
-  attachment_type?: "image" | "audio" | "file" | null;
+  id: string; conversation_id: string; patient_id: string | null;
+  sender_id: string; sender_name: string; sender_role: "patient" | ProviderRole;
+  content: string; created_at: string; read: boolean; urgent: boolean;
+  meta?: MessageMeta | null; attachment_url?: string | null; attachment_type?: "image" | "audio" | "file" | null;
 };
-
 type Conversation = {
-  id: string;
-  patient_id: string;
-  provider_id: string;
-  provider_name: string | null;
-  provider_role: ProviderRole | null;
-  provider_avatar: string | null;
-  last_message: string | null;
-  last_message_at: string | null;
-  created_at: string;
+  id: string; patient_id: string; provider_id: string;
+  provider_name: string | null; provider_role: ProviderRole | null; provider_avatar: string | null;
+  last_message: string | null; last_message_at: string | null; created_at: string;
 };
-
 type StaffRow = {
-  user_id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  role: string | null;
-  phone?: string | null;
-  avatar_url?: string | null;
+  user_id: string; first_name: string | null; last_name: string | null;
+  email: string | null; role: string | null; phone?: string | null; avatar_url?: string | null;
 };
 
 /* ---------------------------- Utils/helpers ----------------------------- */
 function initials(name?: string | null) {
-  const s = (name ?? "").trim();
-  if (!s) return "U";
+  const s = (name ?? "").trim(); if (!s) return "U";
   return s.split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 }
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -68,6 +44,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 /* ------------------------------ Page (PATIENT) -------------------------- */
 export default function DashboardMessagesPage() {
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
+
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [staffDir, setStaffDir] = useState<StaffRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -75,16 +52,12 @@ export default function DashboardMessagesPage() {
   const [q, setQ] = useState("");
   const [compose, setCompose] = useState("");
   const [loading, setLoading] = useState(true);
-  const [providerOnline, setProviderOnline] = useState(false);
 
+  const [providerOnline, setProviderOnline] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   const [draft, setDraft] = useState<{
-    blob: Blob;
-    type: "image" | "audio" | "file";
-    name?: string;
-    previewUrl: string;
-    duration_sec?: number;
+    blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string; duration_sec?: number;
   } | null>(null);
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
@@ -92,10 +65,9 @@ export default function DashboardMessagesPage() {
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
   const [sending, setSending] = useState(false);
 
-  // call state + signaling
+  // Call state
   const [incomingCall, setIncomingCall] = useState<{ fromName: string; room: string; mode: "audio" | "video" } | null>(null);
   const [showCall, setShowCall] = useState(false);
   const [callRole, setCallRole] = useState<"caller" | "callee">("caller");
@@ -103,35 +75,28 @@ export default function DashboardMessagesPage() {
   const callRoomRef = useRef<string | null>(null);
   const ringAudioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Realtime signaling (reused)
   const callChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const callChReadyRef = useRef(false);
 
-  /* ------------------------- Auth + ensure PATIENT ------------------------ */
+  /* ------------------------- Auth ------------------------ */
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
       const uid = au.user?.id;
       if (!uid) { location.href = "/login"; return; }
-
       const { data: p } = await supabase
         .from("patients")
         .select("user_id, first_name, last_name, email")
         .eq("user_id", uid)
         .maybeSingle();
-
-      if (!p?.user_id) {
-        await Swal.fire("Access denied", "This page is for patients.", "error");
-        location.href = "/";
-        return;
-      }
-
+      if (!p?.user_id) { await Swal.fire("Access denied", "This page is for patients.", "error"); location.href = "/"; return; }
       const name = [p.first_name, p.last_name].filter(Boolean).join(" ") || au.user?.email || "Me";
-      setMe({ id: uid, name });
-      setLoading(false);
+      setMe({ id: uid, name }); setLoading(false);
     })();
   }, []);
 
-  /* ------------------------ Load conversations (patient) ------------------ */
+  /* ------------------------ Load convos ------------------ */
   useEffect(() => {
     if (!me) return;
     (async () => {
@@ -145,7 +110,7 @@ export default function DashboardMessagesPage() {
     })();
   }, [me]);
 
-  /* ----------------------------- Staff directory ------------------------- */
+  /* ----------------------------- Staff dir ------------------------- */
   const fetchStaff = useCallback(async () => {
     const { data, error } = await supabase
       .from("staff")
@@ -175,8 +140,7 @@ export default function DashboardMessagesPage() {
 
     const ch = supabase
       .channel(`thread_${selectedId}`, { config: { presence: { key: me.id } } })
-      .on(
-        "postgres_changes",
+      .on("postgres_changes",
         { schema: "public", table: "messages", event: "INSERT", filter: `conversation_id=eq.${selectedId}` },
         (payload) => {
           setMsgs((prev) => [...prev, payload.new as MessageRow]);
@@ -199,13 +163,8 @@ export default function DashboardMessagesPage() {
         setIncomingCall({ room, fromName: fromName || "Caller", mode: mode || "audio" });
         playRing(true);
       })
-      .on("broadcast", { event: "hangup" }, () => {
-        stopRing();
-        setIncomingCall(null);
-      })
-      .on("broadcast", { event: "answered" }, () => {
-        stopRing();
-      });
+      .on("broadcast", { event: "hangup" }, () => { stopRing(); setIncomingCall(null); })
+      .on("broadcast", { event: "answered" }, () => stopRing());
 
     void callCh.subscribe((status) => {
       if (status === "SUBSCRIBED") callChReadyRef.current = true;
@@ -222,20 +181,13 @@ export default function DashboardMessagesPage() {
     };
   }, [selectedId, me]);
 
-  /* ------------------------------ PICKERS -------------------------------- */
+  /* ------------------------------ PICKERS/REC ---------------------------- */
   function openFilePicker() { fileInputRef.current?.click(); }
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      await Swal.fire("Too large", "Please choose a file under 10 MB.", "info");
-      return;
-    }
+    const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { await Swal.fire("Too large", "Please choose a file under 10 MB.", "info"); return; }
     const previewUrl = URL.createObjectURL(file);
-    const kind: "image" | "audio" | "file" =
-      file.type.startsWith("image/") ? "image" :
-      file.type.startsWith("audio/") ? "audio" : "file";
+    const kind: "image" | "audio" | "file" = file.type.startsWith("image/") ? "image" : file.type.startsWith("audio/") ? "audio" : "file";
     setDraft({ blob: file, type: kind, name: file.name, previewUrl });
   }
   async function takePhoto() {
@@ -245,59 +197,38 @@ export default function DashboardMessagesPage() {
       const video = document.createElement("video");
       video.srcObject = stream as any; await video.play();
       const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
-      const ctx = canvas.getContext("2d")!;
-      ctx.drawImage(video, 0, 0);
-      const blob = await new Promise<Blob>((res, rej) =>
-        canvas.toBlob((b) => (b ? res(b) : rej(new Error("No photo"))), "image/jpeg", 0.9)!
-      );
+      canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480;
+      canvas.getContext("2d")!.drawImage(video, 0, 0);
+      const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error("No photo"))), "image/jpeg", 0.9)!);
       const previewUrl = URL.createObjectURL(blob);
       setDraft({ blob, type: "image", name: "photo.jpg", previewUrl });
     } catch (err: any) {
       await Swal.fire("Camera error", err?.message || "Cannot access camera.", "error");
-    } finally {
-      stream?.getTracks().forEach((t) => t.stop());
-    }
+    } finally { stream?.getTracks().forEach((t) => t.stop()); }
   }
   async function toggleRecord() {
     if (recording) { mediaRecRef.current?.stop(); return; }
-    if (typeof window.MediaRecorder === "undefined") {
-      await Swal.fire("Unsupported", "Voice recording isn’t supported by this browser.", "info");
-      return;
-    }
+    if (typeof window.MediaRecorder === "undefined") { await Swal.fire("Unsupported", "Voice recording isn’t supported by this browser.", "info"); return; }
     let stream: MediaStream | null = null;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      await Swal.fire("Permission", "Microphone permission denied.", "info");
-      return;
-    }
-    const mime =
-      MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" :
-      MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
-    chunksRef.current = [];
-    const startedAt = Date.now();
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { await Swal.fire("Permission", "Microphone permission denied.", "info"); return; }
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" :
+                 MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+    chunksRef.current = []; const startedAt = Date.now();
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     rec.ondataavailable = (e) => { if (e.data?.size) chunksRef.current.push(e.data); };
     rec.onstop = () => {
-      stream?.getTracks().forEach((t) => t.stop());
-      setRecording(false);
+      stream?.getTracks().forEach((t) => t.stop()); setRecording(false);
       const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
       const previewUrl = URL.createObjectURL(blob);
       const duration = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
       setDraft({ blob, type: "audio", name: "voice.webm", previewUrl, duration_sec: duration });
     };
-    mediaRecRef.current = rec;
-    setRecording(true);
-    rec.start();
+    mediaRecRef.current = rec; setRecording(true); rec.start();
   }
 
   /* --------------------------------- SEND -------------------------------- */
-  const canSend = useMemo(
-    () => (!!compose.trim() || !!draft) && !!me && !!selectedId && !sending,
-    [compose, draft, me, selectedId, sending]
-  );
+  const canSend = useMemo(() => (!!compose.trim() || !!draft) && !!me && !!selectedId && !sending, [compose, draft, me, selectedId, sending]);
   async function send() {
     if (!me || !selectedId || !canSend) return;
     setSending(true);
@@ -311,22 +242,16 @@ export default function DashboardMessagesPage() {
         } else if (draft.type === "audio") {
           const path = await chatUploadToPath(draft.blob, { conversationId: selectedId, kind: "audio", fileName: draft.name || "voice.webm" });
           meta = { audio_path: path, duration_sec: draft.duration_sec ?? null };
-        } else { meta = {}; }
+        } else meta = {};
       }
-    } catch (e: any) {
-      await Swal.fire("Upload failed", e.message || "Could not upload media.", "error");
-      setSending(false);
-      return;
-    }
+    } catch (e: any) { await Swal.fire("Upload failed", e.message || "Could not upload media.", "error"); setSending(false); return; }
     const content = caption || (meta?.audio_path ? "(voice note)" : meta?.image_path ? "(image)" : "");
     const { error: insErr } = await supabase.from("messages").insert({
       conversation_id: selectedId, patient_id: me.id, sender_id: me.id, sender_name: me.name, sender_role: "patient",
       content, read: false, urgent: false, meta,
     });
     if (insErr) { await Swal.fire("Send failed", insErr.message, "error"); setSending(false); return; }
-    setCompose("");
-    if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
-    setDraft(null);
+    setCompose(""); if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); setDraft(null);
     await supabase.from("conversations").update({ last_message: content || "", last_message_at: new Date().toISOString() }).eq("id", selectedId);
     setSending(false);
   }
@@ -342,12 +267,9 @@ export default function DashboardMessagesPage() {
   function playRing(loop = true) {
     try {
       if (!ringAudioRef.current) {
-        const a = new Audio("data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..."); // replace in prod
-        a.loop = loop;
-        ringAudioRef.current = a;
+        const a = new Audio("data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..."); a.loop = loop; ringAudioRef.current = a;
       }
-      ringAudioRef.current.currentTime = 0;
-      ringAudioRef.current.play().catch(() => {});
+      ringAudioRef.current.currentTime = 0; ringAudioRef.current.play().catch(() => {});
     } catch {}
   }
   function stopRing() { try { ringAudioRef.current?.pause(); if (ringAudioRef.current) ringAudioRef.current.currentTime = 0; } catch {} }
@@ -364,27 +286,17 @@ export default function DashboardMessagesPage() {
       const ch = await ensureSignalReady();
       const room = `${selectedId}`;
       callRoomRef.current = room;
-      setCallRole("caller");
-      setCallMode(mode);
-      setShowCall(true);
-      playRing(true);
+      setCallRole("caller"); setCallMode(mode); setShowCall(true); playRing(true);
       await ch.send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name, mode } });
-    } catch (e: any) {
-      await Swal.fire("Call failed", e?.message || "Signaling not ready.", "error");
-    }
+    } catch (e: any) { await Swal.fire("Call failed", e?.message || "Signaling not ready.", "error"); }
   }
   function acceptIncoming(room: string, mode: "audio" | "video") {
-    callRoomRef.current = room;
-    setCallRole("callee");
-    setCallMode(mode);
-    setIncomingCall(null);
-    stopRing();
+    callRoomRef.current = room; setCallRole("callee"); setCallMode(mode); setIncomingCall(null); stopRing();
     try { callChRef.current?.send({ type: "broadcast", event: "answered", payload: { room } }); } catch {}
     setShowCall(true);
   }
   function declineIncoming() {
-    setIncomingCall(null);
-    stopRing();
+    setIncomingCall(null); stopRing();
     try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: {} }); } catch {}
   }
 
@@ -405,14 +317,7 @@ export default function DashboardMessagesPage() {
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Messages</h1>
           <p className="mt-1 text-gray-600 dark:text-gray-300">Chat with your care team</p>
         </div>
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1"><Plus className="h-4 w-4" /> New chat</Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg">
-            <DialogHeader><DialogTitle>Start new chat</DialogTitle></DialogHeader>
-          </DialogContent>
-        </Dialog>
+        <Button variant="outline" size="sm" className="gap-1"><Plus className="h-4 w-4" /> New chat</Button>
       </div>
 
       <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
@@ -486,10 +391,6 @@ export default function DashboardMessagesPage() {
                 </Avatar>
                 <div className="leading-tight">
                   <div className="font-semibold">{providerInfo.name}</div>
-                  <div className="flex items-center gap-1 text-xs">
-                    <span className={`inline-block h-2 w-2 rounded-full ${providerOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
-                    <span className={providerOnline ? "text-emerald-600" : "text-gray-500"}>{providerOnline ? "Online" : "Offline"}</span>
-                  </div>
                 </div>
                 <div className="ml-auto flex items-center gap-1">
                   <Button variant="ghost" size="icon" className="rounded-full" onClick={() => startCall("audio")} title="Start audio call">
@@ -514,14 +415,10 @@ export default function DashboardMessagesPage() {
               <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-slate-50 to-white dark:from-zinc-900 dark:to-zinc-950">
                 {msgs.map((m) => {
                   const own = m.sender_id === me?.id;
-                  const bubble = own
-                    ? "bg-cyan-500 text-white rounded-2xl px-4 py-2 shadow-sm"
+                  const bubble = own ? "bg-cyan-500 text-white rounded-2xl px-4 py-2 shadow-sm"
                     : "bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 rounded-2xl px-4 py-2 ring-1 ring-gray-200/60 dark:ring-zinc-700/60";
-                  const showText = (() => {
-                    const t = (m.content || "").trim().toLowerCase();
-                    const isPh = t === "(image)" || t === "(photo)" || t === "(voice note)";
-                    return !isPh;
-                  })();
+                  const t = (m.content || "").trim().toLowerCase();
+                  const showText = !(t === "(image)" || t === "(photo)" || t === "(voice note)");
                   return (
                     <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
                       <div className="max-w-[80%]">
@@ -547,41 +444,23 @@ export default function DashboardMessagesPage() {
                       {draft.type === "audio" && <audio controls src={draft.previewUrl} className="h-10 w-[180px]" />}
                       {draft.type === "file"  && <div className="p-3">📎 {draft.name || "file"}</div>}
                     </div>
-                    <button
-                      type="button"
-                      className="ml-auto rounded-full p-1.5 hover:bg-gray-100 dark:hover:bg-zinc-700"
-                      onClick={() => { if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl); setDraft(null); }}
-                      aria-label="Remove attachment"
-                    >
+                    <button type="button" className="ml-auto rounded-full p-1.5 hover:bg-gray-100 dark:hover:bg-zinc-700"
+                      onClick={() => { if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl); setDraft(null); }} aria-label="Remove attachment">
                       <X className="h-4 w-4" />
                     </button>
                   </div>
                 )}
-
                 <div className="flex items-end gap-2">
                   <div className="flex shrink-0 gap-1">
-                    <Button type="button" variant="ghost" size="icon" onClick={openFilePicker} className="rounded-full">
-                      <ImageIcon className="h-5 w-5" />
-                    </Button>
+                    <Button type="button" variant="ghost" size="icon" onClick={openFilePicker} className="rounded-full"><ImageIcon className="h-5 w-5" /></Button>
                     <input ref={fileInputRef} type="file" hidden accept="image/*,audio/*" onChange={onPickFile} />
-                    <Button type="button" variant="ghost" size="icon" onClick={takePhoto} className="rounded-full">
-                      <Camera className="h-5 w-5" />
-                    </Button>
-                    <Button type="button" variant="ghost" size="icon" onClick={toggleRecord} className={`rounded-full ${recording ? "animate-pulse" : ""}`}>
-                      <Mic className="h-5 w-5" />
-                    </Button>
+                    <Button type="button" variant="ghost" size="icon" onClick={takePhoto} className="rounded-full"><Camera className="h-5 w-5" /></Button>
+                    <Button type="button" variant="ghost" size="icon" onClick={toggleRecord} className={`rounded-full ${recording ? "animate-pulse" : ""}`}><Mic className="h-5 w-5" /></Button>
                   </div>
-
-                  <Textarea
-                    placeholder="Type your message…"
-                    value={compose}
-                    onChange={(e) => setCompose(e.target.value)}
+                  <Textarea placeholder="Type your message…" value={compose} onChange={(e) => setCompose(e.target.value)}
                     className="min-h-[44px] max-h-[140px] flex-1 rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700"
-                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
-                  />
-                  <Button onClick={send} disabled={!canSend} className="shrink-0 rounded-2xl h-11 px-4 shadow-md" aria-busy={sending}>
-                    <Send className="h-4 w-4" />
-                  </Button>
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} />
+                  <Button onClick={send} disabled={!canSend} className="shrink-0 rounded-2xl h-11 px-4 shadow-md" aria-busy={sending}><Send className="h-4 w-4" /></Button>
                 </div>
               </div>
             </>
@@ -589,89 +468,86 @@ export default function DashboardMessagesPage() {
         </div>
       </div>
 
+      {/* CALL UI */}
       <CallModal
         open={showCall}
-        onClose={() => {
-          setShowCall(false);
-          stopRing();
-          try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: {} }); } catch {}
-        }}
+        onClose={() => { setShowCall(false); stopRing(); try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: {} }); } catch {} }}
         role={callRole}
         conversationId={selectedId || ""}
         roomId={callRoomRef.current || ""}
         mode={callMode}
+        peerName={providerInfo.name}
+        peerAvatar={providerInfo.avatar}
       />
     </div>
   );
 }
 
-/* ------------------------------- Call Modal ------------------------------ */
+/* ------------------------------- Call Modal (Messenger-like) ------------------------------ */
+type CallUIState = "max" | "window" | "mini";
+
 function CallModal({
-  open,
-  onClose,
-  role,
-  conversationId,
-  roomId,
-  mode,
+  open, onClose, role, conversationId, roomId, mode, peerName, peerAvatar,
 }: {
-  open: boolean;
-  onClose: () => void;
-  role: "caller" | "callee";
-  conversationId: string;
-  roomId: string;
-  mode: "audio" | "video";
+  open: boolean; onClose: () => void; role: "caller" | "callee";
+  conversationId: string; roomId: string; mode: "audio" | "video";
+  peerName: string; peerAvatar?: string;
 }) {
-  const [isMax, setIsMax] = useState(true);
+  const [ui, setUi] = useState<CallUIState>("max");
   const [elapsedSec, setElapsedSec] = useState(0);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(mode === "video");
   const [speakerOn, setSpeakerOn] = useState(true);
+  const [sharing, setSharing] = useState(false);
 
-  // window pos/size for restore mode
+  // window state
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [size, setSize] = useState<{ w: number; h: number }>({ w: 780, h: 520 });
-  const prevWin = useRef<{ pos: { x: number; y: number }; size: { w: number; h: number } } | null>(null);
-  const draggingRef = useRef<{ dx: number; dy: number } | null>(null);
-  const resizingRef = useRef<{ w0: number; h0: number; x0: number; y0: number } | null>(null);
+  const [size, setSize] = useState<{ w: number; h: number }>({ w: 920, h: 600 });
+  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+  const resizeRef = useRef<{ w0: number; h0: number; x0: number; y0: number } | null>(null);
 
+  // media refs
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localAudioRef = useRef<HTMLAudioElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
+  // webrtc/signal
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const screenRef = useRef<MediaStream | null>(null);
   const chanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const timerRef = useRef<number | null>(null);
 
   const pcInit: RTCConfiguration = useMemo(() => ({
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
-      // Replace with real TURN in production
+      // Replace with your TURN in prod
       { urls: ["turn:global.turn.twilio.com:3478?transport=udp"], username: "demo", credential: "demo" },
     ],
   }), []);
 
-  // start/stop timer
+  // timer
   useEffect(() => {
     if (!open) return;
     timerRef.current = window.setInterval(() => setElapsedSec((s) => s + 1), 1000);
     return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } setElapsedSec(0); };
   }, [open]);
 
-  // ESC/micro/cam shortcuts
+  // shortcuts
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === "m") toggleMic();
       if (e.key.toLowerCase() === "c") toggleCam();
+      if (e.key.toLowerCase() === "s") toggleShare();
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // setup WebRTC
+  // setup
   useEffect(() => {
     if (!open || !conversationId || !roomId) return;
 
@@ -692,28 +568,17 @@ function CallModal({
 
       pc.onicecandidate = async (e) => {
         if (e.candidate && chanRef.current) {
-          await chanRef.current.send({
-            type: "broadcast",
-            event: "ice",
-            payload: { room: roomId, candidate: e.candidate },
-          });
+          await chanRef.current.send({ type: "broadcast", event: "ice", payload: { room: roomId, candidate: e.candidate } });
         }
       };
 
-      streamRef.current = await navigator.mediaDevices.getUserMedia(
-        mode === "video" ? { video: true, audio: true } : { audio: true, video: false }
-      );
-      // apply initial mic/cam state
+      streamRef.current = await navigator.mediaDevices.getUserMedia(mode === "video" ? { video: true, audio: true } : { audio: true, video: false });
       streamRef.current.getAudioTracks().forEach((t) => (t.enabled = micOn));
       streamRef.current.getVideoTracks().forEach((t) => (t.enabled = camOn));
-
       streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
 
-      if (mode === "video") {
-        if (localVideoRef.current) localVideoRef.current.srcObject = streamRef.current;
-      } else {
-        if (localAudioRef.current) localAudioRef.current.srcObject = streamRef.current;
-      }
+      if (mode === "video") localVideoRef.current && (localVideoRef.current.srcObject = streamRef.current);
+      else localAudioRef.current && (localAudioRef.current.srcObject = streamRef.current);
 
       const ch = supabase.channel(`video_${conversationId}`, { config: { broadcast: { self: false } } });
       chanRef.current = ch;
@@ -754,6 +619,8 @@ function CallModal({
       ended = true;
       try { chanRef.current && supabase.removeChannel(chanRef.current); } catch {}
       chanRef.current = null;
+      try { screenRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+      screenRef.current = null;
       try { pcRef.current?.getSenders().forEach((s) => { try { s.track?.stop(); } catch {} }); } catch {}
       try { pcRef.current?.close(); } catch {}
       pcRef.current = null;
@@ -766,19 +633,13 @@ function CallModal({
     return () => { if (!ended) cleanup(); };
   }, [open, role, conversationId, roomId, pcInit, onClose, mode, micOn, camOn]);
 
-  // toggles
+  // toggles (WHY: reflect local track state instantly)
   function toggleMic() {
-    setMicOn((v) => {
-      streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !v));
-      return !v;
-    });
+    setMicOn((v) => { streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !v)); return !v; });
   }
   function toggleCam() {
     if (mode !== "video") return;
-    setCamOn((v) => {
-      streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !v));
-      return !v;
-    });
+    setCamOn((v) => { streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !v)); return !v; });
   }
   function toggleSpeaker() {
     setSpeakerOn((v) => {
@@ -787,158 +648,206 @@ function CallModal({
       return !v;
     });
   }
-
-  // window controls
-  function toggleMax() {
-    if (isMax) {
-      prevWin.current = { pos, size };
-      // initial restore position: bottom-right padding
-      const vw = window.innerWidth, vh = window.innerHeight;
-      setPos({ x: vw - size.w - 16, y: vh - size.h - 16 });
-      setIsMax(false);
-    } else {
-      if (prevWin.current) {
-        setPos(prevWin.current.pos);
-        setSize(prevWin.current.size);
-      }
-      setIsMax(true);
+  async function toggleShare() {
+    if (sharing) {
+      try {
+        screenRef.current?.getTracks().forEach((t) => t.stop());
+        screenRef.current = null; setSharing(false);
+      } catch {}
+      return;
     }
+    try {
+      const scr = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
+      screenRef.current = scr; setSharing(true);
+      const track = scr.getVideoTracks()[0];
+      const sender = pcRef.current?.getSenders().find((s) => s.track && s.track.kind === "video");
+      if (sender && track) await sender.replaceTrack(track);
+      scr.getVideoTracks()[0].onended = () => { setSharing(false); const v = streamRef.current?.getVideoTracks()[0]; if (sender && v) sender.replaceTrack(v); };
+    } catch { /* user cancelled */ }
   }
 
-  // drag
-  function onHeaderPointerDown(e: React.PointerEvent) {
-    if (isMax) return;
-    const startX = e.clientX, startY = e.clientY;
-    draggingRef.current = { dx: startX - pos.x, dy: startY - pos.y };
+  // UI movement
+  function onHeaderDown(e: React.PointerEvent) {
+    if (ui === "max") return;
+    dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
-  function onHeaderPointerMove(e: React.PointerEvent) {
-    if (!draggingRef.current || isMax) return;
+  function onHeaderMove(e: React.PointerEvent) {
+    if (!dragRef.current || ui === "max") return;
     const vw = window.innerWidth, vh = window.innerHeight;
-    const nx = clamp(e.clientX - draggingRef.current.dx, 0, vw - size.w);
-    const ny = clamp(e.clientY - draggingRef.current.dy, 0, vh - size.h);
-    setPos({ x: nx, y: ny });
+    setPos({ x: clamp(e.clientX - dragRef.current.dx, 0, vw - size.w), y: clamp(e.clientY - dragRef.current.dy, 0, vh - size.h) });
   }
-  function onHeaderPointerUp(e: React.PointerEvent) {
-    if (!draggingRef.current) return;
-    draggingRef.current = null;
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+  function onHeaderUp(e: React.PointerEvent) {
+    if (!dragRef.current) return; dragRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   }
-
-  // resize (bottom-right handle)
   function onResizeDown(e: React.PointerEvent) {
-    if (isMax) return;
-    resizingRef.current = { w0: size.w, h0: size.h, x0: e.clientX, y0: e.clientY };
+    if (ui !== "window") return;
+    resizeRef.current = { w0: size.w, h0: size.h, x0: e.clientX, y0: e.clientY };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
   function onResizeMove(e: React.PointerEvent) {
-    const st = resizingRef.current;
-    if (!st || isMax) return;
+    const st = resizeRef.current; if (!st || ui !== "window") return;
     const vw = window.innerWidth, vh = window.innerHeight;
-    const newW = clamp(st.w0 + (e.clientX - st.x0), 420, vw - pos.x - 8);
-    const newH = clamp(st.h0 + (e.clientY - st.y0), 320, vh - pos.y - 8);
-    setSize({ w: newW, h: newH });
+    setSize({
+      w: clamp(st.w0 + (e.clientX - st.x0), 540, vw - pos.x - 8),
+      h: clamp(st.h0 + (e.clientY - st.y0), 360, vh - pos.y - 8),
+    });
   }
   function onResizeUp(e: React.PointerEvent) {
-    if (!resizingRef.current) return;
-    resizingRef.current = null;
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    if (!resizeRef.current) return; resizeRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   }
 
   const hhmmss = useMemo(() => {
-    const s = elapsedSec;
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const ss = s % 60;
-    return [h, m, ss].map((n, i) => (i === 0 ? String(n).padStart(2, "0") : String(n).padStart(2, "0"))).join(":");
+    const s = elapsedSec; const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    return [h, m, ss].map((n) => String(n).padStart(2, "0")).join(":");
   }, [elapsedSec]);
 
   if (!open) return null;
 
-  const containerStyle = isMax
-    ? { inset: 0 }
-    : { top: pos.y, left: pos.x, width: size.w, height: size.h };
+  // container style per state
+  const styleMax = { inset: 0 as any };
+  const styleWin = { top: pos.y, left: pos.x, width: size.w, height: size.h } as any;
+  const styleMini = { bottom: 16, right: 16, width: 280, height: 158 } as any;
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/50">
+    <>
+      {/* Backdrop only for max/window */}
+      {ui !== "mini" && <div className="fixed inset-0 z-[60] bg-black/50" />}
+
+      {/* Main call window */}
       <div
-        className="fixed z-[70] bg-white dark:bg-zinc-900 shadow-2xl border dark:border-zinc-800 rounded-2xl overflow-hidden"
-        style={containerStyle as any}
+        className={`fixed z-[70] bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md border dark:border-zinc-800 rounded-2xl overflow-hidden shadow-2xl
+          ${ui === "max" ? "inset-0" : ""}`}
+        style={ui === "max" ? styleMax : ui === "window" ? styleWin : styleMini}
         role="dialog"
         aria-modal="true"
       >
-        {/* Title bar */}
+        {/* Header */}
         <div
-          className="flex items-center gap-2 border-b dark:border-zinc-800 px-3 py-2 select-none"
-          onDoubleClick={toggleMax}
-          onPointerDown={onHeaderPointerDown}
-          onPointerMove={onHeaderPointerMove}
-          onPointerUp={onHeaderPointerUp}
+          className={`flex items-center gap-3 border-b dark:border-zinc-800 px-3 py-2 select-none ${ui !== "max" ? "cursor-default" : ""}`}
+          onDoubleClick={() => setUi((s) => (s === "max" ? "window" : "max"))}
+          onPointerDown={onHeaderDown}
+          onPointerMove={onHeaderMove}
+          onPointerUp={onHeaderUp}
         >
-          <div className="flex items-center gap-2 text-sm">
-            <Clock className="h-4 w-4" />
-            <span className="tabular-nums">{hhmmss}</span>
-          </div>
+          <Avatar className="h-6 w-6"><AvatarImage src={peerAvatar} /><AvatarFallback>{initials(peerName)}</AvatarFallback></Avatar>
+          <div className="text-sm font-medium">{peerName}</div>
+          <div className="ml-2 flex items-center gap-1 text-xs text-gray-500"><Clock className="h-3 w-3" /> <span className="tabular-nums">{hhmmss}</span></div>
           <div className="ml-auto flex items-center gap-1">
-            <Button size="icon" variant="ghost" className="rounded-full" onClick={toggleMax} title={isMax ? "Restore down" : "Maximize"}>
-              {isMax ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-            </Button>
-            <Button size="sm" variant="outline" onClick={onClose}>End</Button>
+            {ui !== "mini" && (
+              <Button size="icon" variant="ghost" className="rounded-full" onClick={() => setUi((s) => (s === "max" ? "window" : "max"))} title={ui === "max" ? "Restore down" : "Maximize"}>
+                {ui === "max" ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={() => setUi("mini")} title="Minimize to bubble">Mini</Button>
+            <Button size="sm" variant="destructive" onClick={onClose}>End</Button>
           </div>
         </div>
 
         {/* Body */}
-        <div className={`p-3 ${isMax ? "h-[calc(100vh-60px)]" : "h-[calc(100%-44px)]"} flex flex-col gap-3`}>
-          {/* Media area */}
-          <div className="flex-1 grid gap-3 md:grid-cols-2">
-            {mode === "video" ? (
-              <>
-                <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full min-h-[220px] rounded-lg bg-black object-cover" />
-                <video ref={remoteVideoRef} autoPlay playsInline muted={!speakerOn} className="w-full h-full min-h-[220px] rounded-lg bg-black object-cover" />
-              </>
-            ) : (
-              <>
-                <div className="flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-                  <div className="text-sm text-gray-600 dark:text-gray-300">You (mic {micOn ? "on" : "off"})</div>
-                  <audio ref={localAudioRef} autoPlay muted />
-                </div>
-                <div className="flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-                  <div className="text-sm text-gray-600 dark:text-gray-300">Peer</div>
-                  <audio ref={remoteAudioRef} autoPlay muted={!speakerOn} />
-                </div>
-              </>
-            )}
-          </div>
+        <div className={`${ui === "max" ? "h-[calc(100vh-48px)]" : "h-[calc(100%-44px)]"} relative`}>
+          {/* Video/audio stage */}
+          {mode === "video" ? (
+            <div className="absolute inset-0 grid place-items-center">
+              <video ref={remoteVideoRef} autoPlay playsInline muted={!speakerOn} className="w-full h-full object-cover" />
+              {/* Local PiP */}
+              <video
+                ref={localVideoRef}
+                autoPlay
+                muted
+                playsInline
+                className="absolute bottom-4 right-4 w-40 h-28 rounded-lg ring-1 ring-white/50 bg-black object-cover"
+              />
+            </div>
+          ) : (
+            <div className="absolute inset-0 grid grid-cols-2 gap-3 p-3">
+              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center">
+                <div className="text-sm text-gray-600 dark:text-gray-300">You (mic {micOn ? "on" : "off"})</div>
+                <audio ref={localAudioRef} autoPlay muted />
+              </div>
+              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center">
+                <div className="text-sm text-gray-600 dark:text-gray-300">Peer</div>
+                <audio ref={remoteAudioRef} autoPlay muted={!speakerOn} />
+              </div>
+            </div>
+          )}
 
-          {/* Controls */}
-          <div className="flex items-center justify-center gap-2">
-            <Button size="sm" variant="outline" className="rounded-full" onClick={toggleMic} title="Toggle mic (M)">
+          {/* Control bar */}
+          <div className="absolute left-1/2 bottom-4 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/90 dark:bg-zinc-900/90 px-2 py-1 shadow-lg border dark:border-zinc-700">
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => setSpeakerOn((v) => { if (remoteAudioRef.current) remoteAudioRef.current.muted = v; if (remoteVideoRef.current) remoteVideoRef.current.muted = v; return !v; })} title="Speaker">
+              {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            </Button>
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => { streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !micOn)); setMicOn(!micOn); }} title="Mic (M)">
               {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
             </Button>
             {mode === "video" && (
-              <Button size="sm" variant="outline" className="rounded-full" onClick={toggleCam} title="Toggle camera (C)">
+              <Button size="sm" variant="outline" className="rounded-full" onClick={() => { streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !camOn)); setCamOn(!camOn); }} title="Camera (C)">
                 {camOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
               </Button>
             )}
-            <Button size="sm" variant="outline" className="rounded-full" onClick={toggleSpeaker} title="Toggle speaker">
-              {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-            </Button>
+            {mode === "video" && (
+              <Button size="sm" variant="outline" className="rounded-full" onClick={toggleShare} title="Share screen (S)">
+                {sharing ? <MonitorX className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
+              </Button>
+            )}
             <Button size="sm" variant="destructive" className="rounded-full" onClick={onClose}>End</Button>
           </div>
-        </div>
 
-        {/* Resize handle (bottom-right) */}
-        {!isMax && (
-          <div
-            className="absolute bottom-1 right-1 h-4 w-4 cursor-nwse-resize opacity-60"
-            onPointerDown={onResizeDown}
-            onPointerMove={onResizeMove}
-            onPointerUp={onResizeUp}
-            aria-label="Resize"
-            title="Resize"
-          />
-        )}
+          {/* Resize handle */}
+          {ui === "window" && (
+            <div
+              className="absolute bottom-1 right-1 h-4 w-4 cursor-nwse-resize opacity-60"
+              onPointerDown={onResizeDown}
+              onPointerMove={onResizeMove}
+              onPointerUp={onResizeUp}
+            />
+          )}
+        </div>
       </div>
+
+      {/* Mini bubble drag (like Messenger) */}
+      {ui === "mini" && (
+        <MiniBubble
+          onClick={() => setUi("window")}
+          onClose={onClose}
+          peerAvatar={peerAvatar}
+          name={peerName}
+        />
+      )}
+    </>
+  );
+}
+
+/* ---------------------------- Mini Bubble ---------------------------- */
+function MiniBubble({ onClick, onClose, peerAvatar, name }: { onClick: () => void; onClose: () => void; peerAvatar?: string; name: string; }) {
+  const [p, setP] = useState({ x: window.innerWidth - 96 - 12, y: window.innerHeight - 96 - 12 });
+  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+  function down(e: React.PointerEvent) {
+    dragRef.current = { dx: e.clientX - p.x, dy: e.clientY - p.y };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+  function move(e: React.PointerEvent) {
+    if (!dragRef.current) return;
+    const nx = clamp(e.clientX - dragRef.current.dx, 8, window.innerWidth - 96 - 8);
+    const ny = clamp(e.clientY - dragRef.current.dy, 8, window.innerHeight - 96 - 8);
+    setP({ x: nx, y: ny });
+  }
+  function up(e: React.PointerEvent) {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+  }
+  return (
+    <div className="fixed z-[80]" style={{ left: p.x, top: p.y, width: 96, height: 96 }}>
+      <button
+        className="relative h-24 w-24 rounded-full ring-2 ring-white/80 shadow-lg overflow-hidden bg-white"
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onDoubleClick={onClick} onClick={onClick}
+        title={`Back to call with ${name}`}
+      >
+        <img src={peerAvatar} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        <span className="absolute bottom-1 right-1 h-5 w-5 rounded-full bg-red-500 text-white text-[10px] grid place-items-center">●</span>
+      </button>
+      <button className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-white shadow ring-1 ring-gray-200 text-xs" onClick={onClose}>✕</button>
     </div>
   );
 }
