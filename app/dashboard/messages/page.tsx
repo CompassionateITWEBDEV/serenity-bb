@@ -1,4 +1,3 @@
-// app/(dashboard)/messages/page.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -11,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, Phone, Video, Send, Image as ImageIcon, Camera, Mic,
   MessageCircle, Search, Plus, X, Maximize2, Minimize2, MicOff, VideoOff,
-  Volume2, VolumeX, Clock, MonitorUp, MonitorX
+  Volume2, VolumeX, Clock, MonitorUp, MonitorX, Users
 } from "lucide-react";
 import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
@@ -54,12 +53,9 @@ export default function DashboardMessagesPage() {
   const [compose, setCompose] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const [providerOnline, setProviderOnline] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const [draft, setDraft] = useState<{
-    blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string; duration_sec?: number;
-  } | null>(null);
+  const [draft, setDraft] = useState<{ blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string; duration_sec?: number; } | null>(null);
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
   const [recording, setRecording] = useState(false);
@@ -76,9 +72,12 @@ export default function DashboardMessagesPage() {
   const callRoomRef = useRef<string | null>(null);
   const ringAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Realtime signaling (reused)
+  // Realtime signaling
   const callChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const callChReadyRef = useRef(false);
+
+  // Sidebar tab
+  const [sidebarTab, setSidebarTab] = useState<"convs" | "staff">("convs");
 
   /* ------------------------- Auth ------------------------ */
   useEffect(() => {
@@ -87,10 +86,8 @@ export default function DashboardMessagesPage() {
       const uid = au.user?.id;
       if (!uid) { location.href = "/login"; return; }
       const { data: p } = await supabase
-        .from("patients")
-        .select("user_id, first_name, last_name, email")
-        .eq("user_id", uid)
-        .maybeSingle();
+        .from("patients").select("user_id, first_name, last_name, email")
+        .eq("user_id", uid).maybeSingle();
       if (!p?.user_id) { await Swal.fire("Access denied", "This page is for patients.", "error"); location.href = "/"; return; }
       const name = [p.first_name, p.last_name].filter(Boolean).join(" ") || au.user?.email || "Me";
       setMe({ id: uid, name }); setLoading(false);
@@ -98,24 +95,24 @@ export default function DashboardMessagesPage() {
   }, []);
 
   /* ------------------------ Load convos ------------------ */
-  useEffect(() => {
-    if (!me) return;
-    (async () => {
-      const { data, error } = await supabase
-        .from("conversations")
-        .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
-        .eq("patient_id", me.id)
-        .order("last_message_at", { ascending: false, nullsFirst: false });
-      if (error) { await Swal.fire("Load error", error.message, "error"); return; }
-      setConvs((data as Conversation[]) || []);
-    })();
-  }, [me]);
+  const reloadConversations = useCallback(async (patientId: string) => {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
+      .eq("patient_id", patientId)
+      .order("last_message_at", { ascending: false, nullsFirst: false });
+    if (error) { await Swal.fire("Load error", error.message, "error"); return; }
+    setConvs((data as Conversation[]) || []);
+  }, []);
+
+  useEffect(() => { if (me?.id) void reloadConversations(me.id); }, [me?.id, reloadConversations]);
 
   /* ----------------------------- Staff dir ------------------------- */
   const fetchStaff = useCallback(async () => {
     const { data, error } = await supabase
       .from("staff")
-      .select("user_id, first_name, last_name, email, role, phone, avatar_url");
+      .select("user_id, first_name, last_name, email, role, phone, avatar_url")
+      .order("first_name", { ascending: true });
     if (error) { await Swal.fire("Load error", error.message, "error"); return; }
     setStaffDir((data as StaffRow[]) || []);
   }, []);
@@ -125,7 +122,6 @@ export default function DashboardMessagesPage() {
   useEffect(() => {
     if (!selectedId || !me) return;
     let alive = true;
-    setProviderOnline(false);
 
     (async () => {
       const { data, error } = await supabase
@@ -167,9 +163,7 @@ export default function DashboardMessagesPage() {
       .on("broadcast", { event: "hangup" }, () => { stopRing(); setIncomingCall(null); })
       .on("broadcast", { event: "answered" }, () => stopRing());
 
-    void callCh.subscribe((status) => {
-      if (status === "SUBSCRIBED") callChReadyRef.current = true;
-    });
+    void callCh.subscribe((status) => { if (status === "SUBSCRIBED") callChReadyRef.current = true; });
 
     return () => {
       alive = false;
@@ -181,6 +175,55 @@ export default function DashboardMessagesPage() {
       stopRing();
     };
   }, [selectedId, me]);
+
+  /* --------------------------------- STAFF → CONVERSATION -------------------------------- */
+  async function ensureConversationWith(providerUserId: string) {
+    if (!me?.id) return;
+    const staff = staffDir.find((s) => s.user_id === providerUserId);
+    const provider_name = [staff?.first_name, staff?.last_name].filter(Boolean).join(" ") || staff?.email || "Staff";
+
+    // try find existing
+    const { data: existing } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("patient_id", me.id)
+      .eq("provider_id", providerUserId)
+      .maybeSingle();
+    if (existing?.id) {
+      setSelectedId(existing.id);
+      setSidebarTab("convs");
+      return;
+    }
+
+    // create/upsert
+    const { data: created, error } = await supabase
+      .from("conversations")
+      .upsert(
+        {
+          patient_id: me.id,
+          provider_id: providerUserId,
+          provider_name,
+          provider_role: (staff?.role as ProviderRole | null) ?? null,
+          provider_avatar: staff?.avatar_url ?? null,
+          last_message: null,
+          last_message_at: new Date().toISOString(),
+        },
+        { onConflict: "patient_id,provider_id" }
+      )
+      .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
+      .single();
+
+    if (error) { await Swal.fire("Cannot start chat", error.message, "error"); return; }
+
+    // optimistic add so it shows immediately
+    const newConv: Conversation = created as any;
+    setConvs((prev) => {
+      const exists = prev.some((c) => c.id === newConv.id);
+      return exists ? prev : [newConv, ...prev];
+    });
+    setSelectedId(newConv.id);
+    setSidebarTab("convs");
+  }
 
   /* ------------------------------ PICKERS/REC ---------------------------- */
   function openFilePicker() { fileInputRef.current?.click(); }
@@ -198,14 +241,13 @@ export default function DashboardMessagesPage() {
       const video = document.createElement("video");
       video.srcObject = stream as any; await video.play();
       const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480;
+      canvas.width = (video as any).videoWidth || 640; canvas.height = (video as any).videoHeight || 480;
       canvas.getContext("2d")!.drawImage(video, 0, 0);
       const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error("No photo"))), "image/jpeg", 0.9)!);
       const previewUrl = URL.createObjectURL(blob);
       setDraft({ blob, type: "image", name: "photo.jpg", previewUrl });
-    } catch (err: any) {
-      await Swal.fire("Camera error", err?.message || "Cannot access camera.", "error");
-    } finally { stream?.getTracks().forEach((t) => t.stop()); }
+    } catch (err: any) { await Swal.fire("Camera error", err?.message || "Cannot access camera.", "error"); }
+    finally { stream?.getTracks().forEach((t) => t.stop()); }
   }
   async function toggleRecord() {
     if (recording) { mediaRecRef.current?.stop(); return; }
@@ -301,13 +343,28 @@ export default function DashboardMessagesPage() {
     try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: {} }); } catch {}
   }
 
+  /* ------------------------------ Lists / filters ------------------------------ */
   const search = q.trim().toLowerCase();
-  const convsSorted = useMemo(() => [...convs].sort((a, b) => (b.last_message_at || b.created_at || "").localeCompare(a.last_message_at || a.created_at || "")), [convs]);
-  const filteredConvs = useMemo(() => convsSorted.filter((c) => {
-    const s = staffDir.find((x) => x.user_id === c.provider_id);
-    const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
-    return search ? name.toLowerCase().includes(search) : true;
-  }), [convsSorted, staffDir, search]);
+
+  const convsSorted = useMemo(
+    () => [...convs].sort((a, b) => (b.last_message_at || b.created_at || "").localeCompare(a.last_message_at || a.created_at || "")),
+    [convs]
+  );
+  const filteredConvs = useMemo(
+    () => convsSorted.filter((c) => {
+      const s = staffDir.find((x) => x.user_id === c.provider_id);
+      const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
+      return search ? name.toLowerCase().includes(search) : true;
+    }),
+    [convsSorted, staffDir, search]
+  );
+  const filteredStaff = useMemo(
+    () => (search ? staffDir.filter((s) => {
+      const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "";
+      return name.toLowerCase().includes(search) || (s.role || "").toLowerCase().includes(search);
+    }) : staffDir),
+    [staffDir, search]
+  );
 
   if (loading) return <div className="p-6">Loading…</div>;
 
@@ -318,7 +375,9 @@ export default function DashboardMessagesPage() {
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Messages</h1>
           <p className="mt-1 text-gray-600 dark:text-gray-300">Chat with your care team</p>
         </div>
-        <Button variant="outline" size="sm" className="gap-1"><Plus className="h-4 w-4" /> New chat</Button>
+        <Button variant="outline" size="sm" className="gap-1" onClick={() => setSidebarTab("staff")} title="Start a new chat">
+          <Plus className="h-4 w-4" /> New chat
+        </Button>
       </div>
 
       <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
@@ -328,46 +387,90 @@ export default function DashboardMessagesPage() {
             <div className="flex items-center gap-2 mb-3">
               <MessageCircle className="h-5 w-5" />
               <div className="font-medium">Conversations</div>
+              <div className="ml-auto flex gap-1">
+                <Button
+                  size="sm"
+                  variant={sidebarTab === "convs" ? "default" : "outline"}
+                  onClick={() => setSidebarTab("convs")}
+                >
+                  Chats
+                </Button>
+                <Button
+                  size="sm"
+                  variant={sidebarTab === "staff" ? "default" : "outline"}
+                  onClick={() => setSidebarTab("staff")}
+                >
+                  <Users className="mr-1 h-4 w-4" /> Staff
+                </Button>
+              </div>
             </div>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input placeholder="Search staff…" className="pl-10" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder={sidebarTab === "convs" ? "Search conversations…" : "Search staff…"} className="pl-10" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto divide-y dark:divide-zinc-800">
-            {filteredConvs.map((c) => {
-              const s = staffDir.find((x) => x.user_id === c.provider_id);
-              const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
-              const avatar = s?.avatar_url ?? undefined;
-              const active = selectedId === c.id;
-              return (
-                <button
-                  key={`conv-${c.id}`}
-                  onClick={() => setSelectedId(c.id)}
-                  className={`w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900 flex items-center gap-3 border-l-4 ${
-                    active ? "border-cyan-500 bg-cyan-50/40 dark:bg-cyan-900/10" : "border-transparent"
-                  }`}
-                >
-                  <Avatar className="h-9 w-9">
-                    <AvatarImage src={avatar} />
-                    <AvatarFallback>{initials(name)}</AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between">
-                      <div className="truncate font-medium">{name}</div>
-                      <div className="text-xs text-gray-500">
-                        {new Date(c.last_message_at ?? c.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            {sidebarTab === "convs" ? (
+              filteredConvs.map((c) => {
+                const s = staffDir.find((x) => x.user_id === c.provider_id);
+                const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
+                const avatar = s?.avatar_url ?? undefined;
+                const active = selectedId === c.id;
+                return (
+                  <button
+                    key={`conv-${c.id}`}
+                    onClick={() => setSelectedId(c.id)}
+                    className={`w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900 flex items-center gap-3 border-l-4 ${active ? "border-cyan-500 bg-cyan-50/40 dark:bg-cyan-900/10" : "border-transparent"}`}
+                  >
+                    <Avatar className="h-9 w-9">
+                      <AvatarImage src={avatar} />
+                      <AvatarFallback>{initials(name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <div className="truncate font-medium">{name}</div>
+                        <div className="text-xs text-gray-500">
+                          {new Date(c.last_message_at ?? c.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="capitalize">{c.provider_role ?? "staff"}</Badge>
+                        <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="capitalize">{c.provider_role ?? "staff"}</Badge>
-                      <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
+                  </button>
+                );
+              })
+            ) : (
+              filteredStaff.map((s) => {
+                const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "Staff";
+                return (
+                  <button
+                    key={`staff-${s.user_id}`}
+                    onClick={() => ensureConversationWith(s.user_id)}
+                    className="w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900 flex items-center gap-3"
+                    title={`Chat with ${name}`}
+                  >
+                    <Avatar className="h-9 w-9">
+                      <AvatarImage src={s.avatar_url || undefined} />
+                      <AvatarFallback>{initials(name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <div className="truncate font-medium">{name}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="capitalize">{s.role || "staff"}</Badge>
+                        <p className="truncate text-xs text-gray-500">{s.email}</p>
+                      </div>
                     </div>
-                  </div>
-                </button>
-              );
-            })}
+                  </button>
+                );
+              })
+            )}
+            {sidebarTab === "convs" && filteredConvs.length === 0 && <div className="p-4 text-sm text-gray-500">No conversations yet.</div>}
+            {sidebarTab === "staff" && filteredStaff.length === 0 && <div className="p-4 text-sm text-gray-500">No staff found.</div>}
           </div>
         </div>
 
@@ -377,7 +480,7 @@ export default function DashboardMessagesPage() {
             <div className="flex flex-1 items-center justify-center">
               <div className="text-center text-gray-500">
                 <MessageCircle className="mx-auto mb-4 h-12 w-12" />
-                <div className="text-lg font-medium">Select a conversation</div>
+                <div className="text-lg font-medium">Select a conversation or pick a staff to start</div>
               </div>
             </div>
           ) : (
@@ -501,19 +604,16 @@ function CallModal({
   const [speakerOn, setSpeakerOn] = useState(true);
   const [sharing, setSharing] = useState(false);
 
-  // window state
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 920, h: 600 });
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
   const resizeRef = useRef<{ w0: number; h0: number; x0: number; y0: number } | null>(null);
 
-  // media refs
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localAudioRef = useRef<HTMLAudioElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
-  // webrtc/signal
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const screenRef = useRef<MediaStream | null>(null);
@@ -528,30 +628,26 @@ function CallModal({
     ],
   }), []);
 
-  // timer
   useEffect(() => {
     if (!open) return;
     timerRef.current = window.setInterval(() => setElapsedSec((s) => s + 1), 1000);
     return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } setElapsedSec(0); };
   }, [open]);
 
-  // shortcuts
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === "m") toggleMic();
-      if (e.key.toLowerCase() === "c") toggleCam();
-      if (e.key.toLowerCase() === "s") toggleShare();
+      if (e.key.toLowerCase() === "m") setMicOn((v) => { streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !v)); return !v; });
+      if (e.key.toLowerCase() === "c") setCamOn((v) => { streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !v)); return !v; });
+      if (e.key.toLowerCase() === "s") void toggleShare();
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // setup
   useEffect(() => {
     if (!open || !conversationId || !roomId) return;
-
     let ended = false;
 
     async function setup() {
@@ -560,11 +656,8 @@ function CallModal({
 
       pc.ontrack = (e) => {
         const [remote] = e.streams;
-        if (mode === "video") {
-          if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remote;
-        } else {
-          if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remote;
-        }
+        if (mode === "video") { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remote; }
+        else { if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remote; }
       };
 
       pc.onicecandidate = async (e) => {
@@ -578,8 +671,8 @@ function CallModal({
       streamRef.current.getVideoTracks().forEach((t) => (t.enabled = camOn));
       streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
 
-      if (mode === "video") localVideoRef.current && (localVideoRef.current.srcObject = streamRef.current);
-      else localAudioRef.current && (localAudioRef.current.srcObject = streamRef.current);
+      if (mode === "video") { if (localVideoRef.current) localVideoRef.current.srcObject = streamRef.current; }
+      else { if (localAudioRef.current) localAudioRef.current.srcObject = streamRef.current; }
 
       const ch = supabase.channel(`video_${conversationId}`, { config: { broadcast: { self: false } } });
       chanRef.current = ch;
@@ -634,59 +727,49 @@ function CallModal({
     return () => { if (!ended) cleanup(); };
   }, [open, role, conversationId, roomId, pcInit, onClose, mode, micOn, camOn]);
 
-  // toggles (WHY: reflect local track state instantly)
-  function toggleMic() {
-    setMicOn((v) => { streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !v)); return !v; });
-  }
-  function toggleCam() {
-    if (mode !== "video") return;
-    setCamOn((v) => { streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !v)); return !v; });
-  }
-  function toggleSpeaker() {
-    setSpeakerOn((v) => {
-      if (remoteAudioRef.current) remoteAudioRef.current.muted = v;
-      if (remoteVideoRef.current) remoteVideoRef.current.muted = v;
-      return !v;
-    });
-  }
   async function toggleShare() {
+    if (mode !== "video") return;
     if (sharing) {
-      try {
-        screenRef.current?.getTracks().forEach((t) => t.stop());
-        screenRef.current = null; setSharing(false);
-      } catch {}
+      try { screenRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+      screenRef.current = null; setSharing(false);
+      const v = streamRef.current?.getVideoTracks()[0];
+      const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
+      if (sender && v) await sender.replaceTrack(v);
       return;
     }
     try {
       const scr = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
       screenRef.current = scr; setSharing(true);
       const track = scr.getVideoTracks()[0];
-      const sender = pcRef.current?.getSenders().find((s) => s.track && s.track.kind === "video");
+      const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
       if (sender && track) await sender.replaceTrack(track);
-      scr.getVideoTracks()[0].onended = () => { setSharing(false); const v = streamRef.current?.getVideoTracks()[0]; if (sender && v) sender.replaceTrack(v); };
-    } catch { /* user cancelled */ }
+      scr.getVideoTracks()[0].onended = async () => {
+        setSharing(false);
+        const v = streamRef.current?.getVideoTracks()[0];
+        if (sender && v) await sender.replaceTrack(v);
+      };
+    } catch {}
   }
 
-  // UI movement
-  function onHeaderDown(e: React.PointerEvent) {
+  function headerDown(e: React.PointerEvent) {
     if (ui === "max") return;
     dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
-  function onHeaderMove(e: React.PointerEvent) {
+  function headerMove(e: React.PointerEvent) {
     if (!dragRef.current || ui === "max") return;
     const vw = window.innerWidth, vh = window.innerHeight;
     setPos({ x: clamp(e.clientX - dragRef.current.dx, 0, vw - size.w), y: clamp(e.clientY - dragRef.current.dy, 0, vh - size.h) });
   }
-  function onHeaderUp(e: React.PointerEvent) {
+  function headerUp(e: React.PointerEvent) {
     if (!dragRef.current) return; dragRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   }
-  function onResizeDown(e: React.PointerEvent) {
+  function resizeDown(e: React.PointerEvent) {
     if (ui !== "window") return;
     resizeRef.current = { w0: size.w, h0: size.h, x0: e.clientX, y0: e.clientY };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
-  function onResizeMove(e: React.PointerEvent) {
+  function resizeMove(e: React.PointerEvent) {
     const st = resizeRef.current; if (!st || ui !== "window") return;
     const vw = window.innerWidth, vh = window.innerHeight;
     setSize({
@@ -694,7 +777,7 @@ function CallModal({
       h: clamp(st.h0 + (e.clientY - st.y0), 360, vh - pos.y - 8),
     });
   }
-  function onResizeUp(e: React.PointerEvent) {
+  function resizeUp(e: React.PointerEvent) {
     if (!resizeRef.current) return; resizeRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   }
 
@@ -705,31 +788,25 @@ function CallModal({
 
   if (!open) return null;
 
-  // container style per state
   const styleMax = { inset: 0 as any };
   const styleWin = { top: pos.y, left: pos.x, width: size.w, height: size.h } as any;
   const styleMini = { bottom: 16, right: 16, width: 280, height: 158 } as any;
 
   return (
     <>
-      {/* Backdrop only for max/window */}
       {ui !== "mini" && <div className="fixed inset-0 z-[60] bg-black/50" />}
 
-      {/* Main call window */}
       <div
-        className={`fixed z-[70] bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md border dark:border-zinc-800 rounded-2xl overflow-hidden shadow-2xl
-          ${ui === "max" ? "inset-0" : ""}`}
+        className={`fixed z-[70] bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md border dark:border-zinc-800 rounded-2xl overflow-hidden shadow-2xl ${ui === "max" ? "inset-0" : ""}`}
         style={ui === "max" ? styleMax : ui === "window" ? styleWin : styleMini}
-        role="dialog"
-        aria-modal="true"
+        role="dialog" aria-modal="true"
       >
-        {/* Header */}
         <div
           className={`flex items-center gap-3 border-b dark:border-zinc-800 px-3 py-2 select-none ${ui !== "max" ? "cursor-default" : ""}`}
           onDoubleClick={() => setUi((s) => (s === "max" ? "window" : "max"))}
-          onPointerDown={onHeaderDown}
-          onPointerMove={onHeaderMove}
-          onPointerUp={onHeaderUp}
+          onPointerDown={headerDown}
+          onPointerMove={headerMove}
+          onPointerUp={headerUp}
         >
           <Avatar className="h-6 w-6"><AvatarImage src={peerAvatar} /><AvatarFallback>{initials(peerName)}</AvatarFallback></Avatar>
           <div className="text-sm font-medium">{peerName}</div>
@@ -745,20 +822,11 @@ function CallModal({
           </div>
         </div>
 
-        {/* Body */}
         <div className={`${ui === "max" ? "h-[calc(100vh-48px)]" : "h-[calc(100%-44px)]"} relative`}>
-          {/* Video/audio stage */}
           {mode === "video" ? (
             <div className="absolute inset-0 grid place-items-center">
-              <video ref={remoteVideoRef} autoPlay playsInline muted={!speakerOn} className="w-full h-full object-cover" />
-              {/* Local PiP */}
-              <video
-                ref={localVideoRef}
-                autoPlay
-                muted
-                playsInline
-                className="absolute bottom-4 right-4 w-40 h-28 rounded-lg ring-1 ring-white/50 bg-black object-cover"
-              />
+              <video ref={remoteVideoRef} autoPlay playsInline muted={!true} className="w-full h-full object-cover" />
+              <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-4 right-4 w-40 h-28 rounded-lg ring-1 ring-white/50 bg-black object-cover" />
             </div>
           ) : (
             <div className="absolute inset-0 grid grid-cols-2 gap-3 p-3">
@@ -768,15 +836,14 @@ function CallModal({
               </div>
               <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center">
                 <div className="text-sm text-gray-600 dark:text-gray-300">Peer</div>
-                <audio ref={remoteAudioRef} autoPlay muted={!speakerOn} />
+                <audio ref={remoteAudioRef} autoPlay />
               </div>
             </div>
           )}
 
-          {/* Control bar */}
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/90 dark:bg-zinc-900/90 px-2 py-1 shadow-lg border dark:border-zinc-700">
-            <Button size="sm" variant="outline" className="rounded-full" onClick={() => setSpeakerOn((v) => { if (remoteAudioRef.current) remoteAudioRef.current.muted = v; if (remoteVideoRef.current) remoteVideoRef.current.muted = v; return !v; })} title="Speaker">
-              {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => { if (remoteAudioRef.current) remoteAudioRef.current.muted = !remoteAudioRef.current.muted; if (remoteVideoRef.current) remoteVideoRef.current.muted = !remoteVideoRef.current.muted; }}>
+              <Volume2 className="h-4 w-4" />
             </Button>
             <Button size="sm" variant="outline" className="rounded-full" onClick={() => { streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !micOn)); setMicOn(!micOn); }} title="Mic (M)">
               {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
@@ -794,34 +861,20 @@ function CallModal({
             <Button size="sm" variant="destructive" className="rounded-full" onClick={onClose}>End</Button>
           </div>
 
-          {/* Resize handle */}
           {ui === "window" && (
-            <div
-              className="absolute bottom-1 right-1 h-4 w-4 cursor-nwse-resize opacity-60"
-              onPointerDown={onResizeDown}
-              onPointerMove={onResizeMove}
-              onPointerUp={onResizeUp}
-            />
+            <div className="absolute bottom-1 right-1 h-4 w-4 cursor-nwse-resize opacity-60" onPointerDown={resizeDown} onPointerMove={resizeMove} onPointerUp={resizeUp} />
           )}
         </div>
       </div>
 
-      {/* Mini bubble drag (like Messenger) */}
-      {ui === "mini" && (
-        <MiniBubble
-          onClick={() => setUi("window")}
-          onClose={onClose}
-          peerAvatar={peerAvatar}
-          name={peerName}
-        />
-      )}
+      {ui === "mini" && (<MiniBubble onClick={() => setUi("window")} onClose={onClose} peerAvatar={peerAvatar} name={peerName} />)}
     </>
   );
 }
 
 /* ---------------------------- Mini Bubble ---------------------------- */
 function MiniBubble({ onClick, onClose, peerAvatar, name }: { onClick: () => void; onClose: () => void; peerAvatar?: string; name: string; }) {
-  const [p, setP] = useState({ x: window.innerWidth - 96 - 12, y: window.innerHeight - 96 - 12 });
+  const [p, setP] = useState({ x: typeof window !== "undefined" ? window.innerWidth - 96 - 12 : 12, y: typeof window !== "undefined" ? window.innerHeight - 96 - 12 : 12 });
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
   function down(e: React.PointerEvent) {
     dragRef.current = { dx: e.clientX - p.x, dy: e.clientY - p.y };
@@ -845,7 +898,8 @@ function MiniBubble({ onClick, onClose, peerAvatar, name }: { onClick: () => voi
         onPointerDown={down} onPointerMove={move} onPointerUp={up} onDoubleClick={onClick} onClick={onClick}
         title={`Back to call with ${name}`}
       >
-        <img src={peerAvatar} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        {peerAvatar ? <img src={peerAvatar} alt="" className="absolute inset-0 h-full w-full object-cover" /> :
+          <div className="absolute inset-0 grid place-items-center bg-gray-100 text-gray-700 text-xl">{initials(name)}</div>}
         <span className="absolute bottom-1 right-1 h-5 w-5 rounded-full bg-red-500 text-white text-[10px] grid place-items-center">●</span>
       </button>
       <button className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-white shadow ring-1 ring-gray-200 text-xs" onClick={onClose}>✕</button>
