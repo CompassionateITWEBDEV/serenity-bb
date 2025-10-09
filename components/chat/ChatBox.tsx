@@ -25,7 +25,7 @@ type MessageRow = {
   created_at: string;
   read: boolean;
   urgent: boolean;
-  attachment_url?: string | null; // storage path OR full URL (legacy)
+  attachment_url?: string | null;
   attachment_type?: "image" | "audio" | "file" | null;
 };
 
@@ -103,6 +103,7 @@ function ChatBoxInner(props: {
   const [typing, setTyping] = useState(false);
 
   const [uploading, setUploading] = useState<{ label: string } | null>(null);
+  const [sending, setSending] = useState<boolean>(false); // prevents double send
   const [recording, setRecording] = useState<boolean>(false);
 
   const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
@@ -118,7 +119,7 @@ function ChatBoxInner(props: {
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  // staged media (before send)
+  // staged media (before send) — preview sits in the composer tray
   const [draft, setDraft] = useState<{ blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string } | null>(null);
   useEffect(
     () => () => {
@@ -251,7 +252,7 @@ function ChatBoxInner(props: {
         { schema: "public", table: "messages", event: "INSERT", filter: `conversation_id=eq.${conversationId}` },
         async (p) => {
           const row = p.new as MessageRow;
-          setMsgs((prev) => (prev.some((x) => x.id === row.id) ? prev : [...prev, row]));
+          setMsgs((prev) => (prev.some((x) => x.id === row.id) ? prev : [...prev, row])); // realtime single truth
           scrollToBottom(true);
           if (row.sender_id !== me.id) {
             ding();
@@ -434,49 +435,30 @@ function ChatBoxInner(props: {
   }, [mode, patientId]);
 
   // derived
-  const canSend = useMemo(() => (!!text.trim() || !!draft) && !!me && !!conversationId, [text, me, conversationId, draft]);
+  const canSend = useMemo(
+    () => (!!text.trim() || !!draft) && !!me && !!conversationId && !sending && !uploading,
+    [text, me, conversationId, draft, sending, uploading]
+  );
   const isOnline = mode === "staff" ? dbOnline || rtOnline || threadOtherPresent : false;
   const otherName = mode === "staff" ? resolvedPatient?.name || patientName || resolvedPatient?.email || "Patient" : providerName || "Provider";
   const otherAvatar = mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
 
-  // DB insert
+  // DB insert (no optimistic append; realtime will add the row)
   async function insertMessage(payload: { content: string; attachment_url?: string | null; attachment_type?: "image" | "audio" | "file" | null }) {
     if (!me || !conversationId) return;
-
-    const optimistic: MessageRow = {
-      id: `tmp-${crypto.randomUUID()}`,
+    const { error } = await supabase.from("messages").insert({
       conversation_id: conversationId,
       patient_id: mode === "patient" ? me.id : patientId,
       sender_id: me.id,
       sender_name: me.name,
       sender_role: me.role,
       content: payload.content,
-      created_at: new Date().toISOString(),
       read: false,
       urgent: false,
       attachment_url: payload.attachment_url ?? null,
       attachment_type: payload.attachment_type ?? null,
-    };
-    setMsgs((m) => [...m, optimistic]);
-    scrollToBottom(true);
-
-    const { error } = await supabase.from("messages").insert({
-      conversation_id: optimistic.conversation_id,
-      patient_id: optimistic.patient_id,
-      sender_id: optimistic.sender_id,
-      sender_name: optimistic.sender_name,
-      sender_role: optimistic.sender_role,
-      content: optimistic.content,
-      read: false,
-      urgent: false,
-      attachment_url: optimistic.attachment_url,
-      attachment_type: optimistic.attachment_type,
     });
-
-    if (error) {
-      setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
-      throw error;
-    }
+    if (error) throw error;
   }
 
   // upload: return storage PATH (not URL)
@@ -496,12 +478,13 @@ function ChatBoxInner(props: {
       if (/not found/i.test(upErr.message)) throw new Error(`Bucket "${CHAT_BUCKET}" not found.`);
       throw upErr;
     }
-    return path; // store only the path
+    return path;
   }
 
-  // send
+  // send (locked + tray cleared after success)
   const send = useCallback(async () => {
     if (!canSend) return;
+    setSending(true);
     const contentText = text.trim();
     setText("");
     try {
@@ -520,12 +503,15 @@ function ChatBoxInner(props: {
         if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
         setDraft(null);
         setUploading(null);
-        return;
+      } else {
+        await insertMessage({ content: contentText });
       }
-      await insertMessage({ content: contentText });
     } catch (err: any) {
       alert(`Failed to send.\n\n${err?.message ?? ""}`);
       setUploading(null);
+      setText((t) => t || contentText); // return text so user can retry
+    } finally {
+      setSending(false);
     }
   }, [canSend, text, draft]);
 
@@ -642,7 +628,6 @@ function ChatBoxInner(props: {
     return !!u && /^https?:\/\//i.test(u);
   }
 
-  // **FIX**: Prefer signed URL first. getPublicUrl is not a permission check.
   async function toUrlFromPath(path: string) {
     try {
       const { data } = await supabase.storage.from(CHAT_BUCKET).createSignedUrl(path, 60 * 60 * 24);
@@ -739,77 +724,85 @@ function ChatBoxInner(props: {
           </div>
         </div>
 
-        {draft && (
-          <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2">
-            <div className="flex items-center gap-2 rounded-xl border bg-white px-2 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-800">
-              <div className="max-h-16 max-w-[160px] overflow-hidden rounded-md ring-1 ring-gray-200 dark:ring-zinc-700">
-                {draft.type === "image" && <img src={draft.previewUrl} alt="preview" className="h-16 w-auto object-cover" />}
-                {draft.type === "audio" && <audio controls src={draft.previewUrl} className="h-10 w-[160px]" />}
-                {draft.type === "file" && <div className="px-2 py-3">📎 {draft.name || "file"}</div>}
-              </div>
-              <button
-                className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-zinc-700"
-                onClick={() => {
-                  if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
-                  setDraft(null);
-                }}
-                aria-label="Remove attachment"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
-
+        {/* Composer (with attachments tray INSIDE) */}
         <div className="border-t bg-white/80 px-3 py-2 backdrop-blur dark:bg-zinc-900/70">
-          <div className="mx-auto flex max-w-xl items-end gap-2">
-            <div className="flex shrink-0 items-center gap-1">
-              <Dialog>
-                <DialogTrigger asChild>
-                  <IconButton aria="Emoji picker">
-                    <Smile className="h-5 w-5" />
-                  </IconButton>
-                </DialogTrigger>
-                <DialogContent className="max-w-sm">
-                  <DialogHeader>
-                    <DialogTitle>Pick an emoji</DialogTitle>
-                  </DialogHeader>
-                  <EmojiGrid onPick={(e) => setText((v) => v + e)} />
-                </DialogContent>
-              </Dialog>
+          <div className="mx-auto max-w-xl">
+            {/* Attachment tray sits above input, not at top of page */}
+            {draft && (
+              <div className="mb-2 flex items-center gap-2 rounded-xl border bg-white px-2 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-800">
+                <div className="max-h-20 max-w-[200px] overflow-hidden rounded-md ring-1 ring-gray-200 dark:ring-zinc-700">
+                  {draft.type === "image" && <img src={draft.previewUrl} alt="preview" className="h-20 w-auto object-cover" />}
+                  {draft.type === "audio" && <audio controls src={draft.previewUrl} className="h-10 w-[180px]" />}
+                  {draft.type === "file" && <div className="px-2 py-3">📎 {draft.name || "file"}</div>}
+                </div>
+                <button
+                  className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-zinc-700"
+                  onClick={() => {
+                    if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+                    setDraft(null);
+                  }}
+                  aria-label="Remove attachment"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+                <div className="ml-auto text-[11px] text-gray-500">{uploading ? uploading.label : "Ready to send"}</div>
+              </div>
+            )}
 
-              <IconButton aria="Attach image" onClick={() => fileInputRef.current?.click()}>
-                <ImageIcon className="h-5 w-5" />
-              </IconButton>
-              <input ref={fileInputRef} type="file" accept="image/*,audio/*" hidden onChange={onPickFile} />
-              <IconButton aria="Camera" onClick={takePhoto}>
-                <Camera className="h-5 w-5" />
-              </IconButton>
-              <IconButton aria="Voice note" onClick={toggleRecord}>
-                <Mic className={`h-5 w-5 ${recording ? "animate-pulse" : ""}`} />
-              </IconButton>
+            <div className="flex items-end gap-2">
+              <div className="flex shrink-0 items-center gap-1">
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <IconButton aria="Emoji picker">
+                      <Smile className="h-5 w-5" />
+                    </IconButton>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                      <DialogTitle>Pick an emoji</DialogTitle>
+                    </DialogHeader>
+                    <EmojiGrid onPick={(e) => setText((v) => v + e)} />
+                  </DialogContent>
+                </Dialog>
+
+                <IconButton aria="Attach image" onClick={() => fileInputRef.current?.click()}>
+                  <ImageIcon className="h-5 w-5" />
+                </IconButton>
+                <input ref={fileInputRef} type="file" accept="image/*,audio/*" hidden onChange={onPickFile} />
+                <IconButton aria="Camera" onClick={takePhoto}>
+                  <Camera className="h-5 w-5" />
+                </IconButton>
+                <IconButton aria="Voice note" onClick={toggleRecord}>
+                  <Mic className={`h-5 w-5 ${recording ? "animate-pulse" : ""}`} />
+                </IconButton>
+              </div>
+
+              <Textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  const enterToSend = settings?.enterToSend ?? true;
+                  if (e.key === "Enter" && !e.shiftKey && enterToSend) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+                onPaste={onPaste}
+                placeholder="Type your message…"
+                className={`min-h-[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${
+                  settings?.density === "compact" ? "text-sm" : ""
+                }`}
+              />
+
+              <Button disabled={!canSend} onClick={send} className="h-11 rounded-2xl px-4 shadow-md" aria-busy={!!uploading || sending}>
+                <Send className="h-4 w-4" />
+              </Button>
             </div>
 
-            <Textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                const enterToSend = settings?.enterToSend ?? true;
-                if (e.key === "Enter" && !e.shiftKey && enterToSend) {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-              onPaste={onPaste}
-              placeholder="Type your message…"
-              className={`min-h-[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${
-                settings?.density === "compact" ? "text-sm" : ""
-              }`}
-            />
-
-            <Button disabled={!canSend} onClick={send} className="h-11 rounded-2xl px-4 shadow-md" aria-busy={!!uploading}>
-              <Send className="h-4 w-4" />
-            </Button>
+            <div className="mt-1 flex items-center justify-between text-[10px] text-gray-500">
+              <span>{settings?.enterToSend ?? true ? "Enter to send • Shift+Enter newline" : "Click Send • Enter newline"}</span>
+              {sending && <span>Sending…</span>}
+            </div>
           </div>
         </div>
       </CardContent>
@@ -918,7 +911,7 @@ function MessageBubble({
             src={attUrl}
             alt="image"
             className="mb-2 max-h-64 w-full rounded-xl object-cover"
-            onError={() => setAttUrl(null)} // hide broken images
+            onError={() => setAttUrl(null)}
           />
         )}
         {m.attachment_type === "audio" && attUrl && (
