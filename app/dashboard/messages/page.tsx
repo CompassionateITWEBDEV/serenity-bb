@@ -54,7 +54,7 @@ type StaffRow = {
   last_name: string | null;
   email: string | null;
   role: string | null;
-  phone?: string | null;        // kept in schema, but not used for calling
+  phone?: string | null;        // schema kept; not used for calling
   avatar_url?: string | null;
 };
 
@@ -67,7 +67,6 @@ function initials(name?: string | null) {
 
 /* ------------------------------ Page (PATIENT) -------------------------- */
 export default function DashboardMessagesPage() {
-  // patient identity only
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
 
   const [convs, setConvs] = useState<Conversation[]>([]);
@@ -83,7 +82,7 @@ export default function DashboardMessagesPage() {
 
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Draft media (staged before sending)
+  // media drafts
   const [draft, setDraft] = useState<{
     blob: Blob;
     type: "image" | "audio" | "file";
@@ -93,16 +92,15 @@ export default function DashboardMessagesPage() {
   } | null>(null);
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
-  // recording
+  // voice recorder
   const [recording, setRecording] = useState(false);
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // sending lock
   const [sending, setSending] = useState(false);
 
-  // call state + ringing
+  // calling state
   const [incomingCall, setIncomingCall] = useState<{ fromName: string; room: string; mode: "audio" | "video" } | null>(null);
   const [showCall, setShowCall] = useState(false);
   const [callRole, setCallRole] = useState<"caller" | "callee">("caller");
@@ -189,13 +187,11 @@ export default function DashboardMessagesPage() {
       )
       .subscribe();
 
-    // Simple presence hint (best-effort)
-    const ping = () => {
-      try { ch.track({ user_id: me.id, at: Date.now() }); } catch {}
-    };
+    // presence hint (best-effort)
+    const ping = () => { try { ch.track({ user_id: me.id, at: Date.now() }); } catch {} };
     const keepAlive = setInterval(ping, 1500); ping();
 
-    // Call signaling + ringing (works for audio and video)
+    // signaling
     const callCh = supabase
       .channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
       .on("broadcast", { event: "ring" }, (p) => {
@@ -292,7 +288,7 @@ export default function DashboardMessagesPage() {
     };
     mediaRecRef.current = rec;
     setRecording(true);
-    rec.start(); // user stops
+    rec.start();
   }
 
   /* --------------------------------- SEND -------------------------------- */
@@ -337,7 +333,7 @@ export default function DashboardMessagesPage() {
 
     const { error: insErr } = await supabase.from("messages").insert({
       conversation_id: selectedId,
-      patient_id: me.id, // patient sender
+      patient_id: me.id,
       sender_id: me.id,
       sender_name: me.name,
       sender_role: "patient",
@@ -380,10 +376,7 @@ export default function DashboardMessagesPage() {
   function playRing(loop = true) {
     try {
       if (!ringAudioRef.current) {
-        // small embedded ding; replace with a proper asset in production
-        const a = new Audio(
-          "data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..." // shortened
-        );
+        const a = new Audio("data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..."); // replace with asset in prod
         a.loop = loop;
         ringAudioRef.current = a;
       }
@@ -393,15 +386,13 @@ export default function DashboardMessagesPage() {
   }
   function stopRing() {
     try {
-      if (ringAudioRef.current) {
-        ringAudioRef.current.pause();
-        ringAudioRef.current.currentTime = 0;
-      }
+      ringAudioRef.current?.pause();
+      if (ringAudioRef.current) ringAudioRef.current.currentTime = 0;
     } catch {}
   }
 
   async function startAudioCall() {
-    // account-to-account audio using WebRTC; no phone needed
+    // WHY: account-to-account audio (no phone number)
     if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
     const room = `${selectedId}`;
     callRoomRef.current = room;
@@ -487,7 +478,6 @@ export default function DashboardMessagesPage() {
           </DialogTrigger>
           <DialogContent className="max-w-lg">
             <DialogHeader><DialogTitle>Start new chat</DialogTitle></DialogHeader>
-            {/* Optional: add patient → provider picker here */}
           </DialogContent>
         </Dialog>
       </div>
@@ -553,7 +543,7 @@ export default function DashboardMessagesPage() {
             </div>
           ) : (
             <>
-              {/* Thread header */}
+              {/* Header */}
               <div className="px-4 py-3 border-b dark:border-zinc-800 flex items-center gap-3">
                 <Button variant="ghost" size="icon" onClick={() => setSelectedId(null)} className="rounded-full lg:hidden">
                   <ChevronLeft className="h-5 w-5" />
@@ -570,10 +560,7 @@ export default function DashboardMessagesPage() {
                   </div>
                 </div>
                 <div className="ml-auto flex items-center gap-1">
-                  <Button
-                    variant="ghost" size="icon" className="rounded-full"
-                    onClick={startAudioCall} title="Start audio call"
-                  >
+                  <Button variant="ghost" size="icon" className="rounded-full" onClick={startAudioCall} title="Start audio call">
                     <Phone className="h-5 w-5" />
                   </Button>
                   <Button variant="ghost" size="icon" className="rounded-full" onClick={startVideoCall} title="Start video call">
@@ -609,11 +596,7 @@ export default function DashboardMessagesPage() {
                     <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
                       <div className="max-w-[80%]">
                         <div className={bubble}>
-                          <MessageMedia
-                            meta={m.meta}
-                            attachment_type={m.attachment_type}
-                            attachment_url={m.attachment_url}
-                          />
+                          <MessageMedia meta={m.meta} attachment_type={m.attachment_type} attachment_url={m.attachment_url} />
                           {showText && <p className="whitespace-pre-wrap break-words">{m.content}</p>}
                           <div className={`mt-1 text-[11px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
                             {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -700,7 +683,7 @@ export default function DashboardMessagesPage() {
 }
 
 /* ------------------------------- Call Modal ------------------------------ */
-/** Why: unify audio & video calls; avoids phone dependency. */
+// WHY: unify audio & video call; no phone dependency.
 function CallModal({
   open,
   onClose,
@@ -760,11 +743,10 @@ function CallModal({
         }
       };
 
-      // Only request tracks needed for the selected mode
+      // Only request tracks we need
       streamRef.current = await navigator.mediaDevices.getUserMedia(
         mode === "video" ? { video: true, audio: true } : { audio: true, video: false }
       );
-
       streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
 
       if (mode === "video") {
@@ -797,9 +779,7 @@ function CallModal({
         try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
       });
 
-      ch.on("broadcast", { event: "hangup" }, () => {
-        if (!ended) cleanup();
-      });
+      ch.on("broadcast", { event: "hangup" }, () => { if (!ended) cleanup(); });
 
       await ch.subscribe();
 
