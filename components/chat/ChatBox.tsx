@@ -25,7 +25,7 @@ type MessageRow = {
   created_at: string;
   read: boolean;
   urgent: boolean;
-  attachment_url?: string | null;
+  attachment_url?: string | null; // storage path OR full URL (legacy)
   attachment_type?: "image" | "audio" | "file" | null;
 };
 
@@ -103,7 +103,7 @@ function ChatBoxInner(props: {
   const [typing, setTyping] = useState(false);
 
   const [uploading, setUploading] = useState<{ label: string } | null>(null);
-  const [sending, setSending] = useState<boolean>(false); // prevents double send
+  const [sending, setSending] = useState<boolean>(false);
   const [recording, setRecording] = useState<boolean>(false);
 
   const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
@@ -119,7 +119,7 @@ function ChatBoxInner(props: {
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  // staged media (before send) — preview sits in the composer tray
+  // staged media (before send)
   const [draft, setDraft] = useState<{ blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string } | null>(null);
   useEffect(
     () => () => {
@@ -252,7 +252,7 @@ function ChatBoxInner(props: {
         { schema: "public", table: "messages", event: "INSERT", filter: `conversation_id=eq.${conversationId}` },
         async (p) => {
           const row = p.new as MessageRow;
-          setMsgs((prev) => (prev.some((x) => x.id === row.id) ? prev : [...prev, row])); // realtime single truth
+          setMsgs((prev) => (prev.some((x) => x.id === row.id) ? prev : [...prev, row]));
           scrollToBottom(true);
           if (row.sender_id !== me.id) {
             ding();
@@ -309,7 +309,7 @@ function ChatBoxInner(props: {
     return () => clearInterval(t);
   }, [text, me]);
 
-  // patient presence
+  // patient presence (unchanged)
   useEffect(() => {
     if (mode !== "patient") return;
     (async () => {
@@ -355,7 +355,7 @@ function ChatBoxInner(props: {
     })();
   }, [mode]);
 
-  // staff presence
+  // staff presence (unchanged)
   useEffect(() => {
     if (mode !== "staff" || !patientId) return;
     let cancelled = false;
@@ -443,7 +443,7 @@ function ChatBoxInner(props: {
   const otherName = mode === "staff" ? resolvedPatient?.name || patientName || resolvedPatient?.email || "Patient" : providerName || "Provider";
   const otherAvatar = mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
 
-  // DB insert (no optimistic append; realtime will add the row)
+  // DB insert **without** optimistic append (prevents duplicates)
   async function insertMessage(payload: { content: string; attachment_url?: string | null; attachment_type?: "image" | "audio" | "file" | null }) {
     if (!me || !conversationId) return;
     const { error } = await supabase.from("messages").insert({
@@ -461,13 +461,14 @@ function ChatBoxInner(props: {
     if (error) throw error;
   }
 
-  // upload: return storage PATH (not URL)
+  // upload: return storage PATH (preserve correct contentType)
   async function uploadToChat(fileOrBlob: Blob, fileName?: string) {
     if (!conversationId || !me) throw new Error("Missing conversation");
     const detected = (fileOrBlob as File).type || (fileOrBlob as any).type || "";
     const extFromName = (fileName || "").split(".").pop() || "";
     const ext =
-      extFromName || (detected.startsWith("image/") ? detected.split("/")[1] : detected ? "webm" : "bin");
+      extFromName ||
+      (detected.startsWith("image/") ? detected.split("/")[1] : detected ? "webm" : "bin");
     const path = `${conversationId}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
 
     const { error: upErr } = await supabase.storage.from(CHAT_BUCKET).upload(path, fileOrBlob, {
@@ -481,7 +482,7 @@ function ChatBoxInner(props: {
     return path;
   }
 
-  // send (locked + tray cleared after success)
+  // send
   const send = useCallback(async () => {
     if (!canSend) return;
     setSending(true);
@@ -492,7 +493,12 @@ function ChatBoxInner(props: {
         setUploading({ label: "Sending…" });
         const storagePath = await uploadToChat(
           draft.blob,
-          draft.name || (draft.type === "image" ? "image.jpg" : draft.type === "audio" ? "voice.webm" : "file.bin")
+          draft.name ||
+            (draft.type === "image"
+              ? "image.jpg"
+              : draft.type === "audio"
+              ? "voice.webm"
+              : "file.bin")
         );
         const content = draft.type === "audio" ? contentText || "(voice note)" : contentText;
         await insertMessage({
@@ -509,13 +515,13 @@ function ChatBoxInner(props: {
     } catch (err: any) {
       alert(`Failed to send.\n\n${err?.message ?? ""}`);
       setUploading(null);
-      setText((t) => t || contentText); // return text so user can retry
+      setText((t) => t || contentText);
     } finally {
       setSending(false);
     }
   }, [canSend, text, draft]);
 
-  // attachment pick/capture/record
+  // pick/capture/record
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -532,6 +538,7 @@ function ChatBoxInner(props: {
       : "file";
     setDraft({ blob: file, type: kind, name: file.name, previewUrl });
   }
+
   async function takePhoto() {
     if (!me || !conversationId) return;
     let stream: MediaStream | null = null;
@@ -556,9 +563,14 @@ function ChatBoxInner(props: {
       stream?.getTracks().forEach((t) => t.stop());
     }
   }
+
+  // Voice: user controls duration (start/stop). No timeslice → no auto 2s cutoff.
   async function toggleRecord() {
     if (recording) {
-      mediaRecRef.current?.stop();
+      // stop
+      try {
+        mediaRecRef.current?.stop();
+      } catch {}
       return;
     }
     if (!me || !conversationId) return;
@@ -578,6 +590,7 @@ function ChatBoxInner(props: {
       : MediaRecorder.isTypeSupported("audio/webm")
       ? "audio/webm"
       : "";
+
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     chunksRef.current = [];
     rec.ondataavailable = (e) => {
@@ -592,10 +605,10 @@ function ChatBoxInner(props: {
     };
     mediaRecRef.current = rec;
     setRecording(true);
-    rec.start();
+    rec.start(); // runs until user clicks mic again -> stop()
   }
 
-  // clipboard paste -> image
+  // clipboard paste -> image to draft
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const file = Array.from(e.clipboardData.files || [])[0];
     if (file && file.type.startsWith("image/")) {
@@ -724,10 +737,9 @@ function ChatBoxInner(props: {
           </div>
         </div>
 
-        {/* Composer (with attachments tray INSIDE) */}
+        {/* PREVIEW TRAY MOVED HERE (inside composer) */}
         <div className="border-t bg-white/80 px-3 py-2 backdrop-blur dark:bg-zinc-900/70">
           <div className="mx-auto max-w-xl">
-            {/* Attachment tray sits above input, not at top of page */}
             {draft && (
               <div className="mb-2 flex items-center gap-2 rounded-xl border bg-white px-2 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-800">
                 <div className="max-h-20 max-w-[200px] overflow-hidden rounded-md ring-1 ring-gray-200 dark:ring-zinc-700">
@@ -745,7 +757,6 @@ function ChatBoxInner(props: {
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
-                <div className="ml-auto text-[11px] text-gray-500">{uploading ? uploading.label : "Ready to send"}</div>
               </div>
             )}
 
@@ -765,14 +776,14 @@ function ChatBoxInner(props: {
                   </DialogContent>
                 </Dialog>
 
-                <IconButton aria="Attach image" onClick={() => fileInputRef.current?.click()}>
+                <IconButton aria="Attach image or audio" onClick={() => fileInputRef.current?.click()}>
                   <ImageIcon className="h-5 w-5" />
                 </IconButton>
                 <input ref={fileInputRef} type="file" accept="image/*,audio/*" hidden onChange={onPickFile} />
                 <IconButton aria="Camera" onClick={takePhoto}>
                   <Camera className="h-5 w-5" />
                 </IconButton>
-                <IconButton aria="Voice note" onClick={toggleRecord}>
+                <IconButton aria={recording ? "Stop voice recording" : "Start voice recording"} onClick={toggleRecord}>
                   <Mic className={`h-5 w-5 ${recording ? "animate-pulse" : ""}`} />
                 </IconButton>
               </div>
@@ -801,7 +812,7 @@ function ChatBoxInner(props: {
 
             <div className="mt-1 flex items-center justify-between text-[10px] text-gray-500">
               <span>{settings?.enterToSend ?? true ? "Enter to send • Shift+Enter newline" : "Click Send • Enter newline"}</span>
-              {sending && <span>Sending…</span>}
+              {(sending || uploading) && <span>Sending…</span>}
             </div>
           </div>
         </div>
@@ -911,7 +922,7 @@ function MessageBubble({
             src={attUrl}
             alt="image"
             className="mb-2 max-h-64 w-full rounded-xl object-cover"
-            onError={() => setAttUrl(null)}
+            onError={() => setAttUrl(null)} // hide broken images
           />
         )}
         {m.attachment_type === "audio" && attUrl && (
