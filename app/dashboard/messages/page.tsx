@@ -54,7 +54,7 @@ type StaffRow = {
   last_name: string | null;
   email: string | null;
   role: string | null;
-  phone?: string | null;        // schema kept; not used for calling
+  phone?: string | null; // not used for calling
   avatar_url?: string | null;
 };
 
@@ -82,7 +82,7 @@ export default function DashboardMessagesPage() {
 
   const listRef = useRef<HTMLDivElement>(null);
 
-  // media drafts
+  // drafts
   const [draft, setDraft] = useState<{
     blob: Blob;
     type: "image" | "audio" | "file";
@@ -92,7 +92,7 @@ export default function DashboardMessagesPage() {
   } | null>(null);
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
-  // voice recorder
+  // recorder
   const [recording, setRecording] = useState(false);
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -107,6 +107,10 @@ export default function DashboardMessagesPage() {
   const [callMode, setCallMode] = useState<"audio" | "video">("audio");
   const callRoomRef = useRef<string | null>(null);
   const ringAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // **Signaling channel (reused & subscribed)**
+  const callChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const callChReadyRef = useRef(false);
 
   /* ------------------------- Auth + ensure PATIENT ------------------------ */
   useEffect(() => {
@@ -157,7 +161,7 @@ export default function DashboardMessagesPage() {
   }, []);
   useEffect(() => { if (me) void fetchStaff(); }, [me, fetchStaff]);
 
-  /* -------------------- Open/subscribe a conversation thread -------------- */
+  /* --------- Thread: messages + presence + signaling subscribe ----------- */
   useEffect(() => {
     if (!selectedId || !me) return;
     let alive = true;
@@ -184,16 +188,19 @@ export default function DashboardMessagesPage() {
           setMsgs((prev) => [...prev, payload.new as MessageRow]);
           requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current!.scrollHeight, behavior: "smooth" }));
         }
-      )
-      .subscribe();
+      );
+    void ch.subscribe();
 
-    // presence hint (best-effort)
+    // presence ping (best-effort)
     const ping = () => { try { ch.track({ user_id: me.id, at: Date.now() }); } catch {} };
     const keepAlive = setInterval(ping, 1500); ping();
 
-    // signaling
-    const callCh = supabase
-      .channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
+    // **Signaling channel – subscribe once per conversation**
+    callChReadyRef.current = false;
+    const callCh = supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } });
+    callChRef.current = callCh;
+
+    callCh
       .on("broadcast", { event: "ring" }, (p) => {
         const { room, fromName, mode } = (p.payload || {}) as { room: string; fromName: string; mode: "audio" | "video" };
         setIncomingCall({ room, fromName: fromName || "Caller", mode: mode || "audio" });
@@ -205,14 +212,19 @@ export default function DashboardMessagesPage() {
       })
       .on("broadcast", { event: "answered" }, () => {
         stopRing();
-      })
-      .subscribe();
+      });
+
+    void callCh.subscribe((status) => {
+      if (status === "SUBSCRIBED") callChReadyRef.current = true;
+    });
 
     return () => {
       alive = false;
       clearInterval(keepAlive);
       try { supabase.removeChannel(ch); } catch {}
-      try { supabase.removeChannel(callCh); } catch {}
+      try { if (callChRef.current) supabase.removeChannel(callChRef.current); } catch {}
+      callChRef.current = null;
+      callChReadyRef.current = false;
       stopRing();
     };
   }, [selectedId, me]);
@@ -376,12 +388,13 @@ export default function DashboardMessagesPage() {
   function playRing(loop = true) {
     try {
       if (!ringAudioRef.current) {
-        const a = new Audio("data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..."); // replace with asset in prod
+        const a = new Audio("data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..."); // replace in production
         a.loop = loop;
         ringAudioRef.current = a;
       }
       ringAudioRef.current.currentTime = 0;
-      void ringAudioRef.current.play();
+      // Autoplay policy: play only after a user gesture (the click that opened call)
+      ringAudioRef.current.play().catch(() => {});
     } catch {}
   }
   function stopRing() {
@@ -391,34 +404,36 @@ export default function DashboardMessagesPage() {
     } catch {}
   }
 
-  async function startAudioCall() {
-    // WHY: account-to-account audio (no phone number)
-    if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
-    const room = `${selectedId}`;
-    callRoomRef.current = room;
-    setCallRole("caller");
-    setCallMode("audio");
-    setShowCall(true);
-    playRing(true);
-    try {
-      await supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
-        .send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name, mode: "audio" } });
-    } catch {}
+  // helper: wait until signaling channel is ready
+  async function ensureSignalReady() {
+    const deadline = Date.now() + 4000;
+    while (!callChReadyRef.current && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (!callChReadyRef.current || !callChRef.current) {
+      throw new Error("Signaling not ready");
+    }
+    return callChRef.current;
   }
 
-  async function startVideoCall() {
+  async function startCall(mode: "audio" | "video") {
     if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
-    const room = `${selectedId}`;
-    callRoomRef.current = room;
-    setCallRole("caller");
-    setCallMode("video");
-    setShowCall(true);
-    playRing(true);
     try {
-      await supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
-        .send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name, mode: "video" } });
-    } catch {}
+      const ch = await ensureSignalReady();
+      const room = `${selectedId}`;
+      callRoomRef.current = room;
+      setCallRole("caller");
+      setCallMode(mode);
+      setShowCall(true);
+      playRing(true);
+      await ch.send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name, mode } });
+    } catch (e: any) {
+      await Swal.fire("Call failed", e?.message || "Signaling not ready.", "error");
+    }
   }
+
+  function startAudioCall() { void startCall("audio"); }
+  function startVideoCall() { void startCall("video"); }
 
   function acceptIncoming(room: string, mode: "audio" | "video") {
     callRoomRef.current = room;
@@ -426,20 +441,14 @@ export default function DashboardMessagesPage() {
     setCallMode(mode);
     setIncomingCall(null);
     stopRing();
-    void supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
-      .send({ type: "broadcast", event: "answered", payload: { room } });
+    try { callChRef.current?.send({ type: "broadcast", event: "answered", payload: { room } }); } catch {}
     setShowCall(true);
   }
 
   function declineIncoming() {
     setIncomingCall(null);
     stopRing();
-    try {
-      if (selectedId) {
-        supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
-          .send({ type: "broadcast", event: "hangup", payload: {} });
-      }
-    } catch {}
+    try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: {} }); } catch {}
   }
 
   /* --------------------------------- UI ---------------------------------- */
@@ -660,18 +669,13 @@ export default function DashboardMessagesPage() {
         </div>
       </div>
 
-      {/* Call Modal (audio or video) */}
+      {/* Call Modal */}
       <CallModal
         open={showCall}
         onClose={() => {
           setShowCall(false);
           stopRing();
-          try {
-            if (selectedId) {
-              supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
-                .send({ type: "broadcast", event: "hangup", payload: {} });
-            }
-          } catch {}
+          try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: {} }); } catch {}
         }}
         role={callRole}
         conversationId={selectedId || ""}
@@ -683,7 +687,6 @@ export default function DashboardMessagesPage() {
 }
 
 /* ------------------------------- Call Modal ------------------------------ */
-// WHY: unify audio & video call; no phone dependency.
 function CallModal({
   open,
   onClose,
@@ -708,10 +711,12 @@ function CallModal({
   const streamRef = useRef<MediaStream | null>(null);
   const chanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
+  // WHY: add TURN for NAT traversal
   const pcInit: RTCConfiguration = useMemo(() => ({
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:global.stun.twilio.com:3478?transport=udp" },
+      // Replace with your TURN in production (Twilio / Coturn)
+      { urls: ["turn:global.turn.twilio.com:3478?transport=udp"], username: "demo", credential: "demo" },
     ],
   }), []);
 
@@ -743,12 +748,10 @@ function CallModal({
         }
       };
 
-      // Only request tracks we need
       streamRef.current = await navigator.mediaDevices.getUserMedia(
         mode === "video" ? { video: true, audio: true } : { audio: true, video: false }
       );
       streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
-
       if (mode === "video") {
         if (localVideoRef.current) localVideoRef.current.srcObject = streamRef.current;
       } else {
@@ -781,7 +784,7 @@ function CallModal({
 
       ch.on("broadcast", { event: "hangup" }, () => { if (!ended) cleanup(); });
 
-      await ch.subscribe();
+      await ch.subscribe(); // IMPORTANT: subscribe before sending/offer
 
       if (role === "caller") {
         const offer = await pc.createOffer();
