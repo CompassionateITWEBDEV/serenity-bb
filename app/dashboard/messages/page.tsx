@@ -21,7 +21,7 @@ import { chatUploadToPath } from "@/lib/chat/storage";
 /* ------------------------------- Types ---------------------------------- */
 type ProviderRole = "doctor" | "nurse" | "counselor";
 
-export type MessageRow = {
+type MessageRow = {
   id: string;
   conversation_id: string;
   patient_id: string | null;
@@ -32,9 +32,9 @@ export type MessageRow = {
   created_at: string;
   read: boolean;
   urgent: boolean;
-  meta?: MessageMeta | null;                           // new schema
-  attachment_url?: string | null;                     // legacy
-  attachment_type?: "image" | "audio" | "file" | null;// legacy
+  meta?: MessageMeta | null;
+  attachment_url?: string | null;
+  attachment_type?: "image" | "audio" | "file" | null;
 };
 
 type Conversation = {
@@ -49,16 +49,23 @@ type Conversation = {
   created_at: string;
 };
 
-type StaffRow = {
+type PatientRow = {
   user_id: string;
   first_name: string | null;
   last_name: string | null;
   email: string | null;
-  title: string | null;
-  department: string | null;
+  phone?: string | null;
+  avatar_url?: string | null;
+};
+
+type StaffProfile = {
+  user_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
   role: string | null;
-  avatar_url: string | null;
-  active: boolean | null;
+  phone?: string | null;
+  avatar_url?: string | null;
 };
 
 /* ---------------------------- Utils/helpers ----------------------------- */
@@ -79,13 +86,16 @@ function upsertConversation(list: Conversation[], row: Conversation): Conversati
   if (i === -1) return [row, ...list];
   const next = list.slice(); next[i] = { ...next[i], ...row }; return next;
 }
+function sanitizePhone(n?: string | null) {
+  return (n ?? "").replace(/[^\d+]/g, "");
+}
 
 /* ------------------------------ Page ------------------------------------ */
-export default function PatientMessagesPage() {
-  const [me, setMe] = useState<{ id: string; name: string } | null>(null);
+export default function DashboardMessagesPage() {
+  const [me, setMe] = useState<{ id: string; name: string; phone?: string | null; role: ProviderRole } | null>(null);
 
   const [convs, setConvs] = useState<Conversation[]>([]);
-  const [staffDir, setStaffDir] = useState<StaffRow[]>([]);
+  const [patients, setPatients] = useState<PatientRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
 
@@ -93,11 +103,11 @@ export default function PatientMessagesPage() {
   const [compose, setCompose] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const [providerOnline, setProviderOnline] = useState(false);
+  const [patientOnline, setPatientOnline] = useState(false);
 
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Draft media (staged before sending) — lives in composer tray
+  // Draft media (staged before sending)
   const [draft, setDraft] = useState<{
     blob: Blob;
     type: "image" | "audio" | "file";
@@ -113,63 +123,69 @@ export default function PatientMessagesPage() {
   const chunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // sending lock (prevents double insert)
+  // sending lock
   const [sending, setSending] = useState(false);
 
-  /* ------------------------- Auth + ensure patient ------------------------ */
+  // call state
+  const [incomingCall, setIncomingCall] = useState<{ fromName: string; room: string } | null>(null);
+  const [showVideo, setShowVideo] = useState(false);
+  const [videoRole, setVideoRole] = useState<"caller" | "callee">("caller");
+  const videoRoomRef = useRef<string | null>(null);
+
+  /* ------------------------- Auth + ensure staff -------------------------- */
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
       const uid = au.user?.id;
       if (!uid) { location.href = "/login"; return; }
-      const { data: p } = await supabase
-        .from("patients")
-        .select("user_id, first_name, last_name, email")
+
+      const { data: s } = await supabase
+        .from("staff")
+        .select("user_id, first_name, last_name, email, role, phone, avatar_url")
         .eq("user_id", uid)
         .maybeSingle();
 
-      if (!p?.user_id) {
-        await Swal.fire("Access denied", "This page is for patients.", "error");
+      if (!s?.user_id) {
+        await Swal.fire("Access denied", "This page is for staff.", "error");
         location.href = "/";
         return;
       }
 
-      const name = [p.first_name, p.last_name].filter(Boolean).join(" ") || au.user?.email || "Me";
-      setMe({ id: uid, name });
+      const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "Me";
+      setMe({ id: uid, name, phone: (s as StaffProfile).phone ?? null, role: toProviderRole(s.role ?? "") });
       setLoading(false);
     })();
   }, []);
 
-  /* ------------------------ Load conversations (patient) ------------------ */
+  /* ------------------------ Load conversations (staff) -------------------- */
   useEffect(() => {
     if (!me) return;
     (async () => {
       const { data, error } = await supabase
         .from("conversations")
         .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
-        .eq("patient_id", me.id)
+        .eq("provider_id", me.id)
         .order("last_message_at", { ascending: false, nullsFirst: false });
       if (error) { await Swal.fire("Load error", error.message, "error"); return; }
       setConvs((data as Conversation[]) || []);
     })();
   }, [me]);
 
-  /* ----------------------------- Staff directory ------------------------- */
-  const fetchStaff = useCallback(async () => {
+  /* ----------------------------- Patients cache -------------------------- */
+  const fetchPatients = useCallback(async () => {
     const { data, error } = await supabase
-      .from("staff")
-      .select("user_id, first_name, last_name, email, title, department, role, avatar_url, active")
-      .order("first_name", { ascending: true });
+      .from("patients")
+      .select("user_id, first_name, last_name, email, phone, avatar_url");
     if (error) { await Swal.fire("Load error", error.message, "error"); return; }
-    setStaffDir((data as StaffRow[]) || []);
+    setPatients((data as PatientRow[]) || []);
   }, []);
-  useEffect(() => { if (me) void fetchStaff(); }, [me, fetchStaff]);
+  useEffect(() => { if (me) void fetchPatients(); }, [me, fetchPatients]);
 
   /* -------------------- Open/subscribe a conversation thread -------------- */
   useEffect(() => {
     if (!selectedId || !me) return;
     let alive = true;
-    setProviderOnline(false);
+    setPatientOnline(false);
 
     (async () => {
       const { data, error } = await supabase
@@ -201,48 +217,33 @@ export default function PatientMessagesPage() {
           }
         }
       )
+      .on("presence", { event: "sync" }, () => {
+        try {
+          const ps = ch.presenceState() as any;
+          const others = Object.entries(ps).flatMap(([, v]: any) => v) as any[];
+          setPatientOnline(others.some((x) => x.user_id && x.user_id !== me.id));
+        } catch {}
+      })
       .subscribe();
 
-    const keepAlive = setInterval(() => {
-      try { ch.track({ uid: me.id, at: Date.now(), status: "idle" }); } catch {}
-    }, 1500);
+    // Video signaling
+    const videoCh = supabase
+      .channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
+      .on("broadcast", { event: "ring" }, (p) => {
+        const { room, fromName } = (p.payload || {}) as { room: string; fromName: string };
+        setIncomingCall({ room, fromName: fromName || "Caller" });
+      })
+      .on("broadcast", { event: "hangup" }, () => {
+        setIncomingCall(null);
+      })
+      .subscribe();
 
     return () => {
       alive = false;
-      clearInterval(keepAlive);
       try { supabase.removeChannel(ch); } catch {}
+      try { supabase.removeChannel(videoCh); } catch {}
     };
   }, [selectedId, me]);
-
-  /* ------------------------- Start a new conversation --------------------- */
-  const [starting, setStarting] = useState(false);
-  const startChatWith = useCallback(async (staff: StaffRow) => {
-    if (!me || starting) return;
-    setStarting(true);
-    try {
-      const { data: created, error } = await supabase
-        .from("conversations")
-        .upsert(
-          {
-            patient_id: me.id,
-            provider_id: staff.user_id,
-            provider_name: [staff.first_name, staff.last_name].filter(Boolean).join(" ") || staff.email || "Staff",
-            provider_role: toProviderRole(staff.role ?? ""),
-            provider_avatar: staff.avatar_url ?? null,
-          },
-          { onConflict: "patient_id,provider_id" }
-        )
-        .select("*")
-        .single();
-      if (error) throw error;
-      setConvs((prev) => upsertConversation(prev, created as any));
-      setSelectedId(created!.id);
-    } catch (e: any) {
-      await Swal.fire("Could not start chat", e.message || String(e), "error");
-    } finally {
-      setStarting(false);
-    }
-  }, [me, starting]);
 
   /* ------------------------------ PICKERS -------------------------------- */
   function openFilePicker() { fileInputRef.current?.click(); }
@@ -291,7 +292,6 @@ export default function PatientMessagesPage() {
       await Swal.fire("Unsupported", "Voice recording isn’t supported by this browser.", "info");
       return;
     }
-
     let stream: MediaStream | null = null;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -299,11 +299,9 @@ export default function PatientMessagesPage() {
       await Swal.fire("Permission", "Microphone permission denied.", "info");
       return;
     }
-
     const mime =
       MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" :
       MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
-
     chunksRef.current = [];
     const startedAt = Date.now();
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
@@ -318,7 +316,7 @@ export default function PatientMessagesPage() {
     };
     mediaRecRef.current = rec;
     setRecording(true);
-    rec.start(); // user decides when to stop; no auto 2s clips
+    rec.start(); // user stops
   }
 
   /* --------------------------------- SEND -------------------------------- */
@@ -332,7 +330,6 @@ export default function PatientMessagesPage() {
     setSending(true);
     const caption = compose.trim();
 
-    // Upload if there's a draft → get a STORAGE PATH and write into meta.*
     let meta: MessageMeta | null = null;
     try {
       if (draft) {
@@ -351,7 +348,6 @@ export default function PatientMessagesPage() {
           });
           meta = { audio_path: path, duration_sec: draft.duration_sec ?? null };
         } else {
-          // generic file → keep legacy if you support it elsewhere, or extend meta
           meta = {};
         }
       }
@@ -361,17 +357,16 @@ export default function PatientMessagesPage() {
       return;
     }
 
-    // Insert WITHOUT optimistic append (avoid duplicates)
     const content =
       caption ||
       (meta?.audio_path ? "(voice note)" : meta?.image_path ? "(image)" : "");
 
     const { error: insErr } = await supabase.from("messages").insert({
       conversation_id: selectedId,
-      patient_id: me.id,
+      patient_id: null, // staff send; DB trigger can infer if needed
       sender_id: me.id,
       sender_name: me.name,
-      sender_role: "patient",
+      sender_role: me.role,
       content,
       read: false,
       urgent: false,
@@ -384,25 +379,79 @@ export default function PatientMessagesPage() {
       return;
     }
 
-    // Clear local compose/draft (realtime will add the message)
     setCompose("");
     if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
     setDraft(null);
 
-    // Update conversation snippet
     await supabase
       .from("conversations")
-      .update({
-        last_message: content || "",
-        last_message_at: new Date().toISOString(),
-      })
+      .update({ last_message: content || "", last_message_at: new Date().toISOString() })
       .eq("id", selectedId);
 
     setSending(false);
   }
 
+  /* ------------------------------ CALLING -------------------------------- */
+  const selectedConv = useMemo(
+    () => convs.find((c) => c.id === selectedId) || null,
+    [convs, selectedId]
+  );
+
+  const thisPatient = useMemo(() => {
+    const pid = selectedConv?.patient_id;
+    return patients.find((p) => p.user_id === pid) || null;
+  }, [patients, selectedConv?.patient_id]);
+
+  const otherName = useMemo(() => {
+    const pn = thisPatient ? [thisPatient.first_name, thisPatient.last_name].filter(Boolean).join(" ") : null;
+    return pn || thisPatient?.email || "Patient";
+  }, [thisPatient]);
+
+  const otherAvatar = thisPatient?.avatar_url ?? undefined;
+  const otherPhone = sanitizePhone(thisPatient?.phone || null);
+
+  function startPhoneCall() {
+    if (!selectedId) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
+    if (!otherPhone) { Swal.fire("No phone", "No phone number on file for this patient.", "info"); return; }
+    try {
+      window.location.href = `tel:${otherPhone}`;
+    } catch {
+      Swal.fire("Cannot call", "Device cannot start a phone call.", "error");
+    }
+  }
+
+  async function startVideoCall() {
+    if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
+    const room = `${selectedId}`;
+    videoRoomRef.current = room;
+    setVideoRole("caller");
+    setShowVideo(true);
+    try {
+      await supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
+        .send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name } });
+    } catch {}
+  }
+
+  function acceptVideoCall(room: string) {
+    videoRoomRef.current = room;
+    setVideoRole("callee");
+    setIncomingCall(null);
+    setShowVideo(true);
+  }
+
+  function declineVideoCall() {
+    setIncomingCall(null);
+    try {
+      if (selectedId) {
+        supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
+          .send({ type: "broadcast", event: "hangup", payload: {} });
+      }
+    } catch {}
+  }
+
   /* --------------------------------- UI ---------------------------------- */
   const search = q.trim().toLowerCase();
+
   const convsSorted = useMemo(() => {
     const arr = convs.slice();
     arr.sort((a, b) => {
@@ -413,24 +462,13 @@ export default function PatientMessagesPage() {
     return arr;
   }, [convs]);
 
-  const filteredStaff = useMemo(() => {
-    return (staffDir || []).filter((s) => {
-      const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "";
-      const hit =
-        name.toLowerCase().includes(search) ||
-        (s.email ?? "").toLowerCase().includes(search) ||
-        (s.department ?? "").toLowerCase().includes(search) ||
-        (s.title ?? "").toLowerCase().includes(search);
-      return search ? hit : true;
+  const filteredConvs = useMemo(() => {
+    return convsSorted.filter((c) => {
+      const p = patients.find((x) => x.user_id === c.patient_id);
+      const name = [p?.first_name, p?.last_name].filter(Boolean).join(" ") || p?.email || "Patient";
+      return search ? name.toLowerCase().includes(search) : true;
     });
-  }, [staffDir, search]);
-
-  const selectedConv = useMemo(
-    () => convs.find((c) => c.id === selectedId) || null,
-    [convs, selectedId]
-  );
-  const otherName = selectedConv?.provider_name ?? "Staff";
-  const otherAvatar = selectedConv?.provider_avatar ?? undefined;
+  }, [convsSorted, patients, search]);
 
   if (loading) return <div className="p-6">Loading…</div>;
 
@@ -439,68 +477,66 @@ export default function PatientMessagesPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Messages</h1>
-          <p className="mt-1 text-gray-600 dark:text-gray-300">Chat with your care team</p>
+          <p className="mt-1 text-gray-600 dark:text-gray-300">Chat with your patients</p>
         </div>
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1"><Plus className="h-4 w-4" /> New chat</Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-lg">
+            <DialogHeader><DialogTitle>Start new chat</DialogTitle></DialogHeader>
+            {/* Optional: add patient picker here */}
+          </DialogContent>
+        </Dialog>
       </div>
 
       <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Sidebar */}
         <div className="min-h-0 rounded-xl border bg-white dark:bg-zinc-900 dark:border-zinc-800 flex flex-col">
           <div className="p-4 border-b dark:border-zinc-800">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <MessageCircle className="h-5 w-5" />
-                <div className="font-medium">Direct Message</div>
-              </div>
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-1"><Plus className="h-4 w-4" /> Add staff</Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-lg">
-                  <DialogHeader><DialogTitle>Add staff</DialogTitle></DialogHeader>
-                  {/* Add-your-staff form here if needed */}
-                </DialogContent>
-              </Dialog>
+            <div className="flex items-center gap-2 mb-3">
+              <MessageCircle className="h-5 w-5" />
+              <div className="font-medium">Conversations</div>
             </div>
-
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input placeholder="Search staff…" className="pl-10" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder="Search patient…" className="pl-10" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto divide-y dark:divide-zinc-800">
-            {convsSorted
-              .filter((c) => (search ? (c.provider_name ?? "Staff").toLowerCase().includes(search) : true))
-              .map((c) => {
-                const active = selectedId === c.id;
-                return (
-                  <button
-                    key={`conv-${c.id}`}
-                    onClick={() => setSelectedId(c.id)}
-                    className={`w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900 flex items-center gap-3 border-l-4 ${
-                      active ? "border-cyan-500 bg-cyan-50/40 dark:bg-cyan-900/10" : "border-transparent"
-                    }`}
-                  >
-                    <Avatar className="h-9 w-9">
-                      <AvatarImage src={c.provider_avatar ?? undefined} />
-                      <AvatarFallback>{initials(c.provider_name ?? "Staff")}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between">
-                        <div className="truncate font-medium">{c.provider_name ?? "Staff"}</div>
-                        <div className="text-xs text-gray-500">
-                          {new Date(c.last_message_at ?? c.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="capitalize">{c.provider_role ?? "staff"}</Badge>
-                        <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
+            {filteredConvs.map((c) => {
+              const p = patients.find((x) => x.user_id === c.patient_id);
+              const name = [p?.first_name, p?.last_name].filter(Boolean).join(" ") || p?.email || "Patient";
+              const avatar = p?.avatar_url ?? undefined;
+              const active = selectedId === c.id;
+              return (
+                <button
+                  key={`conv-${c.id}`}
+                  onClick={() => setSelectedId(c.id)}
+                  className={`w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900 flex items-center gap-3 border-l-4 ${
+                    active ? "border-cyan-500 bg-cyan-50/40 dark:bg-cyan-900/10" : "border-transparent"
+                  }`}
+                >
+                  <Avatar className="h-9 w-9">
+                    <AvatarImage src={avatar} />
+                    <AvatarFallback>{initials(name)}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between">
+                      <div className="truncate font-medium">{name}</div>
+                      <div className="text-xs text-gray-500">
+                        {new Date(c.last_message_at ?? c.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </div>
                     </div>
-                  </button>
-                );
-              })}
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="capitalize">{c.provider_role ?? "staff"}</Badge>
+                      <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -527,15 +563,30 @@ export default function PatientMessagesPage() {
                 <div className="leading-tight">
                   <div className="font-semibold">{otherName}</div>
                   <div className="flex items-center gap-1 text-xs">
-                    <span className={`inline-block h-2 w-2 rounded-full ${providerOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
-                    <span className={providerOnline ? "text-emerald-600" : "text-gray-500"}>{providerOnline ? "Online" : "Offline"}</span>
+                    <span className={`inline-block h-2 w-2 rounded-full ${patientOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
+                    <span className={patientOnline ? "text-emerald-600" : "text-gray-500"}>{patientOnline ? "Online" : "Offline"}</span>
                   </div>
                 </div>
                 <div className="ml-auto flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="rounded-full"><Phone className="h-5 w-5" /></Button>
-                  <Button variant="ghost" size="icon" className="rounded-full"><Video className="h-5 w-5" /></Button>
+                  <Button variant="ghost" size="icon" className="rounded-full" onClick={startPhoneCall} title={otherPhone ? `Call ${otherPhone}` : "No phone on file"}>
+                    <Phone className="h-5 w-5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="rounded-full" onClick={startVideoCall} title="Start video call">
+                    <Video className="h-5 w-5" />
+                  </Button>
                 </div>
               </div>
+
+              {/* Incoming call banner */}
+              {incomingCall && (
+                <div className="mx-4 mt-3 rounded-lg border bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-100 flex items-center gap-3">
+                  <span>📹 Incoming call from <b>{incomingCall.fromName}</b></span>
+                  <div className="ml-auto flex items-center gap-2">
+                    <Button size="sm" onClick={() => acceptVideoCall(incomingCall.room)}>Accept</Button>
+                    <Button size="sm" variant="outline" onClick={declineVideoCall}>Decline</Button>
+                  </div>
+                </div>
+              )}
 
               {/* Messages */}
               <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-slate-50 to-white dark:from-zinc-900 dark:to-zinc-950">
@@ -599,14 +650,7 @@ export default function PatientMessagesPage() {
                     <Button type="button" variant="ghost" size="icon" onClick={takePhoto} className="rounded-full">
                       <Camera className="h-5 w-5" />
                     </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={toggleRecord}
-                      className={`rounded-full ${recording ? "animate-pulse" : ""}`}
-                      title={recording ? "Stop recording" : "Start voice message"}
-                    >
+                    <Button type="button" variant="ghost" size="icon" onClick={toggleRecord} className={`rounded-full ${recording ? "animate-pulse" : ""}`}>
                       <Mic className="h-5 w-5" />
                     </Button>
                   </div>
@@ -626,6 +670,150 @@ export default function PatientMessagesPage() {
             </>
           )}
         </div>
+      </div>
+
+      {/* Video Call Modal */}
+      <VideoCallModal
+        open={showVideo}
+        onClose={() => {
+          setShowVideo(false);
+          try {
+            if (selectedId) {
+              supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
+                .send({ type: "broadcast", event: "hangup", payload: {} });
+            }
+          } catch {}
+        }}
+        role={videoRole}
+        conversationId={selectedId || ""}
+        roomId={videoRoomRef.current || ""}
+      />
+    </div>
+  );
+}
+
+/* ------------------------------ Video Modal ------------------------------ */
+function VideoCallModal({
+  open,
+  onClose,
+  role,
+  conversationId,
+  roomId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  role: "caller" | "callee";
+  conversationId: string;
+  roomId: string;
+}) {
+  const localRef = useRef<HTMLVideoElement>(null);
+  const remoteRef = useRef<HTMLVideoElement>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  const pcInit: RTCConfiguration = useMemo(() => ({
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:global.stun.twilio.com:3478?transport=udp" },
+    ],
+  }), []);
+
+  useEffect(() => {
+    if (!open || !conversationId || !roomId) return;
+
+    let ended = false;
+
+    async function setup() {
+      const pc = new RTCPeerConnection(pcInit);
+      pcRef.current = pc;
+
+      pc.ontrack = (e) => {
+        const [remote] = e.streams;
+        if (remoteRef.current) remoteRef.current.srcObject = remote;
+      };
+
+      pc.onicecandidate = async (e) => {
+        if (e.candidate && chanRef.current) {
+          await chanRef.current.send({
+            type: "broadcast",
+            event: "ice",
+            payload: { room: roomId, candidate: e.candidate },
+          });
+        }
+      };
+
+      streamRef.current = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
+      if (localRef.current) localRef.current.srcObject = streamRef.current;
+
+      const ch = supabase.channel(`video_${conversationId}`, { config: { broadcast: { self: false } } });
+      chanRef.current = ch;
+
+      ch.on("broadcast", { event: "offer" }, async (p) => {
+        const { room, sdp } = p.payload as any;
+        if (room !== roomId || !pcRef.current) return;
+        await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+        const answer = await pcRef.current.createAnswer();
+        await pcRef.current.setLocalDescription(answer);
+        await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
+      });
+
+      ch.on("broadcast", { event: "answer" }, async (p) => {
+        const { room, sdp } = p.payload as any;
+        if (room !== roomId || !pcRef.current) return;
+        await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+      });
+
+      ch.on("broadcast", { event: "ice" }, async (p) => {
+        const { room, candidate } = p.payload as any;
+        if (room !== roomId || !pcRef.current) return;
+        try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+      });
+
+      ch.on("broadcast", { event: "hangup" }, () => {
+        if (!ended) cleanup();
+      });
+
+      await ch.subscribe();
+
+      if (role === "caller") {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await ch.send({ type: "broadcast", event: "offer", payload: { room: roomId, sdp: offer } });
+      }
+    }
+
+    function cleanup() {
+      ended = true;
+      try { chanRef.current && supabase.removeChannel(chanRef.current); } catch {}
+      chanRef.current = null;
+      try { pcRef.current?.getSenders().forEach((s) => { try { s.track?.stop(); } catch {} }); } catch {}
+      try { pcRef.current?.close(); } catch {}
+      pcRef.current = null;
+      try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+      streamRef.current = null;
+      onClose();
+    }
+
+    setup();
+    return () => { if (!ended) cleanup(); };
+  }, [open, role, conversationId, roomId, pcInit, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60">
+      <div className="mx-4 w-full max-w-3xl rounded-2xl bg-white p-4 shadow-xl dark:bg-zinc-900">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Video Call</h2>
+          <Button size="sm" variant="outline" onClick={onClose}>End</Button>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <video ref={localRef} autoPlay muted playsInline className="h-64 w-full rounded-lg bg-black object-cover" />
+          <video ref={remoteRef} autoPlay playsInline className="h-64 w-full rounded-lg bg-black object-cover" />
+        </div>
+        <p className="mt-2 text-xs text-gray-500">Use a TURN server in production for reliability.</p>
       </div>
     </div>
   );
