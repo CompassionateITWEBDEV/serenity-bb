@@ -8,10 +8,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   ArrowLeft, Phone, Video, MoreVertical, Send, Smile, Image as ImageIcon, Camera, Mic,
-  CheckCheck, X, Maximize2, Minimize2, MicOff, VideoOff, Volume2, VolumeX, Clock
+  CheckCheck, X, Maximize2, Minimize2, MicOff, VideoOff, Volume2, VolumeX, Clock, MonitorUp, MonitorX
 } from "lucide-react";
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
+import { sigChannel, ensureSubscribed, ICE_SERVERS } from "@/lib/chat/rtc";
 
 /* ----------------------------- Types & settings ---------------------------- */
 type Provider = ProviderRole;
@@ -63,7 +64,6 @@ type Conversation = {
 const CHAT_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET?.trim() || "chat";
 
 /* ----------------------------- Utils ----------------------------- */
-// WHY: satisfy DB CHECK constraint (only allow specific roles or NULL)
 function normalizeProviderRole(r?: string | null): ProviderRole | null {
   const v = (r ?? "").toLowerCase().trim();
   return v === "doctor" || v === "nurse" || v === "counselor" ? (v as ProviderRole) : null;
@@ -73,7 +73,7 @@ function normalizeProviderRole(r?: string | null): ProviderRole | null {
 export default function ChatBox(props: {
   mode: "staff" | "patient";
   patientId: string;
-  providerId?: string;               // staff mode: defaults to authed user
+  providerId?: string;
   providerName?: string;
   providerRole?: ProviderRole;
   providerAvatarUrl?: string | null;
@@ -82,9 +82,8 @@ export default function ChatBox(props: {
   settings?: UiSettings;
   onBack?: () => void;
   conversationId?: string;
-  // Optional: staff directory for patient to pick staff (to start chat)
   staffDir?: StaffRow[];
-  onNeedStaffDir?: () => void;       // callback to load staff list if not provided
+  onNeedStaffDir?: () => void;
 }) {
   return (
     <ErrorBoundary>
@@ -135,14 +134,12 @@ function ChatBoxInner(props: {
 
   const listRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const signalRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const signalReadyRef = useRef(false);
+  const signalRef = useRef<ReturnType<typeof sigChannel> | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  // staged media (before send)
   const [draft, setDraft] = useState<{ blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string } | null>(null);
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
@@ -175,7 +172,7 @@ function ChatBoxInner(props: {
 
       if (mode === "staff") {
         const pid = (providerId || uid) as string;
-        setMe({ id: pid, name: providerName || "Me", role: (providerRole || "doctor") as Provider }); // UI only
+        setMe({ id: pid, name: providerName || "Me", role: (providerRole || "doctor") as Provider });
         if (!conversationIdProp) {
           const { data: conv } = await supabase
             .from("conversations").select("id")
@@ -184,7 +181,6 @@ function ChatBoxInner(props: {
         }
       } else {
         setMe({ id: uid, name: au.user?.email || "Me", role: "patient" });
-        // patient mode can open an existing conv if providerId provided
         if (!conversationIdProp && providerId) {
           const { data: conv } = await supabase
             .from("conversations").select("id")
@@ -200,13 +196,13 @@ function ChatBoxInner(props: {
     if (mode !== "patient") return;
     if (staffDir.length) return;
     (async () => {
-      if (onNeedStaffDir) onNeedStaffDir();
+      onNeedStaffDir?.();
       try {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from("staff")
           .select("user_id, first_name, last_name, email, role, avatar_url")
           .order("first_name", { ascending: true });
-        if (!error && data) setStaffDir(data as StaffRow[]);
+        if (data) setStaffDir(data as StaffRow[]);
       } catch {}
     })();
   }, [mode, staffDir.length, onNeedStaffDir]);
@@ -218,16 +214,14 @@ function ChatBoxInner(props: {
     const provider_name =
       [staff?.first_name, staff?.last_name].filter(Boolean).join(" ") ||
       staff?.email || "Staff";
-    const provider_role = normalizeProviderRole(staff?.role); // critical
+    const provider_role = normalizeProviderRole(staff?.role);
 
-    // try existing
     const { data: existing, error: findErr } = await supabase
       .from("conversations").select("id")
       .eq("patient_id", me.id).eq("provider_id", providerUserId).maybeSingle();
     if (findErr) { alert(`Cannot start chat.\n\n${findErr.message}`); return; }
     if (existing?.id) { setConversationId(existing.id); return; }
 
-    // create/upsert
     const { data: created, error } = await supabase
       .from("conversations")
       .upsert(
@@ -235,7 +229,7 @@ function ChatBoxInner(props: {
           patient_id: me.id,
           provider_id: providerUserId,
           provider_name,
-          provider_role,                  // must be one of allowed or NULL
+          provider_role,
           provider_avatar: staff?.avatar_url ?? null,
           last_message: null,
           last_message_at: new Date().toISOString(),
@@ -389,7 +383,7 @@ function ChatBoxInner(props: {
   const otherName = mode === "staff" ? (patientName || "Patient") : (providerName || "Provider");
   const otherAvatar = mode === "staff" ? (patientAvatarUrl ?? null) : (providerAvatarUrl ?? null);
 
-  /* =========================== CALLING (Messenger-like) =========================== */
+  /* =========================== CALLING =========================== */
   const [incomingCall, setIncomingCall] = useState<{ fromName: string; room: string; mode: "audio" | "video" } | null>(null);
   const [showCall, setShowCall] = useState(false);
   const [callRole, setCallRole] = useState<"caller" | "callee">("caller");
@@ -400,21 +394,20 @@ function ChatBoxInner(props: {
   function playRing(loop = true) {
     try {
       if (!ringAudioRef.current) {
-        const a = new Audio("data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..."); // replace with /public/ring.mp3
-        a.loop = loop; ringAudioRef.current = a;
+        ringAudioRef.current = new Audio("/ring.mp3"); // put a small file in /public/ring.mp3
+        ringAudioRef.current.loop = loop;
       }
-      ringAudioRef.current.currentTime = 0; ringAudioRef.current.play().catch(() => {});
+      ringAudioRef.current.currentTime = 0;
+      ringAudioRef.current.play().catch(() => {});
     } catch {}
   }
   function stopRing() { try { ringAudioRef.current?.pause(); if (ringAudioRef.current) ringAudioRef.current.currentTime = 0; } catch {} }
 
-  // signaling channel lifecycle
   useEffect(() => {
     if (!conversationId || !me) return;
-    signalReadyRef.current = false;
     if (signalRef.current) { try { supabase.removeChannel(signalRef.current); } catch {} signalRef.current = null; }
 
-    const ch = supabase.channel(`video_${conversationId}`, { config: { broadcast: { self: true } } });
+    const ch = sigChannel(conversationId, true);
     signalRef.current = ch;
 
     ch
@@ -426,24 +419,19 @@ function ChatBoxInner(props: {
       .on("broadcast", { event: "hangup" }, () => { stopRing(); setIncomingCall(null); })
       .on("broadcast", { event: "answered" }, () => { stopRing(); });
 
-    ch.subscribe((status) => { if (status === "SUBSCRIBED") signalReadyRef.current = true; });
+    void ensureSubscribed(ch).catch(() => {});
     return () => {
       try { if (signalRef.current) supabase.removeChannel(signalRef.current); } catch {}
-      signalRef.current = null; signalReadyRef.current = false; stopRing();
+      signalRef.current = null;
+      stopRing();
     };
   }, [conversationId, me]);
-
-  async function ensureSignalReady() {
-    const deadline = Date.now() + 4000;
-    while (!signalReadyRef.current && Date.now() < deadline) await new Promise((r) => setTimeout(r, 40));
-    if (!signalReadyRef.current || !signalRef.current) throw new Error("Signaling not ready");
-    return signalRef.current;
-  }
 
   async function startCall(mode: "audio" | "video") {
     if (!conversationId || !me) { alert("Open a conversation first."); return; }
     try {
-      const ch = await ensureSignalReady();
+      const ch = signalRef.current ?? sigChannel(conversationId, true);
+      await ensureSubscribed(ch);
       const room = `${conversationId}`;
       callRoomRef.current = room;
       setCallRole("caller"); setCallMode(mode); setShowCall(true); playRing(true);
@@ -567,10 +555,10 @@ function ChatBoxInner(props: {
     mediaRecRef.current = rec; setRecording(true); rec.start();
   }
 
-  /* ---------------- helpers for bubble ---------------- */
+  /* ---------------- helpers ---------------- */
   function shouldShowPlainContent(content?: string | null) {
     const t = (content ?? "").trim().toLowerCase();
-    return !!t && t !== "(image)" && t !== "(photo)";
+    return !!t && t !== "(image)" && t !== "(photo)" && t !== "(voice note)";
   }
   function extractImageUrlFromContent(content?: string | null) {
     if (!content) return null;
@@ -650,15 +638,9 @@ function ChatBoxInner(props: {
           </div>
 
           <div className="ml-auto flex items-center gap-1">
-            <IconButton aria="Voice call" onClick={() => startCall("audio")}>
-              <Phone className="h-5 w-5" />
-            </IconButton>
-            <IconButton aria="Video call" onClick={() => startCall("video")}>
-              <Video className="h-5 w-5" />
-            </IconButton>
-            <IconButton aria="More">
-              <MoreVertical className="h-5 w-5" />
-            </IconButton>
+            <IconButton aria="Voice call" onClick={() => startCall("audio")}><Phone className="h-5 w-5" /></IconButton>
+            <IconButton aria="Video call" onClick={() => startCall("video")}><Video className="h-5 w-5" /></IconButton>
+            <IconButton aria="More"><MoreVertical className="h-5 w-5" /></IconButton>
           </div>
         </div>
 
@@ -839,7 +821,6 @@ function ChatBoxInner(props: {
   );
 }
 
-/* ------------------------------ Small helpers ------------------------------ */
 function IconButton({ children, aria, onClick }: { children: React.ReactNode; aria: string; onClick?: () => void }) {
   return (
     <button type="button" aria-label={aria} onClick={onClick} className="rounded-full p-2 hover:bg-gray-100 active:scale-95 dark:hover:bg-zinc-800">
@@ -878,7 +859,6 @@ function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
   );
 }
 
-/** Message bubble */
 function MessageBubble({
   m, own, bubbleBase, shouldShowPlainContent, extractImageUrlFromContent, isHttp, toUrlFromPath,
 }: {
@@ -952,6 +932,7 @@ function CallWindow({
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(mode === "video");
   const [speakerOn, setSpeakerOn] = useState(true);
+  const [sharing, setSharing] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -960,15 +941,11 @@ function CallWindow({
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const chanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const screenRef = useRef<MediaStream | null>(null);
+  const chanRef = useRef<ReturnType<typeof sigChannel> | null>(null);
   const timerRef = useRef<number | null>(null);
 
-  const pcInit: RTCConfiguration = useMemo(() => ({
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      // TODO: add a TURN server in prod
-    ],
-  }), []);
+  const pcInit = useMemo<RTCConfiguration>(() => ICE_SERVERS, []);
 
   useEffect(() => {
     if (!open) return;
@@ -1004,7 +981,7 @@ function CallWindow({
       if (mode === "video") { if (localVideoRef.current) localVideoRef.current.srcObject = streamRef.current; }
       else { if (localAudioRef.current) localAudioRef.current.srcObject = streamRef.current; }
 
-      const ch = supabase.channel(`video_${conversationId}`, { config: { broadcast: { self: false } } });
+      const ch = sigChannel(conversationId, false);
       chanRef.current = ch;
 
       ch.on("broadcast", { event: "offer" }, async (p) => {
@@ -1027,7 +1004,7 @@ function CallWindow({
 
       ch.on("broadcast", { event: "hangup" }, () => { if (!ended) cleanup(); });
 
-      await ch.subscribe();
+      await ensureSubscribed(ch);
 
       if (role === "caller") {
         const offer = await pc.createOffer();
@@ -1040,6 +1017,8 @@ function CallWindow({
       ended = true;
       try { chanRef.current && supabase.removeChannel(chanRef.current); } catch {}
       chanRef.current = null;
+      try { screenRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+      screenRef.current = null;
       try { pcRef.current?.getSenders().forEach((s) => { try { s.track?.stop(); } catch {} }); } catch {}
       try { pcRef.current?.close(); } catch {}
       pcRef.current = null;
@@ -1052,14 +1031,28 @@ function CallWindow({
     return () => { if (!ended) cleanup(); };
   }, [open, role, conversationId, roomId, pcInit, onClose, mode, micOn, camOn]);
 
-  function toggleMic() { setMicOn((v) => { streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !v)); return !v; }); }
-  function toggleCam() { if (mode !== "video") return; setCamOn((v) => { streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !v)); return !v; }); }
-  function toggleSpeaker() {
-    setSpeakerOn((v) => {
-      if (remoteAudioRef.current) remoteAudioRef.current.muted = v;
-      if (remoteVideoRef.current) remoteVideoRef.current.muted = v;
-      return !v;
-    });
+  async function toggleShare() {
+    if (mode !== "video") return;
+    if (sharing) {
+      try { screenRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+      screenRef.current = null; setSharing(false);
+      const v = streamRef.current?.getVideoTracks()[0];
+      const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
+      if (sender && v) await sender.replaceTrack(v);
+      return;
+    }
+    try {
+      const scr = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
+      screenRef.current = scr; setSharing(true);
+      const track = scr.getVideoTracks()[0];
+      const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
+      if (sender && track) await sender.replaceTrack(track);
+      scr.getVideoTracks()[0].onended = async () => {
+        setSharing(false);
+        const v = streamRef.current?.getVideoTracks()[0];
+        if (sender && v) await sender.replaceTrack(v);
+      };
+    } catch {}
   }
 
   if (!open) return null;
@@ -1074,10 +1067,7 @@ function CallWindow({
     <div className="fixed inset-0 z-[60] bg-black/50">
       <div className="fixed z-[70] bg-white dark:bg-zinc-900 shadow-2xl border dark:border-zinc-800 rounded-2xl overflow-hidden" style={containerStyle}>
         {/* Title bar */}
-        <div
-          className="flex items-center gap-2 border-b dark:border-zinc-800 px-3 py-2 select-none"
-          onDoubleClick={() => setIsMax((v) => !v)}
-        >
+        <div className="flex items-center gap-2 border-b dark:border-zinc-800 px-3 py-2 select-none" onDoubleClick={() => setIsMax((v) => !v)}>
           <div className="flex items-center gap-2">
             <div className="h-6 w-6 overflow-hidden rounded-full ring-1 ring-gray-200">
               {peerAvatar ? <img src={peerAvatar} alt="" className="h-full w-full object-cover" /> :
@@ -1099,7 +1089,6 @@ function CallWindow({
           {mode === "video" ? (
             <div className="absolute inset-0">
               <video ref={remoteVideoRef} autoPlay playsInline muted={!speakerOn} className="h-full w-full rounded-lg bg-black object-cover" />
-              {/* Local PiP */}
               <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-4 right-4 h-28 w-40 rounded-md ring-1 ring-white/60 bg-black object-cover" />
             </div>
           ) : (
@@ -1117,15 +1106,28 @@ function CallWindow({
 
           {/* Controls */}
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/90 dark:bg-zinc-900/90 px-2 py-1 shadow-lg border dark:border-zinc-700">
-            <Button size="sm" variant="outline" className="rounded-full" onClick={toggleSpeaker} title="Speaker">
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => setSpeakerOn((v) => {
+              if (remoteAudioRef.current) remoteAudioRef.current.muted = v;
+              if (remoteVideoRef.current) remoteVideoRef.current.muted = v;
+              return !v;
+            })} title="Speaker">
               {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             </Button>
-            <Button size="sm" variant="outline" className="rounded-full" onClick={toggleMic} title="Mic">
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => setMicOn((v) => {
+              streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !v)); return !v;
+            })} title="Mic">
               {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
             </Button>
             {mode === "video" && (
-              <Button size="sm" variant="outline" className="rounded-full" onClick={toggleCam} title="Camera">
+              <Button size="sm" variant="outline" className="rounded-full" onClick={() => setCamOn((v) => {
+                streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !v)); return !v;
+              })} title="Camera">
                 {camOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+              </Button>
+            )}
+            {mode === "video" && (
+              <Button size="sm" variant="outline" className="rounded-full" onClick={toggleShare} title="Share screen">
+                {sharing ? <MonitorX className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
               </Button>
             )}
             <Button size="sm" variant="destructive" className="rounded-full" onClick={onClose}>End</Button>
