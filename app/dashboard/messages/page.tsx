@@ -30,9 +30,10 @@ type MessageRow = {
   created_at: string;
   read: boolean;
   urgent: boolean;
-  meta?: MessageMeta | null;
-  attachment_url?: string | null;
-  attachment_type?: "image" | "audio" | "file" | null;
+
+  meta?: MessageMeta | null;                 // new schema
+  attachment_url?: string | null;            // legacy
+  attachment_type?: "image" | "audio" | "file" | null; // legacy
 };
 
 type Conversation = {
@@ -70,7 +71,7 @@ function sanitizePhone(n?: string | null) {
 /* ------------------------------ Page (PATIENT) -------------------------- */
 export default function DashboardMessagesPage() {
   // patient identity only
-  const [me, setMe] = useState<{ id: string; name: string; phone?: string | null } | null>(null);
+  const [me, setMe] = useState<{ id: string; name: string } | null>(null);
 
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [staffDir, setStaffDir] = useState<StaffRow[]>([]);
@@ -104,11 +105,12 @@ export default function DashboardMessagesPage() {
   // sending lock
   const [sending, setSending] = useState(false);
 
-  // call state
+  // call state + ringing
   const [incomingCall, setIncomingCall] = useState<{ fromName: string; room: string } | null>(null);
   const [showVideo, setShowVideo] = useState(false);
   const [videoRole, setVideoRole] = useState<"caller" | "callee">("caller");
   const videoRoomRef = useRef<string | null>(null);
+  const ringAudioRef = useRef<HTMLAudioElement | null>(null);
 
   /* ------------------------- Auth + ensure PATIENT ------------------------ */
   useEffect(() => {
@@ -119,7 +121,7 @@ export default function DashboardMessagesPage() {
 
       const { data: p } = await supabase
         .from("patients")
-        .select("user_id, first_name, last_name, email, phone")
+        .select("user_id, first_name, last_name, email")
         .eq("user_id", uid)
         .maybeSingle();
 
@@ -130,7 +132,7 @@ export default function DashboardMessagesPage() {
       }
 
       const name = [p.first_name, p.last_name].filter(Boolean).join(" ") || au.user?.email || "Me";
-      setMe({ id: uid, name, phone: p.phone ?? null });
+      setMe({ id: uid, name });
       setLoading(false);
     })();
   }, []);
@@ -189,22 +191,35 @@ export default function DashboardMessagesPage() {
       )
       .subscribe();
 
-    // Video signaling
+    // Simple presence hint (optional)
+    const ping = () => {
+      try { ch.track({ user_id: me.id, at: Date.now() }); } catch {}
+    };
+    const keepAlive = setInterval(ping, 1500); ping();
+
+    // Video signaling + ringing
     const videoCh = supabase
       .channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
       .on("broadcast", { event: "ring" }, (p) => {
         const { room, fromName } = (p.payload || {}) as { room: string; fromName: string };
         setIncomingCall({ room, fromName: fromName || "Caller" });
+        playRing(true);
       })
       .on("broadcast", { event: "hangup" }, () => {
+        stopRing();
         setIncomingCall(null);
+      })
+      .on("broadcast", { event: "answered" }, () => {
+        stopRing();
       })
       .subscribe();
 
     return () => {
       alive = false;
+      clearInterval(keepAlive);
       try { supabase.removeChannel(ch); } catch {}
       try { supabase.removeChannel(videoCh); } catch {}
+      stopRing();
     };
   }, [selectedId, me]);
 
@@ -322,10 +337,9 @@ export default function DashboardMessagesPage() {
 
     const content = caption || (meta?.audio_path ? "(voice note)" : meta?.image_path ? "(image)" : "");
 
-    // Insert ONCE; rely on realtime INSERT to render (no duplicates)
     const { error: insErr } = await supabase.from("messages").insert({
       conversation_id: selectedId,
-      patient_id: me.id,                 // patient sender
+      patient_id: me.id, // patient sender
       sender_id: me.id,
       sender_name: me.name,
       sender_role: "patient",
@@ -365,10 +379,34 @@ export default function DashboardMessagesPage() {
     return { name, avatar: s?.avatar_url ?? undefined, phone: sanitizePhone(s?.phone || null) };
   }, [staffDir, selectedConv?.provider_id]);
 
+  function playRing(loop = true) {
+    try {
+      if (!ringAudioRef.current) {
+        // small embedded ding; replace with your /public/ring.mp3 if desired
+        const a = new Audio(
+          "data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..."
+        );
+        a.loop = loop;
+        ringAudioRef.current = a;
+      }
+      ringAudioRef.current.currentTime = 0;
+      void ringAudioRef.current.play();
+    } catch {}
+  }
+  function stopRing() {
+    try {
+      if (ringAudioRef.current) {
+        ringAudioRef.current.pause();
+        ringAudioRef.current.currentTime = 0;
+      }
+    } catch {}
+  }
+
   function startPhoneCall() {
     if (!selectedId) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
     if (!providerInfo.phone) { Swal.fire("No phone", "No phone number on file for this provider.", "info"); return; }
-    try { window.location.href = `tel:${providerInfo.phone}`; } catch { Swal.fire("Cannot call", "Device cannot start a phone call.", "error"); }
+    playRing(false);
+    try { window.location.href = `tel:${providerInfo.phone}`; } finally { setTimeout(stopRing, 1500); }
   }
 
   async function startVideoCall() {
@@ -377,6 +415,7 @@ export default function DashboardMessagesPage() {
     videoRoomRef.current = room;
     setVideoRole("caller");
     setShowVideo(true);
+    playRing(true);
     try {
       await supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
         .send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name } });
@@ -387,11 +426,15 @@ export default function DashboardMessagesPage() {
     videoRoomRef.current = room;
     setVideoRole("callee");
     setIncomingCall(null);
+    stopRing();
+    void supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
+      .send({ type: "broadcast", event: "answered", payload: { room } });
     setShowVideo(true);
   }
 
   function declineVideoCall() {
     setIncomingCall(null);
+    stopRing();
     try {
       if (selectedId) {
         supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
@@ -402,6 +445,7 @@ export default function DashboardMessagesPage() {
 
   /* --------------------------------- UI ---------------------------------- */
   const search = q.trim().toLowerCase();
+
   const convsSorted = useMemo(() => {
     const arr = convs.slice();
     arr.sort((a, b) => {
@@ -435,7 +479,7 @@ export default function DashboardMessagesPage() {
           </DialogTrigger>
           <DialogContent className="max-w-lg">
             <DialogHeader><DialogTitle>Start new chat</DialogTitle></DialogHeader>
-            {/* Add-start-chat flow if needed */}
+            {/* Optional: add patient → provider picker here */}
           </DialogContent>
         </Dialog>
       </div>
@@ -554,7 +598,11 @@ export default function DashboardMessagesPage() {
                     <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
                       <div className="max-w-[80%]">
                         <div className={bubble}>
-                          <MessageMedia meta={m.meta} attachment_type={m.attachment_type} attachment_url={m.attachment_url} />
+                          <MessageMedia
+                            meta={m.meta}
+                            attachment_type={m.attachment_type}
+                            attachment_url={m.attachment_url}
+                          />
                           {showText && <p className="whitespace-pre-wrap break-words">{m.content}</p>}
                           <div className={`mt-1 text-[11px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
                             {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -623,6 +671,7 @@ export default function DashboardMessagesPage() {
         open={showVideo}
         onClose={() => {
           setShowVideo(false);
+          stopRing();
           try {
             if (selectedId) {
               supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
