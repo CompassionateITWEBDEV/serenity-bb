@@ -1,4 +1,3 @@
-// app/(dashboard)/messages/page.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -42,6 +41,21 @@ function initials(name?: string | null) {
 }
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
+/* ---- tiny in-file signaling helpers (keeps this file self-contained) ---- */
+function sigChannel(conversationId: string, self = true) {
+  return supabase.channel(`video_${conversationId}`, { config: { broadcast: { self } } });
+}
+async function ensureSubscribed(ch: ReturnType<typeof sigChannel>, timeoutMs = 4000) {
+  let ready = false;
+  const p = new Promise<void>((resolve) => {
+    ch.subscribe((status) => { if (status === "SUBSCRIBED") { ready = true; resolve(); } });
+  });
+  const timer = new Promise<void>((_, rej) => setTimeout(() => rej(new Error("Signaling not ready")), timeoutMs));
+  await Promise.race([p, timer]);
+  if (!ready) throw new Error("Signaling not ready");
+  return ch;
+}
+
 /* ------------------------------ Page (PATIENT) -------------------------- */
 export default function DashboardMessagesPage() {
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
@@ -74,8 +88,7 @@ export default function DashboardMessagesPage() {
   const ringAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Realtime signaling
-  const callChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const callChReadyRef = useRef(false);
+  const callChRef = useRef<ReturnType<typeof sigChannel> | null>(null);
 
   // Sidebar tab
   const [sidebarTab, setSidebarTab] = useState<"convs" | "staff">("convs");
@@ -105,7 +118,6 @@ export default function DashboardMessagesPage() {
     if (error) { await Swal.fire("Load error", error.message, "error"); return; }
     setConvs((data as Conversation[]) || []);
   }, []);
-
   useEffect(() => { if (me?.id) void reloadConversations(me.id); }, [me?.id, reloadConversations]);
 
   /* ----------------------------- Staff dir ------------------------- */
@@ -151,8 +163,7 @@ export default function DashboardMessagesPage() {
     const keepAlive = setInterval(ping, 1500); ping();
 
     // signaling channel for calls
-    callChReadyRef.current = false;
-    const callCh = supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } });
+    const callCh = sigChannel(selectedId, true);
     callChRef.current = callCh;
 
     callCh
@@ -164,7 +175,7 @@ export default function DashboardMessagesPage() {
       .on("broadcast", { event: "hangup" }, () => { stopRing(); setIncomingCall(null); })
       .on("broadcast", { event: "answered" }, () => stopRing());
 
-    void callCh.subscribe((status) => { if (status === "SUBSCRIBED") callChReadyRef.current = true; });
+    void ensureSubscribed(callCh).catch(() => {});
 
     return () => {
       alive = false;
@@ -172,7 +183,6 @@ export default function DashboardMessagesPage() {
       try { supabase.removeChannel(ch); } catch {}
       try { if (callChRef.current) supabase.removeChannel(callChRef.current); } catch {}
       callChRef.current = null;
-      callChReadyRef.current = false;
       stopRing();
     };
   }, [selectedId, me]);
@@ -183,7 +193,6 @@ export default function DashboardMessagesPage() {
     const staff = staffDir.find((s) => s.user_id === providerUserId);
     const provider_name = [staff?.first_name, staff?.last_name].filter(Boolean).join(" ") || staff?.email || "Staff";
 
-    // try find existing
     const { data: existing } = await supabase
       .from("conversations")
       .select("id")
@@ -196,7 +205,6 @@ export default function DashboardMessagesPage() {
       return;
     }
 
-    // create/upsert
     const { data: created, error } = await supabase
       .from("conversations")
       .upsert(
@@ -216,7 +224,6 @@ export default function DashboardMessagesPage() {
 
     if (error) { await Swal.fire("Cannot start chat", error.message, "error"); return; }
 
-    // optimistic add so it shows immediately
     const newConv: Conversation = created as any;
     setConvs((prev) => {
       const exists = prev.some((c) => c.id === newConv.id);
@@ -240,6 +247,7 @@ export default function DashboardMessagesPage() {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: true });
       const video = document.createElement("video");
+      (video as any).muted = true;
       video.srcObject = stream as any; await video.play();
       const canvas = document.createElement("canvas");
       canvas.width = (video as any).videoWidth || 640; canvas.height = (video as any).videoHeight || 480;
@@ -311,23 +319,20 @@ export default function DashboardMessagesPage() {
   function playRing(loop = true) {
     try {
       if (!ringAudioRef.current) {
-        const a = new Audio("data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..."); a.loop = loop; ringAudioRef.current = a;
+        const a = new Audio("/ring.mp3"); // put a small mp3 in /public
+        a.loop = loop; ringAudioRef.current = a;
       }
       ringAudioRef.current.currentTime = 0; ringAudioRef.current.play().catch(() => {});
     } catch {}
   }
   function stopRing() { try { ringAudioRef.current?.pause(); if (ringAudioRef.current) ringAudioRef.current.currentTime = 0; } catch {} }
 
-  async function ensureSignalReady() {
-    const deadline = Date.now() + 4000;
-    while (!callChReadyRef.current && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
-    if (!callChReadyRef.current || !callChRef.current) throw new Error("Signaling not ready");
-    return callChRef.current;
-  }
   async function startCall(mode: "audio" | "video") {
     if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
     try {
-      const ch = await ensureSignalReady();
+      const ch = callChRef.current ?? sigChannel(selectedId, true);
+      await ensureSubscribed(ch);
+      callChRef.current = ch;
       const room = `${selectedId}`;
       callRoomRef.current = room;
       setCallRole("caller"); setCallMode(mode); setShowCall(true); playRing(true);
@@ -618,16 +623,16 @@ function CallModal({
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const screenRef = useRef<MediaStream | null>(null);
-  const chanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const chanRef = useRef<ReturnType<typeof sigChannel> | null>(null);
   const timerRef = useRef<number | null>(null);
 
-  const pcInit: RTCConfiguration = useMemo(() => ({
+  const pcInit: RTCConfiguration = {
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
-      // Replace with your TURN in prod
+      // Replace with your own TURN in production for reliability
       { urls: ["turn:global.turn.twilio.com:3478?transport=udp"], username: "demo", credential: "demo" },
     ],
-  }), []);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -675,7 +680,7 @@ function CallModal({
       if (mode === "video") { if (localVideoRef.current) localVideoRef.current.srcObject = streamRef.current; }
       else { if (localAudioRef.current) localAudioRef.current.srcObject = streamRef.current; }
 
-      const ch = supabase.channel(`video_${conversationId}`, { config: { broadcast: { self: false } } });
+      const ch = sigChannel(conversationId, false);
       chanRef.current = ch;
 
       ch.on("broadcast", { event: "offer" }, async (p) => {
@@ -701,7 +706,7 @@ function CallModal({
 
       ch.on("broadcast", { event: "hangup" }, () => { if (!ended) cleanup(); });
 
-      await ch.subscribe();
+      await ensureSubscribed(ch);
 
       if (role === "caller") {
         const offer = await pc.createOffer();
@@ -726,7 +731,7 @@ function CallModal({
 
     setup();
     return () => { if (!ended) cleanup(); };
-  }, [open, role, conversationId, roomId, pcInit, onClose, mode, micOn, camOn]);
+  }, [open, role, conversationId, roomId, onClose, mode, micOn, camOn]);
 
   async function toggleShare() {
     if (mode !== "video") return;
@@ -843,7 +848,11 @@ function CallModal({
           )}
 
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/90 dark:bg-zinc-900/90 px-2 py-1 shadow-lg border dark:border-zinc-700">
-            <Button size="sm" variant="outline" className="rounded-full" onClick={() => { if (remoteAudioRef.current) remoteAudioRef.current.muted = !remoteAudioRef.current.muted; if (remoteVideoRef.current) remoteVideoRef.current.muted = !remoteVideoRef.current.muted; }}>
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
+              if (remoteAudioRef.current) remoteAudioRef.current.muted = !remoteAudioRef.current.muted;
+              if (remoteVideoRef.current) remoteVideoRef.current.muted = !remoteVideoRef.current.muted;
+              setSpeakerOn((v) => !v);
+            }}>
               <Volume2 className="h-4 w-4" />
             </Button>
             <Button size="sm" variant="outline" className="rounded-full" onClick={() => { streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !micOn)); setMicOn(!micOn); }} title="Mic (M)">
@@ -863,7 +872,8 @@ function CallModal({
           </div>
 
           {ui === "window" && (
-            <div className="absolute bottom-1 right-1 h-4 w-4 cursor-nwse-resize opacity-60" onPointerDown={resizeDown} onPointerMove={resizeMove} onPointerUp={resizeUp} />
+            <div className="absolute bottom-1 right-1 h-4 w-4 cursor-nwse-resize opacity-60"
+              onPointerDown={resizeDown} onPointerMove={resizeMove} onPointerUp={resizeUp} />
           )}
         </div>
       </div>
