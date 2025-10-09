@@ -31,9 +31,9 @@ type MessageRow = {
   read: boolean;
   urgent: boolean;
 
-  meta?: MessageMeta | null;                 // new schema
-  attachment_url?: string | null;            // legacy
-  attachment_type?: "image" | "audio" | "file" | null; // legacy
+  meta?: MessageMeta | null;
+  attachment_url?: string | null;
+  attachment_type?: "image" | "audio" | "file" | null;
 };
 
 type Conversation = {
@@ -54,7 +54,7 @@ type StaffRow = {
   last_name: string | null;
   email: string | null;
   role: string | null;
-  phone?: string | null;
+  phone?: string | null;        // kept in schema, but not used for calling
   avatar_url?: string | null;
 };
 
@@ -63,9 +63,6 @@ function initials(name?: string | null) {
   const s = (name ?? "").trim();
   if (!s) return "U";
   return s.split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
-}
-function sanitizePhone(n?: string | null) {
-  return (n ?? "").replace(/[^\d+]/g, "");
 }
 
 /* ------------------------------ Page (PATIENT) -------------------------- */
@@ -106,10 +103,11 @@ export default function DashboardMessagesPage() {
   const [sending, setSending] = useState(false);
 
   // call state + ringing
-  const [incomingCall, setIncomingCall] = useState<{ fromName: string; room: string } | null>(null);
-  const [showVideo, setShowVideo] = useState(false);
-  const [videoRole, setVideoRole] = useState<"caller" | "callee">("caller");
-  const videoRoomRef = useRef<string | null>(null);
+  const [incomingCall, setIncomingCall] = useState<{ fromName: string; room: string; mode: "audio" | "video" } | null>(null);
+  const [showCall, setShowCall] = useState(false);
+  const [callRole, setCallRole] = useState<"caller" | "callee">("caller");
+  const [callMode, setCallMode] = useState<"audio" | "video">("audio");
+  const callRoomRef = useRef<string | null>(null);
   const ringAudioRef = useRef<HTMLAudioElement | null>(null);
 
   /* ------------------------- Auth + ensure PATIENT ------------------------ */
@@ -185,24 +183,24 @@ export default function DashboardMessagesPage() {
         "postgres_changes",
         { schema: "public", table: "messages", event: "INSERT", filter: `conversation_id=eq.${selectedId}` },
         (payload) => {
-          setMsgs((prev) => [...prev, payload.new as MessageRow]); // realtime only → no doubles
+          setMsgs((prev) => [...prev, payload.new as MessageRow]);
           requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current!.scrollHeight, behavior: "smooth" }));
         }
       )
       .subscribe();
 
-    // Simple presence hint (optional)
+    // Simple presence hint (best-effort)
     const ping = () => {
       try { ch.track({ user_id: me.id, at: Date.now() }); } catch {}
     };
     const keepAlive = setInterval(ping, 1500); ping();
 
-    // Video signaling + ringing
-    const videoCh = supabase
+    // Call signaling + ringing (works for audio and video)
+    const callCh = supabase
       .channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
       .on("broadcast", { event: "ring" }, (p) => {
-        const { room, fromName } = (p.payload || {}) as { room: string; fromName: string };
-        setIncomingCall({ room, fromName: fromName || "Caller" });
+        const { room, fromName, mode } = (p.payload || {}) as { room: string; fromName: string; mode: "audio" | "video" };
+        setIncomingCall({ room, fromName: fromName || "Caller", mode: mode || "audio" });
         playRing(true);
       })
       .on("broadcast", { event: "hangup" }, () => {
@@ -218,7 +216,7 @@ export default function DashboardMessagesPage() {
       alive = false;
       clearInterval(keepAlive);
       try { supabase.removeChannel(ch); } catch {}
-      try { supabase.removeChannel(videoCh); } catch {}
+      try { supabase.removeChannel(callCh); } catch {}
       stopRing();
     };
   }, [selectedId, me]);
@@ -376,15 +374,15 @@ export default function DashboardMessagesPage() {
   const providerInfo = useMemo(() => {
     const s = staffDir.find((x) => x.user_id === selectedConv?.provider_id);
     const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
-    return { name, avatar: s?.avatar_url ?? undefined, phone: sanitizePhone(s?.phone || null) };
+    return { name, avatar: s?.avatar_url ?? undefined };
   }, [staffDir, selectedConv?.provider_id]);
 
   function playRing(loop = true) {
     try {
       if (!ringAudioRef.current) {
-        // small embedded ding; replace with your /public/ring.mp3 if desired
+        // small embedded ding; replace with a proper asset in production
         const a = new Audio(
-          "data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..."
+          "data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA..." // shortened
         );
         a.loop = loop;
         ringAudioRef.current = a;
@@ -402,37 +400,47 @@ export default function DashboardMessagesPage() {
     } catch {}
   }
 
-  function startPhoneCall() {
-    if (!selectedId) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
-    if (!providerInfo.phone) { Swal.fire("No phone", "No phone number on file for this provider.", "info"); return; }
-    playRing(false);
-    try { window.location.href = `tel:${providerInfo.phone}`; } finally { setTimeout(stopRing, 1500); }
+  async function startAudioCall() {
+    // account-to-account audio using WebRTC; no phone needed
+    if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
+    const room = `${selectedId}`;
+    callRoomRef.current = room;
+    setCallRole("caller");
+    setCallMode("audio");
+    setShowCall(true);
+    playRing(true);
+    try {
+      await supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
+        .send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name, mode: "audio" } });
+    } catch {}
   }
 
   async function startVideoCall() {
     if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
     const room = `${selectedId}`;
-    videoRoomRef.current = room;
-    setVideoRole("caller");
-    setShowVideo(true);
+    callRoomRef.current = room;
+    setCallRole("caller");
+    setCallMode("video");
+    setShowCall(true);
     playRing(true);
     try {
       await supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
-        .send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name } });
+        .send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name, mode: "video" } });
     } catch {}
   }
 
-  function acceptVideoCall(room: string) {
-    videoRoomRef.current = room;
-    setVideoRole("callee");
+  function acceptIncoming(room: string, mode: "audio" | "video") {
+    callRoomRef.current = room;
+    setCallRole("callee");
+    setCallMode(mode);
     setIncomingCall(null);
     stopRing();
     void supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
       .send({ type: "broadcast", event: "answered", payload: { room } });
-    setShowVideo(true);
+    setShowCall(true);
   }
 
-  function declineVideoCall() {
+  function declineIncoming() {
     setIncomingCall(null);
     stopRing();
     try {
@@ -562,7 +570,10 @@ export default function DashboardMessagesPage() {
                   </div>
                 </div>
                 <div className="ml-auto flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="rounded-full" onClick={startPhoneCall} title={providerInfo.phone ? `Call ${providerInfo.phone}` : "No phone on file"}>
+                  <Button
+                    variant="ghost" size="icon" className="rounded-full"
+                    onClick={startAudioCall} title="Start audio call"
+                  >
                     <Phone className="h-5 w-5" />
                   </Button>
                   <Button variant="ghost" size="icon" className="rounded-full" onClick={startVideoCall} title="Start video call">
@@ -574,10 +585,10 @@ export default function DashboardMessagesPage() {
               {/* Incoming call banner */}
               {incomingCall && (
                 <div className="mx-4 mt-3 rounded-lg border bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-100 flex items-center gap-3">
-                  <span>📹 Incoming call from <b>{incomingCall.fromName}</b></span>
+                  <span>{incomingCall.mode === "audio" ? "📞" : "📹"} Incoming {incomingCall.mode} call from <b>{incomingCall.fromName}</b></span>
                   <div className="ml-auto flex items-center gap-2">
-                    <Button size="sm" onClick={() => acceptVideoCall(incomingCall.room)}>Accept</Button>
-                    <Button size="sm" variant="outline" onClick={declineVideoCall}>Decline</Button>
+                    <Button size="sm" onClick={() => acceptIncoming(incomingCall.room, incomingCall.mode)}>Accept</Button>
+                    <Button size="sm" variant="outline" onClick={declineIncoming}>Decline</Button>
                   </div>
                 </div>
               )}
@@ -666,11 +677,11 @@ export default function DashboardMessagesPage() {
         </div>
       </div>
 
-      {/* Video Call Modal */}
-      <VideoCallModal
-        open={showVideo}
+      {/* Call Modal (audio or video) */}
+      <CallModal
+        open={showCall}
         onClose={() => {
-          setShowVideo(false);
+          setShowCall(false);
           stopRing();
           try {
             if (selectedId) {
@@ -679,30 +690,37 @@ export default function DashboardMessagesPage() {
             }
           } catch {}
         }}
-        role={videoRole}
+        role={callRole}
         conversationId={selectedId || ""}
-        roomId={videoRoomRef.current || ""}
+        roomId={callRoomRef.current || ""}
+        mode={callMode}
       />
     </div>
   );
 }
 
-/* ------------------------------ Video Modal ------------------------------ */
-function VideoCallModal({
+/* ------------------------------- Call Modal ------------------------------ */
+/** Why: unify audio & video calls; avoids phone dependency. */
+function CallModal({
   open,
   onClose,
   role,
   conversationId,
   roomId,
+  mode,
 }: {
   open: boolean;
   onClose: () => void;
   role: "caller" | "callee";
   conversationId: string;
   roomId: string;
+  mode: "audio" | "video";
 }) {
-  const localRef = useRef<HTMLVideoElement>(null);
-  const remoteRef = useRef<HTMLVideoElement>(null);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const localAudioRef = useRef<HTMLAudioElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -725,7 +743,11 @@ function VideoCallModal({
 
       pc.ontrack = (e) => {
         const [remote] = e.streams;
-        if (remoteRef.current) remoteRef.current.srcObject = remote;
+        if (mode === "video") {
+          if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remote;
+        } else {
+          if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remote;
+        }
       };
 
       pc.onicecandidate = async (e) => {
@@ -738,9 +760,18 @@ function VideoCallModal({
         }
       };
 
-      streamRef.current = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      // Only request tracks needed for the selected mode
+      streamRef.current = await navigator.mediaDevices.getUserMedia(
+        mode === "video" ? { video: true, audio: true } : { audio: true, video: false }
+      );
+
       streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
-      if (localRef.current) localRef.current.srcObject = streamRef.current;
+
+      if (mode === "video") {
+        if (localVideoRef.current) localVideoRef.current.srcObject = streamRef.current;
+      } else {
+        if (localAudioRef.current) localAudioRef.current.srcObject = streamRef.current;
+      }
 
       const ch = supabase.channel(`video_${conversationId}`, { config: { broadcast: { self: false } } });
       chanRef.current = ch;
@@ -793,7 +824,7 @@ function VideoCallModal({
 
     setup();
     return () => { if (!ended) cleanup(); };
-  }, [open, role, conversationId, roomId, pcInit, onClose]);
+  }, [open, role, conversationId, roomId, pcInit, onClose, mode]);
 
   if (!open) return null;
 
@@ -801,13 +832,28 @@ function VideoCallModal({
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60">
       <div className="mx-4 w-full max-w-3xl rounded-2xl bg-white p-4 shadow-xl dark:bg-zinc-900">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Video Call</h2>
+          <h2 className="text-lg font-semibold">{mode === "video" ? "Video Call" : "Audio Call"}</h2>
           <Button size="sm" variant="outline" onClick={onClose}>End</Button>
         </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <video ref={localRef} autoPlay muted playsInline className="h-64 w-full rounded-lg bg-black object-cover" />
-          <video ref={remoteRef} autoPlay playsInline className="h-64 w-full rounded-lg bg-black object-cover" />
-        </div>
+
+        {mode === "video" ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            <video ref={localVideoRef} autoPlay muted playsInline className="h-64 w-full rounded-lg bg-black object-cover" />
+            <video ref={remoteVideoRef} autoPlay playsInline className="h-64 w-full rounded-lg bg-black object-cover" />
+          </div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="flex h-56 w-full items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
+              <div className="text-sm text-gray-600 dark:text-gray-300">You (mic on)</div>
+              <audio ref={localAudioRef} autoPlay muted />
+            </div>
+            <div className="flex h-56 w-full items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
+              <div className="text-sm text-gray-600 dark:text-gray-300">Peer</div>
+              <audio ref={remoteAudioRef} autoPlay />
+            </div>
+          </div>
+        )}
+
         <p className="mt-2 text-xs text-gray-500">Use a TURN server in production for reliability.</p>
       </div>
     </div>
