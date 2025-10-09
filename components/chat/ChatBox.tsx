@@ -570,7 +570,7 @@ function ChatBoxInner(props: {
     let stream: MediaStream | null = null;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      const video = document.createElement("video"); video.srcObject = stream as any; await video.play();
+      const video = document.createElement("video"); (video as any).muted = true; video.srcObject = stream as any; await video.play();
       const canvas = document.createElement("canvas");
       canvas.width = (video as any).videoWidth || 640; canvas.height = (video as any).videoHeight || 480;
       canvas.getContext("2d")!.drawImage(video, 0, 0);
@@ -1011,14 +1011,42 @@ function CallWindow({
     if (!open || !conversationId || !roomId) return;
     let ended = false;
 
+    const tryPlay = () => {
+      remoteAudioRef.current?.play?.().catch(() => {});
+      remoteVideoRef.current?.play?.().catch(() => {});
+    };
+
     async function setup() {
       const pc = new RTCPeerConnection(pcInit);
       pcRef.current = pc;
 
+      // helpful logs
+      pc.oniceconnectionstatechange = () => console.log("[webrtc] ice:", pc.iceConnectionState);
+      pc.onconnectionstatechange = () => console.log("[webrtc] pc:", pc.connectionState);
+
+      // FORCE-PLAY remote media when tracks arrive (fix autoplay stalls)
       pc.ontrack = (e) => {
         const [remote] = e.streams;
-        if (mode === "video") { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remote; }
-        else { if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remote; }
+        if (!remote) return;
+
+        if (mode === "video") {
+          const v = remoteVideoRef.current;
+          if (v) {
+            v.srcObject = remote;
+            v.muted = !speakerOn;
+            v.playsInline = true;
+            v.autoplay = true;
+            v.play().catch(() => {});
+          }
+        } else {
+          const a = remoteAudioRef.current;
+          if (a) {
+            a.srcObject = remote;
+            a.muted = !speakerOn;
+            a.autoplay = true;
+            a.play().catch(() => {});
+          }
+        }
       };
 
       pc.onicecandidate = async (e) => {
@@ -1027,6 +1055,7 @@ function CallWindow({
         }
       };
 
+      // local media
       streamRef.current = await navigator.mediaDevices.getUserMedia(mode === "video" ? { video: true, audio: true } : { audio: true, video: false });
       streamRef.current.getAudioTracks().forEach((t) => (t.enabled = micOn));
       streamRef.current.getVideoTracks().forEach((t) => (t.enabled = camOn));
@@ -1042,6 +1071,7 @@ function CallWindow({
       ch.on("broadcast", { event: "offer" }, async (p) => {
         const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+        tryPlay();
         const answer = await pcRef.current.createAnswer();
         await pcRef.current.setLocalDescription(answer);
         await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
@@ -1050,6 +1080,7 @@ function CallWindow({
       ch.on("broadcast", { event: "answer" }, async (p) => {
         const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+        tryPlay();
       });
 
       ch.on("broadcast", { event: "ice" }, async (p) => {
@@ -1059,11 +1090,22 @@ function CallWindow({
 
       ch.on("broadcast", { event: "hangup" }, () => { if (!ended) cleanup(); });
 
-      // ensure subscribed (robust)
+      // ensure subscribed (robust) BEFORE offer/answer
       await subscribeWithRetry(ch);
 
       if (role === "caller") {
-        const offer = await pc.createOffer();
+        // be explicit about directions; helps some stacks
+        if (mode === "video") {
+          pc.addTransceiver("video", { direction: "sendrecv" });
+          pc.addTransceiver("audio", { direction: "sendrecv" });
+        } else {
+          pc.addTransceiver("audio", { direction: "sendrecv" });
+        }
+
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: mode === "video",
+        });
         await pc.setLocalDescription(offer);
         await ch.send({ type: "broadcast", event: "offer", payload: { room: roomId, sdp: offer } });
       }
@@ -1085,7 +1127,7 @@ function CallWindow({
 
     setup();
     return () => { if (!ended) cleanup(); };
-  }, [open, role, conversationId, roomId, pcInit, onClose, mode, micOn, camOn]);
+  }, [open, role, conversationId, roomId, pcInit, onClose, mode, micOn, camOn, speakerOn]);
 
   async function toggleShare() {
     if (mode !== "video") return;
@@ -1162,11 +1204,26 @@ function CallWindow({
 
           {/* Controls */}
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/90 dark:bg-zinc-900/90 px-2 py-1 shadow-lg border dark:border-zinc-700">
-            <Button size="sm" variant="outline" className="rounded-full" onClick={() => setSpeakerOn((v) => {
-              if (remoteAudioRef.current) remoteAudioRef.current.muted = v;
-              if (remoteVideoRef.current) remoteVideoRef.current.muted = v;
-              return !v;
-            })} title="Speaker">
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full"
+              onClick={() => {
+                setSpeakerOn((v) => {
+                  const next = !v;
+                  if (remoteAudioRef.current) {
+                    remoteAudioRef.current.muted = !next;
+                    remoteAudioRef.current.play?.().catch(() => {});
+                  }
+                  if (remoteVideoRef.current) {
+                    remoteVideoRef.current.muted = !next;
+                    remoteVideoRef.current.play?.().catch(() => {});
+                  }
+                  return next;
+                });
+              }}
+              title="Speaker"
+            >
               {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             </Button>
             <Button size="sm" variant="outline" className="rounded-full" onClick={() => setMicOn((v) => {
