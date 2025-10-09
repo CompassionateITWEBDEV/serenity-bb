@@ -32,9 +32,7 @@ export type MessageRow = {
   created_at: string;
   read: boolean;
   urgent: boolean;
-
-  // ✅ support both schemas
-  meta?: MessageMeta | null;                           // new
+  meta?: MessageMeta | null;                           // new schema
   attachment_url?: string | null;                     // legacy
   attachment_type?: "image" | "audio" | "file" | null;// legacy
 };
@@ -99,7 +97,7 @@ export default function PatientMessagesPage() {
 
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Draft media (staged before sending)
+  // Draft media (staged before sending) — lives in composer tray
   const [draft, setDraft] = useState<{
     blob: Blob;
     type: "image" | "audio" | "file";
@@ -114,6 +112,9 @@ export default function PatientMessagesPage() {
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // sending lock (prevents double insert)
+  const [sending, setSending] = useState(false);
 
   /* ------------------------- Auth + ensure patient ------------------------ */
   useEffect(() => {
@@ -189,7 +190,7 @@ export default function PatientMessagesPage() {
         { schema: "public", table: "messages", event: "*", filter: `conversation_id=eq.${selectedId}` },
         async (payload) => {
           if (payload.eventType === "INSERT") {
-            setMsgs((prev) => [...prev, payload.new as MessageRow]);
+            setMsgs((prev) => [...prev, payload.new as MessageRow]); // realtime only → no doubles
             requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current!.scrollHeight, behavior: "smooth" }));
           } else {
             const { data } = await supabase
@@ -317,18 +318,18 @@ export default function PatientMessagesPage() {
     };
     mediaRecRef.current = rec;
     setRecording(true);
-    rec.start();
+    rec.start(); // user decides when to stop; no auto 2s clips
   }
 
   /* --------------------------------- SEND -------------------------------- */
   const canSend = useMemo(
-    () => (!!compose.trim() || !!draft) && !!me && !!selectedId,
-    [compose, draft, me, selectedId]
+    () => (!!compose.trim() || !!draft) && !!me && !!selectedId && !sending,
+    [compose, draft, me, selectedId, sending]
   );
 
   async function send() {
     if (!me || !selectedId || !canSend) return;
-
+    setSending(true);
     const caption = compose.trim();
 
     // Upload if there's a draft → get a STORAGE PATH and write into meta.*
@@ -350,31 +351,20 @@ export default function PatientMessagesPage() {
           });
           meta = { audio_path: path, duration_sec: draft.duration_sec ?? null };
         } else {
+          // generic file → keep legacy if you support it elsewhere, or extend meta
           meta = {};
         }
       }
     } catch (e: any) {
       await Swal.fire("Upload failed", e.message || "Could not upload media.", "error");
+      setSending(false);
       return;
     }
 
-    const optimistic: MessageRow = {
-      id: `tmp-${crypto.randomUUID()}`,
-      conversation_id: selectedId,
-      patient_id: me.id,
-      sender_id: me.id,
-      sender_name: me.name,
-      sender_role: "patient",
-      content: caption || (draft?.type === "audio" ? "(voice note)" : draft?.type === "image" ? "(image)" : ""),
-      created_at: new Date().toISOString(),
-      read: false,
-      urgent: false,
-      meta,
-    };
-    setMsgs((m) => [...m, optimistic]);
-    setCompose("");
-    if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
-    setDraft(null);
+    // Insert WITHOUT optimistic append (avoid duplicates)
+    const content =
+      caption ||
+      (meta?.audio_path ? "(voice note)" : meta?.image_path ? "(image)" : "");
 
     const { error: insErr } = await supabase.from("messages").insert({
       conversation_id: selectedId,
@@ -382,26 +372,33 @@ export default function PatientMessagesPage() {
       sender_id: me.id,
       sender_name: me.name,
       sender_role: "patient",
-      content: optimistic.content,
+      content,
       read: false,
       urgent: false,
-      meta, // ⬅️ write new schema
+      meta,
     });
+
     if (insErr) {
-      setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
       await Swal.fire("Send failed", insErr.message, "error");
+      setSending(false);
       return;
     }
 
+    // Clear local compose/draft (realtime will add the message)
+    setCompose("");
+    if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+    setDraft(null);
+
+    // Update conversation snippet
     await supabase
       .from("conversations")
       .update({
-        last_message:
-          optimistic.content ||
-          (meta?.image_path ? "(image)" : meta?.audio_path ? "(voice note)" : ""),
+        last_message: content || "",
         last_message_at: new Date().toISOString(),
       })
       .eq("id", selectedId);
+
+    setSending(false);
   }
 
   /* --------------------------------- UI ---------------------------------- */
@@ -602,7 +599,14 @@ export default function PatientMessagesPage() {
                     <Button type="button" variant="ghost" size="icon" onClick={takePhoto} className="rounded-full">
                       <Camera className="h-5 w-5" />
                     </Button>
-                    <Button type="button" variant="ghost" size="icon" onClick={toggleRecord} className={`rounded-full ${recording ? "animate-pulse" : ""}`}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={toggleRecord}
+                      className={`rounded-full ${recording ? "animate-pulse" : ""}`}
+                      title={recording ? "Stop recording" : "Start voice message"}
+                    >
                       <Mic className="h-5 w-5" />
                     </Button>
                   </div>
@@ -614,7 +618,7 @@ export default function PatientMessagesPage() {
                     className="min-h-[44px] max-h-[140px] flex-1 rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700"
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
                   />
-                  <Button onClick={send} disabled={!canSend} className="shrink-0 rounded-2xl h-11 px-4 shadow-md">
+                  <Button onClick={send} disabled={!canSend} className="shrink-0 rounded-2xl h-11 px-4 shadow-md" aria-busy={sending}>
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
