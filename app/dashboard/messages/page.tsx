@@ -18,7 +18,6 @@ import { chatUploadToPath } from "@/lib/chat/storage";
 
 /* ------------------------------- Types ---------------------------------- */
 type ProviderRole = "doctor" | "nurse" | "counselor";
-type Mode = "staff" | "patient";
 
 type MessageRow = {
   id: string;
@@ -48,15 +47,6 @@ type Conversation = {
   created_at: string;
 };
 
-type PatientRow = {
-  user_id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  phone?: string | null;
-  avatar_url?: string | null;
-};
-
 type StaffRow = {
   user_id: string;
   first_name: string | null;
@@ -73,25 +63,17 @@ function initials(name?: string | null) {
   if (!s) return "U";
   return s.split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 }
-function toProviderRole(role?: string | null): ProviderRole {
-  const r = (role ?? "").toLowerCase();
-  if (r.includes("doc")) return "doctor";
-  if (r.includes("nurse")) return "nurse";
-  if (r.includes("counsel")) return "counselor";
-  return "nurse";
-}
 function sanitizePhone(n?: string | null) {
   return (n ?? "").replace(/[^\d+]/g, "");
 }
 
-/* ------------------------------ Page ------------------------------------ */
+/* ------------------------------ Page (PATIENT) -------------------------- */
 export default function DashboardMessagesPage() {
-  const [mode, setMode] = useState<Mode | null>(null);
-  const [me, setMe] = useState<{ id: string; name: string; phone?: string | null; role?: ProviderRole } | null>(null);
+  // patient identity only
+  const [me, setMe] = useState<{ id: string; name: string; phone?: string | null } | null>(null);
 
   const [convs, setConvs] = useState<Conversation[]>([]);
-  const [patients, setPatients] = useState<PatientRow[]>([]);
-  const [staff, setStaff] = useState<StaffRow[]>([]);
+  const [staffDir, setStaffDir] = useState<StaffRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
 
@@ -99,11 +81,11 @@ export default function DashboardMessagesPage() {
   const [compose, setCompose] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const [otherOnline, setOtherOnline] = useState(false);
+  const [providerOnline, setProviderOnline] = useState(false);
 
   const listRef = useRef<HTMLDivElement>(null);
 
-  // staged media
+  // Draft media (staged before sending)
   const [draft, setDraft] = useState<{
     blob: Blob;
     type: "image" | "audio" | "file";
@@ -113,40 +95,27 @@ export default function DashboardMessagesPage() {
   } | null>(null);
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
+  // recording
   const [recording, setRecording] = useState(false);
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // sending lock
   const [sending, setSending] = useState(false);
 
-  // video call
+  // call state
   const [incomingCall, setIncomingCall] = useState<{ fromName: string; room: string } | null>(null);
   const [showVideo, setShowVideo] = useState(false);
   const [videoRole, setVideoRole] = useState<"caller" | "callee">("caller");
   const videoRoomRef = useRef<string | null>(null);
 
-  /* ------------------------- Auth + detect mode -------------------------- */
+  /* ------------------------- Auth + ensure PATIENT ------------------------ */
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
       const uid = au.user?.id;
       if (!uid) { location.href = "/login"; return; }
-
-      // Try staff first; if not, fall back to patient
-      const { data: s } = await supabase
-        .from("staff")
-        .select("user_id, first_name, last_name, email, role, phone, avatar_url")
-        .eq("user_id", uid)
-        .maybeSingle();
-
-      if (s?.user_id) {
-        const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "Me";
-        setMode("staff");
-        setMe({ id: uid, name, phone: s.phone ?? null, role: toProviderRole(s.role ?? "") });
-        setLoading(false);
-        return;
-      }
 
       const { data: p } = await supabase
         .from("patients")
@@ -154,55 +123,47 @@ export default function DashboardMessagesPage() {
         .eq("user_id", uid)
         .maybeSingle();
 
-      if (p?.user_id) {
-        const name = [p.first_name, p.last_name].filter(Boolean).join(" ") || p.email || "Me";
-        setMode("patient");
-        setMe({ id: uid, name, phone: p.phone ?? null });
-        setLoading(false);
+      if (!p?.user_id) {
+        await Swal.fire("Access denied", "This page is for patients.", "error");
+        location.href = "/";
         return;
       }
 
-      await Swal.fire("Access denied", "No staff or patient profile found for this account.", "error");
-      location.href = "/";
+      const name = [p.first_name, p.last_name].filter(Boolean).join(" ") || au.user?.email || "Me";
+      setMe({ id: uid, name, phone: p.phone ?? null });
+      setLoading(false);
     })();
   }, []);
 
-  /* ------------------------ Load conversations --------------------------- */
+  /* ------------------------ Load conversations (patient) ------------------ */
   useEffect(() => {
-    if (!me || !mode) return;
+    if (!me) return;
     (async () => {
-      const q = supabase
+      const { data, error } = await supabase
         .from("conversations")
-        .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at");
-
-      const { data, error } =
-        mode === "staff"
-          ? await q.eq("provider_id", me.id).order("last_message_at", { ascending: false })
-          : await q.eq("patient_id", me.id).order("last_message_at", { ascending: false });
-
+        .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
+        .eq("patient_id", me.id)
+        .order("last_message_at", { ascending: false, nullsFirst: false });
       if (error) { await Swal.fire("Load error", error.message, "error"); return; }
       setConvs((data as Conversation[]) || []);
     })();
-  }, [me, mode]);
+  }, [me]);
 
-  /* --------------------- Parties cache (both sides) ---------------------- */
-  useEffect(() => {
-    if (!me || !mode) return;
-    (async () => {
-      const [pRes, sRes] = await Promise.all([
-        supabase.from("patients").select("user_id, first_name, last_name, email, phone, avatar_url"),
-        supabase.from("staff").select("user_id, first_name, last_name, email, role, phone, avatar_url"),
-      ]);
-      if (!pRes.error) setPatients((pRes.data as PatientRow[]) || []);
-      if (!sRes.error) setStaff((sRes.data as StaffRow[]) || []);
-    })();
-  }, [me, mode]);
+  /* ----------------------------- Staff directory ------------------------- */
+  const fetchStaff = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("staff")
+      .select("user_id, first_name, last_name, email, role, phone, avatar_url");
+    if (error) { await Swal.fire("Load error", error.message, "error"); return; }
+    setStaffDir((data as StaffRow[]) || []);
+  }, []);
+  useEffect(() => { if (me) void fetchStaff(); }, [me, fetchStaff]);
 
-  /* -------------------- Open/subscribe a conversation -------------------- */
+  /* -------------------- Open/subscribe a conversation thread -------------- */
   useEffect(() => {
     if (!selectedId || !me) return;
     let alive = true;
-    setOtherOnline(false);
+    setProviderOnline(false);
 
     (async () => {
       const { data, error } = await supabase
@@ -220,36 +181,24 @@ export default function DashboardMessagesPage() {
       .channel(`thread_${selectedId}`, { config: { presence: { key: me.id } } })
       .on(
         "postgres_changes",
-        { schema: "public", table: "messages", event: "*", filter: `conversation_id=eq.${selectedId}` },
-        async (payload) => {
-          if (payload.eventType === "INSERT") {
-            setMsgs((prev) => [...prev, payload.new as MessageRow]); // realtime only → no doubles
-            requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current!.scrollHeight, behavior: "smooth" }));
-          } else {
-            const { data } = await supabase
-              .from("messages").select("*")
-              .eq("conversation_id", selectedId)
-              .order("created_at", { ascending: true });
-            setMsgs((data as MessageRow[]) || []);
-          }
+        { schema: "public", table: "messages", event: "INSERT", filter: `conversation_id=eq.${selectedId}` },
+        (payload) => {
+          setMsgs((prev) => [...prev, payload.new as MessageRow]); // realtime only → no doubles
+          requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current!.scrollHeight, behavior: "smooth" }));
         }
       )
-      .on("presence", { event: "sync" }, () => {
-        try {
-          const ps = ch.presenceState() as any;
-          const others = Object.entries(ps).flatMap(([, v]: any) => v) as any[];
-          setOtherOnline(others.some((x) => x.user_id && x.user_id !== me.id));
-        } catch {}
-      })
       .subscribe();
 
+    // Video signaling
     const videoCh = supabase
       .channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
       .on("broadcast", { event: "ring" }, (p) => {
         const { room, fromName } = (p.payload || {}) as { room: string; fromName: string };
         setIncomingCall({ room, fromName: fromName || "Caller" });
       })
-      .on("broadcast", { event: "hangup" }, () => setIncomingCall(null))
+      .on("broadcast", { event: "hangup" }, () => {
+        setIncomingCall(null);
+      })
       .subscribe();
 
     return () => {
@@ -260,7 +209,7 @@ export default function DashboardMessagesPage() {
   }, [selectedId, me]);
 
   /* ------------------------------ PICKERS -------------------------------- */
-  const openFilePicker = () => fileInputRef.current?.click();
+  function openFilePicker() { fileInputRef.current?.click(); }
 
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -330,7 +279,7 @@ export default function DashboardMessagesPage() {
     };
     mediaRecRef.current = rec;
     setRecording(true);
-    rec.start(); // user decides when to stop
+    rec.start(); // user stops
   }
 
   /* --------------------------------- SEND -------------------------------- */
@@ -340,7 +289,7 @@ export default function DashboardMessagesPage() {
   );
 
   async function send() {
-    if (!me || !selectedId || !mode || !canSend) return;
+    if (!me || !selectedId || !canSend) return;
     setSending(true);
     const caption = compose.trim();
 
@@ -348,10 +297,18 @@ export default function DashboardMessagesPage() {
     try {
       if (draft) {
         if (draft.type === "image") {
-          const path = await chatUploadToPath(draft.blob, { conversationId: selectedId, kind: "image", fileName: draft.name || "image.jpg" });
+          const path = await chatUploadToPath(draft.blob, {
+            conversationId: selectedId,
+            kind: "image",
+            fileName: draft.name || "image.jpg",
+          });
           meta = { image_path: path, duration_sec: null };
         } else if (draft.type === "audio") {
-          const path = await chatUploadToPath(draft.blob, { conversationId: selectedId, kind: "audio", fileName: draft.name || "voice.webm" });
+          const path = await chatUploadToPath(draft.blob, {
+            conversationId: selectedId,
+            kind: "audio",
+            fileName: draft.name || "voice.webm",
+          });
           meta = { audio_path: path, duration_sec: draft.duration_sec ?? null };
         } else {
           meta = {};
@@ -365,17 +322,19 @@ export default function DashboardMessagesPage() {
 
     const content = caption || (meta?.audio_path ? "(voice note)" : meta?.image_path ? "(image)" : "");
 
+    // Insert ONCE; rely on realtime INSERT to render (no duplicates)
     const { error: insErr } = await supabase.from("messages").insert({
       conversation_id: selectedId,
-      patient_id: mode === "patient" ? me.id : null,
+      patient_id: me.id,                 // patient sender
       sender_id: me.id,
       sender_name: me.name,
-      sender_role: mode === "patient" ? "patient" : (me.role as ProviderRole),
+      sender_role: "patient",
       content,
       read: false,
       urgent: false,
       meta,
     });
+
     if (insErr) {
       await Swal.fire("Send failed", insErr.message, "error");
       setSending(false);
@@ -386,7 +345,8 @@ export default function DashboardMessagesPage() {
     if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
     setDraft(null);
 
-    await supabase.from("conversations")
+    await supabase
+      .from("conversations")
       .update({ last_message: content || "", last_message_at: new Date().toISOString() })
       .eq("id", selectedId);
 
@@ -394,27 +354,21 @@ export default function DashboardMessagesPage() {
   }
 
   /* ------------------------------ CALLING -------------------------------- */
-  const selectedConv = useMemo(() => convs.find((c) => c.id === selectedId) || null, [convs, selectedId]);
+  const selectedConv = useMemo(
+    () => convs.find((c) => c.id === selectedId) || null,
+    [convs, selectedId]
+  );
 
-  // other party (name/avatar/phone)
-  const otherInfo = useMemo(() => {
-    if (!selectedConv) return { name: "—", avatar: undefined, phone: "" };
-
-    if (mode === "staff") {
-      const p = patients.find((x) => x.user_id === selectedConv.patient_id);
-      const name = [p?.first_name, p?.last_name].filter(Boolean).join(" ") || p?.email || "Patient";
-      return { name, avatar: p?.avatar_url ?? undefined, phone: sanitizePhone(p?.phone || null) };
-    } else {
-      const s = staff.find((x) => x.user_id === selectedConv.provider_id);
-      const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
-      return { name, avatar: s?.avatar_url ?? undefined, phone: sanitizePhone(s?.phone || null) };
-    }
-  }, [selectedConv, mode, patients, staff]);
+  const providerInfo = useMemo(() => {
+    const s = staffDir.find((x) => x.user_id === selectedConv?.provider_id);
+    const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
+    return { name, avatar: s?.avatar_url ?? undefined, phone: sanitizePhone(s?.phone || null) };
+  }, [staffDir, selectedConv?.provider_id]);
 
   function startPhoneCall() {
     if (!selectedId) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
-    if (!otherInfo.phone) { Swal.fire("No phone", "No phone number on file for this contact.", "info"); return; }
-    try { window.location.href = `tel:${otherInfo.phone}`; } catch { Swal.fire("Cannot call", "Device cannot start a phone call.", "error"); }
+    if (!providerInfo.phone) { Swal.fire("No phone", "No phone number on file for this provider.", "info"); return; }
+    try { window.location.href = `tel:${providerInfo.phone}`; } catch { Swal.fire("Cannot call", "Device cannot start a phone call.", "error"); }
   }
 
   async function startVideoCall() {
@@ -428,10 +382,22 @@ export default function DashboardMessagesPage() {
         .send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name } });
     } catch {}
   }
-  function acceptVideoCall(room: string) { videoRoomRef.current = room; setVideoRole("callee"); setIncomingCall(null); setShowVideo(true); }
+
+  function acceptVideoCall(room: string) {
+    videoRoomRef.current = room;
+    setVideoRole("callee");
+    setIncomingCall(null);
+    setShowVideo(true);
+  }
+
   function declineVideoCall() {
     setIncomingCall(null);
-    try { if (selectedId) { supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } }).send({ type: "broadcast", event: "hangup", payload: {} }); } } catch {}
+    try {
+      if (selectedId) {
+        supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
+          .send({ type: "broadcast", event: "hangup", payload: {} });
+      }
+    } catch {}
   }
 
   /* --------------------------------- UI ---------------------------------- */
@@ -448,31 +414,20 @@ export default function DashboardMessagesPage() {
 
   const filteredConvs = useMemo(() => {
     return convsSorted.filter((c) => {
-      const name =
-        mode === "staff"
-          ? (() => {
-              const p = patients.find((x) => x.user_id === c.patient_id);
-              return [p?.first_name, p?.last_name].filter(Boolean).join(" ") || p?.email || "Patient";
-            })()
-          : (() => {
-              const s = staff.find((x) => x.user_id === c.provider_id);
-              return [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
-            })();
+      const s = staffDir.find((x) => x.user_id === c.provider_id);
+      const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
       return search ? name.toLowerCase().includes(search) : true;
     });
-  }, [convsSorted, patients, staff, search, mode]);
+  }, [convsSorted, staffDir, search]);
 
-  if (loading || !mode || !me) return <div className="p-6">Loading…</div>;
-
-  const pageTitle = mode === "staff" ? "Messages" : "Messages";
-  const pageSubtitle = mode === "staff" ? "Chat with your patients" : "Chat with your care team";
+  if (loading) return <div className="p-6">Loading…</div>;
 
   return (
     <div className="container mx-auto p-6 max-w-7xl">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">{pageTitle}</h1>
-          <p className="mt-1 text-gray-600 dark:text-gray-300">{pageSubtitle}</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Messages</h1>
+          <p className="mt-1 text-gray-600 dark:text-gray-300">Chat with your care team</p>
         </div>
         <Dialog>
           <DialogTrigger asChild>
@@ -480,7 +435,7 @@ export default function DashboardMessagesPage() {
           </DialogTrigger>
           <DialogContent className="max-w-lg">
             <DialogHeader><DialogTitle>Start new chat</DialogTitle></DialogHeader>
-            {/* optional: search & start a new conversation */}
+            {/* Add-start-chat flow if needed */}
           </DialogContent>
         </Dialog>
       </div>
@@ -495,30 +450,16 @@ export default function DashboardMessagesPage() {
             </div>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input placeholder={`Search ${mode === "staff" ? "patient" : "staff"}…`} className="pl-10" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input placeholder="Search staff…" className="pl-10" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto divide-y dark:divide-zinc-800">
             {filteredConvs.map((c) => {
-              const name =
-                mode === "staff"
-                  ? (() => {
-                      const p = patients.find((x) => x.user_id === c.patient_id);
-                      return [p?.first_name, p?.last_name].filter(Boolean).join(" ") || p?.email || "Patient";
-                    })()
-                  : (() => {
-                      const s = staff.find((x) => x.user_id === c.provider_id);
-                      return [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
-                    })();
-
-              const avatar =
-                mode === "staff"
-                  ? patients.find((x) => x.user_id === c.patient_id)?.avatar_url ?? undefined
-                  : staff.find((x) => x.user_id === c.provider_id)?.avatar_url ?? undefined;
-
+              const s = staffDir.find((x) => x.user_id === c.provider_id);
+              const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
+              const avatar = s?.avatar_url ?? undefined;
               const active = selectedId === c.id;
-
               return (
                 <button
                   key={`conv-${c.id}`}
@@ -566,18 +507,18 @@ export default function DashboardMessagesPage() {
                   <ChevronLeft className="h-5 w-5" />
                 </Button>
                 <Avatar className="h-9 w-9">
-                  <AvatarImage src={otherInfo.avatar} />
-                  <AvatarFallback>{initials(otherInfo.name)}</AvatarFallback>
+                  <AvatarImage src={providerInfo.avatar} />
+                  <AvatarFallback>{initials(providerInfo.name)}</AvatarFallback>
                 </Avatar>
                 <div className="leading-tight">
-                  <div className="font-semibold">{otherInfo.name}</div>
+                  <div className="font-semibold">{providerInfo.name}</div>
                   <div className="flex items-center gap-1 text-xs">
-                    <span className={`inline-block h-2 w-2 rounded-full ${otherOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
-                    <span className={otherOnline ? "text-emerald-600" : "text-gray-500"}>{otherOnline ? "Online" : "Offline"}</span>
+                    <span className={`inline-block h-2 w-2 rounded-full ${providerOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
+                    <span className={providerOnline ? "text-emerald-600" : "text-gray-500"}>{providerOnline ? "Online" : "Offline"}</span>
                   </div>
                 </div>
                 <div className="ml-auto flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="rounded-full" onClick={startPhoneCall} title={otherInfo.phone ? `Call ${otherInfo.phone}` : "No phone on file"}>
+                  <Button variant="ghost" size="icon" className="rounded-full" onClick={startPhoneCall} title={providerInfo.phone ? `Call ${providerInfo.phone}` : "No phone on file"}>
                     <Phone className="h-5 w-5" />
                   </Button>
                   <Button variant="ghost" size="icon" className="rounded-full" onClick={startVideoCall} title="Start video call">
@@ -682,7 +623,12 @@ export default function DashboardMessagesPage() {
         open={showVideo}
         onClose={() => {
           setShowVideo(false);
-          try { if (selectedId) { supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } }).send({ type: "broadcast", event: "hangup", payload: {} }); } } catch {}
+          try {
+            if (selectedId) {
+              supabase.channel(`video_${selectedId}`, { config: { broadcast: { self: true } } })
+                .send({ type: "broadcast", event: "hangup", payload: {} });
+            }
+          } catch {}
         }}
         role={videoRole}
         conversationId={selectedId || ""}
@@ -728,10 +674,18 @@ function VideoCallModal({
       const pc = new RTCPeerConnection(pcInit);
       pcRef.current = pc;
 
-      pc.ontrack = (e) => { const [remote] = e.streams; if (remoteRef.current) remoteRef.current.srcObject = remote; };
+      pc.ontrack = (e) => {
+        const [remote] = e.streams;
+        if (remoteRef.current) remoteRef.current.srcObject = remote;
+      };
+
       pc.onicecandidate = async (e) => {
         if (e.candidate && chanRef.current) {
-          await chanRef.current.send({ type: "broadcast", event: "ice", payload: { room: roomId, candidate: e.candidate } });
+          await chanRef.current.send({
+            type: "broadcast",
+            event: "ice",
+            payload: { room: roomId, candidate: e.candidate },
+          });
         }
       };
 
@@ -763,7 +717,9 @@ function VideoCallModal({
         try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
       });
 
-      ch.on("broadcast", { event: "hangup" }, () => { if (!ended) cleanup(); });
+      ch.on("broadcast", { event: "hangup" }, () => {
+        if (!ended) cleanup();
+      });
 
       await ch.subscribe();
 
