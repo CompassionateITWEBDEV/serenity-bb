@@ -41,19 +41,27 @@ function initials(name?: string | null) {
 }
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-/* ---- tiny in-file signaling helpers (keeps this file self-contained) ---- */
+/* ---- signaling helpers (robust) ---- */
 function sigChannel(conversationId: string, self = true) {
   return supabase.channel(`video_${conversationId}`, { config: { broadcast: { self } } });
 }
-async function ensureSubscribed(ch: ReturnType<typeof sigChannel>, timeoutMs = 4000) {
-  let ready = false;
-  const p = new Promise<void>((resolve) => {
-    ch.subscribe((status) => { if (status === "SUBSCRIBED") { ready = true; resolve(); } });
+async function ensureSubscribed(ch: ReturnType<typeof sigChannel>, timeoutMs = 8000) {
+  // @ts-ignore (runtime state is available on channel)
+  if (ch.state === "joined" || ch._isJoined) return;
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("Signaling not ready")), timeoutMs);
+    const off = ch.subscribe((status: string) => {
+      if (status === "SUBSCRIBED") {
+        // @ts-ignore mark joined for fast-path
+        ch._isJoined = true;
+        clearTimeout(t);
+        resolve();
+      } else if (status === "TIMED_OUT" || status === "CLOSED" || status === "CHANNEL_ERROR") {
+        clearTimeout(t);
+        reject(new Error(status));
+      }
+    });
   });
-  const timer = new Promise<void>((_, rej) => setTimeout(() => rej(new Error("Signaling not ready")), timeoutMs));
-  await Promise.race([p, timer]);
-  if (!ready) throw new Error("Signaling not ready");
-  return ch;
 }
 
 /* ------------------------------ Page (PATIENT) -------------------------- */
@@ -162,7 +170,7 @@ export default function DashboardMessagesPage() {
     const ping = () => { try { ch.track({ user_id: me.id, at: Date.now() }); } catch {} };
     const keepAlive = setInterval(ping, 1500); ping();
 
-    // signaling channel for calls
+    // signaling channel for calls — one per selected thread
     const callCh = sigChannel(selectedId, true);
     callChRef.current = callCh;
 
@@ -191,7 +199,7 @@ export default function DashboardMessagesPage() {
   async function ensureConversationWith(providerUserId: string) {
     if (!me?.id) return;
     const staff = staffDir.find((s) => s.user_id === providerUserId);
-    const provider_name = [staff?.first_name, staff?.last_name].filter(Boolean).join(" ") || staff?.email || "Staff";
+    const provider_name = [staff?.first_name, staff?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
 
     const { data: existing } = await supabase
       .from("conversations")
@@ -247,7 +255,7 @@ export default function DashboardMessagesPage() {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: true });
       const video = document.createElement("video");
-      (video as any).muted = true;
+      (video as any).muted = true; // allow autoplay
       video.srcObject = stream as any; await video.play();
       const canvas = document.createElement("canvas");
       canvas.width = (video as any).videoWidth || 640; canvas.height = (video as any).videoHeight || 480;
@@ -319,8 +327,7 @@ export default function DashboardMessagesPage() {
   function playRing(loop = true) {
     try {
       if (!ringAudioRef.current) {
-        const a = new Audio("/ring.mp3"); // put a small mp3 in /public
-        a.loop = loop; ringAudioRef.current = a;
+        const a = new Audio("/ring.mp3"); a.loop = loop; ringAudioRef.current = a;
       }
       ringAudioRef.current.currentTime = 0; ringAudioRef.current.play().catch(() => {});
     } catch {}
@@ -677,8 +684,8 @@ function CallModal({
       streamRef.current.getVideoTracks().forEach((t) => (t.enabled = camOn));
       streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
 
-      if (mode === "video") { if (localVideoRef.current) localVideoRef.current.srcObject = streamRef.current; }
-      else { if (localAudioRef.current) localAudioRef.current.srcObject = streamRef.current; }
+      if (mode === "video") { if (localVideoRef.current) { localVideoRef.current.muted = true; localVideoRef.current.srcObject = streamRef.current; } }
+      else { if (localAudioRef.current) { localAudioRef.current.srcObject = streamRef.current; } }
 
       const ch = sigChannel(conversationId, false);
       chanRef.current = ch;
