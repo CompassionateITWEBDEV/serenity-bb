@@ -107,7 +107,7 @@ export default function CallDialog(props: Props) {
       // 3) Add local tracks
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-      // 4) Prepare remote stream (use track-by-track, more robust than e.streams[0])
+      // 4) Prepare remote stream (track-by-track)
       const remoteStream = new MediaStream();
       remoteStreamRef.current = remoteStream;
       attachStream(remoteRef.current, remoteStream, false);
@@ -211,7 +211,7 @@ export default function CallDialog(props: Props) {
         cleanupAndClose("ended");
       });
 
-      ch.subscribe(); // (supabase v2: callback-based; no .catch())
+      ch.subscribe();
 
       // 8) Caller: create and send OFFER + start timeout
       if (role === "caller") {
@@ -231,7 +231,6 @@ export default function CallDialog(props: Props) {
       cleanupAndClose("failed");
     });
 
-    // No return cleanup; all teardown is centralized.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -305,7 +304,6 @@ export default function CallDialog(props: Props) {
     localStreamRef.current = null;
     remoteStreamRef.current = null;
 
-    // Do NOT remove the shared user channel here (other parts of the app may be listening)
     onOpenChange(false);
   }
 
