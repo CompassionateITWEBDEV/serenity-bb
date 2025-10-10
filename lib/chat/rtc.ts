@@ -1,32 +1,28 @@
 import { supabase } from "@/lib/supabase/client";
 
+/** STUN+TURN. Replace TURN creds for production reliability. */
 export const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
-    // TODO: replace with your TURN for production reliability
     { urls: ["stun:global.stun.twilio.com:3478"] },
+    // { urls: "turn:YOUR_TURN_HOST:3478?transport=udp", username: "USER", credential: "PASS" },
+    // { urls: "turns:YOUR_TURN_HOST:5349?transport=tcp", username: "USER", credential: "PASS" },
   ],
 };
 
-const CH_PREFIX = "call:"; // single, canonical channel prefix used by ALL call UIs
+const CH_PREFIX = "call:"; // single canonical prefix for ALL call UIs
+const chName = (roomId: string) => `${CH_PREFIX}${roomId}`;
 
 export function sigChannel(roomId: string, self = true) {
-  // broadcast.self=true ensures we can receive our own events when testing in a single client tab.
-  // Safe in prod; the handlers guard by roomId anyway.
-  return supabase.channel(`${CH_PREFIX}${roomId}`, {
-    config: {
-      broadcast: { self },
-    },
-  });
+  return supabase.channel(chName(roomId), { config: { broadcast: { self } } });
 }
 
 export async function ensureSubscribed(
   ch: ReturnType<typeof sigChannel>,
   timeoutMs = 8000
 ): Promise<void> {
-  // @ts-ignore – runtime field set after success for fast-path
+  // @ts-ignore fast-path set after success
   if (ch._joined) return;
-
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("Signaling subscribe timeout")), timeoutMs);
     ch.subscribe((status) => {
@@ -35,7 +31,7 @@ export async function ensureSubscribed(
         // @ts-ignore
         ch._joined = true;
         resolve();
-      } else if (status === "TIMED_OUT" || status === "CLOSED" || status === "CHANNEL_ERROR") {
+      } else if (["TIMED_OUT", "CLOSED", "CHANNEL_ERROR"].includes(status)) {
         clearTimeout(t);
         reject(new Error(status));
       }
@@ -45,11 +41,7 @@ export async function ensureSubscribed(
 
 export async function subscribeWithRetry(
   ch: ReturnType<typeof sigChannel>,
-  {
-    tries = 3,
-    timeoutMs = 8000,
-    delayMs = 700,
-  }: { tries?: number; timeoutMs?: number; delayMs?: number } = {}
+  { tries = 3, timeoutMs = 8000, delayMs = 700 }: { tries?: number; timeoutMs?: number; delayMs?: number } = {}
 ) {
   let lastErr: unknown;
   for (let i = 0; i < tries; i++) {
@@ -77,8 +69,10 @@ export async function getSignalChannel(
     ref.current = ch;
   }
   // @ts-ignore
-  if (!ch._joined) {
-    await subscribeWithRetry(ch);
-  }
+  if (!ch._joined) await subscribeWithRetry(ch);
   return ch;
+}
+
+export async function forcePlay(el?: HTMLMediaElement | null) {
+  try { await el?.play(); } catch {}
 }
