@@ -5,8 +5,8 @@ export const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: ["stun:global.stun.twilio.com:3478"] },
-    // { urls: "turn:YOUR_TURN_HOST:3478?transport=udp", username: "USER", credential: "PASS" },
-    // { urls: "turns:YOUR_TURN_HOST:5349?transport=tcp", username: "USER", credential: "PASS" },
+    { urls: "turn:YOUR_TURN_HOST:3478?transport=udp", username: "USER", credential: "PASS" },
+    { urls: "turns:YOUR_TURN_HOST:5349?transport=tcp", username: "USER", credential: "PASS" },
   ],
 };
 
