@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
-import { sigChannel, ensureSubscribed, ICE_SERVERS } from "@/lib/chat/rtc";
+import { sigChannel, ensureSubscribed, subscribeWithRetry, getSignalChannel, ICE_SERVERS } from "@/lib/chat/rtc";
 
 /* ----------------------------- Types & settings ---------------------------- */
 type Provider = ProviderRole;
@@ -69,40 +69,6 @@ function normalizeProviderRole(r?: string | null): ProviderRole | null {
   return v === "doctor" || v === "nurse" || v === "counselor" ? (v as ProviderRole) : null;
 }
 
-/* ----------------------------- Robust signaling helpers ----------------------------- */
-// subscribe with retry + longer timeout; mark channel as joined to skip later
-async function subscribeWithRetry(
-  ch: ReturnType<typeof sigChannel>,
-  { tries = 3, timeoutMs = 6000, delayMs = 800 }: { tries?: number; timeoutMs?: number; delayMs?: number } = {}
-) {
-  for (let i = 0; i < tries; i++) {
-    try {
-      await ensureSubscribed(ch, timeoutMs);
-      (ch as any)._joined = true; // soft flag for fast path
-      return ch;
-    } catch (e) {
-      if (i === tries - 1) throw e;
-      await new Promise((r) => setTimeout(r, delayMs));
-    }
-  }
-  return ch;
-}
-async function getSignalChannel(
-  ref: React.MutableRefObject<ReturnType<typeof sigChannel> | null>,
-  conversationId: string,
-  self = true
-) {
-  let ch = ref.current;
-  if (!ch) {
-    ch = sigChannel(conversationId, self);
-    ref.current = ch;
-  }
-  if (!(ch as any)._joined) {
-    await subscribeWithRetry(ch);
-  }
-  return ch;
-}
-
 /* -------------------------------- Component -------------------------------- */
 export default function ChatBox(props: {
   mode: "staff" | "patient";
@@ -126,7 +92,6 @@ export default function ChatBox(props: {
   );
 }
 
-/* ------------------------------ Inner (logic) ------------------------------ */
 function ChatBoxInner(props: {
   mode: "staff" | "patient";
   patientId: string;
@@ -428,7 +393,7 @@ function ChatBoxInner(props: {
   function playRing(loop = true) {
     try {
       if (!ringAudioRef.current) {
-        ringAudioRef.current = new Audio("/ring.mp3"); // put a small file in /public/ring.mp3
+        ringAudioRef.current = new Audio("/ring.mp3");
         ringAudioRef.current.loop = loop;
       }
       ringAudioRef.current.currentTime = 0;
@@ -437,7 +402,7 @@ function ChatBoxInner(props: {
   }
   function stopRing() { try { ringAudioRef.current?.pause(); if (ringAudioRef.current) ringAudioRef.current.currentTime = 0; } catch {} }
 
-  // ---- Signaling subscribe (robust) ----
+  // ---- Signaling subscribe (shared, canonical channel) ----
   useEffect(() => {
     if (!conversationId || !me) return;
 
@@ -450,25 +415,35 @@ function ChatBoxInner(props: {
           .on("broadcast", { event: "ring" }, (p) => {
             if (!mounted) return;
             const { room, fromName, mode } = (p.payload || {}) as { room: string; fromName: string; mode: "audio" | "video" };
+            if (room !== conversationId) return;
+            // ignore our own ring if desired:
+            // if (fromName === me.name) return;
             setIncomingCall({ room, fromName: fromName || "Caller", mode: mode || "audio" });
             playRing(true);
           })
-          .on("broadcast", { event: "hangup" }, () => { if (mounted) { stopRing(); setIncomingCall(null); } })
-          .on("broadcast", { event: "answered" }, () => { if (mounted) stopRing(); });
+          .on("broadcast", { event: "hangup" }, (p) => {
+            const { room } = (p.payload || {}) as any;
+            if (room && room !== conversationId) return;
+            stopRing(); setIncomingCall(null);
+          })
+          .on("broadcast", { event: "answered" }, (p) => {
+            const { room } = (p.payload || {}) as any;
+            if (room && room !== conversationId) return;
+            stopRing();
+          });
       } catch (e) {
         console.warn("[chat] signaling subscribe failed:", e);
       }
     })();
 
     return () => {
-      mounted = false;
       stopRing();
       try { if (signalRef.current) supabase.removeChannel(signalRef.current); } catch {}
       signalRef.current = null;
     };
   }, [conversationId, me]);
 
-  // ---- Call actions (await ready channel) ----
+  // ---- Call actions (now guaranteed same channel name across apps) ----
   async function startCall(mode: "audio" | "video") {
     if (!conversationId || !me) { alert("Open a conversation first."); return; }
     try {
@@ -491,7 +466,7 @@ function ChatBoxInner(props: {
     setIncomingCall(null); stopRing();
     try {
       const ch = await getSignalChannel(signalRef, conversationId!, true);
-      await ch.send({ type: "broadcast", event: "hangup", payload: {} });
+      await ch.send({ type: "broadcast", event: "hangup", payload: { room: conversationId } });
     } catch {}
   }
 
@@ -859,7 +834,7 @@ function ChatBoxInner(props: {
             try {
               if (conversationId) {
                 const ch = await getSignalChannel(signalRef, conversationId, true);
-                await ch.send({ type: "broadcast", event: "hangup", payload: {} });
+                await ch.send({ type: "broadcast", event: "hangup", payload: { room: conversationId } });
               }
             } catch {}
           })();
@@ -1020,11 +995,9 @@ function CallWindow({
       const pc = new RTCPeerConnection(pcInit);
       pcRef.current = pc;
 
-      // helpful logs
       pc.oniceconnectionstatechange = () => console.log("[webrtc] ice:", pc.iceConnectionState);
       pc.onconnectionstatechange = () => console.log("[webrtc] pc:", pc.connectionState);
 
-      // FORCE-PLAY remote media when tracks arrive (fix autoplay stalls)
       pc.ontrack = (e) => {
         const [remote] = e.streams;
         if (!remote) return;
@@ -1033,7 +1006,7 @@ function CallWindow({
           const v = remoteVideoRef.current;
           if (v) {
             v.srcObject = remote;
-            v.muted = !speakerOn;
+            v.muted = !speakerOn; // why: autoplay policy
             v.playsInline = true;
             v.autoplay = true;
             v.play().catch(() => {});
@@ -1042,7 +1015,7 @@ function CallWindow({
           const a = remoteAudioRef.current;
           if (a) {
             a.srcObject = remote;
-            a.muted = !speakerOn;
+            a.muted = !speakerOn; // why: autoplay policy
             a.autoplay = true;
             a.play().catch(() => {});
           }
@@ -1055,7 +1028,6 @@ function CallWindow({
         }
       };
 
-      // local media
       streamRef.current = await navigator.mediaDevices.getUserMedia(mode === "video" ? { video: true, audio: true } : { audio: true, video: false });
       streamRef.current.getAudioTracks().forEach((t) => (t.enabled = micOn));
       streamRef.current.getVideoTracks().forEach((t) => (t.enabled = camOn));
@@ -1064,10 +1036,9 @@ function CallWindow({
       if (mode === "video") { if (localVideoRef.current) localVideoRef.current.srcObject = streamRef.current; }
       else { if (localAudioRef.current) localAudioRef.current.srcObject = streamRef.current; }
 
-      const ch = sigChannel(conversationId, false);
+      const ch = sigChannel(conversationId, true);
       chanRef.current = ch;
 
-      // handlers
       ch.on("broadcast", { event: "offer" }, async (p) => {
         const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -1088,13 +1059,15 @@ function CallWindow({
         try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
       });
 
-      ch.on("broadcast", { event: "hangup" }, () => { if (!ended) cleanup(); });
+      ch.on("broadcast", { event: "hangup" }, (p) => {
+        const { room } = (p.payload || {}) as any;
+        if (room && room !== roomId) return;
+        if (!ended) cleanup();
+      });
 
-      // ensure subscribed (robust) BEFORE offer/answer
       await subscribeWithRetry(ch);
 
       if (role === "caller") {
-        // be explicit about directions; helps some stacks
         if (mode === "video") {
           pc.addTransceiver("video", { direction: "sendrecv" });
           pc.addTransceiver("audio", { direction: "sendrecv" });
