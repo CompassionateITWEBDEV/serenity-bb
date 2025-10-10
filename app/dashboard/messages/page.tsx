@@ -9,20 +9,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, Phone, Video, Send, Image as ImageIcon, Camera, Mic,
-  MessageCircle, Search, Plus, X, Maximize2, Minimize2, MicOff, VideoOff,
+  MessageCircle, Search, Plus, X, MicOff, VideoOff,
   Volume2, VolumeX, Clock, MonitorUp, MonitorX, Users
 } from "lucide-react";
 import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
-
-// ✅ use the SAME helper everywhere
-import {
-  ICE_SERVERS,
-  sigChannel,
-  getSignalChannel,
-  ensureSubscribed,
-} from "@/lib/chat/rtc";
+import { ICE_SERVERS, sigChannel, getSignalChannel, ensureSubscribed } from "@/lib/chat/rtc";
 
 /* ------------------------------- Types ---------------------------------- */
 type ProviderRole = "doctor" | "nurse" | "counselor";
@@ -50,10 +43,266 @@ function initials(name?: string | null) {
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 async function safePlay(el?: HTMLMediaElement | null) { try { await el?.play?.(); } catch {} }
 
-/* ------------------------------ Page (PATIENT) -------------------------- */
+/* ====================================================================== */
+/* InlineCall: inline call UI (no modal)                                  */
+/* ====================================================================== */
+function InlineCall({
+  conversationId,
+  roomId,
+  role,
+  mode,
+  onEnd,
+  speakerDefaultOn = true,
+}: {
+  conversationId: string;
+  roomId: string;
+  role: "caller" | "callee";
+  mode: "audio" | "video";
+  onEnd: () => void;
+  speakerDefaultOn?: boolean;
+}) {
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(mode === "video");
+  const [speakerOn, setSpeakerOn] = useState(speakerDefaultOn);
+  const [sharing, setSharing] = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);
+
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const screenRef = useRef<MediaStream | null>(null);
+  const chanRef = useRef<ReturnType<typeof sigChannel> | null>(null);
+
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const localAudioRef = useRef<HTMLAudioElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    const t = window.setInterval(() => setElapsedSec((s) => s + 1), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    let ended = false;
+    const pendingICE: RTCIceCandidateInit[] = [];
+
+    async function setup() {
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+      pcRef.current = pc;
+
+      pc.oniceconnectionstatechange = () => console.log("[webrtc] ice:", pc.iceConnectionState);
+      pc.onconnectionstatechange = () => console.log("[webrtc] pc:", pc.connectionState);
+
+      pc.ontrack = async (e) => {
+        const [remote] = e.streams;
+        if (!remote) return;
+        if (mode === "video") {
+          const v = remoteVideoRef.current;
+          if (v) { v.srcObject = remote; v.muted = !speakerOn; v.playsInline = true; v.autoplay = true; await safePlay(v); }
+        } else {
+          const a = remoteAudioRef.current;
+          if (a) { a.srcObject = remote; a.muted = !speakerOn; a.autoplay = true; await safePlay(a); }
+        }
+      };
+
+      pc.onicecandidate = async (e) => {
+        if (e.candidate && chanRef.current) {
+          await chanRef.current.send({ type: "broadcast", event: "ice", payload: { room: roomId, candidate: e.candidate } });
+        }
+      };
+
+      // Local media
+      streamRef.current = await navigator.mediaDevices.getUserMedia(
+        mode === "video" ? { video: true, audio: true } : { audio: true, video: false }
+      );
+      streamRef.current.getAudioTracks().forEach((t) => (t.enabled = micOn));
+      streamRef.current.getVideoTracks().forEach((t) => (t.enabled = camOn));
+      streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
+
+      if (mode === "video" && localVideoRef.current) {
+        localVideoRef.current.muted = true;
+        localVideoRef.current.srcObject = streamRef.current;
+        await safePlay(localVideoRef.current);
+      }
+      if (mode === "audio" && localAudioRef.current) {
+        localAudioRef.current.srcObject = streamRef.current;
+        await safePlay(localAudioRef.current);
+      }
+
+      // Signaling — self:false so we don't receive our own ICE/SDP back
+      const ch = await getSignalChannel(chanRef as any, conversationId, false);
+      chanRef.current = ch;
+
+      ch
+        .on("broadcast", { event: "offer" }, async (p) => {
+          if (role === "caller") return; // caller must not handle own offer
+          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
+
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          for (const c of pendingICE.splice(0)) {
+            try { await pcRef.current.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+          }
+          const answer = await pcRef.current.createAnswer();
+          await pcRef.current.setLocalDescription(answer);
+          await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
+        })
+        .on("broadcast", { event: "answer" }, async (p) => {
+          if (role === "callee") return; // callee does not set answer
+          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
+
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          for (const c of pendingICE.splice(0)) {
+            try { await pcRef.current.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+          }
+        })
+        .on("broadcast", { event: "ice" }, async (p) => {
+          const { room, candidate } = p.payload as any; if (room !== roomId || !pcRef.current) return;
+          if (!pcRef.current.remoteDescription) pendingICE.push(candidate);
+          else {
+            try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+          }
+        })
+        .on("broadcast", { event: "hangup" }, (p) => {
+          const { room } = p.payload as any; if (room && room !== roomId) return;
+          if (!ended) cleanup();
+        });
+
+      await ensureSubscribed(ch);
+
+      // Caller creates offer
+      if (role === "caller") {
+        if (mode === "video") {
+          pc.addTransceiver("video", { direction: "sendrecv" });
+          pc.addTransceiver("audio", { direction: "sendrecv" });
+        } else {
+          pc.addTransceiver("audio", { direction: "sendrecv" });
+        }
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: mode === "video",
+        });
+        await pc.setLocalDescription(offer);
+        await ch.send({ type: "broadcast", event: "offer", payload: { room: roomId, sdp: offer } });
+      }
+    }
+
+    function cleanup() {
+      ended = true;
+      try { chanRef.current && supabase.removeChannel(chanRef.current); } catch {}
+      chanRef.current = null;
+      try { screenRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+      screenRef.current = null;
+      try { pcRef.current?.getSenders().forEach((s) => { try { s.track?.stop(); } catch {} }); } catch {}
+      try { pcRef.current?.close(); } catch {}
+      pcRef.current = null;
+      try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+      streamRef.current = null;
+      onEnd();
+    }
+
+    setup();
+    return () => cleanup();
+  }, [conversationId, roomId, role, mode, micOn, camOn, speakerOn, onEnd]);
+
+  const hhmmss = useMemo(() => {
+    const s = elapsedSec; const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    return [h, m, ss].map((n) => String(n).padStart(2, "0")).join(":");
+  }, [elapsedSec]);
+
+  async function toggleShare() {
+    if (mode !== "video") return;
+    if (sharing) {
+      try { screenRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+      screenRef.current = null; setSharing(false);
+      const v = streamRef.current?.getVideoTracks()[0];
+      let sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
+      if (!sender) pcRef.current?.addTransceiver("video", { direction: "sendrecv" });
+      sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
+      if (sender && v) await sender.replaceTrack(v);
+      return;
+    }
+    try {
+      const scr = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
+      screenRef.current = scr; setSharing(true);
+      const track = scr.getVideoTracks()[0];
+      let sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
+      if (!sender) pcRef.current?.addTransceiver("video", { direction: "sendrecv" });
+      sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
+      if (sender && track) await sender.replaceTrack(track);
+      scr.getVideoTracks()[0].onended = async () => {
+        setSharing(false);
+        const v = streamRef.current?.getVideoTracks()[0];
+        if (sender && v) await sender.replaceTrack(v);
+      };
+    } catch {}
+  }
+
+  return (
+    <div className="mt-2 rounded-xl border bg-white dark:bg-zinc-900 dark:border-zinc-800 overflow-hidden">
+      <div className="px-3 py-2 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+        <Clock className="h-3 w-3" />
+        <span className="tabular-nums">{hhmmss}</span>
+        <div className="ml-auto flex items-center gap-1">
+          <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
+            setSpeakerOn((v) => {
+              const next = !v;
+              if (remoteAudioRef.current) { remoteAudioRef.current.muted = !next; safePlay(remoteAudioRef.current); }
+              if (remoteVideoRef.current) { remoteVideoRef.current.muted = !next; safePlay(remoteVideoRef.current); }
+              return next;
+            });
+          }}>
+            {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+          </Button>
+          <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
+            streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !micOn)); setMicOn(!micOn);
+          }} title="Mic (M)">
+            {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+          </Button>
+          {mode === "video" && (
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
+              streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !camOn)); setCamOn(!camOn);
+            }} title="Camera (C)">
+              {camOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+            </Button>
+          )}
+          {mode === "video" && (
+            <Button size="sm" variant="outline" className="rounded-full" onClick={toggleShare} title="Share screen (S)">
+              {sharing ? <MonitorX className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
+            </Button>
+          )}
+          <Button size="sm" variant="destructive" className="rounded-full" onClick={() => {
+            try { chanRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: roomId } }); } catch {}
+            onEnd();
+          }}>End</Button>
+        </div>
+      </div>
+
+      {mode === "video" ? (
+        <div className="relative h-[360px] bg-black">
+          <video ref={remoteVideoRef} autoPlay playsInline muted={!true /* allow play, unmute controlled above */} className="absolute inset-0 w-full h-full object-cover" />
+          <video ref={localVideoRef} autoPlay playsInline muted className="absolute bottom-3 right-3 w-40 h-28 rounded-lg ring-1 ring-white/50 bg-black object-cover" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 p-3">
+          <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center p-3">
+            <div className="text-sm text-gray-600 dark:text-gray-300">You (mic {micOn ? "on" : "off"})</div>
+            <audio ref={localAudioRef} autoPlay muted />
+          </div>
+          <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center p-3">
+            <div className="text-sm text-gray-600 dark:text-gray-300">Peer</div>
+            <audio ref={remoteAudioRef} autoPlay />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ====================================================================== */
+/* Page: chat + inline calling                                            */
+/* ====================================================================== */
 export default function DashboardMessagesPage() {
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
-
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [staffDir, setStaffDir] = useState<StaffRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -73,21 +322,18 @@ export default function DashboardMessagesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
 
-  // Call state
-  const [incomingCall, setIncomingCall] = useState<{ fromName: string; room: string; mode: "audio" | "video" } | null>(null);
-  const [showCall, setShowCall] = useState(false);
+  // Calling
+  const [incomingCall, setIncomingCall] = useState<{ fromId: string; fromName: string; room: string; mode: "audio" | "video" } | null>(null);
+  const [showInline, setShowInline] = useState(false);
   const [callRole, setCallRole] = useState<"caller" | "callee">("caller");
   const [callMode, setCallMode] = useState<"audio" | "video">("audio");
   const callRoomRef = useRef<string | null>(null);
   const ringAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  // Realtime signaling — single, canonical channel per conversation
   const callChRef = useRef<ReturnType<typeof sigChannel> | null>(null);
 
-  // Sidebar tab
   const [sidebarTab, setSidebarTab] = useState<"convs" | "staff">("convs");
 
-  /* ------------------------- Auth ------------------------ */
+  // Auth
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
@@ -102,7 +348,7 @@ export default function DashboardMessagesPage() {
     })();
   }, []);
 
-  /* ------------------------ Load convos ------------------ */
+  // Load conversations
   const reloadConversations = useCallback(async (patientId: string) => {
     const { data, error } = await supabase
       .from("conversations")
@@ -114,7 +360,7 @@ export default function DashboardMessagesPage() {
   }, []);
   useEffect(() => { if (me?.id) void reloadConversations(me.id); }, [me?.id, reloadConversations]);
 
-  /* ----------------------------- Staff dir ------------------------- */
+  // Staff directory
   const fetchStaff = useCallback(async () => {
     const { data, error } = await supabase
       .from("staff")
@@ -125,7 +371,7 @@ export default function DashboardMessagesPage() {
   }, []);
   useEffect(() => { if (me) void fetchStaff(); }, [me, fetchStaff]);
 
-  /* --------- Thread + signaling subscribe ----------- */
+  // Thread + signaling subscribe
   useEffect(() => {
     if (!selectedId || !me) return;
     let alive = true;
@@ -156,22 +402,30 @@ export default function DashboardMessagesPage() {
     const ping = () => { try { ch.track({ user_id: me.id, at: Date.now() }); } catch {} };
     const keepAlive = setInterval(ping, 1500); ping();
 
-    // ✅ signaling: single canonical room == conversationId
+    // Signaling channel for calls — canonical: call:<conversationId>
     (async () => {
-      callChRef.current = await getSignalChannel(callChRef as any, selectedId, true);
+      callChRef.current = await getSignalChannel(callChRef as any, selectedId, true /* allow receive for both sides */);
       callChRef.current
         .on("broadcast", { event: "ring" }, (p) => {
-          const { room, fromName, mode } = (p.payload || {}) as { room: string; fromName: string; mode: "audio" | "video" };
+          const { room, fromId, fromName, mode } = (p.payload || {}) as { room: string; fromId: string; fromName: string; mode: "audio" | "video" };
           if (room !== selectedId) return;
-          setIncomingCall({ room, fromName: fromName || "Caller", mode: mode || "audio" });
+          if (fromId === me.id) return; // ignore self-ring
+          setIncomingCall({ fromId, fromName: fromName || "Caller", room, mode: mode || "audio" });
           playRing(true);
+        })
+        .on("broadcast", { event: "answered" }, (p) => {
+          const { room } = (p.payload || {}) as any;
+          if (room !== selectedId) return;
+          stopRing();
         })
         .on("broadcast", { event: "hangup" }, (p) => {
           const { room } = (p.payload || {}) as any;
-          if (room && room !== selectedId) return;
-          stopRing(); setIncomingCall(null);
-        })
-        .on("broadcast", { event: "answered" }, () => stopRing());
+          if (room !== selectedId) return;
+          stopRing();
+          setIncomingCall(null);
+          setShowInline(false);
+        });
+      await ensureSubscribed(callChRef.current);
     })().catch(() => {});
 
     return () => {
@@ -181,10 +435,12 @@ export default function DashboardMessagesPage() {
       try { if (callChRef.current) supabase.removeChannel(callChRef.current); } catch {}
       callChRef.current = null;
       stopRing();
+      setIncomingCall(null);
+      setShowInline(false);
     };
   }, [selectedId, me]);
 
-  /* --------------------------------- STAFF → CONVERSATION -------------------------------- */
+  // Conversation from Staff list
   async function ensureConversationWith(providerUserId: string) {
     if (!me?.id) return;
     const staff = staffDir.find((s) => s.user_id === providerUserId);
@@ -227,7 +483,7 @@ export default function DashboardMessagesPage() {
     setSidebarTab("convs");
   }
 
-  /* ------------------------------ PICKERS/REC ---------------------------- */
+  // File pickers / recorder
   function openFilePicker() { fileInputRef.current?.click(); }
   async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
@@ -241,8 +497,7 @@ export default function DashboardMessagesPage() {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: true });
       const video = document.createElement("video");
-      (video as any).muted = true;
-      video.srcObject = stream as any; await video.play();
+      (video as any).muted = true; video.srcObject = stream as any; await video.play();
       const canvas = document.createElement("canvas");
       canvas.width = (video as any).videoWidth || 640; canvas.height = (video as any).videoHeight || 480;
       canvas.getContext("2d")!.drawImage(video, 0, 0);
@@ -273,7 +528,7 @@ export default function DashboardMessagesPage() {
     mediaRecRef.current = rec; setRecording(true); rec.start();
   }
 
-  /* --------------------------------- SEND -------------------------------- */
+  // Send
   const canSend = useMemo(() => (!!compose.trim() || !!draft) && !!me && !!selectedId && !sending, [compose, draft, me, selectedId, sending]);
   async function send() {
     if (!me || !selectedId || !canSend) return;
@@ -302,14 +557,7 @@ export default function DashboardMessagesPage() {
     setSending(false);
   }
 
-  /* ------------------------------ CALLING -------------------------------- */
-  const selectedConv = useMemo(() => convs.find((c) => c.id === selectedId) || null, [convs, selectedId]);
-  const providerInfo = useMemo(() => {
-    const s = staffDir.find((x) => x.user_id === selectedConv?.provider_id);
-    const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
-    return { name, avatar: s?.avatar_url ?? undefined };
-  }, [staffDir, selectedConv?.provider_id]);
-
+  // Call helpers
   function playRing(loop = true) {
     try {
       if (!ringAudioRef.current) {
@@ -323,26 +571,37 @@ export default function DashboardMessagesPage() {
   async function startCall(mode: "audio" | "video") {
     if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
     try {
-      const ch = await getSignalChannel(chanRef as any, conversationId, false); // <-- don't receive your own broadcasts
-chanRef.current = ch;
+      const ch = await getSignalChannel(callChRef as any, selectedId, true);
+      const room = selectedId;
       callRoomRef.current = room;
-      setCallRole("caller"); setCallMode(mode); setShowCall(true); playRing(true);
-      await ch.send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name, mode } });
+      setCallRole("caller"); setCallMode(mode); setShowInline(true);
+      playRing(true);
+      await ch.send({ type: "broadcast", event: "ring", payload: { room, fromId: me.id, fromName: me.name, mode } });
     } catch (e: any) { await Swal.fire("Call failed", e?.message || "Signaling not ready.", "error"); }
   }
   function acceptIncoming(room: string, mode: "audio" | "video") {
     callRoomRef.current = room; setCallRole("callee"); setCallMode(mode); setIncomingCall(null); stopRing();
     try { callChRef.current?.send({ type: "broadcast", event: "answered", payload: { room } }); } catch {}
-    setShowCall(true);
+    setShowInline(true);
   }
   function declineIncoming() {
-    setIncomingCall(null); stopRing();
+    stopRing(); setIncomingCall(null);
     try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
   }
+  function endInline() {
+    setShowInline(false);
+  }
 
-  /* ------------------------------ Lists / filters ------------------------------ */
+  // Derived
+  const selectedConv = useMemo(() => convs.find((c) => c.id === selectedId) || null, [convs, selectedId]);
+  const providerInfo = useMemo(() => {
+    const s = staffDir.find((x) => x.user_id === selectedConv?.provider_id);
+    const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
+    return { name, avatar: s?.avatar_url ?? undefined };
+  }, [staffDir, selectedConv?.provider_id]);
+
+  // Search/filter
   const search = q.trim().toLowerCase();
-
   const convsSorted = useMemo(
     () => [...convs].sort((a, b) => (b.last_message_at || b.created_at || "").localeCompare(a.last_message_at || a.created_at || "")),
     [convs]
@@ -385,20 +644,8 @@ chanRef.current = ch;
               <MessageCircle className="h-5 w-5" />
               <div className="font-medium">Conversations</div>
               <div className="ml-auto flex gap-1">
-                <Button
-                  size="sm"
-                  variant={sidebarTab === "convs" ? "default" : "outline"}
-                  onClick={() => setSidebarTab("convs")}
-                >
-                  Chats
-                </Button>
-                <Button
-                  size="sm"
-                  variant={sidebarTab === "staff" ? "default" : "outline"}
-                  onClick={() => setSidebarTab("staff")}
-                >
-                  <Users className="mr-1 h-4 w-4" /> Staff
-                </Button>
+                <Button size="sm" variant={sidebarTab === "convs" ? "default" : "outline"} onClick={() => setSidebarTab("convs")}>Chats</Button>
+                <Button size="sm" variant={sidebarTab === "staff" ? "default" : "outline"} onClick={() => setSidebarTab("staff")}><Users className="mr-1 h-4 w-4" /> Staff</Button>
               </div>
             </div>
             <div className="relative">
@@ -503,6 +750,7 @@ chanRef.current = ch;
                 </div>
               </div>
 
+              {/* Incoming call banner */}
               {incomingCall && (
                 <div className="mx-4 mt-3 rounded-lg border bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-100 flex items-center gap-3">
                   <span>{incomingCall.mode === "audio" ? "📞" : "📹"} Incoming {incomingCall.mode} call from <b>{incomingCall.fromName}</b></span>
@@ -513,6 +761,7 @@ chanRef.current = ch;
                 </div>
               )}
 
+              {/* Messages */}
               <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-slate-50 to-white dark:from-zinc-900 dark:to-zinc-950">
                 {msgs.map((m) => {
                   const own = m.sender_id === me?.id;
@@ -535,8 +784,23 @@ chanRef.current = ch;
                   );
                 })}
                 {msgs.length === 0 && <div className="text-sm text-gray-500 text-center py-6">No messages yet.</div>}
+
+                {/* Inline call region (inside thread) */}
+                {showInline && selectedId && (
+                  <InlineCall
+                    conversationId={selectedId}
+                    roomId={callRoomRef.current || selectedId}
+                    role={callRole}
+                    mode={callMode}
+                    onEnd={() => {
+                      setShowInline(false);
+                      try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
+                    }}
+                  />
+                )}
               </div>
 
+              {/* Composer */}
               <div className="border-t dark:border-zinc-800 p-3">
                 {draft && (
                   <div className="mx-1 mb-2 flex items-center gap-3 rounded-xl border bg-white p-2 pr-3 text-sm shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
@@ -568,392 +832,6 @@ chanRef.current = ch;
           )}
         </div>
       </div>
-
-      {/* CALL UI */}
-      <CallModal
-        open={showCall}
-        onClose={() => {
-          setShowCall(false);
-          stopRing();
-          try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
-        }}
-        role={callRole}
-        conversationId={selectedId || ""}
-        roomId={callRoomRef.current || ""}
-        mode={callMode}
-        peerName={providerInfo.name}
-        peerAvatar={providerInfo.avatar}
-      />
-    </div>
-  );
-}
-
-/* ------------------------------- Call Modal ------------------------------ */
-type CallUIState = "max" | "window" | "mini";
-
-function CallModal({
-  open, onClose, role, conversationId, roomId, mode, peerName, peerAvatar,
-}: {
-  open: boolean; onClose: () => void; role: "caller" | "callee";
-  conversationId: string; roomId: string; mode: "audio" | "video";
-  peerName: string; peerAvatar?: string;
-}) {
-  const [ui, setUi] = useState<CallUIState>("max");
-  const [elapsedSec, setElapsedSec] = useState(0);
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(mode === "video");
-  const [speakerOn, setSpeakerOn] = useState(true);
-  const [sharing, setSharing] = useState(false);
-
-  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [size, setSize] = useState<{ w: number; h: number }>({ w: 920, h: 600 });
-  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
-  const resizeRef = useRef<{ w0: number; h0: number; x0: number; y0: number } | null>(null);
-
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const localAudioRef = useRef<HTMLAudioElement>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement>(null);
-
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const screenRef = useRef<MediaStream | null>(null);
-  const chanRef = useRef<ReturnType<typeof sigChannel> | null>(null);
-  const timerRef = useRef<number | null>(null);
-
-  const pcInit: RTCConfiguration = ICE_SERVERS;
-
-  useEffect(() => {
-    if (!open) return;
-    timerRef.current = window.setInterval(() => setElapsedSec((s) => s + 1), 1000);
-    return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } setElapsedSec(0); };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === "m") setMicOn((v) => { streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !v)); return !v; });
-      if (e.key.toLowerCase() === "c") setCamOn((v) => { streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !v)); return !v; });
-      if (e.key.toLowerCase() === "s") void toggleShare();
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !conversationId || !roomId) return;
-    let ended = false;
-
-    async function setup() {
-      // PeerConnection
-      const pc = new RTCPeerConnection(pcInit);
-      pcRef.current = pc;
-
-      pc.oniceconnectionstatechange = () => console.log("[webrtc] ice:", pc.iceConnectionState);
-      pc.onconnectionstatechange = () => console.log("[webrtc] pc:", pc.connectionState);
-
-      pc.ontrack = async (e) => {
-        const [remote] = e.streams;
-        if (!remote) return;
-        if (mode === "video") {
-          const v = remoteVideoRef.current;
-          if (v) { v.srcObject = remote; v.muted = !speakerOn; v.playsInline = true; v.autoplay = true; await safePlay(v); }
-        } else {
-          const a = remoteAudioRef.current;
-          if (a) { a.srcObject = remote; a.muted = !speakerOn; a.autoplay = true; await safePlay(a); }
-        }
-      };
-
-      pc.onicecandidate = async (e) => {
-        if (e.candidate && chanRef.current) {
-          await chanRef.current.send({ type: "broadcast", event: "ice", payload: { room: roomId, candidate: e.candidate } });
-        }
-      };
-
-      // Local media
-      streamRef.current = await navigator.mediaDevices.getUserMedia(mode === "video" ? { video: true, audio: true } : { audio: true, video: false });
-      streamRef.current.getAudioTracks().forEach((t) => (t.enabled = micOn));
-      streamRef.current.getVideoTracks().forEach((t) => (t.enabled = camOn));
-      streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
-
-      if (mode === "video") {
-        if (localVideoRef.current) { localVideoRef.current.muted = true; localVideoRef.current.srcObject = streamRef.current; await safePlay(localVideoRef.current); }
-      } else {
-        if (localAudioRef.current) { localAudioRef.current.srcObject = streamRef.current; await safePlay(localAudioRef.current); }
-      }
-
-      // Signaling
-      const ch = await getSignalChannel(chanRef as any, conversationId, true);
-      chanRef.current = ch;
-
-      ch
-  .on("broadcast", { event: "offer" }, async (p) => {
-    if (role === "caller") return;            // caller must NOT handle own offer
-    const { room, sdp } = p.payload as any;
-    if (room !== roomId || !pcRef.current) return;
-
-    await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-    const answer = await pcRef.current.createAnswer();
-    await pcRef.current.setLocalDescription(answer);
-    await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
-  })
-  .on("broadcast", { event: "answer" }, async (p) => {
-    if (role === "callee") return;            // callee must NOT handle answer
-    const { room, sdp } = p.payload as any;
-    if (room !== roomId || !pcRef.current) return;
-    await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-  });
-
-      await ensureSubscribed(ch);
-
-      // Offer (caller)
-      if (role === "caller") {
-        if (mode === "video") {
-          pc.addTransceiver("video", { direction: "sendrecv" });
-          pc.addTransceiver("audio", { direction: "sendrecv" });
-        } else {
-          pc.addTransceiver("audio", { direction: "sendrecv" });
-        }
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: mode === "video",
-        });
-        await pc.setLocalDescription(offer);
-        await ch.send({ type: "broadcast", event: "offer", payload: { room: roomId, sdp: offer } });
-      }
-    }
-
-    function cleanup() {
-      ended = true;
-      try { chanRef.current && supabase.removeChannel(chanRef.current); } catch {}
-      chanRef.current = null;
-      try { screenRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
-      screenRef.current = null;
-      try { pcRef.current?.getSenders().forEach((s) => { try { s.track?.stop(); } catch {} }); } catch {}
-      try { pcRef.current?.close(); } catch {}
-      pcRef.current = null;
-      try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
-      streamRef.current = null;
-      onClose();
-    }
-
-    setup();
-    return () => { if (!ended) cleanup(); };
-  }, [open, role, conversationId, roomId, onClose, mode, micOn, camOn, speakerOn]);
-
-  async function toggleShare() {
-    if (mode !== "video") return;
-    if (sharing) {
-      try { screenRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
-      screenRef.current = null; setSharing(false);
-      const v = streamRef.current?.getVideoTracks()[0];
-      const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
-      if (sender && v) await sender.replaceTrack(v);
-      return;
-    }
-    try {
-      const scr = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
-      screenRef.current = scr; setSharing(true);
-      const track = scr.getVideoTracks()[0];
-      const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
-      if (sender && track) await sender.replaceTrack(track);
-      scr.getVideoTracks()[0].onended = async () => {
-        setSharing(false);
-        const v = streamRef.current?.getVideoTracks()[0];
-        if (sender && v) await sender.replaceTrack(v);
-      };
-    } catch {}
-  }
-
-  function headerDown(e: React.PointerEvent) {
-    if (ui === "max") return;
-    dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-  function headerMove(e: React.PointerEvent) {
-    if (!dragRef.current || ui === "max") return;
-    const vw = window.innerWidth, vh = window.innerHeight;
-    setPos({ x: clamp(e.clientX - dragRef.current.dx, 0, vw - size.w), y: clamp(e.clientY - dragRef.current.dy, 0, vh - size.h) });
-  }
-  function headerUp(e: React.PointerEvent) {
-    if (!dragRef.current) return; dragRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-  }
-  function resizeDown(e: React.PointerEvent) {
-    if (ui !== "window") return;
-    resizeRef.current = { w0: size.w, h0: size.h, x0: e.clientX, y0: e.clientY };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-  function resizeMove(e: React.PointerEvent) {
-    const st = resizeRef.current; if (!st || ui !== "window") return;
-    const vw = window.innerWidth, vh = window.innerHeight;
-    setSize({
-      w: clamp(st.w0 + (e.clientX - st.x0), 540, vw - pos.x - 8),
-      h: clamp(st.h0 + (e.clientY - st.y0), 360, vh - pos.y - 8),
-    });
-  }
-  function resizeUp(e: React.PointerEvent) {
-    if (!resizeRef.current) return; resizeRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-  }
-
-  const hhmmss = useMemo(() => {
-    const s = elapsedSec; const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
-    return [h, m, ss].map((n) => String(n).padStart(2, "0")).join(":");
-  }, [elapsedSec]);
-
-  if (!open) return null;
-
-  const styleMax = { inset: 0 as any };
-  const styleWin = { top: pos.y, left: pos.x, width: size.w, height: size.h } as any;
-  const styleMini = { bottom: 16, right: 16, width: 280, height: 158 } as any;
-
-  return (
-    <>
-      {ui !== "mini" && <div className="fixed inset-0 z-[60] bg-black/50" />}
-
-      <div
-        className={`fixed z-[70] bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md border dark:border-zinc-800 rounded-2xl overflow-hidden shadow-2xl ${ui === "max" ? "inset-0" : ""}`}
-        style={ui === "max" ? styleMax : ui === "window" ? styleWin : styleMini}
-        role="dialog" aria-modal="true"
-      >
-        <div
-          className={`flex items-center gap-3 border-b dark:border-zinc-800 px-3 py-2 select-none ${ui !== "max" ? "cursor-default" : ""}`}
-          onDoubleClick={() => setUi((s) => (s === "max" ? "window" : "max"))}
-          onPointerDown={headerDown}
-          onPointerMove={headerMove}
-          onPointerUp={headerUp}
-        >
-          <Avatar className="h-6 w-6"><AvatarImage src={peerAvatar} /><AvatarFallback>{initials(peerName)}</AvatarFallback></Avatar>
-          <div className="text-sm font-medium">{peerName}</div>
-          <div className="ml-2 flex items-center gap-1 text-xs text-gray-500"><Clock className="h-3 w-3" /> <span className="tabular-nums">{hhmmss}</span></div>
-          <div className="ml-auto flex items-center gap-1">
-            {ui !== "mini" && (
-              <Button size="icon" variant="ghost" className="rounded-full" onClick={() => setUi((s) => (s === "max" ? "window" : "max"))} title={ui === "max" ? "Restore down" : "Maximize"}>
-                {ui === "max" ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-              </Button>
-            )}
-            <Button size="sm" variant="outline" onClick={() => setUi("mini")} title="Minimize to bubble">Mini</Button>
-            <Button size="sm" variant="destructive" onClick={() => {
-              try { chanRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: roomId } }); } catch {}
-              onClose();
-            }}>End</Button>
-          </div>
-        </div>
-
-        <div className={`${ui === "max" ? "h-[calc(100vh-48px)]" : "h-[calc(100%-44px)]"} relative`}>
-          {mode === "video" ? (
-            <div className="absolute inset-0 grid place-items-center">
-              <video ref={remoteVideoRef} autoPlay playsInline muted={!speakerOn} className="w-full h-full object-cover" />
-              <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-4 right-4 w-40 h-28 rounded-lg ring-1 ring-white/50 bg-black object-cover" />
-            </div>
-          ) : (
-            <div className="absolute inset-0 grid grid-cols-2 gap-3 p-3">
-              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center">
-                <div className="text-sm text-gray-600 dark:text-gray-300">You (mic {micOn ? "on" : "off"})</div>
-                <audio ref={localAudioRef} autoPlay muted />
-              </div>
-              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center">
-                <div className="text-sm text-gray-600 dark:text-gray-300">Peer</div>
-                <audio ref={remoteAudioRef} autoPlay muted={!speakerOn} />
-              </div>
-            </div>
-          )}
-
-          <div className="absolute left-1/2 bottom-4 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/90 dark:bg-zinc-900/90 px-2 py-1 shadow-lg border dark:border-zinc-700">
-            <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
-              setSpeakerOn((v) => {
-                const next = !v;
-                if (remoteAudioRef.current) { remoteAudioRef.current.muted = !next; safePlay(remoteAudioRef.current); }
-                if (remoteVideoRef.current) { remoteVideoRef.current.muted = !next; safePlay(remoteVideoRef.current); }
-                return next;
-              });
-            }}>
-              {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-            </Button>
-            <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
-              streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !micOn)); setMicOn(!micOn);
-            }} title="Mic (M)">
-              {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-            </Button>
-            {mode === "video" && (
-              <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
-                streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !camOn)); setCamOn(!camOn);
-              }} title="Camera (C)">
-                {camOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-              </Button>
-            )}
-            {mode === "video" && (
-              <Button size="sm" variant="outline" className="rounded-full" onClick={toggleShare} title="Share screen (S)">
-                {sharing ? <MonitorX className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
-              </Button>
-            )}
-            <Button size="sm" variant="destructive" className="rounded-full" onClick={() => {
-              try { chanRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: roomId } }); } catch {}
-              onClose();
-            }}>End</Button>
-          </div>
-
-          {ui === "window" && (
-            <div className="absolute bottom-1 right-1 h-4 w-4 cursor-nwse-resize opacity-60"
-              onPointerDown={resizeDown} onPointerMove={resizeMove} onPointerUp={resizeUp} />
-          )}
-        </div>
-      </div>
-
-      {ui === "mini" && (<MiniBubble onClick={() => setUi("window")} onClose={onClose} peerAvatar={peerAvatar} name={peerName} />)}
-    </>
-  );
-}
-
-/* ---------------------------- Mini Bubble ---------------------------- */
-function MiniBubble({ onClick, onClose, peerAvatar, name }: { onClick: () => void; onClose: () => void; peerAvatar?: string; name: string; }) {
-  const [p, setP] = useState({ x: typeof window !== "undefined" ? window.innerWidth - 96 - 12 : 12, y: typeof window !== "undefined" ? window.innerHeight - 96 - 12 : 12 });
-  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
-  function down(e: React.PointerEvent) {
-    dragRef.current = { dx: e.clientX - p.x, dy: e.clientY - p.y };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-  function move(e: React.PointerEvent) {
-    if (!dragRef.current) return;
-    const nx = clamp(e.clientX - dragRef.current.dx, 8, window.innerWidth - 96 - 8);
-    const ny = clamp(e.clientY - dragRef.current.dy, 8, window.innerHeight - 96 - 8);
-    setP({ x: nx, y: ny });
-  }
-  function up(e: React.PointerEvent) {
-    if (!dragRef.current) return;
-    dragRef.current = null;
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-  }
-
-  const pendingICE: RTCIceCandidateInit[] = [];
-
-ch.on("broadcast", { event: "ice" }, async (p) => {
-  const { room, candidate } = p.payload as any;
-  if (room !== roomId || !pcRef.current) return;
-
-  if (!pcRef.current.remoteDescription) {
-    pendingICE.push(candidate);
-  } else {
-    try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
-  }
-});
-
-// After you set remote description (in both offer & answer paths):
-for (const c of pendingICE.splice(0)) {
-  try { await pcRef.current!.addIceCandidate(new RTCIceCandidate(c)); } catch {}
-}
-  return (
-    <div className="fixed z-[80]" style={{ left: p.x, top: p.y, width: 96, height: 96 }}>
-      <button
-        className="relative h-24 w-24 rounded-full ring-2 ring-white/80 shadow-lg overflow-hidden bg-white"
-        onPointerDown={down} onPointerMove={move} onPointerUp={up} onDoubleClick={onClick} onClick={onClick}
-        title={`Back to call with ${name}`}
-      >
-        {peerAvatar ? <img src={peerAvatar} alt="" className="absolute inset-0 h-full w-full object-cover" /> :
-          <div className="absolute inset-0 grid place-items-center bg-gray-100 text-gray-700 text-xl">{initials(name)}</div>}
-        <span className="absolute bottom-1 right-1 h-5 w-5 rounded-full bg-red-500 text-white text-[10px] grid place-items-center">●</span>
-      </button>
-      <button className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-white shadow ring-1 ring-gray-200 text-xs" onClick={onClose}>✕</button>
     </div>
   );
 }
