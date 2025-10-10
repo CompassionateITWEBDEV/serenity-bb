@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -20,6 +19,12 @@ import { userRingChannel, sendRing, sendHangupToUser } from "@/lib/webrtc/signal
 
 type Provider = ProviderRole;
 
+type MessageMeta = {
+  image_path?: string | null;
+  audio_path?: string | null;
+  duration_sec?: number | null;
+};
+
 type MessageRow = {
   id: string;
   conversation_id: string;
@@ -31,8 +36,11 @@ type MessageRow = {
   created_at: string;
   read: boolean;
   urgent: boolean;
+  // legacy/alternate attachment fields (still supported)
   attachment_url?: string | null; // storage path OR full URL (legacy)
   attachment_type?: "image" | "audio" | "file" | null;
+  // NEW: meta-based attachments from other sender code
+  meta?: MessageMeta | null;
 };
 
 type UiSettings = {
@@ -133,7 +141,9 @@ function ChatBoxInner(props: {
   // staged media (before send)
   const [draft, setDraft] = useState<{ blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string } | null>(null);
   useEffect(
-    () => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); },
+    () => () => {
+      if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+    },
     [draft?.previewUrl]
   );
 
@@ -148,15 +158,20 @@ function ChatBoxInner(props: {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const o = ctx.createOscillator();
       const g = ctx.createGain();
-      o.type = "sine"; o.frequency.value = 920; g.gain.value = 0.001;
-      o.connect(g); g.connect(ctx.destination); o.start();
+      o.type = "sine";
+      o.frequency.value = 920;
+      g.gain.value = 0.001;
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start();
       g.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.12);
       o.stop(ctx.currentTime + 0.12);
     } catch {}
   }, [settings?.sound]);
 
   const scrollToBottom = useCallback((smooth = false) => {
-    const el = listRef.current; if (!el) return;
+    const el = listRef.current;
+    if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
@@ -174,16 +189,25 @@ function ChatBoxInner(props: {
 
         if (!conversationIdProp) {
           const { data: conv } = await supabase
-            .from("conversations").select("id")
-            .eq("patient_id", patientId).eq("provider_id", pid).maybeSingle();
+            .from("conversations")
+            .select("id")
+            .eq("patient_id", patientId)
+            .eq("provider_id", pid)
+            .maybeSingle();
           if (conv?.id) setConversationId(conv.id);
           else {
             const { data: created, error: upErr } = await supabase
-              .from("conversations").upsert(
+              .from("conversations")
+              .upsert(
                 { patient_id: patientId, provider_id: pid, provider_name: providerName ?? null, provider_role: providerRole ?? null },
                 { onConflict: "patient_id,provider_id" }
-              ).select("id").single();
-            if (upErr) { alert(`Failed to ensure conversation.\n\n${upErr.message}`); return; }
+              )
+              .select("id")
+              .single();
+            if (upErr) {
+              alert(`Failed to ensure conversation.\n\n${upErr.message}`);
+              return;
+            }
             setConversationId(created!.id);
           }
         }
@@ -191,8 +215,11 @@ function ChatBoxInner(props: {
         setMe({ id: uid, name: au.user?.email || "Me", role: "patient" });
         if (!conversationIdProp) {
           const { data: conv } = await supabase
-            .from("conversations").select("id")
-            .eq("patient_id", uid).eq("provider_id", providerId!).maybeSingle();
+            .from("conversations")
+            .select("id")
+            .eq("patient_id", uid)
+            .eq("provider_id", providerId!)
+            .maybeSingle();
           if (conv?.id) setConversationId(conv.id);
         }
       }
@@ -204,10 +231,14 @@ function ChatBoxInner(props: {
     if (!conversationId || !me) return;
     (async () => {
       const { data, error } = await supabase
-        .from("messages").select("*")
+        .from("messages")
+        .select("*")
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
-      if (error) { alert(`Failed to load messages.\n\n${error.message}`); return; }
+      if (error) {
+        alert(`Failed to load messages.\n\n${error.message}`);
+        return;
+      }
       setMsgs((data as MessageRow[]) ?? []);
       scrollToBottom(false);
       await markReadHelper(conversationId, me.role);
@@ -217,7 +248,10 @@ function ChatBoxInner(props: {
   // live updates + typing
   useEffect(() => {
     if (!conversationId || !me) return;
-    if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
 
     const ch = supabase
       .channel(`thread_${conversationId}`, { config: { presence: { key: me.id } } })
@@ -227,20 +261,26 @@ function ChatBoxInner(props: {
         setTyping(others.some((x) => x.status === "typing"));
         setThreadOtherPresent(others.some((x) => x.user_id && x.user_id !== me.id));
       })
-      .on("postgres_changes",
+      .on(
+        "postgres_changes",
         { schema: "public", table: "messages", event: "INSERT", filter: `conversation_id=eq.${conversationId}` },
         async (p) => {
           const row = p.new as MessageRow;
           setMsgs((prev) => (prev.some((x) => x.id === row.id) ? prev : [...prev, row]));
           scrollToBottom(true);
-          if (row.sender_id !== me.id) { ding(); await markReadHelper(conversationId, me.role); }
+          if (row.sender_id !== me.id) {
+            ding();
+            await markReadHelper(conversationId, me.role);
+          }
         }
       )
-      .on("postgres_changes",
+      .on(
+        "postgres_changes",
         { schema: "public", table: "messages", event: "UPDATE", filter: `conversation_id=eq.${conversationId}` },
         async () => {
           const { data } = await supabase
-            .from("messages").select("*")
+            .from("messages")
+            .select("*")
             .eq("conversation_id", conversationId)
             .order("created_at", { ascending: true });
           setMsgs((data as MessageRow[]) ?? []);
@@ -252,7 +292,8 @@ function ChatBoxInner(props: {
 
     const refetch = async () => {
       const { data } = await supabase
-        .from("messages").select("*")
+        .from("messages")
+        .select("*")
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
       setMsgs((data as MessageRow[]) ?? []);
@@ -263,7 +304,10 @@ function ChatBoxInner(props: {
     return () => {
       window.removeEventListener("focus", refetch);
       window.removeEventListener("online", refetch);
-      if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
     };
   }, [conversationId, me, ding, scrollToBottom]);
 
@@ -271,7 +315,9 @@ function ChatBoxInner(props: {
   useEffect(() => {
     if (!channelRef.current || !me) return;
     const ch = channelRef.current;
-    const t = setInterval(() => { ch.track({ user_id: me.id, status: text ? "typing" : "idle" }); }, 1500);
+    const t = setInterval(() => {
+      ch.track({ user_id: me.id, status: text ? "typing" : "idle" });
+    }, 1500);
     ch.track({ user_id: me.id, status: text ? "typing" : "idle" });
     return () => clearInterval(t);
   }, [text, me]);
@@ -281,20 +327,41 @@ function ChatBoxInner(props: {
     if (mode !== "patient") return;
     (async () => {
       const { data } = await supabase.auth.getUser();
-      const uid = data.user?.id; if (!uid) return;
-      const beat = async () => { try { await supabase.rpc("patient_heartbeat"); } catch {} };
+      const uid = data.user?.id;
+      if (!uid) return;
+      const beat = async () => {
+        try {
+          await supabase.rpc("patient_heartbeat");
+        } catch {}
+      };
       await beat();
-      const fast = setInterval(beat, 1000); setTimeout(() => clearInterval(fast), 2200);
+      const fast = setInterval(beat, 1000);
+      setTimeout(() => clearInterval(fast), 2200);
       const slow = setInterval(beat, 10000);
       const ch = supabase.channel(`online:${uid}`, { config: { presence: { key: uid } } });
-      ch.subscribe((status) => { if (status === "SUBSCRIBED") { const ping = () => ch.track({ online: true, at: Date.now() }); ping(); setTimeout(ping, 600); } });
-      const onFocus = () => { void beat(); try { ch.track({ online: true, at: Date.now() }); } catch {} };
-      const onVis = () => { if (document.visibilityState === "visible") onFocus(); };
+      ch.subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          const ping = () => ch.track({ online: true, at: Date.now() });
+          ping();
+          setTimeout(ping, 600);
+        }
+      });
+      const onFocus = () => {
+        void beat();
+        try {
+          ch.track({ online: true, at: Date.now() });
+        } catch {}
+      };
+      const onVis = () => {
+        if (document.visibilityState === "visible") onFocus();
+      };
       window.addEventListener("focus", onFocus);
       document.addEventListener("visibilitychange", onVis);
       return () => {
         clearInterval(slow);
-        try { supabase.removeChannel(ch); } catch {}
+        try {
+          supabase.removeChannel(ch);
+        } catch {}
         window.removeEventListener("focus", onFocus);
         document.removeEventListener("visibilitychange", onVis);
       };
@@ -314,13 +381,23 @@ function ChatBoxInner(props: {
     };
     const dbCh = supabase
       .channel(`presence_db_${patientId}`)
-      .on("postgres_changes",
+      .on(
+        "postgres_changes",
         { event: "INSERT", schema: "public", table: "patient_presence", filter: `user_id=eq.${patientId}` },
-        (p) => { const last = new Date(p.new.last_seen as string).getTime(); setDbOnline(Date.now() - last < 15000); setPresenceLoading(false); }
+        (p) => {
+          const last = new Date(p.new.last_seen as string).getTime();
+          setDbOnline(Date.now() - last < 15000);
+          setPresenceLoading(false);
+        }
       )
-      .on("postgres_changes",
+      .on(
+        "postgres_changes",
         { event: "UPDATE", schema: "public", table: "patient_presence", filter: `user_id=eq.${patientId}` },
-        (p) => { const last = new Date(p.new.last_seen as string).getTime(); setDbOnline(Date.now() - last < 15000); setPresenceLoading(false); }
+        (p) => {
+          const last = new Date(p.new.last_seen as string).getTime();
+          setDbOnline(Date.now() - last < 15000);
+          setPresenceLoading(false);
+        }
       )
       .subscribe();
     const staffKey = `staff-${crypto.randomUUID()}`;
@@ -330,20 +407,44 @@ function ChatBoxInner(props: {
       const entries = state[patientId] || [];
       return Array.isArray(entries) && entries.length > 0;
     };
-    const updateRt = () => { setRtOnline(computeRtOnline()); setPresenceLoading(false); };
-    rtCh.on("presence", { event: "sync" }, updateRt).on("presence", { event: "join" }, updateRt).on("presence", { event: "leave" }, updateRt).subscribe(async (status) => {
-      if (status === "SUBSCRIBED") { try { await rtCh.track({ observer: true, at: Date.now() }); } catch {} updateRt(); setTimeout(updateRt, 700); }
-    });
-    void fetchOnce(); const t1 = setTimeout(fetchOnce, 600);
-    const refetchPresence = () => { void fetchOnce(); updateRt(); };
-    const onVis = () => { if (document.visibilityState === "visible") refetchPresence(); };
+    const updateRt = () => {
+      setRtOnline(computeRtOnline());
+      setPresenceLoading(false);
+    };
+    rtCh
+      .on("presence", { event: "sync" }, updateRt)
+      .on("presence", { event: "join" }, updateRt)
+      .on("presence", { event: "leave" }, updateRt)
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          try {
+            await rtCh.track({ observer: true, at: Date.now() });
+          } catch {}
+          updateRt();
+          setTimeout(updateRt, 700);
+        }
+      });
+    void fetchOnce();
+    const t1 = setTimeout(fetchOnce, 600);
+    const refetchPresence = () => {
+      void fetchOnce();
+      updateRt();
+    };
+    const onVis = () => {
+      if (document.visibilityState === "visible") refetchPresence();
+    };
     window.addEventListener("focus", refetchPresence);
     window.addEventListener("online", refetchPresence);
     document.addEventListener("visibilitychange", onVis);
     return () => {
-      cancelled = true; clearTimeout(t1);
-      try { supabase.removeChannel(dbCh); } catch {}
-      try { supabase.removeChannel(rtCh); } catch {}
+      cancelled = true;
+      clearTimeout(t1);
+      try {
+        supabase.removeChannel(dbCh);
+      } catch {}
+      try {
+        supabase.removeChannel(rtCh);
+      } catch {}
       window.removeEventListener("focus", refetchPresence);
       window.removeEventListener("online", refetchPresence);
       document.removeEventListener("visibilitychange", onVis);
@@ -374,20 +475,32 @@ function ChatBoxInner(props: {
       setCallOpen(false);
     });
     ch.subscribe();
-    return () => { try { supabase.removeChannel(ch); } catch {} };
+    return () => {
+      try {
+        supabase.removeChannel(ch);
+      } catch {}
+    };
   }, [me?.id, conversationId]);
 
-  const onStartCall = useCallback(async (m: CallMode) => {
-    if (!conversationId || !me?.id) return;
-    const peerId = chatMode === "staff" ? patientId : (providerId || "");
-    if (!peerId) return;
-    await sendRing(peerId, { conversationId, fromId: me.id, fromName: me.name, mode: m });
-    setCallRole("caller"); setCallMode(m); setCallOpen(true);
-  }, [conversationId, me?.id, me?.name, chatMode, patientId, providerId]);
+  const onStartCall = useCallback(
+    async (m: CallMode) => {
+      if (!conversationId || !me?.id) return;
+      const peerId = chatMode === "staff" ? patientId : (providerId || "");
+      if (!peerId) return;
+      await sendRing(peerId, { conversationId, fromId: me.id, fromName: me.name, mode: m });
+      setCallRole("caller");
+      setCallMode(m);
+      setCallOpen(true);
+    },
+    [conversationId, me?.id, me?.name, chatMode, patientId, providerId]
+  );
 
   const onAcceptIncoming = useCallback(() => {
     if (!incoming || !me) return;
-    setCallRole("callee"); setCallMode(incoming.mode); setCallOpen(true); setIncoming(null);
+    setCallRole("callee");
+    setCallMode(incoming.mode);
+    setCallOpen(true);
+    setIncoming(null);
   }, [incoming, me]);
 
   const onDeclineIncoming = useCallback(async () => {
@@ -397,7 +510,11 @@ function ChatBoxInner(props: {
   }, [incoming]);
 
   // DB insert
-  async function insertMessage(payload: { content: string; attachment_url?: string | null; attachment_type?: "image" | "audio" | "file" | null }) {
+  async function insertMessage(payload: {
+    content: string;
+    attachment_url?: string | null;
+    attachment_type?: "image" | "audio" | "file" | null;
+  }) {
     if (!me || !conversationId) return;
     const optimistic: MessageRow = {
       id: `tmp-${crypto.randomUUID()}`,
@@ -412,8 +529,10 @@ function ChatBoxInner(props: {
       urgent: false,
       attachment_url: payload.attachment_url ?? null,
       attachment_type: payload.attachment_type ?? null,
+      meta: null, // this component sends legacy fields; still renders meta from others
     };
-    setMsgs((m) => [...m, optimistic]); scrollToBottom(true);
+    setMsgs((m) => [...m, optimistic]);
+    scrollToBottom(true);
     const { error } = await supabase.from("messages").insert({
       conversation_id: optimistic.conversation_id,
       patient_id: optimistic.patient_id,
@@ -426,7 +545,10 @@ function ChatBoxInner(props: {
       attachment_url: optimistic.attachment_url,
       attachment_type: optimistic.attachment_type,
     });
-    if (error) { setMsgs((m) => m.filter((x) => x.id !== optimistic.id)); throw error; }
+    if (error) {
+      setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
+      throw error;
+    }
   }
 
   // upload
@@ -437,7 +559,8 @@ function ChatBoxInner(props: {
     const ext = extFromName || (detected.startsWith("image/") ? detected.split("/")[1] : detected ? "webm" : "bin");
     const path = `${conversationId}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
     const { error: upErr } = await supabase.storage.from(CHAT_BUCKET).upload(path, fileOrBlob, {
-      contentType: detected || "application/octet-stream", upsert: false,
+      contentType: detected || "application/octet-stream",
+      upsert: false,
     });
     if (upErr) {
       if (/not found/i.test(upErr.message)) throw new Error(`Bucket "${CHAT_BUCKET}" not found.`);
@@ -461,19 +584,26 @@ function ChatBoxInner(props: {
         const content = draft.type === "audio" ? contentText || "(voice note)" : contentText;
         await insertMessage({ content: content || "", attachment_url: storagePath, attachment_type: draft.type });
         if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
-        setDraft(null); setUploading(null); return;
+        setDraft(null);
+        setUploading(null);
+        return;
       }
       await insertMessage({ content: contentText });
     } catch (err: any) {
-      alert(`Failed to send.\n\n${err?.message ?? ""}`); setUploading(null);
+      alert(`Failed to send.\n\n${err?.message ?? ""}`);
+      setUploading(null);
     }
   }, [canSend, text, draft]);
 
   // pick/capture/record
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]; e.target.value = "";
+    const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file || !me || !conversationId) return;
-    if (file.size > 10 * 1024 * 1024) { alert("File too large (max 10 MB)."); return; }
+    if (file.size > 10 * 1024 * 1024) {
+      alert("File too large (max 10 MB).");
+      return;
+    }
     const previewUrl = URL.createObjectURL(file);
     const kind: "image" | "audio" | "file" = file.type.startsWith("image/") ? "image" : file.type.startsWith("audio/") ? "audio" : "file";
     setDraft({ blob: file, type: kind, name: file.name, previewUrl });
@@ -484,35 +614,61 @@ function ChatBoxInner(props: {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: true });
       const video = document.createElement("video");
-      video.srcObject = stream as any; await video.play();
+      video.srcObject = stream as any;
+      await video.play();
       const canvas = document.createElement("canvas");
-      canvas.width = (video as any).videoWidth || 640; canvas.height = (video as any).videoHeight || 480;
-      const ctx = canvas.getContext("2d")!; ctx.drawImage(video, 0, 0);
-      const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error("No photo"))), "image/jpeg", 0.9)!);
+      canvas.width = (video as any).videoWidth || 640;
+      canvas.height = (video as any).videoHeight || 480;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(video, 0, 0);
+      const blob = await new Promise<Blob>((res, rej) =>
+        canvas.toBlob((b) => (b ? res(b) : rej(new Error("No photo"))), "image/jpeg", 0.9)!
+      );
       const previewUrl = URL.createObjectURL(blob);
       setDraft({ blob, type: "image", name: "photo.jpg", previewUrl });
-    } catch (e: any) { alert(`Camera error.\n\n${e?.message ?? ""}`); }
-    finally { stream?.getTracks().forEach((t) => t.stop()); }
+    } catch (e: any) {
+      alert(`Camera error.\n\n${e?.message ?? ""}`);
+    } finally {
+      stream?.getTracks().forEach((t) => t.stop());
+    }
   }
   async function toggleRecord() {
-    if (recording) { mediaRecRef.current?.stop(); return; }
+    if (recording) {
+      mediaRecRef.current?.stop();
+      return;
+    }
     if (!me || !conversationId) return;
-    if (typeof window.MediaRecorder === "undefined") { alert("Voice recording isn’t supported by this browser."); return; }
+    if (typeof window.MediaRecorder === "undefined") {
+      alert("Voice recording isn’t supported by this browser.");
+      return;
+    }
     let stream: MediaStream | null = null;
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-    catch { alert("Microphone permission denied."); return; }
-    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus"
-      : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      alert("Microphone permission denied.");
+      return;
+    }
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : MediaRecorder.isTypeSupported("audio/webm")
+      ? "audio/webm"
+      : "";
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     chunksRef.current = [];
-    rec.ondataavailable = (e) => { if (e.data?.size) chunksRef.current.push(e.data); };
+    rec.ondataavailable = (e) => {
+      if (e.data?.size) chunksRef.current.push(e.data);
+    };
     rec.onstop = () => {
-      stream?.getTracks().forEach((t) => t.stop()); setRecording(false);
+      stream?.getTracks().forEach((t) => t.stop());
+      setRecording(false);
       const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
       const previewUrl = URL.createObjectURL(blob);
       setDraft({ blob, type: "audio", name: "voice.webm", previewUrl });
     };
-    mediaRecRef.current = rec; setRecording(true); rec.start();
+    mediaRecRef.current = rec;
+    setRecording(true);
+    rec.start();
   }
 
   // paste -> image
@@ -520,7 +676,10 @@ function ChatBoxInner(props: {
     const file = Array.from(e.clipboardData.files || [])[0];
     if (file && file.type.startsWith("image/")) {
       e.preventDefault();
-      if (file.size > 10 * 1024 * 1024) { alert("File too large (max 10 MB)."); return; }
+      if (file.size > 10 * 1024 * 1024) {
+        alert("File too large (max 10 MB).");
+        return;
+      }
       const url = URL.createObjectURL(file);
       setDraft({ blob: file, type: "image", name: file.name || "pasted.jpg", previewUrl: url });
     }
@@ -528,22 +687,33 @@ function ChatBoxInner(props: {
 
   function shouldShowPlainContent(content?: string | null) {
     const t = (content ?? "").trim().toLowerCase();
-    return !!t && t !== "(image)" && t !== "(photo)";
+    return !!t && t !== "(image)" && t !== "(photo)" && t !== "(voice note)";
   }
   function extractImageUrlFromContent(content?: string | null) {
     if (!content) return null;
     try {
       const maybe = JSON.parse(content);
-      if (maybe && typeof maybe === "object" && maybe.type === "image" && typeof maybe.url === "string") return maybe.url as string;
+      if (maybe && typeof maybe === "object" && (maybe as any).type === "image" && typeof (maybe as any).url === "string")
+        return (maybe as any).url as string;
     } catch {}
     const match = content.match(/https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp|heic|svg)(?:\?\S*)?/i);
     return match?.[0] ?? null;
   }
-  function isHttp(u?: string | null) { return !!u && /^https?:\/\//i.test(u); }
+  function isHttp(u?: string | null) {
+    return !!u && /^https?:\/\//i.test(u);
+  }
 
   async function toUrlFromPath(path: string) {
-    try { const { data } = await supabase.storage.from(CHAT_BUCKET).createSignedUrl(path, 60 * 60 * 24); if (data?.signedUrl) return data.signedUrl; } catch {}
-    try { const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path); return pub?.data?.publicUrl ?? null; } catch { return null; }
+    try {
+      const { data } = await supabase.storage.from(CHAT_BUCKET).createSignedUrl(path, 60 * 60 * 24);
+      if (data?.signedUrl) return data.signedUrl;
+    } catch {}
+    try {
+      const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
+      return pub?.data?.publicUrl ?? null;
+    } catch {
+      return null;
+    }
   }
 
   return (
@@ -639,7 +809,10 @@ function ChatBoxInner(props: {
               </div>
               <button
                 className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-zinc-700"
-                onClick={() => { if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl); setDraft(null); }}
+                onClick={() => {
+                  if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+                  setDraft(null);
+                }}
                 aria-label="Remove attachment"
               >
                 <X className="h-3.5 w-3.5" />
@@ -682,11 +855,14 @@ function ChatBoxInner(props: {
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
                 const enterToSend = settings?.enterToSend ?? true;
-                if (e.key === "Enter" && !e.shiftKey && enterToSend) { e.preventDefault(); void send(); }
+                if (e.key === "Enter" && !e.shiftKey && enterToSend) {
+                  e.preventDefault();
+                  void send();
+                }
               }}
               onPaste={onPaste}
               placeholder="Type your message…"
-              className={`min-h-[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${
+              className={`min-h=[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${
                 settings?.density === "compact" ? "text-sm" : ""
               }`}
             />
@@ -699,12 +875,7 @@ function ChatBoxInner(props: {
 
         {/* Incoming call banner */}
         {incoming && (
-          <IncomingCallBanner
-            callerName={incoming.fromName}
-            mode={incoming.mode}
-            onAccept={onAcceptIncoming}
-            onDecline={onDeclineIncoming}
-          />
+          <IncomingCallBanner callerName={incoming.fromName} mode={incoming.mode} onAccept={onAcceptIncoming} onDecline={onDeclineIncoming} />
         )}
       </CardContent>
 
@@ -793,40 +964,76 @@ function MessageBubble({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (m.attachment_url) {
-        if (isHttp(m.attachment_url)) { if (!cancelled) setAttUrl(m.attachment_url); return; }
-        const url = await toUrlFromPath(m.attachment_url);
+      // 1) meta-based storage paths (new schema)
+      if (m.meta?.image_path) {
+        const url = isHttp(m.meta.image_path) ? m.meta.image_path : await toUrlFromPath(m.meta.image_path);
         if (!cancelled) setAttUrl(url);
         return;
       }
+      if (m.meta?.audio_path) {
+        const url = isHttp(m.meta.audio_path) ? m.meta.audio_path : await toUrlFromPath(m.meta.audio_path);
+        if (!cancelled) setAttUrl(url);
+        return;
+      }
+
+      // 2) legacy: attachment_url / attachment_type
+      if (m.attachment_url) {
+        if (isHttp(m.attachment_url)) {
+          if (!cancelled) setAttUrl(m.attachment_url);
+        } else {
+          const url = await toUrlFromPath(m.attachment_url);
+          if (!cancelled) setAttUrl(url);
+        }
+        return;
+      }
+
+      // 3) super-legacy: image URL embedded in content
       const fromContent = extractImageUrlFromContent(m.content);
       if (!cancelled) setAttUrl(fromContent || null);
     })();
-    return () => { cancelled = true; };
-  }, [m.id, m.attachment_type, m.attachment_url, m.content, isHttp, toUrlFromPath, extractImageUrlFromContent]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    m.id,
+    m.meta?.image_path,
+    m.meta?.audio_path,
+    m.attachment_type,
+    m.attachment_url,
+    m.content,
+    isHttp,
+    toUrlFromPath,
+    extractImageUrlFromContent,
+  ]);
 
   const showText = shouldShowPlainContent(m.content);
+
+  // unified media kind
+  const mediaKind: "image" | "audio" | "file" | null =
+    m.meta?.image_path ? "image" : m.meta?.audio_path ? "audio" : m.attachment_type ?? null;
 
   return (
     <div className={`flex items-end gap-2 ${own ? "justify-end" : "justify-start"}`}>
       {!own && (
-        <div className="hidden sm:block h-7 w-7 shrink-0 overflow-hidden rounded-full ring-1 ring-gray-200">
-          <div className="flex h-full w-full items-center justify-center bg-gray-100 text-gray-600 text-xs">
+        <div className="hidden h-7 w-7 shrink-0 overflow-hidden rounded-full ring-1 ring-gray-200 sm:block">
+          <div className="flex h-full w-full items-center justify-center bg-gray-100 text-xs text-gray-600">
             {(m.sender_name || "?").slice(0, 1).toUpperCase()}
           </div>
         </div>
       )}
       <div className={`max-w-[82%] sm:max-w-[70%] ${bubble}`}>
-        {m.attachment_type === "image" && attUrl && (
+        {mediaKind === "image" && attUrl && (
           <img
             src={attUrl}
             alt="image"
             className="mb-2 max-h-64 w-full rounded-xl object-cover"
-            onError={() => setAttUrl(null)} // hide broken images (why: avoid broken UI)
+            onError={() => setAttUrl(null)}
           />
         )}
-        {m.attachment_type === "audio" && attUrl && <audio className="mb-2 w-full" controls src={attUrl} onError={() => setAttUrl(null)} />}
-        {m.attachment_type === "file" && attUrl && (
+        {mediaKind === "audio" && attUrl && (
+          <audio className="mb-2 w-full" controls src={attUrl} onError={() => setAttUrl(null)} />
+        )}
+        {mediaKind === "file" && attUrl && (
           <a className="mb-2 block underline" href={attUrl} target="_blank" rel="noreferrer">
             Download file
           </a>
@@ -849,8 +1056,12 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
     super(props);
     this.state = { hasError: false };
   }
-  static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(err: any, info: any) { console.error("[ChatBox] crashed:", err, info); }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(err: any, info: any) {
+    console.error("[ChatBox] crashed:", err, info);
+  }
   render() {
     if (this.state.hasError) {
       return (
