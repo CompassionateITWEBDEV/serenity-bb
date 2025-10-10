@@ -1,225 +1,216 @@
 "use client";
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import {
-  ArrowLeft, Phone, Video, MoreVertical, Send, Smile, Image as ImageIcon, Camera, Mic,
-  CheckCheck, X, Maximize2, Minimize2, MicOff, VideoOff, Volume2, VolumeX, Clock, MonitorUp, MonitorX
+  ChevronLeft, Phone, Video, Send, Image as ImageIcon, Camera, Mic,
+  MessageCircle, Search, Plus, X, Maximize2, Minimize2, MicOff, VideoOff,
+  Volume2, VolumeX, Clock, MonitorUp, MonitorX, Users
 } from "lucide-react";
-import type { ProviderRole } from "@/lib/chat";
-import { markRead as markReadHelper } from "@/lib/chat";
-import { sigChannel, ensureSubscribed, subscribeWithRetry, getSignalChannel, ICE_SERVERS } from "@/lib/chat/rtc";
+import Swal from "sweetalert2";
+import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
+import { chatUploadToPath } from "@/lib/chat/storage";
 
-/* ----------------------------- Types & settings ---------------------------- */
-type Provider = ProviderRole;
+// RTC helpers
+import { ICE_SERVERS, sigChannel, getSignalChannel, ensureSubscribed } from "@/lib/chat/rtc";
 
+/* ------------------------------- Types ---------------------------------- */
+type ProviderRole = "doctor" | "nurse" | "counselor";
 type MessageRow = {
-  id: string;
-  conversation_id: string;
-  patient_id: string;
-  sender_id: string;
-  sender_name: string;
-  sender_role: "patient" | Provider;
-  content: string;
-  created_at: string;
-  read: boolean;
-  urgent: boolean;
-  attachment_url?: string | null;
-  attachment_type?: "image" | "audio" | "file" | null;
+  id: string; conversation_id: string; patient_id: string | null;
+  sender_id: string; sender_name: string; sender_role: "patient" | ProviderRole;
+  content: string; created_at: string; read: boolean; urgent: boolean;
+  meta?: MessageMeta | null; attachment_url?: string | null; attachment_type?: "image" | "audio" | "file" | null;
 };
-
-type UiSettings = {
-  theme?: "light" | "dark" | "system";
-  density?: "comfortable" | "compact";
-  bubbleRadius?: "rounded-lg" | "rounded-xl" | "rounded-2xl";
-  enterToSend?: boolean;
-  sound?: boolean;
-};
-
-type StaffRow = {
-  user_id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  role: string | null;
-  avatar_url?: string | null;
-};
-
 type Conversation = {
-  id: string;
-  patient_id: string;
-  provider_id: string;
-  provider_name: string | null;
-  provider_role: ProviderRole | null;
-  provider_avatar: string | null;
-  last_message: string | null;
-  last_message_at: string | null;
-  created_at: string;
+  id: string; patient_id: string; provider_id: string;
+  provider_name: string | null; provider_role: ProviderRole | null; provider_avatar: string | null;
+  last_message: string | null; last_message_at: string | null; created_at: string;
+};
+type StaffRow = {
+  user_id: string; first_name: string | null; last_name: string | null;
+  email: string | null; role: string | null; phone?: string | null; avatar_url?: string | null;
 };
 
-const CHAT_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET?.trim() || "chat";
-
-/* ----------------------------- Utils ----------------------------- */
-function normalizeProviderRole(r?: string | null): ProviderRole | null {
-  const v = (r ?? "").toLowerCase().trim();
-  return v === "doctor" || v === "nurse" || v === "counselor" ? (v as ProviderRole) : null;
+/* ---------------------------- Utils/helpers ----------------------------- */
+function initials(name?: string | null) {
+  const s = (name ?? "").trim(); if (!s) return "U";
+  return s.split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 }
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+async function safePlay(el?: HTMLMediaElement | null) { try { await el?.play?.(); } catch {} }
 
-/* -------------------------------- Component -------------------------------- */
-export default function ChatBox(props: {
-  mode: "staff" | "patient";
-  patientId: string;
-  providerId?: string;
-  providerName?: string;
-  providerRole?: ProviderRole;
-  providerAvatarUrl?: string | null;
-  patientName?: string | null;
-  patientAvatarUrl?: string | null;
-  settings?: UiSettings;
-  onBack?: () => void;
-  conversationId?: string;
-  staffDir?: StaffRow[];
-  onNeedStaffDir?: () => void;
-}) {
-  return (
-    <ErrorBoundary>
-      <ChatBoxInner {...props} />
-    </ErrorBoundary>
-  );
-}
+/* ------------------------------ Page (PATIENT) -------------------------- */
+export default function DashboardMessagesPage() {
+  const [me, setMe] = useState<{ id: string; name: string } | null>(null);
 
-function ChatBoxInner(props: {
-  mode: "staff" | "patient";
-  patientId: string;
-  providerId?: string;
-  providerName?: string;
-  providerRole?: ProviderRole;
-  providerAvatarUrl?: string | null;
-  patientName?: string | null;
-  patientAvatarUrl?: string | null;
-  settings?: UiSettings;
-  onBack?: () => void;
-  conversationId?: string;
-  staffDir?: StaffRow[];
-  onNeedStaffDir?: () => void;
-}) {
-  const {
-    mode, patientId, providerId, providerName, providerRole, providerAvatarUrl,
-    patientName, patientAvatarUrl, settings, onBack, conversationId: conversationIdProp,
-    staffDir: staffDirProp, onNeedStaffDir,
-  } = props;
-
-  const [conversationId, setConversationId] = useState<string | null>(conversationIdProp ?? null);
-  const [me, setMe] = useState<{ id: string; name: string; role: "patient" | Provider } | null>(null);
+  const [convs, setConvs] = useState<Conversation[]>([]);
+  const [staffDir, setStaffDir] = useState<StaffRow[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
-  const [text, setText] = useState("");
-  const [typing, setTyping] = useState(false);
-
-  const [uploading, setUploading] = useState<{ label: string } | null>(null);
-  const [sending, setSending] = useState<boolean>(false);
-  const [recording, setRecording] = useState<boolean>(false);
-
-  const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
-  const [dbOnline, setDbOnline] = useState<boolean>(false);
-  const [rtOnline, setRtOnline] = useState<boolean>(false);
-  const [presenceLoading, setPresenceLoading] = useState<boolean>(true);
-
-  const [staffDir, setStaffDir] = useState<StaffRow[]>(staffDirProp ?? []);
-  const [staffSearch, setStaffSearch] = useState("");
+  const [q, setQ] = useState("");
+  const [compose, setCompose] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const listRef = useRef<HTMLDivElement>(null);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const signalRef = useRef<ReturnType<typeof sigChannel> | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const mediaRecRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-
-  const [draft, setDraft] = useState<{ blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string } | null>(null);
+  const [draft, setDraft] = useState<{ blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string; duration_sec?: number; } | null>(null);
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
-  const bubbleBase =
-    (settings?.bubbleRadius ?? "rounded-2xl") + " px-4 py-2 " +
-    ((settings?.density ?? "comfortable") === "compact" ? "text-sm" : "text-[15px]");
+  const [recording, setRecording] = useState(false);
+  const mediaRecRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [sending, setSending] = useState(false);
 
-  const ding = useCallback(() => {
-    if (!settings?.sound) return;
-    try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = "sine"; o.frequency.value = 920; g.gain.value = 0.001;
-      o.connect(g); g.connect(ctx.destination);
-      o.start(); g.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.12); o.stop(ctx.currentTime + 0.12);
-    } catch {}
-  }, [settings?.sound]);
+  // Call state
+  type CallPhase = "idle" | "ringing" | "active";
+  const [callPhase, setCallPhase] = useState<CallPhase>("idle");
+  const [incomingCall, setIncomingCall] = useState<{ fromId: string; fromName: string; room: string; mode: "audio" | "video" } | null>(null);
+  const [showCall, setShowCall] = useState(false);
+  const [callRole, setCallRole] = useState<"caller" | "callee">("caller");
+  const [callMode, setCallMode] = useState<"audio" | "video">("audio");
+  const callRoomRef = useRef<string | null>(null);
+  const ringAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  const scrollToBottom = useCallback((smooth = false) => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: smooth ? "smooth" : "auto" });
-  }, []);
+  // Realtime signaling — single channel per conversation
+  const callChRef = useRef<ReturnType<typeof sigChannel> | null>(null);
 
-  /* ---------- auth + resolve me ---------- */
-  useEffect(() => setConversationId(conversationIdProp ?? null), [conversationIdProp]);
+  // Sidebar tab
+  const [sidebarTab, setSidebarTab] = useState<"convs" | "staff">("convs");
+
+  /* ------------------------- Auth ------------------------ */
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
       const uid = au.user?.id;
-      if (!uid) return;
+      if (!uid) { location.href = "/login"; return; }
+      const { data: p } = await supabase
+        .from("patients").select("user_id, first_name, last_name, email")
+        .eq("user_id", uid).maybeSingle();
+      if (!p?.user_id) { await Swal.fire("Access denied", "This page is for patients.", "error"); location.href = "/"; return; }
+      const name = [p.first_name, p.last_name].filter(Boolean).join(" ") || au.user?.email || "Me";
+      setMe({ id: uid, name }); setLoading(false);
+    })();
+  }, []);
 
-      if (mode === "staff") {
-        const pid = (providerId || uid) as string;
-        setMe({ id: pid, name: providerName || "Me", role: (providerRole || "doctor") as Provider });
-        if (!conversationIdProp) {
-          const { data: conv } = await supabase
-            .from("conversations").select("id")
-            .eq("patient_id", patientId).eq("provider_id", pid).maybeSingle();
-          if (conv?.id) setConversationId(conv.id);
-        }
-      } else {
-        setMe({ id: uid, name: au.user?.email || "Me", role: "patient" });
-        if (!conversationIdProp && providerId) {
-          const { data: conv } = await supabase
-            .from("conversations").select("id")
-            .eq("patient_id", uid).eq("provider_id", providerId).maybeSingle();
-          if (conv?.id) setConversationId(conv.id);
-        }
+  /* ------------------------ Load convos ------------------ */
+  const reloadConversations = useCallback(async (patientId: string) => {
+    const { data, error } = await supabase
+      .from("conversations")
+      .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
+      .eq("patient_id", patientId)
+      .order("last_message_at", { ascending: false, nullsFirst: false });
+    if (error) { await Swal.fire("Load error", error.message, "error"); return; }
+    setConvs((data as Conversation[]) || []);
+  }, []);
+  useEffect(() => { if (me?.id) void reloadConversations(me.id); }, [me?.id, reloadConversations]);
+
+  /* ----------------------------- Staff dir ------------------------- */
+  const fetchStaff = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("staff")
+      .select("user_id, first_name, last_name, email, role, phone, avatar_url")
+      .order("first_name", { ascending: true });
+    if (error) { await Swal.fire("Load error", error.message, "error"); return; }
+    setStaffDir((data as StaffRow[]) || []);
+  }, []);
+  useEffect(() => { if (me) void fetchStaff(); }, [me, fetchStaff]);
+
+  /* --------- Thread + signaling subscribe ----------- */
+  useEffect(() => {
+    if (!selectedId || !me) return;
+    let alive = true;
+
+    (async () => {
+      const { data, error } = await supabase
+        .from("messages").select("*")
+        .eq("conversation_id", selectedId)
+        .order("created_at", { ascending: true });
+      if (error) { await Swal.fire("Load error", error.message, "error"); return; }
+      if (alive) {
+        setMsgs((data as MessageRow[]) || []);
+        requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current!.scrollHeight }));
       }
     })();
-  }, [mode, patientId, providerId, providerName, providerRole, conversationIdProp]);
 
-  /* ---------- staff directory (patient picks who to chat) ---------- */
-  useEffect(() => {
-    if (mode !== "patient") return;
-    if (staffDir.length) return;
+    const ch = supabase
+      .channel(`thread_${selectedId}`, { config: { presence: { key: me.id } } })
+      .on("postgres_changes",
+        { schema: "public", table: "messages", event: "INSERT", filter: `conversation_id=eq.${selectedId}` },
+        (payload) => {
+          setMsgs((prev) => [...prev, payload.new as MessageRow]);
+          requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current!.scrollHeight, behavior: "smooth" }));
+        }
+      );
+    void ch.subscribe();
+
+    const ping = () => { try { ch.track({ user_id: me.id, at: Date.now() }); } catch {} };
+    const keepAlive = setInterval(ping, 1500); ping();
+
     (async () => {
-      onNeedStaffDir?.();
-      try {
-        const { data } = await supabase
-          .from("staff")
-          .select("user_id, first_name, last_name, email, role, avatar_url")
-          .order("first_name", { ascending: true });
-        if (data) setStaffDir(data as StaffRow[]);
-      } catch {}
-    })();
-  }, [mode, staffDir.length, onNeedStaffDir]);
+      if (callChRef.current) { try { supabase.removeChannel(callChRef.current); } catch {} }
+      callChRef.current = await getSignalChannel(callChRef as any, selectedId, true);
+      callChRef.current
+        .on("broadcast", { event: "ring" }, (p) => {
+          const { room, fromId, fromName, mode } = (p.payload || {}) as { room: string; fromId: string; fromName: string; mode: "audio" | "video" };
+          if (room !== selectedId) return;
+          if (fromId === me.id) return;                  // ✅ ignore self
+          if (callPhase === "active") return;            // ✅ busy: ignore
+          setIncomingCall({ room, fromId, fromName: fromName || "Caller", mode: mode || "audio" });
+          playRing(true);
+          setCallPhase("ringing");
+        })
+        .on("broadcast", { event: "answered" }, (p) => {
+          const { room } = (p.payload || {}) as any;
+          if (room !== selectedId) return;
+          stopRing();
+          setCallPhase("active");
+        })
+        .on("broadcast", { event: "hangup" }, (p) => {
+          const { room } = (p.payload || {}) as any;
+          if (room && room !== selectedId) return;
+          stopRing(); setIncomingCall(null); setShowCall(false);
+          setCallPhase("idle");
+        });
+      await ensureSubscribed(callChRef.current);
+    })().catch(() => {});
 
-  /* ---------- ensure conversation when patient clicks staff ---------- */
+    return () => {
+      alive = false;
+      clearInterval(keepAlive);
+      try { supabase.removeChannel(ch); } catch {}
+      try { if (callChRef.current) supabase.removeChannel(callChRef.current); } catch {}
+      callChRef.current = null;
+      stopRing();
+      setIncomingCall(null);
+      setShowCall(false);
+      setCallPhase("idle");
+    };
+  }, [selectedId, me, callPhase]);
+
+  /* --------------------------------- STAFF → CONVERSATION -------------------------------- */
   async function ensureConversationWith(providerUserId: string) {
     if (!me?.id) return;
     const staff = staffDir.find((s) => s.user_id === providerUserId);
-    const provider_name =
-      [staff?.first_name, staff?.last_name].filter(Boolean).join(" ") ||
-      staff?.email || "Staff";
-    const provider_role = normalizeProviderRole(staff?.role);
+    const provider_name = [staff?.first_name, staff?.last_name].filter(Boolean).join(" ") || staff?.email || "Staff";
 
-    const { data: existing, error: findErr } = await supabase
-      .from("conversations").select("id")
-      .eq("patient_id", me.id).eq("provider_id", providerUserId).maybeSingle();
-    if (findErr) { alert(`Cannot start chat.\n\n${findErr.message}`); return; }
-    if (existing?.id) { setConversationId(existing.id); return; }
+    const { data: existing } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("patient_id", me.id)
+      .eq("provider_id", providerUserId)
+      .maybeSingle();
+    if (existing?.id) {
+      setSelectedId(existing.id);
+      setSidebarTab("convs");
+      return;
+    }
 
     const { data: created, error } = await supabase
       .from("conversations")
@@ -228,740 +219,410 @@ function ChatBoxInner(props: {
           patient_id: me.id,
           provider_id: providerUserId,
           provider_name,
-          provider_role,
+          provider_role: (staff?.role as ProviderRole | null) ?? null,
           provider_avatar: staff?.avatar_url ?? null,
           last_message: null,
           last_message_at: new Date().toISOString(),
         },
         { onConflict: "patient_id,provider_id" }
       )
-      .select("id")
+      .select("id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at")
       .single();
-    if (error) { alert(`Cannot start chat.\n\n${error.message}`); return; }
-    setConversationId(created!.id);
+
+    if (error) { await Swal.fire("Cannot start chat", error.message, "error"); return; }
+
+    const newConv: Conversation = created as any;
+    setConvs((prev) => (prev.some((c) => c.id === newConv.id) ? prev : [newConv, ...prev]));
+    setSelectedId(newConv.id);
+    setSidebarTab("convs");
   }
 
-  /* ---------- initial load ---------- */
-  useLayoutEffect(() => {
-    if (!conversationId || !me) return;
-    (async () => {
-      const { data, error } = await supabase
-        .from("messages").select("*")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true });
-      if (error) { alert(`Failed to load messages.\n\n${error.message}`); return; }
-      setMsgs((data as MessageRow[]) ?? []);
-      scrollToBottom(false);
-      await markReadHelper(conversationId, me.role);
-    })();
-  }, [conversationId, me, scrollToBottom]);
-
-  /* ---------- live updates + typing ---------- */
-  useEffect(() => {
-    if (!conversationId || !me) return;
-    if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
-
-    const ch = supabase
-      .channel(`thread_${conversationId}`, { config: { presence: { key: me.id } } })
-      .on("presence", { event: "sync" }, () => {
-        const s = ch.presenceState() as Record<string, any[]>;
-        const others = Object.values(s).flat() as any[];
-        setTyping(others.some((x) => x.status === "typing"));
-        setThreadOtherPresent(others.some((x) => x.user_id && x.user_id !== me.id));
-      })
-      .on(
-        "postgres_changes",
-        { schema: "public", table: "messages", event: "INSERT", filter: `conversation_id=eq.${conversationId}` },
-        async (p) => {
-          const row = p.new as MessageRow;
-          setMsgs((prev) => (prev.some((x) => x.id === row.id) ? prev : [...prev, row]));
-          scrollToBottom(true);
-          if (row.sender_id !== me.id) { ding(); await markReadHelper(conversationId, me.role); }
-        }
-      )
-      .on(
-        "postgres_changes",
-        { schema: "public", table: "messages", event: "UPDATE", filter: `conversation_id=eq.${conversationId}` },
-        async () => {
-          const { data } = await supabase
-            .from("messages").select("*")
-            .eq("conversation_id", conversationId)
-            .order("created_at", { ascending: true });
-          setMsgs((data as MessageRow[]) ?? []);
-        }
-      )
-      .subscribe();
-
-    channelRef.current = ch;
-
-    const refetch = async () => {
-      const { data } = await supabase
-        .from("messages").select("*")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true });
-      setMsgs((data as MessageRow[]) ?? []);
-      await markReadHelper(conversationId, me.role);
-    };
-
-    window.addEventListener("focus", refetch);
-    window.addEventListener("online", refetch);
-    return () => {
-      window.removeEventListener("focus", refetch);
-      window.removeEventListener("online", refetch);
-      if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
-    };
-  }, [conversationId, me, ding, scrollToBottom]);
-
-  /* ---------- typing beacon ---------- */
-  useEffect(() => {
-    if (!channelRef.current || !me) return;
-    const ch = channelRef.current;
-    const t = setInterval(() => { ch.track({ user_id: me.id, status: text ? "typing" : "idle" }); }, 1500);
-    ch.track({ user_id: me.id, status: text ? "typing" : "idle" });
-    return () => clearInterval(t);
-  }, [text, me]);
-
-  /* ---------- presence (staff sees patient) ---------- */
-  useEffect(() => {
-    if (mode !== "staff" || !patientId) return;
-    let cancelled = false;
-    setPresenceLoading(true);
-    const fetchOnce = async () => {
-      try {
-        const { data } = await supabase.from("v_patient_online").select("online,last_seen").eq("user_id", patientId).maybeSingle();
-        if (!cancelled && data) setDbOnline(!!data.online);
-      } catch {}
-    };
-    const dbCh = supabase
-      .channel(`presence_db_${patientId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "patient_presence", filter: `user_id=eq.${patientId}` },
-        (p) => { const last = new Date(p.new.last_seen as string).getTime(); setDbOnline(Date.now() - last < 15000); setPresenceLoading(false); }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "patient_presence", filter: `user_id=eq.${patientId}` },
-        (p) => { const last = new Date(p.new.last_seen as string).getTime(); setDbOnline(Date.now() - last < 15000); setPresenceLoading(false); }
-      )
-      .subscribe();
-    const staffKey = `staff-${crypto.randomUUID()}`;
-    const rtCh = supabase.channel(`online:${patientId}`, { config: { presence: { key: staffKey } } });
-    const computeRtOnline = () => {
-      const state = rtCh.presenceState() as Record<string, any[]>;
-      const entries = state[patientId] || [];
-      return Array.isArray(entries) && entries.length > 0;
-    };
-    const updateRt = () => { setRtOnline(computeRtOnline()); setPresenceLoading(false); };
-    rtCh.on("presence", { event: "sync" }, updateRt)
-      .on("presence", { event: "join" }, updateRt)
-      .on("presence", { event: "leave" }, updateRt)
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") { try { rtCh.track({ observer: true, at: Date.now() }); } catch {} updateRt(); setTimeout(updateRt, 700); }
-      });
-    void fetchOnce();
-    const t1 = setTimeout(fetchOnce, 600);
-    const refetchPresence = () => { void fetchOnce(); updateRt(); };
-    const onVis = () => { if (document.visibilityState === "visible") refetchPresence(); };
-    window.addEventListener("focus", refetchPresence);
-    window.addEventListener("online", refetchPresence);
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      cancelled = true; clearTimeout(t1);
-      try { supabase.removeChannel(dbCh); } catch {}
-      try { supabase.removeChannel(rtCh); } catch {}
-      window.removeEventListener("focus", refetchPresence);
-      window.removeEventListener("online", refetchPresence);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [mode, patientId]);
-
-  /* ---------------- derived ---------------- */
-  const canSend = useMemo(() => (!!text.trim() || !!draft) && !!me && !!conversationId && !sending && !uploading, [text, me, conversationId, draft, sending, uploading]);
-  const isOnline = mode === "staff" ? dbOnline || rtOnline || threadOtherPresent : false;
-  const otherName = mode === "staff" ? (patientName || "Patient") : (providerName || "Provider");
-  const otherAvatar = mode === "staff" ? (patientAvatarUrl ?? null) : (providerAvatarUrl ?? null);
-
-  /* =========================== CALLING =========================== */
-  const [incomingCall, setIncomingCall] = useState<{ fromName: string; room: string; mode: "audio" | "video" } | null>(null);
-  const [showCall, setShowCall] = useState(false);
-  const [callRole, setCallRole] = useState<"caller" | "callee">("caller");
-  const [callMode, setCallMode] = useState<"audio" | "video">("audio");
-  const callRoomRef = useRef<string | null>(null);
-  const ringAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  function playRing(loop = true) {
-    try {
-      if (!ringAudioRef.current) {
-        ringAudioRef.current = new Audio("/ring.mp3");
-        ringAudioRef.current.loop = loop;
-      }
-      ringAudioRef.current.currentTime = 0;
-      ringAudioRef.current.play().catch(() => {});
-    } catch {}
-  }
-  function stopRing() { try { ringAudioRef.current?.pause(); if (ringAudioRef.current) ringAudioRef.current.currentTime = 0; } catch {} }
-
-  // ---- Signaling subscribe (shared, canonical channel) ----
-  useEffect(() => {
-    if (!conversationId || !me) return;
-
-    let mounted = true;
-    (async () => {
-      try {
-        const ch = await getSignalChannel(signalRef, conversationId, true);
-
-        ch
-          .on("broadcast", { event: "ring" }, (p) => {
-            if (!mounted) return;
-            const { room, fromName, mode } = (p.payload || {}) as { room: string; fromName: string; mode: "audio" | "video" };
-            if (room !== conversationId) return;
-            // ignore our own ring if desired:
-            // if (fromName === me.name) return;
-            setIncomingCall({ room, fromName: fromName || "Caller", mode: mode || "audio" });
-            playRing(true);
-          })
-          .on("broadcast", { event: "hangup" }, (p) => {
-            const { room } = (p.payload || {}) as any;
-            if (room && room !== conversationId) return;
-            stopRing(); setIncomingCall(null);
-          })
-          .on("broadcast", { event: "answered" }, (p) => {
-            const { room } = (p.payload || {}) as any;
-            if (room && room !== conversationId) return;
-            stopRing();
-          });
-      } catch (e) {
-        console.warn("[chat] signaling subscribe failed:", e);
-      }
-    })();
-
-    return () => {
-      stopRing();
-      try { if (signalRef.current) supabase.removeChannel(signalRef.current); } catch {}
-      signalRef.current = null;
-    };
-  }, [conversationId, me]);
-
-  // ---- Call actions (now guaranteed same channel name across apps) ----
-  async function startCall(mode: "audio" | "video") {
-    if (!conversationId || !me) { alert("Open a conversation first."); return; }
-    try {
-      const ch = await getSignalChannel(signalRef, conversationId, true);
-      const room = `${conversationId}`;
-      callRoomRef.current = room;
-      setCallRole("caller"); setCallMode(mode); setShowCall(true); playRing(true);
-      await ch.send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name, mode } });
-    } catch (e: any) { alert(`Call failed.\n\n${e?.message || "Signaling not ready."}`); }
-  }
-  async function acceptIncoming(room: string, mode: "audio" | "video") {
-    callRoomRef.current = room; setCallRole("callee"); setCallMode(mode); setIncomingCall(null); stopRing();
-    try {
-      const ch = await getSignalChannel(signalRef, conversationId!, true);
-      await ch.send({ type: "broadcast", event: "answered", payload: { room } });
-    } catch {}
-    setShowCall(true);
-  }
-  async function declineIncoming() {
-    setIncomingCall(null); stopRing();
-    try {
-      const ch = await getSignalChannel(signalRef, conversationId!, true);
-      await ch.send({ type: "broadcast", event: "hangup", payload: { room: conversationId } });
-    } catch {}
-  }
-
-  /* ---------------- message send/upload ---------------- */
-  async function insertMessage(payload: { content: string; attachment_url?: string | null; attachment_type?: "image" | "audio" | "file" | null }) {
-    if (!me || !conversationId) return;
-    const { error } = await supabase.from("messages").insert({
-      conversation_id: conversationId,
-      patient_id: mode === "patient" ? me.id : patientId,
-      sender_id: me.id,
-      sender_name: me.name,
-      sender_role: me.role,
-      content: payload.content,
-      read: false,
-      urgent: false,
-      attachment_url: payload.attachment_url ?? null,
-      attachment_type: payload.attachment_type ?? null,
-    });
-    if (error) throw error;
-  }
-  async function uploadToChat(fileOrBlob: Blob, fileName?: string) {
-    if (!conversationId || !me) throw new Error("Missing conversation");
-    const detected = (fileOrBlob as File).type || (fileOrBlob as any).type || "";
-    const extFromName = (fileName || "").split(".").pop() || "";
-    const ext = extFromName || (detected.startsWith("image/") ? detected.split("/")[1] : detected ? "webm" : "bin");
-    const path = `${conversationId}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
-    const { error: upErr } = await supabase.storage.from(CHAT_BUCKET).upload(path, fileOrBlob, {
-      contentType: detected || "application/octet-stream",
-      upsert: false,
-    });
-    if (upErr) {
-      if (/not found/i.test(upErr.message)) throw new Error(`Bucket "${CHAT_BUCKET}" not found.`);
-      throw upErr;
-    }
-    return path;
-  }
-  const send = useCallback(async () => {
-    if (!canSend) return;
-    setSending(true);
-    const contentText = text.trim();
-    setText("");
-    try {
-      if (draft) {
-        setUploading({ label: "Sending…" });
-        const storagePath = await uploadToChat(
-          draft.blob,
-          draft.name || (draft.type === "image" ? "image.jpg" : draft.type === "audio" ? "voice.webm" : "file.bin")
-        );
-        const content = draft.type === "audio" ? contentText || "(voice note)" : contentText;
-        await insertMessage({ content: content || "", attachment_url: storagePath, attachment_type: draft.type });
-        if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
-        setDraft(null); setUploading(null);
-      } else {
-        await insertMessage({ content: contentText });
-      }
-    } catch (err: any) {
-      alert(`Failed to send.\n\n${err?.message ?? ""}`);
-      setUploading(null);
-      setText((t) => t || contentText);
-    } finally {
-      setSending(false);
-    }
-  }, [canSend, text, draft]);
-
-  /* ---------------- pick/capture/record ---------------- */
-  function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]; e.target.value = "";
-    if (!file || !me || !conversationId) return;
-    if (file.size > 10 * 1024 * 1024) { alert("File too large (max 10 MB)."); return; }
+  /* ------------------------------ PICKERS/REC ---------------------------- */
+  function openFilePicker() { fileInputRef.current?.click(); }
+  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { await Swal.fire("Too large", "Please choose a file under 10 MB.", "info"); return; }
     const previewUrl = URL.createObjectURL(file);
     const kind: "image" | "audio" | "file" = file.type.startsWith("image/") ? "image" : file.type.startsWith("audio/") ? "audio" : "file";
     setDraft({ blob: file, type: kind, name: file.name, previewUrl });
   }
   async function takePhoto() {
-    if (!me || !conversationId) return;
     let stream: MediaStream | null = null;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      const video = document.createElement("video"); (video as any).muted = true; video.srcObject = stream as any; await video.play();
+      const video = document.createElement("video");
+      (video as any).muted = true;
+      video.srcObject = stream as any; await video.play();
       const canvas = document.createElement("canvas");
       canvas.width = (video as any).videoWidth || 640; canvas.height = (video as any).videoHeight || 480;
       canvas.getContext("2d")!.drawImage(video, 0, 0);
       const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error("No photo"))), "image/jpeg", 0.9)!);
       const previewUrl = URL.createObjectURL(blob);
       setDraft({ blob, type: "image", name: "photo.jpg", previewUrl });
-    } catch (e: any) { alert(`Camera error.\n\n${e?.message ?? ""}`); }
+    } catch (err: any) { await Swal.fire("Camera error", err?.message || "Cannot access camera.", "error"); }
     finally { stream?.getTracks().forEach((t) => t.stop()); }
   }
   async function toggleRecord() {
-    if (recording) { try { mediaRecRef.current?.stop(); } catch {}; return; }
-    if (!me || !conversationId) return;
-    if (typeof window.MediaRecorder === "undefined") { alert("Voice recording isn’t supported by this browser."); return; }
+    if (recording) { mediaRecRef.current?.stop(); return; }
+    if (typeof window.MediaRecorder === "undefined") { await Swal.fire("Unsupported", "Voice recording isn’t supported by this browser.", "info"); return; }
     let stream: MediaStream | null = null;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-    catch { alert("Microphone permission denied."); return; }
-    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus" : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+    catch { await Swal.fire("Permission", "Microphone permission denied.", "info"); return; }
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" :
+                 MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+    chunksRef.current = []; const startedAt = Date.now();
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    chunksRef.current = [];
     rec.ondataavailable = (e) => { if (e.data?.size) chunksRef.current.push(e.data); };
     rec.onstop = () => {
-      stream?.getTracks().forEach((t) => t.stop());
-      setRecording(false);
+      stream?.getTracks().forEach((t) => t.stop()); setRecording(false);
       const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
       const previewUrl = URL.createObjectURL(blob);
-      setDraft({ blob, type: "audio", name: "voice.webm", previewUrl });
+      const duration = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+      setDraft({ blob, type: "audio", name: "voice.webm", previewUrl, duration_sec: duration });
     };
     mediaRecRef.current = rec; setRecording(true); rec.start();
   }
 
-  /* ---------------- helpers ---------------- */
-  function shouldShowPlainContent(content?: string | null) {
-    const t = (content ?? "").trim().toLowerCase();
-    return !!t && t !== "(image)" && t !== "(photo)" && t !== "(voice note)";
-  }
-  function extractImageUrlFromContent(content?: string | null) {
-    if (!content) return null;
+  /* --------------------------------- SEND -------------------------------- */
+  const canSend = useMemo(() => (!!compose.trim() || !!draft) && !!me && !!selectedId && !sending, [compose, draft, me, selectedId, sending]);
+  async function send() {
+    if (!me || !selectedId || !canSend) return;
+    setSending(true);
+    const caption = compose.trim();
+    let meta: MessageMeta | null = null;
     try {
-      const maybe = JSON.parse(content);
-      if (maybe && typeof maybe === "object" && maybe.type === "image" && typeof maybe.url === "string")
-        return maybe.url as string;
-    } catch {}
-    const match = content.match(/https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp|heic|svg)(?:\?\S*)?/i);
-    return match?.[0] ?? null;
-  }
-  function isHttp(u?: string | null) { return !!u && /^https?:\/\//i.test(u); }
-  async function toUrlFromPath(path: string) {
-    try { const { data } = await supabase.storage.from(CHAT_BUCKET).createSignedUrl(path, 60 * 60 * 24); if (data?.signedUrl) return data.signedUrl; } catch {}
-    try { const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path); return pub?.data?.publicUrl ?? null; } catch { return null; }
-  }
-
-  /* ---------------- render ---------------- */
-  const staffFiltered = useMemo(() => {
-    const q = staffSearch.trim().toLowerCase();
-    return staffDir.filter((s) => {
-      const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "";
-      return name.toLowerCase().includes(q);
+      if (draft) {
+        if (draft.type === "image") {
+          const path = await chatUploadToPath(draft.blob, { conversationId: selectedId, kind: "image", fileName: draft.name || "image.jpg" });
+          meta = { image_path: path, duration_sec: null };
+        } else if (draft.type === "audio") {
+          const path = await chatUploadToPath(draft.blob, { conversationId: selectedId, kind: "audio", fileName: draft.name || "voice.webm" });
+          meta = { audio_path: path, duration_sec: draft.duration_sec ?? null };
+        } else meta = {};
+      }
+    } catch (e: any) { await Swal.fire("Upload failed", e.message || "Could not upload media.", "error"); setSending(false); return; }
+    const content = caption || (meta?.audio_path ? "(voice note)" : meta?.image_path ? "(image)" : "");
+    const { error: insErr } = await supabase.from("messages").insert({
+      conversation_id: selectedId, patient_id: me.id, sender_id: me.id, sender_name: me.name, sender_role: "patient",
+      content, read: false, urgent: false, meta,
     });
-  }, [staffDir, staffSearch]);
+    if (insErr) { await Swal.fire("Send failed", insErr.message, "error"); setSending(false); return; }
+    setCompose(""); if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); setDraft(null);
+    await supabase.from("conversations").update({ last_message: content || "", last_message_at: new Date().toISOString() }).eq("id", selectedId);
+    setSending(false);
+  }
 
-  const showStaffPicker = mode === "patient" && !conversationId;
+  /* ------------------------------ CALLING -------------------------------- */
+  const selectedConv = useMemo(() => convs.find((c) => c.id === selectedId) || null, [convs, selectedId]);
+  const providerInfo = useMemo(() => {
+    const s = staffDir.find((x) => x.user_id === selectedConv?.provider_id);
+    const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
+    return { name, avatar: s?.avatar_url ?? undefined };
+  }, [staffDir, selectedConv?.provider_id]);
+
+  function playRing(loop = true) {
+    try {
+      if (!ringAudioRef.current) {
+        const a = new Audio("/ring.mp3"); a.loop = loop; ringAudioRef.current = a;
+      }
+      ringAudioRef.current.currentTime = 0; ringAudioRef.current.play().catch(() => {});
+    } catch {}
+  }
+  function stopRing() { try { ringAudioRef.current?.pause(); if (ringAudioRef.current) ringAudioRef.current.currentTime = 0; } catch {} }
+
+  async function startCall(mode: "audio" | "video") {
+    if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
+    if (callPhase !== "idle") return; // ✅ block spam / glitch
+    try {
+      const ch = await getSignalChannel(callChRef as any, selectedId, true);
+      await ensureSubscribed(ch);
+      const room = selectedId;
+      callRoomRef.current = room;
+      setCallRole("caller"); setCallMode(mode); setShowCall(true); playRing(true);
+      setCallPhase("ringing");
+      await ch.send({ type: "broadcast", event: "ring", payload: { room, fromId: me.id, fromName: me.name, mode } });
+    } catch (e: any) { await Swal.fire("Call failed", e?.message || "Signaling not ready.", "error"); setCallPhase("idle"); stopRing(); }
+  }
+  async function acceptIncoming(room: string, mode: "audio" | "video") {
+    try {
+      const ch = await getSignalChannel(callChRef as any, selectedId!, true);
+      await ensureSubscribed(ch);
+      callRoomRef.current = room; setCallRole("callee"); setCallMode(mode); setIncomingCall(null); stopRing();
+      await ch.send({ type: "broadcast", event: "answered", payload: { room } });
+      setShowCall(true);
+      setCallPhase("active");
+    } catch {}
+  }
+  function declineIncoming() {
+    stopRing(); setIncomingCall(null); setCallPhase("idle");
+    try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
+  }
+
+  /* ------------------------------ Lists / filters ------------------------------ */
+  const search = q.trim().toLowerCase();
+
+  const convsSorted = useMemo(
+    () => [...convs].sort((a, b) => (b.last_message_at || b.created_at || "").localeCompare(a.last_message_at || a.created_at || "")),
+    [convs]
+  );
+  const filteredConvs = useMemo(
+    () => convsSorted.filter((c) => {
+      const s = staffDir.find((x) => x.user_id === c.provider_id);
+      const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
+      return search ? name.toLowerCase().includes(search) : true;
+    }),
+    [convsSorted, staffDir, search]
+  );
+  const filteredStaff = useMemo(
+    () => (search ? staffDir.filter((s) => {
+      const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "";
+      return name.toLowerCase().includes(search) || (s.role || "").toLowerCase().includes(search);
+    }) : staffDir),
+    [staffDir, search]
+  );
+
+  if (loading) return <div className="p-6">Loading…</div>;
 
   return (
-    <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
-      <CardContent className="flex h-full flex-col p-0">
+    <div className="container mx-auto p-6 max-w-7xl">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Messages</h1>
+          <p className="mt-1 text-gray-600 dark:text-gray-300">Chat with your care team</p>
+        </div>
+        <Button variant="outline" size="sm" className="gap-1" onClick={() => setSidebarTab("staff")} title="Start a new chat">
+          <Plus className="h-4 w-4" /> New chat
+        </Button>
+      </div>
 
-        {/* Header */}
-        <div className="flex items-center gap-3 border-b bg-white/80 px-3 py-2 backdrop-blur dark:bg-zinc-900/70">
-          <div className="flex items-center gap-2">
-            {onBack && (
-              <button className="rounded-full p-2 hover:bg-gray-100 dark:hover:bg-zinc-800" onClick={onBack} aria-label="Back">
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-            )}
-            <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full ring-1 ring-gray-200">
-              {otherAvatar ? (
-                <img src={otherAvatar} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center bg-cyan-100 text-cyan-700">
-                  {(otherName || "?").slice(0, 1).toUpperCase()}
-                </div>
-              )}
-              {mode === "staff" && (
-                <span
-                  className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${
-                    presenceLoading ? "bg-yellow-400" : isOnline ? "bg-emerald-500" : "bg-gray-400"
-                  }`}
-                />
-              )}
-            </div>
-            <div className="leading-tight">
-              <div className="text-[15px] font-semibold">{otherName}</div>
-              <div className="flex items-center gap-1 text-[11px]">
-                {mode === "staff" ? (
-                  presenceLoading ? (
-                    <>
-                      <span className="inline-block h-2 w-2 rounded-full bg-yellow-400" />
-                      <span className="text-yellow-600">Checking…</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className={`inline-block h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
-                      <span className={isOnline ? "text-emerald-600" : "text-gray-500"}>{isOnline ? "Online" : "Offline"}</span>
-                    </>
-                  )
-                ) : (
-                  <span className="text-gray-500">{providerRole || ""}</span>
-                )}
+      <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Sidebar */}
+        <div className="min-h-0 rounded-xl border bg-white dark:bg-zinc-900 dark:border-zinc-800 flex flex-col">
+          <div className="p-4 border-b dark:border-zinc-800">
+            <div className="flex items-center gap-2 mb-3">
+              <MessageCircle className="h-5 w-5" />
+              <div className="font-medium">Conversations</div>
+              <div className="ml-auto flex gap-1">
+                <Button size="sm" variant={sidebarTab === "convs" ? "default" : "outline"} onClick={() => setSidebarTab("convs")}>Chats</Button>
+                <Button size="sm" variant={sidebarTab === "staff" ? "default" : "outline"} onClick={() => setSidebarTab("staff")}><Users className="mr-1 h-4 w-4" /> Staff</Button>
               </div>
+            </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input placeholder={sidebarTab === "convs" ? "Search conversations…" : "Search staff…"} className="pl-10" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
           </div>
 
-          <div className="ml-auto flex items-center gap-1">
-            <IconButton aria="Voice call" onClick={() => startCall("audio")}><Phone className="h-5 w-5" /></IconButton>
-            <IconButton aria="Video call" onClick={() => startCall("video")}><Video className="h-5 w-5" /></IconButton>
-            <IconButton aria="More"><MoreVertical className="h-5 w-5" /></IconButton>
+          <div className="min-h-0 flex-1 overflow-y-auto divide-y dark:divide-zinc-800">
+            {sidebarTab === "convs" ? (
+              filteredConvs.map((c) => {
+                const s = staffDir.find((x) => x.user_id === c.provider_id);
+                const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
+                const avatar = s?.avatar_url ?? undefined;
+                const active = selectedId === c.id;
+                return (
+                  <button
+                    key={`conv-${c.id}`}
+                    onClick={() => setSelectedId(c.id)}
+                    className={`w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900 flex items-center gap-3 border-l-4 ${active ? "border-cyan-500 bg-cyan-50/40 dark:bg-cyan-900/10" : "border-transparent"}`}
+                  >
+                    <Avatar className="h-9 w-9">
+                      <AvatarImage src={avatar} />
+                      <AvatarFallback>{initials(name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <div className="truncate font-medium">{name}</div>
+                        <div className="text-xs text-gray-500">{new Date(c.last_message_at ?? c.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="capitalize">{c.provider_role ?? "staff"}</Badge>
+                        <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            ) : (
+              filteredStaff.map((s) => {
+                const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "Staff";
+                return (
+                  <button
+                    key={`staff-${s.user_id}`}
+                    onClick={() => ensureConversationWith(s.user_id)}
+                    className="w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900 flex items-center gap-3"
+                    title={`Chat with ${name}`}
+                  >
+                    <Avatar className="h-9 w-9">
+                      <AvatarImage src={s.avatar_url || undefined} />
+                      <AvatarFallback>{initials(name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between">
+                        <div className="truncate font-medium">{name}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="capitalize">{s.role || "staff"}</Badge>
+                        <p className="truncate text-xs text-gray-500">{s.email}</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+            {sidebarTab === "convs" && filteredConvs.length === 0 && <div className="p-4 text-sm text-gray-500">No conversations yet.</div>}
+            {sidebarTab === "staff" && filteredStaff.length === 0 && <div className="p-4 text-sm text-gray-500">No staff found.</div>}
           </div>
         </div>
 
-        {/* Incoming call banner */}
-        {incomingCall && (
-          <div className="mx-3 mt-2 rounded-lg border bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-100 flex items-center gap-3">
-            <span>{incomingCall.mode === "audio" ? "📞" : "📹"} Incoming {incomingCall.mode} call from <b>{incomingCall.fromName}</b></span>
-            <div className="ml-auto flex items-center gap-2">
-              <Button size="sm" onClick={() => acceptIncoming(incomingCall.room, incomingCall.mode)}>Accept</Button>
-              <Button size="sm" variant="outline" onClick={declineIncoming}>Decline</Button>
-            </div>
-          </div>
-        )}
-
-        {/* Staff picker (patient) */}
-        {showStaffPicker ? (
-          <div className="flex-1 overflow-y-auto p-4">
-            <div className="mx-auto max-w-xl">
-              <div className="mb-3 text-sm text-gray-600">Select a staff to start a chat</div>
-              <div className="mb-3">
-                <input
-                  value={staffSearch}
-                  onChange={(e) => setStaffSearch(e.target.value)}
-                  placeholder="Search staff…"
-                  className="w-full rounded-lg border px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                />
-              </div>
-              <div className="divide-y rounded-lg border dark:divide-zinc-800 dark:border-zinc-800">
-                {staffFiltered.map((s) => {
-                  const name = [s.first_name, s.last_name].filter(Boolean).join(" ") || s.email || "Staff";
-                  return (
-                    <button
-                      key={s.user_id}
-                      onClick={() => ensureConversationWith(s.user_id)}
-                      className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-zinc-900"
-                    >
-                      <div className="h-9 w-9 overflow-hidden rounded-full ring-1 ring-gray-200">
-                        {s.avatar_url ? (
-                          <img src={s.avatar_url} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <div className="grid h-full w-full place-items-center bg-gray-100 text-xs text-gray-600">
-                            {(name || "?").slice(0, 1).toUpperCase()}
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{name}</div>
-                        <div className="truncate text-xs text-gray-500">
-                          {(normalizeProviderRole(s.role) ?? s.role ?? "staff").toString()}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-                {!staffFiltered.length && (
-                  <div className="p-3 text-center text-sm text-gray-500">No staff found.</div>
-                )}
+        {/* Thread */}
+        <div className="lg:col-span-2 min-h-0 rounded-xl border bg-white dark:bg-zinc-900 dark:border-zinc-800 flex flex-col">
+          {!selectedId ? (
+            <div className="flex flex-1 items-center justify-center">
+              <div className="text-center text-gray-500">
+                <MessageCircle className="mx-auto mb-4 h-12 w-12" />
+                <div className="text-lg font-medium">Select a conversation or pick a staff to start</div>
               </div>
             </div>
-          </div>
-        ) : (
-          <>
-            {/* Messages */}
-            <div ref={listRef} className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 to-white p-4 dark:from-zinc-900 dark:to-zinc-950">
-              <div className="mx-auto max-w-xl space-y-3">
-                {msgs.map((m) => {
-                  const own = m.sender_id === me?.id;
-                  return (
-                    <MessageBubble
-                      key={m.id}
-                      m={m}
-                      own={own}
-                      bubbleBase={bubbleBase}
-                      shouldShowPlainContent={shouldShowPlainContent}
-                      extractImageUrlFromContent={extractImageUrlFromContent}
-                      isHttp={isHttp}
-                      toUrlFromPath={toUrlFromPath}
-                    />
-                  );
-                })}
-                {typing && <div className="px-1 text-xs text-gray-500">…typing</div>}
-                {msgs.length === 0 && <div className="py-10 text-center text-sm text-gray-500">No messages yet. Say hello 👋</div>}
-              </div>
-            </div>
-
-            {/* Composer */}
-            <div className="border-t bg-white/80 px-3 py-2 backdrop-blur dark:bg-zinc-900/70">
-              <div className="mx-auto max-w-xl">
-                {draft && (
-                  <div className="mb-2 flex items-center gap-2 rounded-xl border bg-white px-2 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-800">
-                    <div className="max-h-20 max-w-[200px] overflow-hidden rounded-md ring-1 ring-gray-200 dark:ring-zinc-700">
-                      {draft.type === "image" && <img src={draft.previewUrl} alt="preview" className="h-20 w-auto object-cover" />}
-                      {draft.type === "audio" && <audio controls src={draft.previewUrl} className="h-10 w-[180px]" />}
-                      {draft.type === "file" && <div className="px-2 py-3">📎 {draft.name || "file"}</div>}
-                    </div>
-                    <button
-                      className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-zinc-700"
-                      onClick={() => { if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl); setDraft(null); }}
-                      aria-label="Remove attachment"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                )}
-
-                <div className="flex items-end gap-2">
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <IconButton aria="Emoji picker"><Smile className="h-5 w-5" /></IconButton>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-sm">
-                        <DialogHeader><DialogTitle>Pick an emoji</DialogTitle></DialogHeader>
-                        <EmojiGrid onPick={(e) => setText((v) => v + e)} />
-                      </DialogContent>
-                    </Dialog>
-
-                    <IconButton aria="Attach image or audio" onClick={() => fileInputRef.current?.click()}>
-                      <ImageIcon className="h-5 w-5" />
-                    </IconButton>
-                    <input ref={fileInputRef} type="file" accept="image/*,audio/*" hidden onChange={onPickFile} />
-                    <IconButton aria="Camera" onClick={takePhoto}><Camera className="h-5 w-5" /></IconButton>
-                    <IconButton aria={recording ? "Stop voice recording" : "Start voice recording"} onClick={toggleRecord}>
-                      <Mic className={`h-5 w-5 ${recording ? "animate-pulse" : ""}`} />
-                    </IconButton>
-                  </div>
-
-                  <Textarea
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    onKeyDown={(e) => {
-                      const enterToSend = settings?.enterToSend ?? true;
-                      if (e.key === "Enter" && !e.shiftKey && enterToSend) { e.preventDefault(); void send(); }
-                    }}
-                    onPaste={(e) => {
-                      const file = Array.from(e.clipboardData.files || [])[0];
-                      if (file && file.type.startsWith("image/")) {
-                        e.preventDefault();
-                        if (file.size > 10 * 1024 * 1024) { alert("File too large (max 10 MB)."); return; }
-                        const url = URL.createObjectURL(file);
-                        setDraft({ blob: file, type: "image", name: file.name || "pasted.jpg", previewUrl: url });
-                      }
-                    }}
-                    placeholder="Type your message…"
-                    className={`min-h-[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${settings?.density === "compact" ? "text-sm" : ""}`}
-                  />
-
-                  <Button disabled={!canSend} onClick={send} className="h-11 rounded-2xl px-4 shadow-md" aria-busy={!!uploading || sending}>
-                    <Send className="h-4 w-4" />
+          ) : (
+            <>
+              <div className="px-4 py-3 border-b dark:border-zinc-800 flex items-center gap-3">
+                <Button variant="ghost" size="icon" onClick={() => setSelectedId(null)} className="rounded-full lg:hidden">
+                  <ChevronLeft className="h-5 w-5" />
+                </Button>
+                <Avatar className="h-9 w-9">
+                  <AvatarImage src={providerInfo.avatar} />
+                  <AvatarFallback>{initials(providerInfo.name)}</AvatarFallback>
+                </Avatar>
+                <div className="leading-tight">
+                  <div className="font-semibold">{providerInfo.name}</div>
+                </div>
+                <div className="ml-auto flex items-center gap-1">
+                  <Button
+                    variant="ghost" size="icon" className="rounded-full"
+                    onClick={() => startCall("audio")} title="Start audio call"
+                    disabled={callPhase !== "idle"} // ✅ no glitch
+                  >
+                    <Phone className="h-5 w-5" />
+                  </Button>
+                  <Button
+                    variant="ghost" size="icon" className="rounded-full"
+                    onClick={() => startCall("video")} title="Start video call"
+                    disabled={callPhase !== "idle"} // ✅ no glitch
+                  >
+                    <Video className="h-5 w-5" />
                   </Button>
                 </div>
+              </div>
 
-                <div className="mt-1 flex items-center justify-between text-[10px] text-gray-500">
-                  <span>{settings?.enterToSend ?? true ? "Enter to send • Shift+Enter newline" : "Click Send • Enter newline"}</span>
-                  {(sending || uploading) && <span>Sending…</span>}
+              {incomingCall && (
+                <div className="mx-4 mt-3 rounded-lg border bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-100 flex items-center gap-3">
+                  <span>{incomingCall.mode === "audio" ? "📞" : "📹"} Incoming {incomingCall.mode} call from <b>{incomingCall.fromName}</b></span>
+                  <div className="ml-auto flex items-center gap-2">
+                    <Button size="sm" onClick={() => acceptIncoming(incomingCall.room, incomingCall.mode)}>Accept</Button>
+                    <Button size="sm" variant="outline" onClick={declineIncoming}>Decline</Button>
+                  </div>
+                </div>
+              )}
+
+              <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-slate-50 to-white dark:from-zinc-900 dark:to-zinc-950">
+                {msgs.map((m) => {
+                  const own = m.sender_id === me?.id;
+                  const bubble = own ? "bg-cyan-500 text-white rounded-2xl px-4 py-2 shadow-sm"
+                    : "bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 rounded-2xl px-4 py-2 ring-1 ring-gray-200/60 dark:ring-zinc-700/60";
+                  const t = (m.content || "").trim().toLowerCase();
+                  const showText = !(t === "(image)" || t === "(photo)" || t === "(voice note)");
+                  return (
+                    <div key={m.id} className={`flex ${own ? "justify-end" : "justify-start"}`}>
+                      <div className="max-w-[80%]">
+                        <div className={bubble}>
+                          <MessageMedia meta={m.meta} attachment_type={m.attachment_type} attachment_url={m.attachment_url} />
+                          {showText && <p className="whitespace-pre-wrap break-words">{m.content}</p>}
+                          <div className={`mt-1 text-[11px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
+                            {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {msgs.length === 0 && <div className="text-sm text-gray-500 text-center py-6">No messages yet.</div>}
+              </div>
+
+              {/* Sticky composer */}
+              <div className="border-t dark:border-zinc-800 p-3 sticky bottom-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur supports-[backdrop-filter]:bg-white/70">
+                {draft && (
+                  <div className="mx-1 mb-2 flex items-center gap-3 rounded-xl border bg-white p-2 pr-3 text-sm shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+                    <div className="max-h-20 max-w-[180px] overflow-hidden rounded-lg ring-1 ring-gray-200 dark:ring-zinc-700">
+                      {draft.type === "image" && <img src={draft.previewUrl} alt="preview" className="h-20 w-auto object-cover" />}
+                      {draft.type === "audio" && <audio controls src={draft.previewUrl} className="h-10 w-[180px]" />}
+                      {draft.type === "file"  && <div className="p-3">📎 {draft.name || "file"}</div>}
+                    </div>
+                    <button type="button" className="ml-auto rounded-full p-1.5 hover:bg-gray-100 dark:hover:bg-zinc-700"
+                      onClick={() => { if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl); setDraft(null); }} aria-label="Remove attachment">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-end gap-2">
+                  <div className="flex shrink-0 gap-1">
+                    <Button type="button" variant="ghost" size="icon" onClick={openFilePicker} className="rounded-full"><ImageIcon className="h-5 w-5" /></Button>
+                    <input ref={fileInputRef} type="file" hidden accept="image/*,audio/*" onChange={onPickFile} />
+                    <Button type="button" variant="ghost" size="icon" onClick={takePhoto} className="rounded-full"><Camera className="h-5 w-5" /></Button>
+                    <Button type="button" variant="ghost" size="icon" onClick={toggleRecord} className={`rounded-full ${recording ? "animate-pulse" : ""}`}><Mic className="h-5 w-5" /></Button>
+                  </div>
+                  <Textarea placeholder="Type your message…" value={compose} onChange={(e) => setCompose(e.target.value)}
+                    className="min-h-[44px] max-h-[140px] flex-1 rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700"
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} />
+                  <Button onClick={send} disabled={!canSend} className="shrink-0 rounded-2xl h-11 px-4 shadow-md" aria-busy={sending}><Send className="h-4 w-4" /></Button>
                 </div>
               </div>
-            </div>
-          </>
-        )}
-      </CardContent>
+            </>
+          )}
+        </div>
+      </div>
 
-      {/* Call window */}
-      <CallWindow
+      {/* CALL UI */}
+      <CallModal
         open={showCall}
         onClose={() => {
           setShowCall(false);
-          (async () => {
-            try {
-              if (conversationId) {
-                const ch = await getSignalChannel(signalRef, conversationId, true);
-                await ch.send({ type: "broadcast", event: "hangup", payload: { room: conversationId } });
-              }
-            } catch {}
-          })();
+          stopRing();
+          setCallPhase("idle");
+          try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
         }}
         role={callRole}
-        conversationId={conversationId || ""}
+        conversationId={selectedId || ""}
         roomId={callRoomRef.current || ""}
         mode={callMode}
-        peerName={otherName}
-        peerAvatar={otherAvatar || undefined}
+        peerName={providerInfo.name}
+        peerAvatar={providerInfo.avatar}
       />
-    </Card>
-  );
-}
-
-function IconButton({ children, aria, onClick }: { children: React.ReactNode; aria: string; onClick?: () => void }) {
-  return (
-    <button type="button" aria-label={aria} onClick={onClick} className="rounded-full p-2 hover:bg-gray-100 active:scale-95 dark:hover:bg-zinc-800">
-      {children}
-    </button>
-  );
-}
-
-function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
-  const groups: Record<string, string[]> = {
-    "😀 Smileys": ["😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🥳", "😇", "🙂", "🙃", "😌"],
-    "👍 Gestures": ["👍", "👎", "👏", "🙏", "🤝", "👌", "✌️", "🤞", "👋", "💪"],
-    "❤️ Hearts": ["❤️", "💙", "💚", "💛", "🧡", "💜", "🖤", "🤍", "🤎", "💕", "💖"],
-    "🔥 Misc": ["🔥", "🎉", "✨", "⭐", "🌟", "🧠", "💡", "📌", "✅", "❗"],
-  };
-  return (
-    <div className="space-y-4">
-      {Object.entries(groups).map(([label, list]) => (
-        <div key={label}>
-          <p className="mb-2 text-xs font-medium text-gray-500">{label}</p>
-          <div className="grid grid-cols-10 gap-2">
-            {list.map((e) => (
-              <button
-                key={e}
-                onClick={() => onPick(e)}
-                className="rounded-md border p-2 text-xl hover:bg-gray-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-                aria-label={`Insert ${e}`}
-              >
-                {e}
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
 
-function MessageBubble({
-  m, own, bubbleBase, shouldShowPlainContent, extractImageUrlFromContent, isHttp, toUrlFromPath,
-}: {
-  m: MessageRow; own: boolean; bubbleBase: string;
-  shouldShowPlainContent: (c?: string | null) => boolean;
-  extractImageUrlFromContent: (c?: string | null) => string | null;
-  isHttp: (u?: string | null) => boolean;
-  toUrlFromPath: (p: string) => Promise<string | null>;
-}) {
-  const bubble = own
-    ? `bg-cyan-500 text-white ${bubbleBase} shadow-md`
-    : `bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 ${bubbleBase} ring-1 ring-gray-200/70 dark:ring-zinc-700`;
-  const [attUrl, setAttUrl] = useState<string | null>(null);
+/* ------------------------------- Call Modal ------------------------------ */
+type CallUIState = "max" | "window" | "mini";
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (m.attachment_url) {
-        if (isHttp(m.attachment_url)) { if (!cancelled) setAttUrl(m.attachment_url); return; }
-        const url = await toUrlFromPath(m.attachment_url);
-        if (!cancelled) setAttUrl(url);
-        return;
-      }
-      const fromContent = extractImageUrlFromContent(m.content);
-      if (!cancelled) setAttUrl(fromContent || null);
-    })();
-    return () => { cancelled = true; };
-  }, [m.id, m.attachment_type, m.attachment_url, m.content, isHttp, toUrlFromPath, extractImageUrlFromContent]);
-
-  const showText = shouldShowPlainContent(m.content);
-
-  return (
-    <div className={`flex items-end gap-2 ${own ? "justify-end" : "justify-start"}`}>
-      {!own && (
-        <div className="hidden sm:block h-7 w-7 shrink-0 overflow-hidden rounded-full ring-1 ring-gray-200">
-          <div className="flex h-full w-full items-center justify-center bg-gray-100 text-gray-600 text-xs">
-            {(m.sender_name || "?").slice(0, 1).toUpperCase()}
-          </div>
-        </div>
-      )}
-      <div className={`max-w-[82%] sm:max-w-[70%] ${bubble}`}>
-        {m.attachment_type === "image" && attUrl && (
-          <img src={attUrl} alt="image" className="mb-2 max-h-64 w-full rounded-xl object-cover" onError={() => setAttUrl(null)} />
-        )}
-        {m.attachment_type === "audio" && attUrl && <audio className="mb-2 w-full" controls src={attUrl} onError={() => setAttUrl(null)} />}
-        {m.attachment_type === "file" && attUrl && (
-          <a className="mb-2 block underline" href={attUrl} target="_blank" rel="noreferrer">Download file</a>
-        )}
-        {showText && <div className="whitespace-pre-wrap break-words">{m.content}</div>}
-        <div className={`mt-1 flex items-center gap-1 text-[10px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
-          {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-          {own && m.read && <CheckCheck className="ml-0.5 inline h-3.5 w-3.5 opacity-90" />}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ============================= Call window ============================= */
-function CallWindow({
+function CallModal({
   open, onClose, role, conversationId, roomId, mode, peerName, peerAvatar,
 }: {
-  open: boolean; onClose: () => void;
-  role: "caller" | "callee";
-  conversationId: string; roomId: string;
-  mode: "audio" | "video";
+  open: boolean; onClose: () => void; role: "caller" | "callee";
+  conversationId: string; roomId: string; mode: "audio" | "video";
   peerName: string; peerAvatar?: string;
 }) {
-  const [isMax, setIsMax] = useState(true);
+  const [ui, setUi] = useState<CallUIState>("max");
   const [elapsedSec, setElapsedSec] = useState(0);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(mode === "video");
   const [speakerOn, setSpeakerOn] = useState(true);
   const [sharing, setSharing] = useState(false);
+
+  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [size, setSize] = useState<{ w: number; h: number }>({ w: 920, h: 600 });
+  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+  const resizeRef = useRef<{ w0: number; h0: number; x0: number; y0: number } | null>(null);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -974,7 +635,7 @@ function CallWindow({
   const chanRef = useRef<ReturnType<typeof sigChannel> | null>(null);
   const timerRef = useRef<number | null>(null);
 
-  const pcInit = useMemo<RTCConfiguration>(() => ICE_SERVERS, []);
+  const pcInit: RTCConfiguration = ICE_SERVERS;
 
   useEffect(() => {
     if (!open) return;
@@ -983,13 +644,22 @@ function CallWindow({
   }, [open]);
 
   useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "m") { const next = !micOn; streamRef.current?.getAudioTracks().forEach(t => t.enabled = next); setMicOn(next); }
+      if (e.key.toLowerCase() === "c") { if (mode !== "video") return; const next = !camOn; streamRef.current?.getVideoTracks().forEach(t => t.enabled = next); setCamOn(next); }
+      if (e.key.toLowerCase() === "s") void toggleShare();
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, micOn, camOn, mode, onClose]);
+
+  useEffect(() => {
     if (!open || !conversationId || !roomId) return;
     let ended = false;
-
-    const tryPlay = () => {
-      remoteAudioRef.current?.play?.().catch(() => {});
-      remoteVideoRef.current?.play?.().catch(() => {});
-    };
+    const pendingICE: RTCIceCandidateInit[] = [];
 
     async function setup() {
       const pc = new RTCPeerConnection(pcInit);
@@ -998,27 +668,15 @@ function CallWindow({
       pc.oniceconnectionstatechange = () => console.log("[webrtc] ice:", pc.iceConnectionState);
       pc.onconnectionstatechange = () => console.log("[webrtc] pc:", pc.connectionState);
 
-      pc.ontrack = (e) => {
+      pc.ontrack = async (e) => {
         const [remote] = e.streams;
         if (!remote) return;
-
         if (mode === "video") {
           const v = remoteVideoRef.current;
-          if (v) {
-            v.srcObject = remote;
-            v.muted = !speakerOn; // why: autoplay policy
-            v.playsInline = true;
-            v.autoplay = true;
-            v.play().catch(() => {});
-          }
+          if (v) { v.srcObject = remote; v.muted = !speakerOn; v.playsInline = true; v.autoplay = true; await safePlay(v); }
         } else {
           const a = remoteAudioRef.current;
-          if (a) {
-            a.srcObject = remote;
-            a.muted = !speakerOn; // why: autoplay policy
-            a.autoplay = true;
-            a.play().catch(() => {});
-          }
+          if (a) { a.srcObject = remote; a.muted = !speakerOn; a.autoplay = true; await safePlay(a); }
         }
       };
 
@@ -1028,45 +686,52 @@ function CallWindow({
         }
       };
 
+      // local media
       streamRef.current = await navigator.mediaDevices.getUserMedia(mode === "video" ? { video: true, audio: true } : { audio: true, video: false });
       streamRef.current.getAudioTracks().forEach((t) => (t.enabled = micOn));
       streamRef.current.getVideoTracks().forEach((t) => (t.enabled = camOn));
       streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
 
-      if (mode === "video") { if (localVideoRef.current) localVideoRef.current.srcObject = streamRef.current; }
-      else { if (localAudioRef.current) localAudioRef.current.srcObject = streamRef.current; }
+      if (mode === "video") {
+        if (localVideoRef.current) { localVideoRef.current.muted = true; localVideoRef.current.srcObject = streamRef.current; await safePlay(localVideoRef.current); }
+      } else {
+        if (localAudioRef.current) { localAudioRef.current.srcObject = streamRef.current; await safePlay(localAudioRef.current); }
+      }
 
-      const ch = sigChannel(conversationId, true);
+      // signaling (no self echo)
+      const ch = await getSignalChannel(chanRef as any, conversationId, false);
+      await ensureSubscribed(ch);
       chanRef.current = ch;
 
-      ch.on("broadcast", { event: "offer" }, async (p) => {
-        const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
-        await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-        tryPlay();
-        const answer = await pcRef.current.createAnswer();
-        await pcRef.current.setLocalDescription(answer);
-        await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
-      });
+      ch
+        .on("broadcast", { event: "offer" }, async (p) => {
+          if (role === "caller") return;
+          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
 
-      ch.on("broadcast", { event: "answer" }, async (p) => {
-        const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
-        await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-        tryPlay();
-      });
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          for (const c of pendingICE.splice(0)) { try { await pcRef.current.addIceCandidate(new RTCIceCandidate(c)); } catch {} }
+          const answer = await pcRef.current.createAnswer();
+          await pcRef.current.setLocalDescription(answer);
+          await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
+        })
+        .on("broadcast", { event: "answer" }, async (p) => {
+          if (role === "callee") return;
+          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
 
-      ch.on("broadcast", { event: "ice" }, async (p) => {
-        const { room, candidate } = p.payload as any; if (room !== roomId || !pcRef.current) return;
-        try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
-      });
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          for (const c of pendingICE.splice(0)) { try { await pcRef.current.addIceCandidate(new RTCIceCandidate(c)); } catch {} }
+        })
+        .on("broadcast", { event: "ice" }, async (p) => {
+          const { room, candidate } = p.payload as any; if (room !== roomId || !pcRef.current) return;
+          if (!pcRef.current.remoteDescription) pendingICE.push(candidate);
+          else { try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {} }
+        })
+        .on("broadcast", { event: "hangup" }, (p) => {
+          const { room } = p.payload as any; if (room && room !== roomId) return;
+          if (!ended) cleanup();
+        });
 
-      ch.on("broadcast", { event: "hangup" }, (p) => {
-        const { room } = (p.payload || {}) as any;
-        if (room && room !== roomId) return;
-        if (!ended) cleanup();
-      });
-
-      await subscribeWithRetry(ch);
-
+      // Caller -> offer
       if (role === "caller") {
         if (mode === "video") {
           pc.addTransceiver("video", { direction: "sendrecv" });
@@ -1074,18 +739,13 @@ function CallWindow({
         } else {
           pc.addTransceiver("audio", { direction: "sendrecv" });
         }
-
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: mode === "video",
-        });
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: mode === "video" });
         await pc.setLocalDescription(offer);
         await ch.send({ type: "broadcast", event: "offer", payload: { room: roomId, sdp: offer } });
       }
     }
 
     function cleanup() {
-      ended = true;
       try { chanRef.current && supabase.removeChannel(chanRef.current); } catch {}
       chanRef.current = null;
       try { screenRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
@@ -1099,8 +759,10 @@ function CallWindow({
     }
 
     setup();
-    return () => { if (!ended) cleanup(); };
-  }, [open, role, conversationId, roomId, pcInit, onClose, mode, micOn, camOn, speakerOn]);
+    return () => { cleanup(); };
+    // do not depend on mic/cam/speaker toggles; they only enable/disable tracks
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, role, conversationId, roomId, mode]);
 
   async function toggleShare() {
     if (mode !== "video") return;
@@ -1126,113 +788,153 @@ function CallWindow({
     } catch {}
   }
 
-  if (!open) return null;
-
-  const containerStyle = isMax ? { inset: 0 as any } : { top: 48, left: 48, width: 860, height: 560 } as any;
-  const hhmmss = (() => {
+  const hhmmss = useMemo(() => {
     const s = elapsedSec; const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
     return [h, m, ss].map((n) => String(n).padStart(2, "0")).join(":");
-  })();
+  }, [elapsedSec]);
+
+  if (!open) return null;
+
+  const styleMax = { inset: 0 as any };
+  const styleWin = { top: pos.y, left: pos.x, width: size.w, height: size.h } as any;
+  const styleMini = { bottom: 16, right: 16, width: 280, height: 158 } as any;
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/50">
-      <div className="fixed z-[70] bg-white dark:bg-zinc-900 shadow-2xl border dark:border-zinc-800 rounded-2xl overflow-hidden" style={containerStyle}>
-        {/* Title bar */}
-        <div className="flex items-center gap-2 border-b dark:border-zinc-800 px-3 py-2 select-none" onDoubleClick={() => setIsMax((v) => !v)}>
-          <div className="flex items-center gap-2">
-            <div className="h-6 w-6 overflow-hidden rounded-full ring-1 ring-gray-200">
-              {peerAvatar ? <img src={peerAvatar} alt="" className="h-full w-full object-cover" /> :
-                <div className="grid h-full w-full place-items-center bg-gray-100 text-xs text-gray-600">{(peerName || "?").slice(0, 1).toUpperCase()}</div>}
-            </div>
-            <div className="text-sm font-medium">{peerName}</div>
-            <div className="ml-2 flex items-center gap-1 text-xs text-gray-500"><Clock className="h-3 w-3" /> <span className="tabular-nums">{hhmmss}</span></div>
-          </div>
+    <>
+      <div
+        className={`fixed z-[70] bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md border dark:border-zinc-800 rounded-2xl overflow-hidden shadow-2xl ${ui === "max" ? "inset-0" : ""}`}
+        style={ui === "max" ? styleMax : ui === "window" ? styleWin : styleMini}
+        role="dialog" aria-modal="true"
+      >
+        <div
+          className={`flex items-center gap-3 border-b dark:border-zinc-800 px-3 py-2 select-none ${ui !== "max" ? "cursor-default" : ""}`}
+          onDoubleClick={() => setUi((s) => (s === "max" ? "window" : "max"))}
+          onPointerDown={(e) => { if (ui === "max") return; dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
+          onPointerMove={(e) => {
+            if (!dragRef.current || ui === "max") return;
+            const vw = window.innerWidth, vh = window.innerHeight;
+            setPos({ x: clamp(e.clientX - dragRef.current.dx, 0, vw - size.w), y: clamp(e.clientY - dragRef.current.dy, 0, vh - size.h) });
+          }}
+          onPointerUp={(e) => { if (!dragRef.current) return; dragRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); }}
+        >
+          <Avatar className="h-6 w-6"><AvatarImage src={peerAvatar} /><AvatarFallback>{initials(peerName)}</AvatarFallback></Avatar>
+          <div className="text-sm font-medium">{peerName}</div>
+          <div className="ml-2 flex items-center gap-1 text-xs text-gray-500"><Clock className="h-3 w-3" /> <span className="tabular-nums">{hhmmss}</span></div>
           <div className="ml-auto flex items-center gap-1">
-            <Button size="icon" variant="ghost" className="rounded-full" onClick={() => setIsMax((v) => !v)} title={isMax ? "Restore" : "Maximize"}>
-              {isMax ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-            </Button>
-            <Button size="sm" variant="destructive" onClick={onClose}>End</Button>
+            {ui !== "mini" && (
+              <Button size="icon" variant="ghost" className="rounded-full" onClick={() => setUi((s) => (s === "max" ? "window" : "max"))} title={ui === "max" ? "Restore down" : "Maximize"}>
+                {ui === "max" ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={() => setUi("mini")} title="Minimize to bubble">Mini</Button>
+            <Button size="sm" variant="destructive" onClick={() => {
+              try { chanRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: roomId } }); } catch {}
+              onClose();
+            }}>End</Button>
           </div>
         </div>
 
-        {/* Stage */}
-        <div className={`p-3 ${isMax ? "h-[calc(100vh-60px)]" : "h-[calc(100%-44px)]"} relative`}>
+        <div className={`${ui === "max" ? "h-[calc(100vh-48px)]" : "h-[calc(100%-44px)]"} relative`}>
           {mode === "video" ? (
-            <div className="absolute inset-0">
-              <video ref={remoteVideoRef} autoPlay playsInline muted={!speakerOn} className="h-full w-full rounded-lg bg-black object-cover" />
-              <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-4 right-4 h-28 w-40 rounded-md ring-1 ring-white/60 bg-black object-cover" />
+            <div className="absolute inset-0 grid place-items-center">
+              <video ref={remoteVideoRef} autoPlay playsInline muted={!speakerOn} className="w-full h-full object-cover" />
+              <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-4 right-4 w-40 h-28 rounded-lg ring-1 ring-white/50 bg-black object-cover" />
             </div>
           ) : (
-            <div className="absolute inset-0 grid grid-cols-2 gap-3">
-              <div className="grid place-items-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
+            <div className="absolute inset-0 grid grid-cols-2 gap-3 p-3">
+              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center">
                 <div className="text-sm text-gray-600 dark:text-gray-300">You (mic {micOn ? "on" : "off"})</div>
                 <audio ref={localAudioRef} autoPlay muted />
               </div>
-              <div className="grid place-items-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
+              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center">
                 <div className="text-sm text-gray-600 dark:text-gray-300">Peer</div>
                 <audio ref={remoteAudioRef} autoPlay muted={!speakerOn} />
               </div>
             </div>
           )}
 
-          {/* Controls */}
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/90 dark:bg-zinc-900/90 px-2 py-1 shadow-lg border dark:border-zinc-700">
-            <Button
-              size="sm"
-              variant="outline"
-              className="rounded-full"
-              onClick={() => {
-                setSpeakerOn((v) => {
-                  const next = !v;
-                  if (remoteAudioRef.current) {
-                    remoteAudioRef.current.muted = !next;
-                    remoteAudioRef.current.play?.().catch(() => {});
-                  }
-                  if (remoteVideoRef.current) {
-                    remoteVideoRef.current.muted = !next;
-                    remoteVideoRef.current.play?.().catch(() => {});
-                  }
-                  return next;
-                });
-              }}
-              title="Speaker"
-            >
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
+              const next = !speakerOn;
+              if (remoteAudioRef.current) { remoteAudioRef.current.muted = !next; safePlay(remoteAudioRef.current); }
+              if (remoteVideoRef.current) { remoteVideoRef.current.muted = !next; safePlay(remoteVideoRef.current); }
+              setSpeakerOn(next);
+            }}>
               {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             </Button>
-            <Button size="sm" variant="outline" className="rounded-full" onClick={() => setMicOn((v) => {
-              streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !v)); return !v;
-            })} title="Mic">
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
+              const next = !micOn; streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = next)); setMicOn(next);
+            }} title="Mic (M)">
               {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
             </Button>
             {mode === "video" && (
-              <Button size="sm" variant="outline" className="rounded-full" onClick={() => setCamOn((v) => {
-                streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !v)); return !v;
-              })} title="Camera">
+              <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
+                const next = !camOn; streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = next)); setCamOn(next);
+              }} title="Camera (C)">
                 {camOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
               </Button>
             )}
             {mode === "video" && (
-              <Button size="sm" variant="outline" className="rounded-full" onClick={toggleShare} title="Share screen">
+              <Button size="sm" variant="outline" className="rounded-full" onClick={toggleShare} title="Share screen (S)">
                 {sharing ? <MonitorX className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
               </Button>
             )}
-            <Button size="sm" variant="destructive" className="rounded-full" onClick={onClose}>End</Button>
+            <Button size="sm" variant="destructive" className="rounded-full" onClick={() => {
+              try { chanRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: roomId } }); } catch {}
+              onClose();
+            }}>End</Button>
           </div>
+
+          {ui === "window" && (
+            <div className="absolute bottom-1 right-1 h-4 w-4 cursor-nwse-resize opacity-60"
+              onPointerDown={(e) => { if (ui !== "window") return; resizeRef.current = { w0: size.w, h0: size.h, x0: e.clientX, y0: e.clientY }; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
+              onPointerMove={(e) => {
+                const st = resizeRef.current; if (!st || ui !== "window") return;
+                const vw = window.innerWidth, vh = window.innerHeight;
+                setSize({ w: clamp(st.w0 + (e.clientX - st.x0), 540, vw - pos.x - 8), h: clamp(st.h0 + (e.clientY - st.y0), 360, vh - pos.y - 8) });
+              }}
+              onPointerUp={(e) => { if (!resizeRef.current) return; resizeRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); }}
+            />
+          )}
         </div>
       </div>
-    </div>
+
+      {ui === "mini" && (<MiniBubble onClick={() => setUi("window")} onClose={onClose} peerAvatar={peerAvatar} name={peerName} />)}
+    </>
   );
 }
 
-/* ----------------------------- Error Boundary ------------------------------ */
-class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
-  constructor(props: { children: React.ReactNode }) { super(props); this.state = { hasError: false }; }
-  static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(err: any, info: any) { console.error("[ChatBox] crashed:", err, info); }
-  render() {
-    if (this.state.hasError) {
-      return <div className="p-4 text-sm text-red-600">Chat failed to render. Please reload. If it persists, check Storage permissions and message attachments.</div>;
-    }
-    return this.props.children;
+/* ---------------------------- Mini Bubble ---------------------------- */
+function MiniBubble({ onClick, onClose, peerAvatar, name }: { onClick: () => void; onClose: () => void; peerAvatar?: string; name: string; }) {
+  const [p, setP] = useState({ x: typeof window !== "undefined" ? window.innerWidth - 96 - 12 : 12, y: typeof window !== "undefined" ? window.innerHeight - 96 - 12 : 12 });
+  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+  function down(e: React.PointerEvent) {
+    dragRef.current = { dx: e.clientX - p.x, dy: e.clientY - p.y };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
+  function move(e: React.PointerEvent) {
+    if (!dragRef.current) return;
+    const nx = clamp(e.clientX - dragRef.current.dx, 8, window.innerWidth - 96 - 8);
+    const ny = clamp(e.clientY - dragRef.current.dy, 8, window.innerHeight - 96 - 8);
+    setP({ x: nx, y: ny });
+  }
+  function up(e: React.PointerEvent) {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+  }
+  return (
+    <div className="fixed z-[80]" style={{ left: p.x, top: p.y, width: 96, height: 96 }}>
+      <button
+        className="relative h-24 w-24 rounded-full ring-2 ring-white/80 shadow-lg overflow-hidden bg-white"
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onDoubleClick={onClick} onClick={onClick}
+        title={`Back to call with ${name}`}
+      >
+        {peerAvatar ? <img src={peerAvatar} alt="" className="absolute inset-0 h-full w-full object-cover" /> :
+          <div className="absolute inset-0 grid place-items-center bg-gray-100 text-gray-700 text-xl">{initials(name)}</div>}
+        <span className="absolute bottom-1 right-1 h-5 w-5 rounded-full bg-red-500 text-white text-[10px] grid place-items-center">●</span>
+      </button>
+      <button className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-white shadow ring-1 ring-gray-200 text-xs" onClick={onClose}>✕</button>
+    </div>
+  );
 }
