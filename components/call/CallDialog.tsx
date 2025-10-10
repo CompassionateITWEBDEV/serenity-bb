@@ -11,6 +11,7 @@ import {
   sendIceToUser,
   sendHangupToUser,
 } from "@/lib/webrtc/signaling";
+import { supabase } from "@/lib/supabase/client";
 
 export type CallMode = "audio" | "video";
 export type CallRole = "caller" | "callee";
@@ -20,13 +21,13 @@ type Props = {
   onOpenChange: (open: boolean) => void;
 
   conversationId: string;
-  role: CallRole;        // "caller" -> create/send offer ; "callee" -> wait for offer
+  role: CallRole;
   mode: CallMode;
 
   meId: string;
   meName: string;
 
-  peerUserId: string;    // REQUIRED: the userId of the other side
+  peerUserId: string;
   peerName?: string;
   peerAvatar?: string;
 };
@@ -38,15 +39,20 @@ const RTC_CONFIG: RTCConfiguration = {
   ],
 };
 
-export default function CallDialog(props: Props) {
-  const {
-    open, onOpenChange, conversationId, role, mode, meId, meName, peerUserId, peerName,
-  } = props;
-
-  const [status, setStatus] =
-    React.useState<"ringing" | "connecting" | "connected" | "ended" | "failed" | "missed">(
-      role === "caller" ? "ringing" : "connecting"
-    );
+export default function CallDialog({
+  open,
+  onOpenChange,
+  conversationId,
+  role,
+  mode,
+  meId,
+  meName,
+  peerUserId,
+  peerName,
+}: Props) {
+  const [status, setStatus] = React.useState<"ringing" | "connecting" | "connected" | "ended" | "failed" | "missed">(
+    role === "caller" ? "ringing" : "connecting"
+  );
   const [muted, setMuted] = React.useState(false);
   const [camOff, setCamOff] = React.useState(mode === "audio");
   const [dialSeconds, setDialSeconds] = React.useState(0);
@@ -57,20 +63,20 @@ export default function CallDialog(props: Props) {
   const localStreamRef = React.useRef<MediaStream | null>(null);
   const remoteStreamRef = React.useRef<MediaStream | null>(null);
 
-  // signaling channel to receive answer/ice/hangup
+  // A dedicated signaling channel instance for THIS dialog open
   const chanRef = React.useRef<ReturnType<typeof userRingChannel> | null>(null);
 
-  // timers / state guards
+  // timers / guards
   const dialTimerRef = React.useRef<number | null>(null);
   const dialTickRef = React.useRef<number | null>(null);
   const answeredRef = React.useRef(false);
   const closingRef = React.useRef(false);
 
-  // ICE-queue: if candidates arrive before remoteDescription is set
+  // avoid ICE-before-remoteDescription race
   const remoteDescSetRef = React.useRef(false);
   const pendingRemoteIce = React.useRef<RTCIceCandidateInit[]>([]);
 
-  /* -------- controls reflect stream tracks -------- */
+  // reflect controls to tracks
   React.useEffect(() => {
     const s = localStreamRef.current;
     if (!s) return;
@@ -83,7 +89,6 @@ export default function CallDialog(props: Props) {
     s.getVideoTracks().forEach((t) => (t.enabled = !camOff));
   }, [camOff]);
 
-  /* -------------------- open/close lifecycle -------------------- */
   React.useEffect(() => {
     if (!open) {
       stopDialTimer();
@@ -92,22 +97,25 @@ export default function CallDialog(props: Props) {
 
     closingRef.current = false;
 
+    let cancelled = false;
+
     (async () => {
       setStatus(role === "caller" ? "ringing" : "connecting");
 
-      // 1) Get local media
+      // 1) local media
       const stream = await getUserStream(mode);
+      if (cancelled) return;
       localStreamRef.current = stream;
       attachStream(localRef.current, stream, true);
 
-      // 2) Create PC
+      // 2) pc
       const pc = new RTCPeerConnection(RTC_CONFIG);
       pcRef.current = pc;
 
-      // 3) Add local tracks
+      // 3) add local tracks
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-      // 4) Prepare remote stream (track-by-track)
+      // 4) remote stream
       const remoteStream = new MediaStream();
       remoteStreamRef.current = remoteStream;
       attachStream(remoteRef.current, remoteStream, false);
@@ -116,7 +124,7 @@ export default function CallDialog(props: Props) {
         remoteStreamRef.current.addTrack(e.track);
       });
 
-      // 5) Trickled ICE (send to peer)
+      // 5) send ICE
       pc.onicecandidate = async (e) => {
         if (e.candidate) {
           try {
@@ -125,11 +133,11 @@ export default function CallDialog(props: Props) {
               fromId: meId,
               candidate: e.candidate.toJSON(),
             });
-          } catch { /* ignore */ }
+          } catch {}
         }
       };
 
-      // 6) Connection state watcher
+      // 6) connection state
       pc.onconnectionstatechange = () => {
         const s = pc.connectionState;
         if (s === "connected") {
@@ -137,7 +145,6 @@ export default function CallDialog(props: Props) {
           setStatus("connected");
           stopDialTimer();
         } else if (s === "failed" || s === "disconnected") {
-          // Allow brief ICE restart; otherwise end
           window.setTimeout(() => {
             if (!pcRef.current) return;
             const cs = pcRef.current.connectionState;
@@ -148,47 +155,38 @@ export default function CallDialog(props: Props) {
         }
       };
 
-      // 7) Subscribe to my user channel for remote SDP/ICE/HANGUP
+      // 7) subscribe to signaling — create a FRESH channel and remove it on cleanup
       const ch = userRingChannel(meId);
       chanRef.current = ch;
 
       ch.on("broadcast", { event: "webrtc-answer" }, async (msg) => {
-        if (!pcRef.current) return;
         const p = (msg.payload || {}) as any;
         if (p.conversationId !== conversationId) return;
-        if (p?.sdp?.type === "answer") {
-          try {
-            await pcRef.current.setRemoteDescription(p.sdp);
-            remoteDescSetRef.current = true;
-            // flush queued ICE
-            for (const c of pendingRemoteIce.current) {
-              try { await pcRef.current.addIceCandidate(c); } catch {}
-            }
-            pendingRemoteIce.current = [];
-          } catch { /* ignore */ }
-        }
+        if (!pcRef.current || p?.sdp?.type !== "answer") return;
+        try {
+          await pcRef.current.setRemoteDescription(p.sdp);
+          remoteDescSetRef.current = true;
+          for (const c of pendingRemoteIce.current) {
+            try { await pcRef.current.addIceCandidate(c); } catch {}
+          }
+          pendingRemoteIce.current = [];
+        } catch {}
       });
 
       ch.on("broadcast", { event: "webrtc-offer" }, async (msg) => {
-        // Callee path
-        if (!pcRef.current || role !== "callee") return;
+        if (role !== "callee" || !pcRef.current) return;
         const p = (msg.payload || {}) as any;
         if (p.conversationId !== conversationId) return;
         try {
           await pcRef.current.setRemoteDescription(p.sdp);
           remoteDescSetRef.current = true;
-
-          // Apply any queued ICE that arrived early
           for (const c of pendingRemoteIce.current) {
             try { await pcRef.current.addIceCandidate(c); } catch {}
           }
           pendingRemoteIce.current = [];
-
           const ans = await pcRef.current.createAnswer();
           await pcRef.current.setLocalDescription(ans);
-          await sendAnswerToUser(peerUserId, {
-            conversationId, fromId: meId, sdp: ans,
-          });
+          await sendAnswerToUser(peerUserId, { conversationId, fromId: meId, sdp: ans });
           setStatus("connecting");
         } catch {
           cleanupAndClose("failed");
@@ -199,12 +197,11 @@ export default function CallDialog(props: Props) {
         const p = (msg.payload || {}) as any;
         if (p.conversationId !== conversationId) return;
         if (!pcRef.current) return;
-        // Queue if remoteDescription not yet set (Safari/Firefox race)
         if (!remoteDescSetRef.current) {
           pendingRemoteIce.current.push(p.candidate);
           return;
         }
-        try { await pcRef.current.addIceCandidate(p.candidate); } catch { /* benign */ }
+        try { await pcRef.current.addIceCandidate(p.candidate); } catch {}
       });
 
       ch.on("broadcast", { event: "hangup" }, () => {
@@ -213,7 +210,7 @@ export default function CallDialog(props: Props) {
 
       ch.subscribe();
 
-      // 8) Caller: create and send OFFER + start timeout
+      // 8) caller path
       if (role === "caller") {
         try {
           const offer = await pc.createOffer({
@@ -227,22 +224,21 @@ export default function CallDialog(props: Props) {
           cleanupAndClose("failed");
         }
       }
-    })().catch(() => {
-      cleanupAndClose("failed");
-    });
+    })().catch(() => cleanupAndClose("failed"));
 
+    // hard cleanup WHEN THIS DIALOG CLOSES or component unmounts
+    return () => {
+      cancelled = true;
+      teardownSignalingAndPc(); // <- critical to avoid stacked subscriptions
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  /* -------------------- timers -------------------- */
   function startDialTimer() {
     stopDialTimer();
     setDialSeconds(0);
-    dialTickRef.current = window.setInterval(() => {
-      setDialSeconds((v) => v + 1);
-    }, 1000) as unknown as number;
+    dialTickRef.current = window.setInterval(() => setDialSeconds((v) => v + 1), 1000) as unknown as number;
 
-    // 5-minute no-answer timeout
     dialTimerRef.current = window.setTimeout(async () => {
       if (!answeredRef.current) {
         setStatus("missed");
@@ -251,23 +247,20 @@ export default function CallDialog(props: Props) {
       }
     }, 5 * 60 * 1000) as unknown as number;
   }
-
   function stopDialTimer() {
     if (dialTimerRef.current) { clearTimeout(dialTimerRef.current); dialTimerRef.current = null; }
     if (dialTickRef.current) { clearInterval(dialTickRef.current); dialTickRef.current = null; }
   }
 
-  /* -------------------- controls -------------------- */
   async function onHangupClick() {
     try { await sendHangupToUser(peerUserId, conversationId); } catch {}
     cleanupAndClose("ended");
   }
 
-  /* -------------------- helpers -------------------- */
   function attachStream(el: HTMLVideoElement | null, stream: MediaStream | null, mirror: boolean) {
     if (!el) return;
     (el as any).srcObject = stream || null;
-    el.muted = mirror; // mute local preview
+    el.muted = mirror;
     el.playsInline = true;
     el.autoplay = true;
     el.style.transform = mirror ? "scaleX(-1)" : "none";
@@ -278,19 +271,15 @@ export default function CallDialog(props: Props) {
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       video: m === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
     };
-    try {
-      return await navigator.mediaDevices.getUserMedia(constraints);
-    } catch {
-      throw new Error("Could not access microphone/camera. Please allow permissions.");
-    }
+    return navigator.mediaDevices.getUserMedia(constraints);
   }
 
-  function cleanupAndClose(finalStatus: "ended" | "failed" | "missed") {
-    if (closingRef.current) return;
-    closingRef.current = true;
-
-    stopDialTimer();
-    setStatus(finalStatus);
+  function teardownSignalingAndPc() {
+    // remove this dialog's signaling channel to prevent duplicate events next time
+    if (chanRef.current) {
+      try { supabase.removeChannel(chanRef.current); } catch {}
+      chanRef.current = null;
+    }
 
     try {
       pcRef.current?.getSenders().forEach((s) => s.track && s.track.stop());
@@ -304,10 +293,22 @@ export default function CallDialog(props: Props) {
     localStreamRef.current = null;
     remoteStreamRef.current = null;
 
+    stopDialTimer();
+    remoteDescSetRef.current = false;
+    pendingRemoteIce.current = [];
+    answeredRef.current = false;
+    closingRef.current = false;
+  }
+
+  function cleanupAndClose(finalStatus: "ended" | "failed" | "missed") {
+    if (closingRef.current) return;
+    closingRef.current = true;
+
+    setStatus(finalStatus);
+    teardownSignalingAndPc();
     onOpenChange(false);
   }
 
-  /* -------------------- UI -------------------- */
   return (
     <Dialog open={open} onOpenChange={(v) => (v ? onOpenChange(true) : cleanupAndClose("ended"))}>
       <DialogContent className="max-w-3xl overflow-hidden">
@@ -321,7 +322,6 @@ export default function CallDialog(props: Props) {
         </DialogHeader>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {/* REMOTE */}
           <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
             <video ref={remoteRef} className="h-full w-full object-cover" />
             {status !== "connected" && (
@@ -331,7 +331,6 @@ export default function CallDialog(props: Props) {
             )}
           </div>
 
-          {/* LOCAL */}
           <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
             <video ref={localRef} className="h-full w-full object-cover" />
             {camOff && <div className="absolute inset-0 grid place-items-center text-sm text-white/70">Camera off</div>}
