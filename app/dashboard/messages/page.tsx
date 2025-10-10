@@ -1,3 +1,4 @@
+// File: app/(patient)/DashboardMessagesPage.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -160,8 +161,8 @@ export default function DashboardMessagesPage() {
         .on("broadcast", { event: "ring" }, (p) => {
           const { room, fromId, fromName, mode } = (p.payload || {}) as { room: string; fromId: string; fromName: string; mode: "audio" | "video" };
           if (room !== selectedId) return;
-          if (fromId === me.id) return;                  // ✅ ignore self
-          if (callPhase === "active") return;            // ✅ busy: ignore
+          if (fromId === me.id) return;
+          if (callPhase === "active") return;
           setIncomingCall({ room, fromId, fromName: fromName || "Caller", mode: mode || "audio" });
           playRing(true);
           setCallPhase("ringing");
@@ -243,7 +244,7 @@ export default function DashboardMessagesPage() {
     const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
     if (file.size > 10 * 1024 * 1024) { await Swal.fire("Too large", "Please choose a file under 10 MB.", "info"); return; }
     const previewUrl = URL.createObjectURL(file);
-    const kind: "image" | "audio" | "file" = file.type.startsWith("image/") ? "image" : file.type.startsWith("audio/") ? "audio" : "file";
+    const kind: "image" | "audio" | "file" = file.type.startsWith("image/") ? "image" : file.type.startsWith("audio") ? "audio" : "file";
     setDraft({ blob: file, type: kind, name: file.name, previewUrl });
   }
   async function takePhoto() {
@@ -332,7 +333,7 @@ export default function DashboardMessagesPage() {
 
   async function startCall(mode: "audio" | "video") {
     if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
-    if (callPhase !== "idle") return; // ✅ block spam / glitch
+    if (callPhase !== "idle") return;
     try {
       const ch = await getSignalChannel(callChRef as any, selectedId, true);
       await ensureSubscribed(ch);
@@ -350,7 +351,7 @@ export default function DashboardMessagesPage() {
       callRoomRef.current = room; setCallRole("callee"); setCallMode(mode); setIncomingCall(null); stopRing();
       await ch.send({ type: "broadcast", event: "answered", payload: { room } });
       setShowCall(true);
-      setCallPhase("active");
+      setCallPhase("active"); // will negotiate inside CallModal
     } catch {}
   }
   function declineIncoming() {
@@ -501,14 +502,14 @@ export default function DashboardMessagesPage() {
                   <Button
                     variant="ghost" size="icon" className="rounded-full"
                     onClick={() => startCall("audio")} title="Start audio call"
-                    disabled={callPhase !== "idle"} // ✅ no glitch
+                    disabled={callPhase !== "idle"}
                   >
                     <Phone className="h-5 w-5" />
                   </Button>
                   <Button
                     variant="ghost" size="icon" className="rounded-full"
                     onClick={() => startCall("video")} title="Start video call"
-                    disabled={callPhase !== "idle"} // ✅ no glitch
+                    disabled={callPhase !== "idle"}
                   >
                     <Video className="h-5 w-5" />
                   </Button>
@@ -585,11 +586,15 @@ export default function DashboardMessagesPage() {
       {/* CALL UI */}
       <CallModal
         open={showCall}
-        onClose={() => {
+        onClose={async () => {
           setShowCall(false);
           stopRing();
           setCallPhase("idle");
-          try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
+          try {
+            const ch = await getSignalChannel(callChRef as any, selectedId || "", true);
+            await ensureSubscribed(ch);
+            await ch.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } });
+          } catch {}
         }}
         role={callRole}
         conversationId={selectedId || ""}
@@ -671,12 +676,19 @@ function CallModal({
       pc.ontrack = async (e) => {
         const [remote] = e.streams;
         if (!remote) return;
-        if (mode === "video") {
-          const v = remoteVideoRef.current;
-          if (v) { v.srcObject = remote; v.muted = !speakerOn; v.playsInline = true; v.autoplay = true; await safePlay(v); }
-        } else {
-          const a = remoteAudioRef.current;
-          if (a) { a.srcObject = remote; a.muted = !speakerOn; a.autoplay = true; await safePlay(a); }
+        // Attach to both video and audio elements (why: reliable playback across browsers)
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remote;
+          remoteVideoRef.current.muted = !speakerOn;
+          remoteVideoRef.current.playsInline = true;
+          remoteVideoRef.current.autoplay = true;
+          await safePlay(remoteVideoRef.current);
+        }
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = remote;
+          remoteAudioRef.current.muted = !speakerOn;
+          remoteAudioRef.current.autoplay = true;
+          await safePlay(remoteAudioRef.current);
         }
       };
 
@@ -686,8 +698,14 @@ function CallModal({
         }
       };
 
-      // local media
-      streamRef.current = await navigator.mediaDevices.getUserMedia(mode === "video" ? { video: true, audio: true } : { audio: true, video: false });
+      // local media with robust audio constraints
+      const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+      const video: MediaTrackConstraints | false = mode === "video"
+        ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, facingMode: "user" }
+        : false;
+
+      streamRef.current = await navigator.mediaDevices.getUserMedia(video ? { video, audio } : { audio, video: false });
+
       streamRef.current.getAudioTracks().forEach((t) => (t.enabled = micOn));
       streamRef.current.getVideoTracks().forEach((t) => (t.enabled = camOn));
       streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
@@ -698,7 +716,7 @@ function CallModal({
         if (localAudioRef.current) { localAudioRef.current.srcObject = streamRef.current; await safePlay(localAudioRef.current); }
       }
 
-      // signaling (no self echo)
+      // signaling
       const ch = await getSignalChannel(chanRef as any, conversationId, false);
       await ensureSubscribed(ch);
       chanRef.current = ch;
@@ -731,14 +749,8 @@ function CallModal({
           if (!ended) cleanup();
         });
 
-      // Caller -> offer
+      // Caller -> create offer (tracks already added; no transceivers to avoid dup m-lines)
       if (role === "caller") {
-        if (mode === "video") {
-          pc.addTransceiver("video", { direction: "sendrecv" });
-          pc.addTransceiver("audio", { direction: "sendrecv" });
-        } else {
-          pc.addTransceiver("audio", { direction: "sendrecv" });
-        }
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: mode === "video" });
         await pc.setLocalDescription(offer);
         await ch.send({ type: "broadcast", event: "offer", payload: { room: roomId, sdp: offer } });
@@ -760,9 +772,8 @@ function CallModal({
 
     setup();
     return () => { cleanup(); };
-    // do not depend on mic/cam/speaker toggles; they only enable/disable tracks
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, role, conversationId, roomId, mode]);
+  }, [open, role, conversationId, roomId, mode, speakerOn]);
 
   async function toggleShare() {
     if (mode !== "video") return;
@@ -775,7 +786,7 @@ function CallModal({
       return;
     }
     try {
-      const scr = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
+      const scr = await (navigator.mediaDevices as any).getDisplayMedia({ video: { frameRate: 15 }, audio: false });
       screenRef.current = scr; setSharing(true);
       const track = scr.getVideoTracks()[0];
       const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
@@ -827,8 +838,12 @@ function CallModal({
               </Button>
             )}
             <Button size="sm" variant="outline" onClick={() => setUi("mini")} title="Minimize to bubble">Mini</Button>
-            <Button size="sm" variant="destructive" onClick={() => {
-              try { chanRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: roomId } }); } catch {}
+            <Button size="sm" variant="destructive" onClick={async () => {
+              try {
+                const ch = await getSignalChannel(chanRef as any, conversationId, true);
+                await ensureSubscribed(ch);
+                await ch.send({ type: "broadcast", event: "hangup", payload: { room: roomId } });
+              } catch {}
               onClose();
             }}>End</Button>
           </div>
@@ -838,6 +853,7 @@ function CallModal({
           {mode === "video" ? (
             <div className="absolute inset-0 grid place-items-center">
               <video ref={remoteVideoRef} autoPlay playsInline muted={!speakerOn} className="w-full h-full object-cover" />
+              <audio ref={remoteAudioRef} autoPlay muted={!speakerOn} className="hidden" />
               <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-4 right-4 w-40 h-28 rounded-lg ring-1 ring-white/50 bg-black object-cover" />
             </div>
           ) : (
@@ -879,8 +895,12 @@ function CallModal({
                 {sharing ? <MonitorX className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
               </Button>
             )}
-            <Button size="sm" variant="destructive" className="rounded-full" onClick={() => {
-              try { chanRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: roomId } }); } catch {}
+            <Button size="sm" variant="destructive" className="rounded-full" onClick={async () => {
+              try {
+                const ch = await getSignalChannel(chanRef as any, conversationId, true);
+                await ensureSubscribed(ch);
+                await ch.send({ type: "broadcast", event: "hangup", payload: { room: roomId } });
+              } catch {}
               onClose();
             }}>End</Button>
           </div>
