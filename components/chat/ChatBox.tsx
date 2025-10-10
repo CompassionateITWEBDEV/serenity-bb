@@ -747,25 +747,27 @@ function ChatBoxInner(props: {
       {/* Shared CallDialog (pass peerUserId) */}
       {conversationId && me && (
         <CallDialog
-          open={callOpen}
-          onOpenChange={(v) => {
-            // Allow both open and close from inside the dialog
-            setCallOpen(v);
-            setCallDockVisible(v || !!incoming);
-            if (!v) {
-              setIncoming(null);
-              setCallStatus("ended");
-            }
-          }}
-          conversationId={conversationId}
-          role={callRole}
-          mode={callMode}
-          meId={me.id}
-          meName={me.name}
-          peerUserId={peerUserId}
-          peerName={mode === "staff" ? (patientName || "Patient") : (providerName || "Provider")}
-          peerAvatar={(mode === "staff" ? patientAvatarUrl : providerAvatarUrl) ?? undefined}
-        />
+  open={callOpen}
+  onOpenChange={(v) => {
+    setCallOpen(v);
+    if (!v) {
+      // dialog is closing itself (e.g., End button or remote hangup)
+      setCallDockVisible(false);
+      setCallStatus("ended");
+      setIncoming(null);
+    } else {
+      setCallDockVisible(true);
+    }
+  }}
+  conversationId={conversationId}
+  role={callRole}
+  mode={callMode}
+  meId={me.id}
+  meName={me.name}
+  peerUserId={peerUserId}
+  peerName={mode === "staff" ? (patientName || "Patient") : (providerName || "Provider")}
+  peerAvatar={(mode === "staff" ? patientAvatarUrl : providerAvatarUrl) ?? undefined}
+/>
       )}
     </Card>
   );
