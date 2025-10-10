@@ -1,53 +1,74 @@
-// File: lib/webrtc/signaling.ts
+// @/lib/webrtc/signaling.ts
 import { supabase } from "@/lib/supabase/client";
 
-export type CallMode = "audio" | "video";
-
-/** Shared ICE servers */
-export const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:global.stun.twilio.com:3478?transport=udp" },
-  ],
-};
-
-/** Per-user “ring” channel */
+/**
+ * One shared user channel for **all** signaling messages related to calls.
+ * We'll use broadcast events:
+ * - "ring"                 -> incoming call banner
+ * - "hangup"               -> end call
+ * - "webrtc-offer"         -> caller -> callee
+ * - "webrtc-answer"        -> callee -> caller
+ * - "webrtc-ice"           -> both directions (trickle ICE)
+ *
+ * Every payload must include { conversationId, fromId, ... } so the receiver
+ * can route it to the correct dialog.
+ */
 export function userRingChannel(userId: string) {
-  return supabase.channel(`user:${userId}`, { config: { presence: { key: userId } } });
+  return supabase.channel(`webrtc_user_${userId}`, {
+    config: { broadcast: { ack: true } },
+  });
 }
 
-/** Per-conversation signaling channel (SDP/ICE/hangup) */
-export function conversationChannel(conversationId: string) {
-  return supabase.channel(`conv:${conversationId}`);
-}
+/** RING / HANGUP */
 
-/** Ensure subscribed before sending */
-export async function ensureSubscribed(ch: ReturnType<typeof supabase.channel>) {
-  const status = await ch.subscribe();
-  if (status !== "SUBSCRIBED") throw new Error("Signaling not ready");
-  return ch;
-}
-
-/** Send a ring to a specific user */
 export async function sendRing(
   toUserId: string,
-  payload: { conversationId: string; fromId: string; fromName: string; mode: CallMode }
+  payload: { conversationId: string; fromId: string; fromName?: string; mode: "audio" | "video" }
 ) {
-  const ch = userRingChannel(toUserId);
-  await ensureSubscribed(ch);
-  await ch.send({ type: "broadcast", event: "ring", payload });
+  return supabase
+    .channel(`webrtc_user_${toUserId}`)
+    .send({
+      type: "broadcast",
+      event: "ring",
+      payload,
+    });
 }
 
-/** Clear incoming banner on the callee side */
-export async function sendHangupToUser(toUserId: string, conversationId: string) {
-  const ch = userRingChannel(toUserId);
-  await ensureSubscribed(ch);
-  await ch.send({ type: "broadcast", event: "hangup", payload: { conversationId } });
+export async function sendHangupToUser(toUserId: string, conversationId?: string) {
+  return supabase
+    .channel(`webrtc_user_${toUserId}`)
+    .send({
+      type: "broadcast",
+      event: "hangup",
+      payload: { conversationId },
+    });
 }
 
-/** (Optional) announce hangup on conversation channel */
-export async function sendHangupToConversation(conversationId: string) {
-  const ch = conversationChannel(conversationId);
-  await ensureSubscribed(ch);
-  await ch.send({ type: "broadcast", event: "hangup", payload: {} });
+/** SDP & ICE */
+
+export async function sendOfferToUser(
+  toUserId: string,
+  payload: { conversationId: string; fromId: string; sdp: RTCSessionDescriptionInit }
+) {
+  return supabase
+    .channel(`webrtc_user_${toUserId}`)
+    .send({ type: "broadcast", event: "webrtc-offer", payload });
+}
+
+export async function sendAnswerToUser(
+  toUserId: string,
+  payload: { conversationId: string; fromId: string; sdp: RTCSessionDescriptionInit }
+) {
+  return supabase
+    .channel(`webrtc_user_${toUserId}`)
+    .send({ type: "broadcast", event: "webrtc-answer", payload });
+}
+
+export async function sendIceToUser(
+  toUserId: string,
+  payload: { conversationId: string; fromId: string; candidate: RTCIceCandidateInit }
+) {
+  return supabase
+    .channel(`webrtc_user_${toUserId}`)
+    .send({ type: "broadcast", event: "webrtc-ice", payload });
 }
