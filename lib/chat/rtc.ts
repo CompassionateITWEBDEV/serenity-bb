@@ -4,9 +4,16 @@ import { supabase } from "@/lib/supabase/client";
 export const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
-    { urls: ["stun:global.stun.twilio.com:3478"] },
-    { urls: "turn:YOUR_TURN_HOST:3478?transport=udp", username: "USER", credential: "PASS" },
-    { urls: "turns:YOUR_TURN_HOST:5349?transport=tcp", username: "USER", credential: "PASS" },
+    // ✅ TURN — REQUIRED for users behind strict NATs / mobile carriers
+    {
+      urls: [
+        "turn:global.turn.twilio.com:3478?transport=udp",
+        "turn:global.turn.twilio.com:3478?transport=tcp",
+        "turn:global.turn.twilio.com:443?transport=tcp",
+      ],
+      username: process.env.NEXT_PUBLIC_TURN_USERNAME as string,
+      credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL as string,
+    },
   ],
 };
 
