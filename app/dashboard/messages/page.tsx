@@ -1,4 +1,3 @@
-// File: app/(patient)/DashboardMessagesPage.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -10,15 +9,16 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronLeft, Phone, Video, Send, Image as ImageIcon, Camera, Mic,
-  MessageCircle, Search, Plus, X, Maximize2, Minimize2, MicOff, VideoOff,
-  Volume2, VolumeX, Clock, MonitorUp, MonitorX, Users
+  MessageCircle, Search, Plus, X, Users
 } from "lucide-react";
 import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
 
-// RTC helpers
-import { ICE_SERVERS, sigChannel, getSignalChannel, ensureSubscribed } from "@/lib/chat/rtc";
+// NEW: calling utilities
+import IncomingCallBanner from "@/components/call/IncomingCallBanner";
+import CallDialog, { type CallMode, type CallRole } from "@/components/call/CallDialog";
+import { userRingChannel, sendRing, sendHangupToUser } from "@/lib/webrtc/signaling";
 
 /* ------------------------------- Types ---------------------------------- */
 type ProviderRole = "doctor" | "nurse" | "counselor";
@@ -43,7 +43,6 @@ function initials(name?: string | null) {
   const s = (name ?? "").trim(); if (!s) return "U";
   return s.split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 }
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 async function safePlay(el?: HTMLMediaElement | null) { try { await el?.play?.(); } catch {} }
 
 /* ------------------------------ Page (PATIENT) -------------------------- */
@@ -69,18 +68,11 @@ export default function DashboardMessagesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
 
-  // Call state
-  type CallPhase = "idle" | "ringing" | "active";
-  const [callPhase, setCallPhase] = useState<CallPhase>("idle");
-  const [incomingCall, setIncomingCall] = useState<{ fromId: string; fromName: string; room: string; mode: "audio" | "video" } | null>(null);
-  const [showCall, setShowCall] = useState(false);
-  const [callRole, setCallRole] = useState<"caller" | "callee">("caller");
-  const [callMode, setCallMode] = useState<"audio" | "video">("audio");
-  const callRoomRef = useRef<string | null>(null);
-  const ringAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  // Realtime signaling — single channel per conversation
-  const callChRef = useRef<ReturnType<typeof sigChannel> | null>(null);
+  // CALL (slim): role/mode + modal state + incoming ring
+  const [callOpen, setCallOpen] = useState(false);
+  const [callRole, setCallRole] = useState<CallRole>("caller");
+  const [callMode, setCallMode] = useState<CallMode>("audio");
+  const [incoming, setIncoming] = useState<{ conversationId: string; fromId: string; fromName: string; mode: CallMode } | null>(null);
 
   // Sidebar tab
   const [sidebarTab, setSidebarTab] = useState<"convs" | "staff">("convs");
@@ -91,9 +83,7 @@ export default function DashboardMessagesPage() {
       const { data: au } = await supabase.auth.getUser();
       const uid = au.user?.id;
       if (!uid) { location.href = "/login"; return; }
-      const { data: p } = await supabase
-        .from("patients").select("user_id, first_name, last_name, email")
-        .eq("user_id", uid).maybeSingle();
+      const { data: p } = await supabase.from("patients").select("user_id, first_name, last_name, email").eq("user_id", uid).maybeSingle();
       if (!p?.user_id) { await Swal.fire("Access denied", "This page is for patients.", "error"); location.href = "/"; return; }
       const name = [p.first_name, p.last_name].filter(Boolean).join(" ") || au.user?.email || "Me";
       setMe({ id: uid, name }); setLoading(false);
@@ -123,7 +113,7 @@ export default function DashboardMessagesPage() {
   }, []);
   useEffect(() => { if (me) void fetchStaff(); }, [me, fetchStaff]);
 
-  /* --------- Thread + signaling subscribe ----------- */
+  /* --------- Thread subscribe ----------- */
   useEffect(() => {
     if (!selectedId || !me) return;
     let alive = true;
@@ -154,46 +144,26 @@ export default function DashboardMessagesPage() {
     const ping = () => { try { ch.track({ user_id: me.id, at: Date.now() }); } catch {} };
     const keepAlive = setInterval(ping, 1500); ping();
 
-    (async () => {
-      if (callChRef.current) { try { supabase.removeChannel(callChRef.current); } catch {} }
-      callChRef.current = await getSignalChannel(callChRef as any, selectedId, true);
-      callChRef.current
-        .on("broadcast", { event: "ring" }, (p) => {
-          const { room, fromId, fromName, mode } = (p.payload || {}) as { room: string; fromId: string; fromName: string; mode: "audio" | "video" };
-          if (room !== selectedId) return;
-          if (fromId === me.id) return;
-          if (callPhase === "active") return;
-          setIncomingCall({ room, fromId, fromName: fromName || "Caller", mode: mode || "audio" });
-          playRing(true);
-          setCallPhase("ringing");
-        })
-        .on("broadcast", { event: "answered" }, (p) => {
-          const { room } = (p.payload || {}) as any;
-          if (room !== selectedId) return;
-          stopRing();
-          setCallPhase("active");
-        })
-        .on("broadcast", { event: "hangup" }, (p) => {
-          const { room } = (p.payload || {}) as any;
-          if (room && room !== selectedId) return;
-          stopRing(); setIncomingCall(null); setShowCall(false);
-          setCallPhase("idle");
-        });
-      await ensureSubscribed(callChRef.current);
-    })().catch(() => {});
-
     return () => {
       alive = false;
       clearInterval(keepAlive);
       try { supabase.removeChannel(ch); } catch {}
-      try { if (callChRef.current) supabase.removeChannel(callChRef.current); } catch {}
-      callChRef.current = null;
-      stopRing();
-      setIncomingCall(null);
-      setShowCall(false);
-      setCallPhase("idle");
     };
-  }, [selectedId, me, callPhase]);
+  }, [selectedId, me]);
+
+  /* -------------------- Incoming ring: subscribe on my user channel -------------------- */
+  useEffect(() => {
+    if (!me?.id) return;
+    const ch = userRingChannel(me.id);
+    ch.on("broadcast", { event: "ring" }, (p) => {
+      const { conversationId, fromId, fromName, mode } = (p.payload || {}) as any;
+      if (!conversationId || !fromId) return;
+      setIncoming({ conversationId, fromId, fromName: fromName || "Caller", mode: (mode || "audio") as CallMode });
+    });
+    ch.on("broadcast", { event: "hangup" }, () => setIncoming(null));
+    ch.subscribe();
+    return () => { try { supabase.removeChannel(ch); } catch {} };
+  }, [me?.id]);
 
   /* --------------------------------- STAFF → CONVERSATION -------------------------------- */
   async function ensureConversationWith(providerUserId: string) {
@@ -313,55 +283,40 @@ export default function DashboardMessagesPage() {
     setSending(false);
   }
 
-  /* ------------------------------ CALLING -------------------------------- */
+  /* ------------------------------ CALLING (slim) -------------------------------- */
   const selectedConv = useMemo(() => convs.find((c) => c.id === selectedId) || null, [convs, selectedId]);
   const providerInfo = useMemo(() => {
     const s = staffDir.find((x) => x.user_id === selectedConv?.provider_id);
     const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
-    return { name, avatar: s?.avatar_url ?? undefined };
+    return { id: s?.user_id || selectedConv?.provider_id || "", name, avatar: s?.avatar_url ?? undefined };
   }, [staffDir, selectedConv?.provider_id]);
 
-  function playRing(loop = true) {
-    try {
-      if (!ringAudioRef.current) {
-        const a = new Audio("/ring.mp3"); a.loop = loop; ringAudioRef.current = a;
-      }
-      ringAudioRef.current.currentTime = 0; ringAudioRef.current.play().catch(() => {});
-    } catch {}
-  }
-  function stopRing() { try { ringAudioRef.current?.pause(); if (ringAudioRef.current) ringAudioRef.current.currentTime = 0; } catch {} }
+  const startCall = useCallback(async (mode: CallMode) => {
+    if (!selectedId || !me?.id) { await Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
+    const peerUserId = providerInfo.id;
+    if (!peerUserId) return;
+    await sendRing(peerUserId, { conversationId: selectedId, fromId: me.id, fromName: me.name, mode });
+    setCallRole("caller");
+    setCallMode(mode);
+    setCallOpen(true);
+  }, [selectedId, me?.id, me?.name, providerInfo.id]);
 
-  async function startCall(mode: "audio" | "video") {
-    if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
-    if (callPhase !== "idle") return;
-    try {
-      const ch = await getSignalChannel(callChRef as any, selectedId, true);
-      await ensureSubscribed(ch);
-      const room = selectedId;
-      callRoomRef.current = room;
-      setCallRole("caller"); setCallMode(mode); setShowCall(true); playRing(true);
-      setCallPhase("ringing");
-      await ch.send({ type: "broadcast", event: "ring", payload: { room, fromId: me.id, fromName: me.name, mode } });
-    } catch (e: any) { await Swal.fire("Call failed", e?.message || "Signaling not ready.", "error"); setCallPhase("idle"); stopRing(); }
-  }
-  async function acceptIncoming(room: string, mode: "audio" | "video") {
-    try {
-      const ch = await getSignalChannel(callChRef as any, selectedId!, true);
-      await ensureSubscribed(ch);
-      callRoomRef.current = room; setCallRole("callee"); setCallMode(mode); setIncomingCall(null); stopRing();
-      await ch.send({ type: "broadcast", event: "answered", payload: { room } });
-      setShowCall(true);
-      setCallPhase("active"); // will negotiate inside CallModal
-    } catch {}
-  }
-  function declineIncoming() {
-    stopRing(); setIncomingCall(null); setCallPhase("idle");
-    try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
-  }
+  const acceptIncoming = useCallback(() => {
+    if (!incoming) return;
+    setCallRole("callee");
+    setCallMode(incoming.mode);
+    setCallOpen(true);
+    setIncoming(null);
+  }, [incoming]);
+
+  const declineIncoming = useCallback(async () => {
+    if (!incoming) return;
+    await sendHangupToUser(incoming.fromId, incoming.conversationId);
+    setIncoming(null);
+  }, [incoming]);
 
   /* ------------------------------ Lists / filters ------------------------------ */
   const search = q.trim().toLowerCase();
-
   const convsSorted = useMemo(
     () => [...convs].sort((a, b) => (b.last_message_at || b.created_at || "").localeCompare(a.last_message_at || a.created_at || "")),
     [convs]
@@ -499,30 +454,23 @@ export default function DashboardMessagesPage() {
                   <div className="font-semibold">{providerInfo.name}</div>
                 </div>
                 <div className="ml-auto flex items-center gap-1">
-                  <Button
-                    variant="ghost" size="icon" className="rounded-full"
-                    onClick={() => startCall("audio")} title="Start audio call"
-                    disabled={callPhase !== "idle"}
-                  >
+                  <Button variant="ghost" size="icon" className="rounded-full" onClick={() => startCall("audio")} title="Start audio call">
                     <Phone className="h-5 w-5" />
                   </Button>
-                  <Button
-                    variant="ghost" size="icon" className="rounded-full"
-                    onClick={() => startCall("video")} title="Start video call"
-                    disabled={callPhase !== "idle"}
-                  >
+                  <Button variant="ghost" size="icon" className="rounded-full" onClick={() => startCall("video")} title="Start video call">
                     <Video className="h-5 w-5" />
                   </Button>
                 </div>
               </div>
 
-              {incomingCall && (
-                <div className="mx-4 mt-3 rounded-lg border bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-100 flex items-center gap-3">
-                  <span>{incomingCall.mode === "audio" ? "📞" : "📹"} Incoming {incomingCall.mode} call from <b>{incomingCall.fromName}</b></span>
-                  <div className="ml-auto flex items-center gap-2">
-                    <Button size="sm" onClick={() => acceptIncoming(incomingCall.room, incomingCall.mode)}>Accept</Button>
-                    <Button size="sm" variant="outline" onClick={declineIncoming}>Decline</Button>
-                  </div>
+              {incoming && (
+                <div className="mx-4 mt-3">
+                  <IncomingCallBanner
+                    callerName={incoming.fromName}
+                    mode={incoming.mode}
+                    onAccept={acceptIncoming}
+                    onDecline={declineIncoming}
+                  />
                 </div>
               )}
 
@@ -583,378 +531,18 @@ export default function DashboardMessagesPage() {
         </div>
       </div>
 
-      {/* CALL UI */}
-      <CallModal
-        open={showCall}
-        onClose={async () => {
-          setShowCall(false);
-          stopRing();
-          setCallPhase("idle");
-          try {
-            const ch = await getSignalChannel(callChRef as any, selectedId || "", true);
-            await ensureSubscribed(ch);
-            await ch.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } });
-          } catch {}
-        }}
-        role={callRole}
-        conversationId={selectedId || ""}
-        roomId={callRoomRef.current || ""}
-        mode={callMode}
-        peerName={providerInfo.name}
-        peerAvatar={providerInfo.avatar}
-      />
-    </div>
-  );
-}
-
-/* ------------------------------- Call Modal ------------------------------ */
-type CallUIState = "max" | "window" | "mini";
-
-function CallModal({
-  open, onClose, role, conversationId, roomId, mode, peerName, peerAvatar,
-}: {
-  open: boolean; onClose: () => void; role: "caller" | "callee";
-  conversationId: string; roomId: string; mode: "audio" | "video";
-  peerName: string; peerAvatar?: string;
-}) {
-  const [ui, setUi] = useState<CallUIState>("max");
-  const [elapsedSec, setElapsedSec] = useState(0);
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(mode === "video");
-  const [speakerOn, setSpeakerOn] = useState(true);
-  const [sharing, setSharing] = useState(false);
-
-  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [size, setSize] = useState<{ w: number; h: number }>({ w: 920, h: 600 });
-  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
-  const resizeRef = useRef<{ w0: number; h0: number; x0: number; y0: number } | null>(null);
-
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const localAudioRef = useRef<HTMLAudioElement>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement>(null);
-
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const screenRef = useRef<MediaStream | null>(null);
-  const chanRef = useRef<ReturnType<typeof sigChannel> | null>(null);
-  const timerRef = useRef<number | null>(null);
-
-  const pcInit: RTCConfiguration = ICE_SERVERS;
-
-  useEffect(() => {
-    if (!open) return;
-    timerRef.current = window.setInterval(() => setElapsedSec((s) => s + 1), 1000);
-    return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } setElapsedSec(0); };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === "m") { const next = !micOn; streamRef.current?.getAudioTracks().forEach(t => t.enabled = next); setMicOn(next); }
-      if (e.key.toLowerCase() === "c") { if (mode !== "video") return; const next = !camOn; streamRef.current?.getVideoTracks().forEach(t => t.enabled = next); setCamOn(next); }
-      if (e.key.toLowerCase() === "s") void toggleShare();
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, micOn, camOn, mode, onClose]);
-
-  useEffect(() => {
-    if (!open || !conversationId || !roomId) return;
-    let ended = false;
-    const pendingICE: RTCIceCandidateInit[] = [];
-
-    async function setup() {
-      const pc = new RTCPeerConnection(pcInit);
-      pcRef.current = pc;
-
-      pc.oniceconnectionstatechange = () => console.log("[webrtc] ice:", pc.iceConnectionState);
-      pc.onconnectionstatechange = () => console.log("[webrtc] pc:", pc.connectionState);
-
-      pc.ontrack = async (e) => {
-        const [remote] = e.streams;
-        if (!remote) return;
-        // Attach to both video and audio elements (why: reliable playback across browsers)
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remote;
-          remoteVideoRef.current.muted = !speakerOn;
-          remoteVideoRef.current.playsInline = true;
-          remoteVideoRef.current.autoplay = true;
-          await safePlay(remoteVideoRef.current);
-        }
-        if (remoteAudioRef.current) {
-          remoteAudioRef.current.srcObject = remote;
-          remoteAudioRef.current.muted = !speakerOn;
-          remoteAudioRef.current.autoplay = true;
-          await safePlay(remoteAudioRef.current);
-        }
-      };
-
-      pc.onicecandidate = async (e) => {
-        if (e.candidate && chanRef.current) {
-          await chanRef.current.send({ type: "broadcast", event: "ice", payload: { room: roomId, candidate: e.candidate } });
-        }
-      };
-
-      // local media with robust audio constraints
-      const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
-      const video: MediaTrackConstraints | false = mode === "video"
-        ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, facingMode: "user" }
-        : false;
-
-      streamRef.current = await navigator.mediaDevices.getUserMedia(video ? { video, audio } : { audio, video: false });
-
-      streamRef.current.getAudioTracks().forEach((t) => (t.enabled = micOn));
-      streamRef.current.getVideoTracks().forEach((t) => (t.enabled = camOn));
-      streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
-
-      if (mode === "video") {
-        if (localVideoRef.current) { localVideoRef.current.muted = true; localVideoRef.current.srcObject = streamRef.current; await safePlay(localVideoRef.current); }
-      } else {
-        if (localAudioRef.current) { localAudioRef.current.srcObject = streamRef.current; await safePlay(localAudioRef.current); }
-      }
-
-      // signaling
-      const ch = await getSignalChannel(chanRef as any, conversationId, false);
-      await ensureSubscribed(ch);
-      chanRef.current = ch;
-
-      ch
-        .on("broadcast", { event: "offer" }, async (p) => {
-          if (role === "caller") return;
-          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
-
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-          for (const c of pendingICE.splice(0)) { try { await pcRef.current.addIceCandidate(new RTCIceCandidate(c)); } catch {} }
-          const answer = await pcRef.current.createAnswer();
-          await pcRef.current.setLocalDescription(answer);
-          await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
-        })
-        .on("broadcast", { event: "answer" }, async (p) => {
-          if (role === "callee") return;
-          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
-
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-          for (const c of pendingICE.splice(0)) { try { await pcRef.current.addIceCandidate(new RTCIceCandidate(c)); } catch {} }
-        })
-        .on("broadcast", { event: "ice" }, async (p) => {
-          const { room, candidate } = p.payload as any; if (room !== roomId || !pcRef.current) return;
-          if (!pcRef.current.remoteDescription) pendingICE.push(candidate);
-          else { try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {} }
-        })
-        .on("broadcast", { event: "hangup" }, (p) => {
-          const { room } = p.payload as any; if (room && room !== roomId) return;
-          if (!ended) cleanup();
-        });
-
-      // Caller -> create offer (tracks already added; no transceivers to avoid dup m-lines)
-      if (role === "caller") {
-        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: mode === "video" });
-        await pc.setLocalDescription(offer);
-        await ch.send({ type: "broadcast", event: "offer", payload: { room: roomId, sdp: offer } });
-      }
-    }
-
-    function cleanup() {
-      try { chanRef.current && supabase.removeChannel(chanRef.current); } catch {}
-      chanRef.current = null;
-      try { screenRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
-      screenRef.current = null;
-      try { pcRef.current?.getSenders().forEach((s) => { try { s.track?.stop(); } catch {} }); } catch {}
-      try { pcRef.current?.close(); } catch {}
-      pcRef.current = null;
-      try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
-      streamRef.current = null;
-      onClose();
-    }
-
-    setup();
-    return () => { cleanup(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, role, conversationId, roomId, mode, speakerOn]);
-
-  async function toggleShare() {
-    if (mode !== "video") return;
-    if (sharing) {
-      try { screenRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
-      screenRef.current = null; setSharing(false);
-      const v = streamRef.current?.getVideoTracks()[0];
-      const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
-      if (sender && v) await sender.replaceTrack(v);
-      return;
-    }
-    try {
-      const scr = await (navigator.mediaDevices as any).getDisplayMedia({ video: { frameRate: 15 }, audio: false });
-      screenRef.current = scr; setSharing(true);
-      const track = scr.getVideoTracks()[0];
-      const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
-      if (sender && track) await sender.replaceTrack(track);
-      scr.getVideoTracks()[0].onended = async () => {
-        setSharing(false);
-        const v = streamRef.current?.getVideoTracks()[0];
-        if (sender && v) await sender.replaceTrack(v);
-      };
-    } catch {}
-  }
-
-  const hhmmss = useMemo(() => {
-    const s = elapsedSec; const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
-    return [h, m, ss].map((n) => String(n).padStart(2, "0")).join(":");
-  }, [elapsedSec]);
-
-  if (!open) return null;
-
-  const styleMax = { inset: 0 as any };
-  const styleWin = { top: pos.y, left: pos.x, width: size.w, height: size.h } as any;
-  const styleMini = { bottom: 16, right: 16, width: 280, height: 158 } as any;
-
-  return (
-    <>
-      <div
-        className={`fixed z-[70] bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md border dark:border-zinc-800 rounded-2xl overflow-hidden shadow-2xl ${ui === "max" ? "inset-0" : ""}`}
-        style={ui === "max" ? styleMax : ui === "window" ? styleWin : styleMini}
-        role="dialog" aria-modal="true"
-      >
-        <div
-          className={`flex items-center gap-3 border-b dark:border-zinc-800 px-3 py-2 select-none ${ui !== "max" ? "cursor-default" : ""}`}
-          onDoubleClick={() => setUi((s) => (s === "max" ? "window" : "max"))}
-          onPointerDown={(e) => { if (ui === "max") return; dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
-          onPointerMove={(e) => {
-            if (!dragRef.current || ui === "max") return;
-            const vw = window.innerWidth, vh = window.innerHeight;
-            setPos({ x: clamp(e.clientX - dragRef.current.dx, 0, vw - size.w), y: clamp(e.clientY - dragRef.current.dy, 0, vh - size.h) });
-          }}
-          onPointerUp={(e) => { if (!dragRef.current) return; dragRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); }}
-        >
-          <Avatar className="h-6 w-6"><AvatarImage src={peerAvatar} /><AvatarFallback>{initials(peerName)}</AvatarFallback></Avatar>
-          <div className="text-sm font-medium">{peerName}</div>
-          <div className="ml-2 flex items-center gap-1 text-xs text-gray-500"><Clock className="h-3 w-3" /> <span className="tabular-nums">{hhmmss}</span></div>
-          <div className="ml-auto flex items-center gap-1">
-            {ui !== "mini" && (
-              <Button size="icon" variant="ghost" className="rounded-full" onClick={() => setUi((s) => (s === "max" ? "window" : "max"))} title={ui === "max" ? "Restore down" : "Maximize"}>
-                {ui === "max" ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-              </Button>
-            )}
-            <Button size="sm" variant="outline" onClick={() => setUi("mini")} title="Minimize to bubble">Mini</Button>
-            <Button size="sm" variant="destructive" onClick={async () => {
-              try {
-                const ch = await getSignalChannel(chanRef as any, conversationId, true);
-                await ensureSubscribed(ch);
-                await ch.send({ type: "broadcast", event: "hangup", payload: { room: roomId } });
-              } catch {}
-              onClose();
-            }}>End</Button>
-          </div>
-        </div>
-
-        <div className={`${ui === "max" ? "h-[calc(100vh-48px)]" : "h-[calc(100%-44px)]"} relative`}>
-          {mode === "video" ? (
-            <div className="absolute inset-0 grid place-items-center">
-              <video ref={remoteVideoRef} autoPlay playsInline muted={!speakerOn} className="w-full h-full object-cover" />
-              <audio ref={remoteAudioRef} autoPlay muted={!speakerOn} className="hidden" />
-              <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-4 right-4 w-40 h-28 rounded-lg ring-1 ring-white/50 bg-black object-cover" />
-            </div>
-          ) : (
-            <div className="absolute inset-0 grid grid-cols-2 gap-3 p-3">
-              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center">
-                <div className="text-sm text-gray-600 dark:text-gray-300">You (mic {micOn ? "on" : "off"})</div>
-                <audio ref={localAudioRef} autoPlay muted />
-              </div>
-              <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center">
-                <div className="text-sm text-gray-600 dark:text-gray-300">Peer</div>
-                <audio ref={remoteAudioRef} autoPlay muted={!speakerOn} />
-              </div>
-            </div>
-          )}
-
-          <div className="absolute left-1/2 bottom-4 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/90 dark:bg-zinc-900/90 px-2 py-1 shadow-lg border dark:border-zinc-700">
-            <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
-              const next = !speakerOn;
-              if (remoteAudioRef.current) { remoteAudioRef.current.muted = !next; safePlay(remoteAudioRef.current); }
-              if (remoteVideoRef.current) { remoteVideoRef.current.muted = !next; safePlay(remoteVideoRef.current); }
-              setSpeakerOn(next);
-            }}>
-              {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-            </Button>
-            <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
-              const next = !micOn; streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = next)); setMicOn(next);
-            }} title="Mic (M)">
-              {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-            </Button>
-            {mode === "video" && (
-              <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
-                const next = !camOn; streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = next)); setCamOn(next);
-              }} title="Camera (C)">
-                {camOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-              </Button>
-            )}
-            {mode === "video" && (
-              <Button size="sm" variant="outline" className="rounded-full" onClick={toggleShare} title="Share screen (S)">
-                {sharing ? <MonitorX className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
-              </Button>
-            )}
-            <Button size="sm" variant="destructive" className="rounded-full" onClick={async () => {
-              try {
-                const ch = await getSignalChannel(chanRef as any, conversationId, true);
-                await ensureSubscribed(ch);
-                await ch.send({ type: "broadcast", event: "hangup", payload: { room: roomId } });
-              } catch {}
-              onClose();
-            }}>End</Button>
-          </div>
-
-          {ui === "window" && (
-            <div className="absolute bottom-1 right-1 h-4 w-4 cursor-nwse-resize opacity-60"
-              onPointerDown={(e) => { if (ui !== "window") return; resizeRef.current = { w0: size.w, h0: size.h, x0: e.clientX, y0: e.clientY }; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
-              onPointerMove={(e) => {
-                const st = resizeRef.current; if (!st || ui !== "window") return;
-                const vw = window.innerWidth, vh = window.innerHeight;
-                setSize({ w: clamp(st.w0 + (e.clientX - st.x0), 540, vw - pos.x - 8), h: clamp(st.h0 + (e.clientY - st.y0), 360, vh - pos.y - 8) });
-              }}
-              onPointerUp={(e) => { if (!resizeRef.current) return; resizeRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); }}
-            />
-          )}
-        </div>
-      </div>
-
-      {ui === "mini" && (<MiniBubble onClick={() => setUi("window")} onClose={onClose} peerAvatar={peerAvatar} name={peerName} />)}
-    </>
-  );
-}
-
-/* ---------------------------- Mini Bubble ---------------------------- */
-function MiniBubble({ onClick, onClose, peerAvatar, name }: { onClick: () => void; onClose: () => void; peerAvatar?: string; name: string; }) {
-  const [p, setP] = useState({ x: typeof window !== "undefined" ? window.innerWidth - 96 - 12 : 12, y: typeof window !== "undefined" ? window.innerHeight - 96 - 12 : 12 });
-  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
-  function down(e: React.PointerEvent) {
-    dragRef.current = { dx: e.clientX - p.x, dy: e.clientY - p.y };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-  function move(e: React.PointerEvent) {
-    if (!dragRef.current) return;
-    const nx = clamp(e.clientX - dragRef.current.dx, 8, window.innerWidth - 96 - 8);
-    const ny = clamp(e.clientY - dragRef.current.dy, 8, window.innerHeight - 96 - 8);
-    setP({ x: nx, y: ny });
-  }
-  function up(e: React.PointerEvent) {
-    if (!dragRef.current) return;
-    dragRef.current = null;
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-  }
-  return (
-    <div className="fixed z-[80]" style={{ left: p.x, top: p.y, width: 96, height: 96 }}>
-      <button
-        className="relative h-24 w-24 rounded-full ring-2 ring-white/80 shadow-lg overflow-hidden bg-white"
-        onPointerDown={down} onPointerMove={move} onPointerUp={up} onDoubleClick={onClick} onClick={onClick}
-        title={`Back to call with ${name}`}
-      >
-        {peerAvatar ? <img src={peerAvatar} alt="" className="absolute inset-0 h-full w-full object-cover" /> :
-          <div className="absolute inset-0 grid place-items-center bg-gray-100 text-gray-700 text-xl">{initials(name)}</div>}
-        <span className="absolute bottom-1 right-1 h-5 w-5 rounded-full bg-red-500 text-white text-[10px] grid place-items-center">●</span>
-      </button>
-      <button className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-white shadow ring-1 ring-gray-200 text-xs" onClick={onClose}>✕</button>
+      {/* Call dialog (shared with ChatBox side) */}
+      {selectedId && me && (
+        <CallDialog
+          open={callOpen}
+          onOpenChange={(v) => setCallOpen(v)}
+          conversationId={incoming?.conversationId || selectedId}
+          role={callRole}
+          mode={callMode}
+          meId={me.id}
+          meName={me.name}
+        />
+      )}
     </div>
   );
 }
