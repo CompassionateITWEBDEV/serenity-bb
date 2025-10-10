@@ -383,10 +383,54 @@ function ChatBoxInner(props: {
   }, [me?.id, conversationId]);
 
   // Determine peer user id for *this* chat (FIX: ensure we pass it to CallDialog)
-  const peerUserId = useMemo(
-    () => (mode === "staff" ? patientId : (providerId || "")),
-    [mode, patientId, providerId]
-  );
+const peerUserId = useMemo(
+  () => (mode === "staff" ? patientId : (providerId || "")),
+  [mode, patientId, providerId]
+);
+
+// BEGIN CALL — remove preflight, just ring and open (prevents double-permission)  // ⬅ CHANGED
+const beginCall = useCallback(
+  async (m: CallMode) => {
+    const convId = await ensureConversation();
+    if (!me?.id || !peerUserId || !convId) return;
+    if (placingCall) return;
+    setPlacingCall(true);
+    try {
+      await sendRing(peerUserId, { conversationId: convId, fromId: me.id, fromName: me.name, mode: m });
+      setCallRole("caller");
+      setCallMode(m);
+      setCallOpen(true);
+      setCallDockVisible(true);
+      setCallDockMin(false);
+      setCallStatus("ringing");
+    } catch (err: any) {
+      alert(err?.message || "Failed to start call.");
+    } finally {
+      setPlacingCall(false);
+    }
+  },
+  [ensureConversation, me?.id, me?.name, peerUserId, placingCall]
+);
+
+// onOpenChange — don’t set “connected” on close; let CallDialog drive status    // ⬅ CHANGED
+{conversationId && me && (
+  <CallDialog
+    open={callOpen}
+    onOpenChange={(v) => {
+      setCallOpen(v);
+      setCallDockVisible(v || !!incoming);
+      // no forced status mutation here
+    }}
+    conversationId={conversationId}
+    role={callRole}
+    mode={callMode}
+    meId={me.id}
+    meName={me.name}
+    peerUserId={peerUserId}                       // ⬅ ADDED (critical)
+    peerName={mode === "staff" ? (patientName || "Patient") : (providerName || "Provider")}
+    peerAvatar={(mode === "staff" ? patientAvatarUrl : providerAvatarUrl) ?? undefined}
+  />
+)}
 
   // Preflight mic/cam; then signal ring; then open dialog (FIX)
   const beginCall = useCallback(
