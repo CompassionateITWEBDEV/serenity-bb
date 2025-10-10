@@ -43,7 +43,6 @@ function initials(name?: string | null) {
   const s = (name ?? "").trim(); if (!s) return "U";
   return s.split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 }
-async function safePlay(el?: HTMLMediaElement | null) { try { await el?.play?.(); } catch {} }
 
 /* ------------------------------ Page (PATIENT) -------------------------- */
 export default function DashboardMessagesPage() {
@@ -155,12 +154,22 @@ export default function DashboardMessagesPage() {
   useEffect(() => {
     if (!me?.id) return;
     const ch = userRingChannel(me.id);
+
     ch.on("broadcast", { event: "ring" }, (p) => {
       const { conversationId, fromId, fromName, mode } = (p.payload || {}) as any;
       if (!conversationId || !fromId) return;
+      // Auto-focus the right thread so the banner appears in-context.
+      setSelectedId((curr) => curr || conversationId);
       setIncoming({ conversationId, fromId, fromName: fromName || "Caller", mode: (mode || "audio") as CallMode });
+      // Why: make it obvious to the patient who is calling and from which thread.
+      try { if (document.visibilityState === "hidden") { /* best-effort: bring attention via title/notification if you add one later */ } } catch {}
     });
-    ch.on("broadcast", { event: "hangup" }, () => setIncoming(null));
+
+    ch.on("broadcast", { event: "hangup" }, (/* p */) => {
+      setIncoming(null);
+      setCallOpen(false);
+    });
+
     ch.subscribe();
     return () => { try { supabase.removeChannel(ch); } catch {} };
   }, [me?.id]);
@@ -303,11 +312,13 @@ export default function DashboardMessagesPage() {
 
   const acceptIncoming = useCallback(() => {
     if (!incoming) return;
+    // Ensure the correct thread is active for the call.
+    if (incoming.conversationId && incoming.conversationId !== selectedId) setSelectedId(incoming.conversationId);
     setCallRole("callee");
     setCallMode(incoming.mode);
     setCallOpen(true);
     setIncoming(null);
-  }, [incoming]);
+  }, [incoming, selectedId]);
 
   const declineIncoming = useCallback(async () => {
     if (!incoming) return;
@@ -541,6 +552,9 @@ export default function DashboardMessagesPage() {
           mode={callMode}
           meId={me.id}
           meName={me.name}
+          /* Better UX: show peer info in the dialog */
+          peerName={providerInfo.name}
+          peerAvatar={providerInfo.avatar}
         />
       )}
     </div>
