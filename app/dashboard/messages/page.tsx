@@ -323,8 +323,8 @@ export default function DashboardMessagesPage() {
   async function startCall(mode: "audio" | "video") {
     if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
     try {
-      const ch = await getSignalChannel(callChRef as any, selectedId, true);
-      const room = selectedId;
+      const ch = await getSignalChannel(chanRef as any, conversationId, false); // <-- don't receive your own broadcasts
+chanRef.current = ch;
       callRoomRef.current = room;
       setCallRole("caller"); setCallMode(mode); setShowCall(true); playRing(true);
       await ch.send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name, mode } });
@@ -688,25 +688,22 @@ function CallModal({
       chanRef.current = ch;
 
       ch
-        .on("broadcast", { event: "offer" }, async (p) => {
-          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-          const answer = await pcRef.current.createAnswer();
-          await pcRef.current.setLocalDescription(answer);
-          await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
-        })
-        .on("broadcast", { event: "answer" }, async (p) => {
-          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-        })
-        .on("broadcast", { event: "ice" }, async (p) => {
-          const { room, candidate } = p.payload as any; if (room !== roomId || !pcRef.current) return;
-          try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
-        })
-        .on("broadcast", { event: "hangup" }, (p) => {
-          const { room } = p.payload as any; if (room && room !== roomId) return;
-          if (!ended) cleanup();
-        });
+  .on("broadcast", { event: "offer" }, async (p) => {
+    if (role === "caller") return;            // caller must NOT handle own offer
+    const { room, sdp } = p.payload as any;
+    if (room !== roomId || !pcRef.current) return;
+
+    await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+    const answer = await pcRef.current.createAnswer();
+    await pcRef.current.setLocalDescription(answer);
+    await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
+  })
+  .on("broadcast", { event: "answer" }, async (p) => {
+    if (role === "callee") return;            // callee must NOT handle answer
+    const { room, sdp } = p.payload as any;
+    if (room !== roomId || !pcRef.current) return;
+    await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+  });
 
       await ensureSubscribed(ch);
 
@@ -927,6 +924,24 @@ function MiniBubble({ onClick, onClose, peerAvatar, name }: { onClick: () => voi
     dragRef.current = null;
     (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   }
+
+  const pendingICE: RTCIceCandidateInit[] = [];
+
+ch.on("broadcast", { event: "ice" }, async (p) => {
+  const { room, candidate } = p.payload as any;
+  if (room !== roomId || !pcRef.current) return;
+
+  if (!pcRef.current.remoteDescription) {
+    pendingICE.push(candidate);
+  } else {
+    try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+  }
+});
+
+// After you set remote description (in both offer & answer paths):
+for (const c of pendingICE.splice(0)) {
+  try { await pcRef.current!.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+}
   return (
     <div className="fixed z-[80]" style={{ left: p.x, top: p.y, width: 96, height: 96 }}>
       <button
