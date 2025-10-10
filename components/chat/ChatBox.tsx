@@ -39,7 +39,6 @@ import {
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
 
-// Calling deps
 import IncomingCallBanner from "@/components/call/IncomingCallBanner";
 import CallDialog, { type CallMode, type CallRole } from "@/components/call/CallDialog";
 import { userRingChannel, sendRing, sendHangupToUser } from "@/lib/webrtc/signaling";
@@ -80,8 +79,6 @@ type UiSettings = {
 
 const CHAT_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET?.trim() || "chat";
 
-/* -------------------------------- Component -------------------------------- */
-
 export default function ChatBox(props: {
   mode: "staff" | "patient";
   patientId: string;
@@ -103,8 +100,6 @@ export default function ChatBox(props: {
     </ErrorBoundary>
   );
 }
-
-/* ------------------------------ Inner (logic) ------------------------------ */
 
 function ChatBoxInner(props: {
   mode: "staff" | "patient";
@@ -153,9 +148,9 @@ function ChatBoxInner(props: {
   const [callRole, setCallRole] = useState<CallRole>("caller");
   const [callMode, setCallMode] = useState<CallMode>("audio");
   const [incoming, setIncoming] = useState<{ conversationId: string; fromId: string; fromName: string; mode: CallMode } | null>(null);
-  const [placingCall, setPlacingCall] = useState(false); // guard
+  const [placingCall, setPlacingCall] = useState(false);
 
-  // Floating call dock (mini window)
+  // Floating call dock
   const [callDockVisible, setCallDockVisible] = useState(false);
   const [callDockMin, setCallDockMin] = useState(false);
   const [callStatus, setCallStatus] = useState<"ringing" | "connected" | "ended">("ringing");
@@ -352,7 +347,7 @@ function ChatBoxInner(props: {
     ch.on("broadcast", { event: "ring" }, (p) => {
       const { conversationId: convId, fromId, fromName, mode } = (p.payload || {}) as any;
       if (!convId || !fromId) return;
-      if (conversationId && convId !== conversationId) return; // only pop for open thread
+      if (conversationId && convId !== conversationId) return;
       setIncoming({ conversationId: convId, fromId, fromName: fromName || "Caller", mode: (mode || "audio") as CallMode });
       setCallStatus("ringing");
       setCallDockVisible(true);
@@ -374,13 +369,13 @@ function ChatBoxInner(props: {
     };
   }, [me?.id, conversationId]);
 
-  // Determine peer user id for *this* chat (MUST pass to CallDialog)
+  // Determine peer user id for *this* chat
   const peerUserId = useMemo(
     () => (mode === "staff" ? patientId : (providerId || "")),
     [mode, patientId, providerId]
   );
 
-  // BEGIN CALL — guarded, single definition
+  // BEGIN CALL
   const beginCall = useCallback(
     async (m: CallMode) => {
       const convId = await ensureConversation();
@@ -388,7 +383,7 @@ function ChatBoxInner(props: {
       if (placingCall) return;
       setPlacingCall(true);
       try {
-        // Minimal preflight to fail early if permissions blocked
+        // preflight permissions
         const constraints: MediaStreamConstraints = {
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
           video: m === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
@@ -420,7 +415,6 @@ function ChatBoxInner(props: {
     setIncoming(null);
     setCallDockVisible(true);
     setCallDockMin(false);
-    // status transitions to connected after WebRTC connects
   }, [incoming, me]);
 
   const onDeclineIncoming = useCallback(async () => {
@@ -433,9 +427,7 @@ function ChatBoxInner(props: {
 
   const hangup = useCallback(async () => {
     if (!conversationId || !peerUserId) return;
-    try {
-      await sendHangupToUser(peerUserId, conversationId);
-    } catch {}
+    try { await sendHangupToUser(peerUserId, conversationId); } catch {}
     setCallOpen(false);
     setCallDockVisible(false);
     setCallStatus("ended");
@@ -561,12 +553,9 @@ function ChatBoxInner(props: {
     }
   }
 
-  /* ------------------------------ UI ------------------------------ */
   const isOnline = mode === "staff" ? threadOtherPresent : false;
-  const otherName =
-    mode === "staff" ? (patientName || "Patient") : (providerName || "Provider");
-  const otherAvatar =
-    mode === "staff" ? (patientAvatarUrl ?? null) : (providerAvatarUrl ?? null);
+  const otherName = mode === "staff" ? (patientName || "Patient") : (providerName || "Provider");
+  const otherAvatar = mode === "staff" ? (patientAvatarUrl ?? null) : (providerAvatarUrl ?? null);
 
   return (
     <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
@@ -575,11 +564,7 @@ function ChatBoxInner(props: {
         <div className="flex items-center gap-3 border-b bg-white/80 px-3 py-2 backdrop-blur dark:bg-zinc-900/70">
           <div className="flex items-center gap-2">
             {onBack && (
-              <button
-                className="rounded-full p-2 hover:bg-gray-100 dark:hover:bg-zinc-800"
-                onClick={onBack}
-                aria-label="Back"
-              >
+              <button className="rounded-full p-2 hover:bg-gray-100 dark:hover:bg-zinc-800" onClick={onBack} aria-label="Back">
                 <ArrowLeft className="h-5 w-5" />
               </button>
             )}
@@ -592,9 +577,7 @@ function ChatBoxInner(props: {
                 </div>
               )}
               {mode === "staff" && (
-                <span
-                  className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`}
-                />
+                <span className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
               )}
             </div>
             <div className="leading-tight">
@@ -634,10 +617,7 @@ function ChatBoxInner(props: {
         </div>
 
         {/* Messages */}
-        <div
-          ref={listRef}
-          className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 to-white p-4 dark:from-zinc-900 dark:to-zinc-950"
-        >
+        <div ref={listRef} className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 to-white p-4 dark:from-zinc-900 dark:to-zinc-950">
           <div className="mx-auto max-w-xl space-y-3">
             {msgs.map((m) => {
               const own = m.sender_id === me?.id;
@@ -655,9 +635,7 @@ function ChatBoxInner(props: {
               );
             })}
             {typing && <div className="px-1 text-xs text-gray-500">…typing</div>}
-            {msgs.length === 0 && (
-              <div className="py-10 text-center text-sm text-gray-500">No messages yet. Say hello 👋</div>
-            )}
+            {msgs.length === 0 && <div className="py-10 text-center text-sm text-gray-500">No messages yet. Say hello 👋</div>}
           </div>
         </div>
 
@@ -713,17 +691,10 @@ function ChatBoxInner(props: {
               }}
               onPaste={onPaste}
               placeholder="Type your message…"
-              className={`min-h=[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${
-                settings?.density === "compact" ? "text-sm" : ""
-              }`}
+              className={`min-h=[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${settings?.density === "compact" ? "text-sm" : ""}`}
             />
 
-            <Button
-              disabled={!canSend}
-              onClick={send}
-              className="h-11 rounded-2xl px-4 shadow-md"
-              aria-busy={!!uploading}
-            >
+            <Button disabled={!canSend} onClick={send} className="h-11 rounded-2xl px-4 shadow-md" aria-busy={!!uploading}>
               <Send className="h-4 w-4" />
             </Button>
           </div>
@@ -744,35 +715,43 @@ function ChatBoxInner(props: {
         />
       )}
 
-      {/* Shared CallDialog (pass peerUserId) */}
+      {/* Call dialog */}
       {conversationId && me && (
         <CallDialog
-  open={callOpen}
-  onOpenChange={(v) => {
-    setCallOpen(v);
-    if (!v) {
-      // dialog is closing itself (e.g., End button or remote hangup)
-      setCallDockVisible(false);
-      setCallStatus("ended");
-      setIncoming(null);
-    } else {
-      setCallDockVisible(true);
-    }
-  }}
-  conversationId={conversationId}
-  role={callRole}
-  mode={callMode}
-  meId={me.id}
-  meName={me.name}
-  peerUserId={peerUserId}
-  peerName={mode === "staff" ? (patientName || "Patient") : (providerName || "Provider")}
-  peerAvatar={(mode === "staff" ? patientAvatarUrl : providerAvatarUrl) ?? undefined}
-/>
+          open={callOpen}
+          onOpenChange={(v) => {
+            setCallOpen(v);
+            if (!v) {
+              setCallDockVisible(false);
+              setCallStatus("ended");
+              setIncoming(null);
+            } else {
+              setCallDockVisible(true);
+            }
+          }}
+          conversationId={conversationId}
+          role={callRole}
+          mode={callMode}
+          meId={me.id}
+          meName={me.name}
+          peerUserId={peerUserId}
+          peerName={mode === "staff" ? (patientName || "Patient") : (providerName || "Provider")}
+          peerAvatar={(mode === "staff" ? patientAvatarUrl : providerAvatarUrl) ?? undefined}
+          onStatus={(s) => {
+            if (s === "connected") setCallStatus("connected");
+            if (s === "ended" || s === "failed" || s === "missed") {
+              setCallStatus("ended");
+              setCallDockVisible(false);
+              setCallOpen(false);
+              setIncoming(null);
+            }
+          }}
+        />
       )}
     </Card>
   );
 
-  /* --------------------------- media pick/record --------------------------- */
+  /* -------------- media pick/record (unchanged) -------------- */
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -848,8 +827,6 @@ function ChatBoxInner(props: {
     setRecording(true);
     rec.start();
   }
-
-  // paste -> image
   function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const file = Array.from(e.clipboardData.files || [])[0];
     if (file && file.type.startsWith("image/")) {
@@ -920,7 +897,6 @@ function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
   );
 }
 
-/** Message bubble: resolves storage paths to usable URLs (all types). */
 function MessageBubble({
   m,
   own,
@@ -969,9 +945,7 @@ function MessageBubble({
       const fromContent = extractImageUrlFromContent(m.content);
       if (!cancelled) setAttUrl(fromContent || null);
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [
     m.id,
     m.meta?.image_path,
@@ -999,12 +973,7 @@ function MessageBubble({
       )}
       <div className={`max-w-[82%] sm:max-w-[70%] ${bubble}`}>
         {mediaKind === "image" && attUrl && (
-          <img
-            src={attUrl}
-            alt="image"
-            className="mb-2 max-h-64 w-full rounded-xl object-cover"
-            onError={() => setAttUrl(null)}
-          />
+          <img src={attUrl} alt="image" className="mb-2 max-h-64 w-full rounded-xl object-cover" onError={() => setAttUrl(null)} />
         )}
         {mediaKind === "audio" && attUrl && (
           <audio className="mb-2 w-full" controls src={attUrl} onError={() => setAttUrl(null)} />
@@ -1025,7 +994,6 @@ function MessageBubble({
   );
 }
 
-/* -------------------------- Floating Call Dock -------------------------- */
 function CallDock(props: {
   minimized: boolean;
   onToggleMin: () => void;
@@ -1055,44 +1023,23 @@ function CallDock(props: {
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{name}</div>
-          <div className="text-xs text-gray-500 capitalize">
-            {mode} • {status}
-          </div>
+          <div className="text-xs text-gray-500 capitalize">{mode} • {status}</div>
         </div>
-        <button
-          type="button"
-          className="rounded-full p-2 hover:bg-gray-100 dark:hover:bg-zinc-800"
-          title={minimized ? "Expand" : "Minimize"}
-          onClick={onToggleMin}
-        >
+        <button type="button" className="rounded-full p-2 hover:bg-gray-100 dark:hover:bg-zinc-800" title={minimized ? "Expand" : "Minimize"} onClick={onToggleMin}>
           {minimized ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
         </button>
       </div>
 
       {!minimized && (
         <div className="mt-3 flex items-center justify-between">
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-            onClick={onOpen}
-          >
+          <button type="button" className="flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50 dark:border-zinc-700 dark:hover:bg-zinc-800" onClick={onOpen}>
             <Monitor className="h-4 w-4" /> Open call
           </button>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="rounded-md border px-2 py-1.5 text-sm hover:bg-gray-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-              onClick={() => {}}
-              title="Mute (use controls in the dialog)"
-            >
+            <button type="button" className="rounded-md border px-2 py-1.5 text-sm hover:bg-gray-50 dark:border-zinc-700 dark:hover:bg-zinc-800" onClick={() => {}} title="Mute (use controls in the dialog)">
               <Volume2 className="h-4 w-4" />
             </button>
-            <button
-              type="button"
-              className="rounded-md bg-rose-600 px-3 py-1.5 text-sm text-white hover:bg-rose-700"
-              onClick={onHangup}
-              title="Hang up"
-            >
+            <button type="button" className="rounded-md bg-rose-600 px-3 py-1.5 text-sm text-white hover:bg-rose-700" onClick={onHangup} title="Hang up">
               <PhoneOff className="h-4 w-4" />
             </button>
           </div>
@@ -1101,8 +1048,6 @@ function CallDock(props: {
     </div>
   );
 }
-
-/* ----------------------------- Error Boundary ------------------------------ */
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
