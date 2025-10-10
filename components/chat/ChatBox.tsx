@@ -1,4 +1,3 @@
-// File: app/components/ChatBox.tsx
 "use client";
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -26,7 +25,7 @@ type MessageRow = {
   created_at: string;
   read: boolean;
   urgent: boolean;
-  attachment_url?: string | null; // storage path OR full URL (legacy)
+  attachment_url?: string | null;
   attachment_type?: "image" | "audio" | "file" | null;
 };
 
@@ -112,6 +111,8 @@ function ChatBoxInner(props: {
   const [dbOnline, setDbOnline] = useState<boolean>(false);
   const [rtOnline, setRtOnline] = useState<boolean>(false);
   const [presenceLoading, setPresenceLoading] = useState<boolean>(true);
+
+  const [showCall, setShowCall] = useState(false);
 
   const listRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -497,7 +498,7 @@ function ChatBoxInner(props: {
       if (/not found/i.test(upErr.message)) throw new Error(`Bucket "${CHAT_BUCKET}" not found.`);
       throw upErr;
     }
-    return path; // store only the path
+    return path;
   }
 
   // send
@@ -540,11 +541,7 @@ function ChatBoxInner(props: {
       return;
     }
     const previewUrl = URL.createObjectURL(file);
-    const kind: "image" | "audio" | "file" = file.type.startsWith("image/")
-      ? "image"
-      : file.type.startsWith("audio/")
-      ? "audio"
-      : "file";
+    const kind: "image" | "audio" | "file" = file.type.startsWith("image/") ? "image" : file.type.startsWith("audio/") ? "audio" : "file";
     setDraft({ blob: file, type: kind, name: file.name, previewUrl });
   }
   async function takePhoto() {
@@ -560,9 +557,7 @@ function ChatBoxInner(props: {
       canvas.height = video.videoHeight || 480;
       const ctx = canvas.getContext("2d")!;
       ctx.drawImage(video, 0, 0);
-      const blob = await new Promise<Blob>((res, rej) =>
-        canvas.toBlob((b) => (b ? res(b) : rej(new Error("No photo"))), "image/jpeg", 0.9)!
-      );
+      const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error("No photo"))), "image/jpeg", 0.9)!);
       const previewUrl = URL.createObjectURL(blob);
       setDraft({ blob, type: "image", name: "photo.jpg", previewUrl });
     } catch (e: any) {
@@ -624,7 +619,6 @@ function ChatBoxInner(props: {
     }
   };
 
-  // helpers for bubble
   function shouldShowPlainContent(content?: string | null) {
     const t = (content ?? "").trim().toLowerCase();
     return !!t && t !== "(image)" && t !== "(photo)";
@@ -633,8 +627,7 @@ function ChatBoxInner(props: {
     if (!content) return null;
     try {
       const maybe = JSON.parse(content);
-      if (maybe && typeof maybe === "object" && maybe.type === "image" && typeof maybe.url === "string")
-        return maybe.url as string;
+      if (maybe && typeof maybe === "object" && maybe.type === "image" && typeof maybe.url === "string") return maybe.url as string;
     } catch {}
     const match = content.match(/https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp|heic|svg)(?:\?\S*)?/i);
     return match?.[0] ?? null;
@@ -706,10 +699,16 @@ function ChatBoxInner(props: {
           </div>
 
           <div className="ml-auto flex items-center gap-1">
-            <IconButton aria="Voice call" onClick={() => phoneHref && window.open(phoneHref, "_blank")}>
+            <IconButton aria="Voice call" onClick={() => phoneHref ? window.open(phoneHref, "_blank") : setShowCall(true)}>
               <Phone className="h-5 w-5" />
             </IconButton>
-            <IconButton aria="Video call" onClick={() => videoHref && window.open(videoHref, "_blank")}>
+            <IconButton
+              aria="Video call"
+              onClick={() => {
+                if (videoHref) window.open(videoHref, "_blank");
+                else setShowCall(true);
+              }}
+            >
               <Video className="h-5 w-5" />
             </IconButton>
             <IconButton aria="More">
@@ -814,6 +813,17 @@ function ChatBoxInner(props: {
           </div>
         </div>
       </CardContent>
+
+      {/* In-app call modal (video + audio) */}
+      {conversationId && me && (
+        <CallDialog
+          open={showCall}
+          onOpenChange={setShowCall}
+          conversationId={conversationId}
+          meId={me.id}
+          meName={me.name}
+        />
+      )}
     </Card>
   );
 }
@@ -919,12 +929,10 @@ function MessageBubble({
             src={attUrl}
             alt="image"
             className="mb-2 max-h-64 w-full rounded-xl object-cover"
-            onError={() => setAttUrl(null)} // hide broken images
+            onError={() => setAttUrl(null)} // hide broken images (why: avoid broken UI)
           />
         )}
-        {m.attachment_type === "audio" && attUrl && (
-          <audio className="mb-2 w-full" controls src={attUrl} onError={() => setAttUrl(null)} />
-        )}
+        {m.attachment_type === "audio" && attUrl && <audio className="mb-2 w-full" controls src={attUrl} onError={() => setAttUrl(null)} />}
         {m.attachment_type === "file" && attUrl && (
           <a className="mb-2 block underline" href={attUrl} target="_blank" rel="noreferrer">
             Download file
@@ -938,6 +946,206 @@ function MessageBubble({
         </div>
       </div>
     </div>
+  );
+}
+
+/* -------------------------- In-app WebRTC Call UI -------------------------- */
+
+type CallDialogProps = {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  conversationId: string;
+  meId: string;
+  meName: string;
+};
+
+/**
+ * Simple 1:1 WebRTC call over Supabase Realtime signaling.
+ * Why: satisfy “makatawag og makadungog” without external services.
+ */
+function CallDialog({ open, onOpenChange, conversationId, meId, meName }: CallDialogProps) {
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const sigRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(true);
+  const [status, setStatus] = useState<"idle" | "connecting" | "in-call" | "ended">("idle");
+
+  const channelName = `webrtc_${conversationId}`;
+
+  useEffect(() => {
+    if (!open) return;
+
+    let ended = false;
+
+    const init = async () => {
+      setStatus("connecting");
+
+      // Media first to include tracks in offer (why: faster setup, avoids renegotiation)
+      try {
+        localStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      } catch (e: any) {
+        alert(`Camera/Mic error.\n\n${e?.message ?? ""}`);
+        onOpenChange(false);
+        return;
+      }
+      if (localVideoRef.current && localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+        localVideoRef.current.muted = true;
+        await localVideoRef.current.play().catch(() => {});
+      }
+
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:global.stun.twilio.com:3478?transport=udp" },
+        ],
+      });
+      pcRef.current = pc;
+
+      localStreamRef.current!.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
+
+      pc.ontrack = (ev) => {
+        const [stream] = ev.streams;
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = stream;
+          remoteVideoRef.current.play().catch(() => {});
+        }
+        setStatus("in-call");
+      };
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "failed" || pc.connectionState === "disconnected" || pc.connectionState === "closed") {
+          setStatus("ended");
+        }
+      };
+
+      const sig = supabase.channel(channelName, { config: { presence: { key: meId } } });
+      sigRef.current = sig;
+
+      sig.on("broadcast", { event: "webrtc" }, async (payload) => {
+        const msg = payload.payload as any;
+        if (!pcRef.current) return;
+
+        if (msg.type === "offer" && msg.from !== meId) {
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+          const ans = await pcRef.current.createAnswer();
+          await pcRef.current.setLocalDescription(ans);
+          sig.send({ type: "broadcast", event: "webrtc", payload: { type: "answer", from: meId, sdp: ans } });
+        } else if (msg.type === "answer" && msg.from !== meId) {
+          if (!pcRef.current.currentRemoteDescription) {
+            await pcRef.current.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+          }
+        } else if (msg.type === "ice" && msg.from !== meId) {
+          try {
+            await pcRef.current.addIceCandidate(msg.candidate);
+          } catch {}
+        } else if (msg.type === "leave" && msg.from !== meId) {
+          teardown(); // why: remote ended the call
+        }
+      });
+
+      sig.subscribe(async (s) => {
+        if (s === "SUBSCRIBED" && pcRef.current) {
+          pcRef.current.onicecandidate = (e) => {
+            if (e.candidate) {
+              sig.send({ type: "broadcast", event: "webrtc", payload: { type: "ice", from: meId, candidate: e.candidate } });
+            }
+          };
+          // Be the caller if you clicked open (both sides can join; first to send offer is caller)
+          const offer = await pcRef.current.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+          await pcRef.current.setLocalDescription(offer);
+          sig.send({ type: "broadcast", event: "webrtc", payload: { type: "offer", from: meId, sdp: offer, name: meName } });
+        }
+      });
+    };
+
+    const teardown = () => {
+      if (ended) return;
+      ended = true;
+      try {
+        sigRef.current?.send({ type: "broadcast", event: "webrtc", payload: { type: "leave", from: meId } });
+      } catch {}
+      try {
+        sigRef.current && supabase.removeChannel(sigRef.current);
+      } catch {}
+      sigRef.current = null;
+      try {
+        pcRef.current?.getSenders().forEach((s) => {
+          try {
+            s.track && s.track.stop();
+          } catch {}
+        });
+        pcRef.current?.close();
+      } catch {}
+      pcRef.current = null;
+      try {
+        localStreamRef.current?.getTracks().forEach((t) => t.stop());
+      } catch {}
+      localStreamRef.current = null;
+      setStatus("ended");
+      onOpenChange(false);
+    };
+
+    init();
+
+    return () => {
+      teardown();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const toggleMic = () => {
+    const next = !micOn;
+    setMicOn(next);
+    localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = next));
+  };
+  const toggleCam = () => {
+    const next = !camOn;
+    setCamOn(next);
+    localStreamRef.current?.getVideoTracks().forEach((t) => (t.enabled = next));
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl overflow-hidden p-0">
+        <DialogHeader className="px-4 py-3">
+          <DialogTitle>{status === "in-call" ? "In call" : status === "connecting" ? "Connecting…" : "Call"}</DialogTitle>
+        </DialogHeader>
+        <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-3">
+          <div className="col-span-2 relative aspect-video overflow-hidden rounded-2xl bg-black">
+            <video ref={remoteVideoRef} playsInline className="h-full w-full object-cover" />
+            {status !== "in-call" && (
+              <div className="absolute inset-0 flex items-center justify-center text-xs text-white/70">Waiting for other participant…</div>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
+              <video ref={localVideoRef} muted playsInline className="h-full w-full object-cover opacity-90" />
+            </div>
+            <div className="flex items-center justify-between gap-2 rounded-xl border p-2 dark:border-zinc-700">
+              <Button variant={micOn ? "default" : "secondary"} onClick={toggleMic} className="flex-1 rounded-xl">
+                {micOn ? "Mute" : "Unmute"}
+              </Button>
+              <Button variant={camOn ? "default" : "secondary"} onClick={toggleCam} className="flex-1 rounded-xl">
+                {camOn ? "Camera Off" : "Camera On"}
+              </Button>
+              <Button
+                onClick={() => onOpenChange(false)}
+                className="flex-1 rounded-xl bg-rose-600 hover:bg-rose-700"
+              >
+                End
+              </Button>
+            </div>
+            <p className="px-1 text-[11px] text-gray-500">
+              Tip: both parties open the call to connect. Uses Supabase Realtime for signaling.
+            </p>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -965,4 +1173,3 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
     return this.props.children;
   }
 }
-
