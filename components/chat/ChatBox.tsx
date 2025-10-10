@@ -147,11 +147,6 @@ function ChatBoxInner(props: {
   const [recording, setRecording] = useState<boolean>(false);
 
   const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
-  const [resolvedPatient] = useState<{ name?: string; email?: string; avatar?: string | null } | null>(null);
-
-  const [dbOnline] = useState<boolean>(false);
-  const [rtOnline] = useState<boolean>(false);
-  const [presenceLoading] = useState<boolean>(false);
 
   // CALL state
   const [callOpen, setCallOpen] = useState(false);
@@ -172,12 +167,7 @@ function ChatBoxInner(props: {
   const chunksRef = useRef<Blob[]>([]);
 
   const [draft, setDraft] = useState<{ blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string } | null>(null);
-  useEffect(
-    () => () => {
-      if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
-    },
-    [draft?.previewUrl]
-  );
+  useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
@@ -227,20 +217,12 @@ function ChatBoxInner(props: {
         .eq("provider_id", pid)
         .maybeSingle();
 
-      if (conv?.id) {
-        setConversationId(conv.id);
-        return conv.id;
-      }
+      if (conv?.id) { setConversationId(conv.id); return conv.id; }
 
       const { data: created, error: upErr } = await supabase
         .from("conversations")
         .upsert(
-          {
-            patient_id: props.patientId,
-            provider_id: pid,
-            provider_name: props.providerName ?? null,
-            provider_role: props.providerRole ?? null,
-          },
+          { patient_id: props.patientId, provider_id: pid, provider_name: props.providerName ?? null, provider_role: props.providerRole ?? null },
           { onConflict: "patient_id,provider_id" }
         )
         .select("id")
@@ -258,20 +240,12 @@ function ChatBoxInner(props: {
         .eq("patient_id", uid)
         .eq("provider_id", props.providerId!)
         .maybeSingle();
-      if (conv?.id) {
-        setConversationId(conv.id);
-        return conv.id;
-      }
+      if (conv?.id) { setConversationId(conv.id); return conv.id; }
 
       const { data: created, error } = await supabase
         .from("conversations")
         .upsert(
-          {
-            patient_id: uid,
-            provider_id: props.providerId!,
-            provider_name: props.providerName ?? null,
-            provider_role: props.providerRole ?? null,
-          },
+          { patient_id: uid, provider_id: props.providerId!, provider_name: props.providerName ?? null, provider_role: props.providerRole ?? null },
           { onConflict: "patient_id,provider_id" }
         )
         .select("id")
@@ -282,9 +256,7 @@ function ChatBoxInner(props: {
     }
   }, [conversationId, mode, props.patientId, props.providerId, props.providerName, props.providerRole]);
 
-  useEffect(() => {
-    void ensureConversation().catch(console.error);
-  }, [ensureConversation]);
+  useEffect(() => { void ensureConversation().catch(console.error); }, [ensureConversation]);
 
   // initial load
   useLayoutEffect(() => {
@@ -398,9 +370,7 @@ function ChatBoxInner(props: {
 
     ch.subscribe();
     return () => {
-      try {
-        supabase.removeChannel(ch);
-      } catch {}
+      try { supabase.removeChannel(ch); } catch {}
     };
   }, [me?.id, conversationId]);
 
@@ -418,7 +388,7 @@ function ChatBoxInner(props: {
       if (placingCall) return;
       setPlacingCall(true);
       try {
-        // Minimal preflight to fail early if permissions blocked (no double-open flicker)
+        // Minimal preflight to fail early if permissions blocked
         const constraints: MediaStreamConstraints = {
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
           video: m === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
@@ -592,13 +562,11 @@ function ChatBoxInner(props: {
   }
 
   /* ------------------------------ UI ------------------------------ */
-  const isOnline = mode === "staff" ? dbOnline || rtOnline || threadOtherPresent : false;
+  const isOnline = mode === "staff" ? threadOtherPresent : false;
   const otherName =
-    mode === "staff"
-      ? resolvedPatient?.name || patientName || resolvedPatient?.email || "Patient"
-      : providerName || "Provider";
+    mode === "staff" ? (patientName || "Patient") : (providerName || "Provider");
   const otherAvatar =
-    mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
+    mode === "staff" ? (patientAvatarUrl ?? null) : (providerAvatarUrl ?? null);
 
   return (
     <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
@@ -625,9 +593,7 @@ function ChatBoxInner(props: {
               )}
               {mode === "staff" && (
                 <span
-                  className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${
-                    isOnline ? "bg-emerald-500" : "bg-gray-400"
-                  }`}
+                  className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`}
                 />
               )}
             </div>
@@ -636,12 +602,8 @@ function ChatBoxInner(props: {
               <div className="flex items-center gap-1 text-[11px]">
                 {mode === "staff" ? (
                   <>
-                    <span
-                      className={`inline-block h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`}
-                    />
-                    <span className={isOnline ? "text-emerald-600" : "text-gray-500"}>
-                      {isOnline ? "Online" : "Offline"}
-                    </span>
+                    <span className={`inline-block h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
+                    <span className={isOnline ? "text-emerald-600" : "text-gray-500"}>{isOnline ? "Online" : "Offline"}</span>
                   </>
                 ) : (
                   <span className="text-gray-500">{providerRole || ""}</span>
@@ -787,12 +749,12 @@ function ChatBoxInner(props: {
         <CallDialog
           open={callOpen}
           onOpenChange={(v) => {
-            // Only let dialog open itself; closing is initiated inside CallDialog (hangup+cleanup)
-            if (v) {
-              setCallOpen(true);
-              setCallDockVisible(true);
-            } else {
-              // no-op; CallDialog will call hangup/cleanup itself
+            // Allow both open and close from inside the dialog
+            setCallOpen(v);
+            setCallDockVisible(v || !!incoming);
+            if (!v) {
+              setIncoming(null);
+              setCallStatus("ended");
             }
           }}
           conversationId={conversationId}
