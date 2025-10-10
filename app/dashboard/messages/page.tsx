@@ -50,7 +50,7 @@ async function ensureSubscribed(ch: ReturnType<typeof sigChannel>, timeoutMs = 8
   if (ch.state === "joined" || ch._isJoined) return;
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("Signaling not ready")), timeoutMs);
-    const off = ch.subscribe((status: string) => {
+    ch.subscribe((status: string) => {
       if (status === "SUBSCRIBED") {
         // @ts-ignore mark joined for fast-path
         ch._isJoined = true;
@@ -199,7 +199,11 @@ export default function DashboardMessagesPage() {
   async function ensureConversationWith(providerUserId: string) {
     if (!me?.id) return;
     const staff = staffDir.find((s) => s.user_id === providerUserId);
-    const provider_name = [staff?.first_name, staff?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
+    // FIX: use `staff?.email` (was `s?.email`)
+    const provider_name =
+      [staff?.first_name, staff?.last_name].filter(Boolean).join(" ") ||
+      staff?.email ||
+      "Staff";
 
     const { data: existing } = await supabase
       .from("conversations")
@@ -636,7 +640,7 @@ function CallModal({
   const pcInit: RTCConfiguration = {
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
-      // Replace with your own TURN in production for reliability
+      // NOTE: Replace with your own TURN for production reliability.
       { urls: ["turn:global.turn.twilio.com:3478?transport=udp"], username: "demo", credential: "demo" },
     ],
   };
@@ -838,7 +842,8 @@ function CallModal({
         <div className={`${ui === "max" ? "h-[calc(100vh-48px)]" : "h-[calc(100%-44px)]"} relative`}>
           {mode === "video" ? (
             <div className="absolute inset-0 grid place-items-center">
-              <video ref={remoteVideoRef} autoPlay playsInline muted={!true} className="w-full h-full object-cover" />
+              {/* clarity: was muted={!true} */}
+              <video ref={remoteVideoRef} autoPlay playsInline muted={false} className="w-full h-full object-cover" />
               <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-4 right-4 w-40 h-28 rounded-lg ring-1 ring-white/50 bg-black object-cover" />
             </div>
           ) : (
@@ -855,12 +860,19 @@ function CallModal({
           )}
 
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/90 dark:bg-zinc-900/90 px-2 py-1 shadow-lg border dark:border-zinc-700">
-            <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
-              if (remoteAudioRef.current) remoteAudioRef.current.muted = !remoteAudioRef.current.muted;
-              if (remoteVideoRef.current) remoteVideoRef.current.muted = !remoteVideoRef.current.muted;
-              setSpeakerOn((v) => !v);
-            }}>
-              <Volume2 className="h-4 w-4" />
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full"
+              onClick={() => {
+                // Users expect one toggle for both sinks in this simple UI
+                if (remoteAudioRef.current) remoteAudioRef.current.muted = !speakerOn;
+                if (remoteVideoRef.current) remoteVideoRef.current.muted = !speakerOn;
+                setSpeakerOn((v) => !v);
+              }}
+              title="Speaker"
+            >
+              {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             </Button>
             <Button size="sm" variant="outline" className="rounded-full" onClick={() => { streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !micOn)); setMicOn(!micOn); }} title="Mic (M)">
               {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
