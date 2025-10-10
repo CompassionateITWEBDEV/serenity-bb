@@ -30,6 +30,7 @@ import {
   Camera,
   Mic,
   CheckCheck,
+  X,
   Minimize2,
   Maximize2,
   PhoneOff,
@@ -39,7 +40,7 @@ import {
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
 
-// Calling
+// Calling deps
 import IncomingCallBanner from "@/components/call/IncomingCallBanner";
 import CallDialog, { type CallMode, type CallRole } from "@/components/call/CallDialog";
 import { userRingChannel, sendRing, sendHangupToUser } from "@/lib/webrtc/signaling";
@@ -159,20 +160,19 @@ function ChatBoxInner(props: {
   const [callMode, setCallMode] = useState<CallMode>("audio");
   const [incoming, setIncoming] = useState<{ conversationId: string; fromId: string; fromName: string; mode: CallMode } | null>(null);
 
-  // Call UX helpers
+  // Prevent double-offer / button mashing (FIX)
+  const [placingCall, setPlacingCall] = useState(false);
+
+  // Floating call dock (mini window)
   const [callDockVisible, setCallDockVisible] = useState(false);
   const [callDockMin, setCallDockMin] = useState(false);
   const [callStatus, setCallStatus] = useState<"ringing" | "connected" | "ended">("ringing");
-
-  const [placingCall, setPlacingCall] = useState(false); // FIX: single-flight guard
 
   const listRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-
-  const lastRingTsRef = useRef<number>(0); // FIX: dedup frequent 'ring' events
 
   const [draft, setDraft] = useState<{ blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string } | null>(null);
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
@@ -300,7 +300,6 @@ function ChatBoxInner(props: {
         const others = Object.entries(s).flatMap(([, v]: any) => v) as any[];
         setTyping(others.some((x) => x.status === "typing"));
         setThreadOtherPresent(others.some((x) => x.user_id && x.user_id !== me.id));
-        setPresenceLoading(false); // FIX: mark presence resolved
       })
       .on(
         "postgres_changes",
@@ -313,6 +312,18 @@ function ChatBoxInner(props: {
             ding();
             await markReadHelper(conversationId, me.role);
           }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { schema: "public", table: "messages", event: "UPDATE", filter: `conversation_id=eq.${conversationId}` },
+        async () => {
+          const { data } = await supabase
+            .from("messages")
+            .select("*")
+            .eq("conversation_id", conversationId)
+            .order("created_at", { ascending: true });
+          setMsgs((data as MessageRow[]) ?? []);
         }
       )
       .subscribe();
@@ -347,13 +358,9 @@ function ChatBoxInner(props: {
     const ch = userRingChannel(me.id);
 
     ch.on("broadcast", { event: "ring" }, (p) => {
-      const now = Date.now();
-      if (now - lastRingTsRef.current < 2000) return; // FIX: dedup bursts
-      lastRingTsRef.current = now;
-
       const { conversationId: convId, fromId, fromName, mode } = (p.payload || {}) as any;
       if (!convId || !fromId) return;
-      if (conversationId && convId !== conversationId) return; // show only for this thread
+      if (conversationId && convId !== conversationId) return; // only pop for open thread
       setIncoming({ conversationId: convId, fromId, fromName: fromName || "Caller", mode: (mode || "audio") as CallMode });
       setCallStatus("ringing");
       setCallDockVisible(true);
@@ -371,39 +378,32 @@ function ChatBoxInner(props: {
 
     ch.subscribe();
     return () => {
-      try {
-        supabase.removeChannel(ch);
-      } catch {}
+      try { supabase.removeChannel(ch); } catch {}
     };
   }, [me?.id, conversationId]);
 
-  // FIX: compute the actual peer user ID for routing SDP/ICE
+  // Determine peer user id for *this* chat (FIX: ensure we pass it to CallDialog)
   const peerUserId = useMemo(
     () => (mode === "staff" ? patientId : (providerId || "")),
     [mode, patientId, providerId]
   );
 
-  // Small helper to preflight media to avoid “glitch” from blocked permissions
-  const preflightMedia = useCallback(
-    async (m: CallMode) => {
-      const constraints: MediaStreamConstraints = {
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: m === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
-      };
-      const s = await navigator.mediaDevices.getUserMedia(constraints);
-      s.getTracks().forEach((t) => t.stop());
-    },
-    []
-  );
-
+  // Preflight mic/cam; then signal ring; then open dialog (FIX)
   const beginCall = useCallback(
     async (m: CallMode) => {
-      if (placingCall) return; // FIX: ignore double clicks
+      const convId = await ensureConversation();
+      if (!me?.id || !peerUserId || !convId) return;
+      if (placingCall) return;
       setPlacingCall(true);
       try {
-        await preflightMedia(m); // FIX: fail fast if blocked
-        const convId = await ensureConversation();
-        if (!me?.id || !peerUserId || !convId) return;
+        // Preflight to avoid “open → close” flicker from permission errors
+        const constraints: MediaStreamConstraints = {
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: m === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+        };
+        const s = await navigator.mediaDevices.getUserMedia(constraints);
+        s.getTracks().forEach(t => t.stop());
+
         await sendRing(peerUserId, { conversationId: convId, fromId: me.id, fromName: me.name, mode: m });
         setCallRole("caller");
         setCallMode(m);
@@ -411,13 +411,13 @@ function ChatBoxInner(props: {
         setCallDockVisible(true);
         setCallDockMin(false);
         setCallStatus("ringing");
-      } catch (e: any) {
-        alert(e?.message || "Could not start the call. Please allow microphone/camera.");
+      } catch (err: any) {
+        alert(err?.message || "Please allow microphone/camera access.");
       } finally {
         setPlacingCall(false);
       }
     },
-    [placingCall, preflightMedia, ensureConversation, me?.id, me?.name, peerUserId]
+    [ensureConversation, me?.id, me?.name, peerUserId, placingCall]
   );
 
   const onAcceptIncoming = useCallback(() => {
@@ -428,7 +428,7 @@ function ChatBoxInner(props: {
     setIncoming(null);
     setCallDockVisible(true);
     setCallDockMin(false);
-    setCallStatus("connected");
+    // status will turn connected once WebRTC connects; keep dock visible
   }, [incoming, me]);
 
   const onDeclineIncoming = useCallback(async () => {
@@ -623,14 +623,16 @@ function ChatBoxInner(props: {
             <IconButton
               aria="Voice call"
               onClick={() => (phoneHref ? window.open(phoneHref, "_blank") : beginCall("audio"))}
+              disabled={placingCall} // FIX
             >
               <Phone className="h-5 w-5" />
             </IconButton>
             <IconButton
               aria="Video call"
               onClick={() => (videoHref ? window.open(videoHref, "_blank") : beginCall("video"))}
+              disabled={placingCall} // FIX
             >
-              <Video className={`h-5 w-5 ${placingCall ? "opacity-50 pointer-events-none" : ""}`} /> {/* FIX: disable while placing */}
+              <Video className="h-5 w-5" />
             </IconButton>
             <IconButton aria="More">
               <MoreVertical className="h-5 w-5" />
@@ -725,7 +727,7 @@ function ChatBoxInner(props: {
         </div>
       </CardContent>
 
-      {/* Call dock (mini window) */}
+      {/* Call dock */}
       {me && callDockVisible && (
         <CallDock
           minimized={callDockMin}
@@ -739,7 +741,7 @@ function ChatBoxInner(props: {
         />
       )}
 
-      {/* Shared CallDialog */}
+      {/* Shared CallDialog (FIX: pass peerUserId) */}
       {conversationId && me && (
         <CallDialog
           open={callOpen}
@@ -753,7 +755,7 @@ function ChatBoxInner(props: {
           mode={callMode}
           meId={me.id}
           meName={me.name}
-          peerUserId={peerUserId}              /* FIX: pass the peer explicitly */
+          peerUserId={peerUserId} // <<< CRITICAL: who we’re calling
           peerName={mode === "staff" ? (patientName || "Patient") : (providerName || "Provider")}
           peerAvatar={(mode === "staff" ? patientAvatarUrl : providerAvatarUrl) ?? undefined}
         />
@@ -820,6 +822,7 @@ function ChatBoxInner(props: {
       : "";
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     chunksRef.current = [];
+    const started = Date.now();
     rec.ondataavailable = (e) => {
       if (e.data?.size) chunksRef.current.push(e.data);
     };
@@ -829,6 +832,7 @@ function ChatBoxInner(props: {
       const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
       const previewUrl = URL.createObjectURL(blob);
       setDraft({ blob, type: "audio", name: "voice.webm", previewUrl });
+      void started;
     };
     mediaRecRef.current = rec;
     setRecording(true);
@@ -852,9 +856,25 @@ function ChatBoxInner(props: {
 
 /* ------------------------------ Small helpers ------------------------------ */
 
-function IconButton({ children, aria, onClick }: { children: React.ReactNode; aria: string; onClick?: () => void }) {
+function IconButton({
+  children,
+  aria,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  aria: string;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
   return (
-    <button type="button" aria-label={aria} onClick={onClick} className="rounded-full p-2 hover:bg-gray-100 active:scale-95 dark:hover:bg-zinc-800">
+    <button
+      type="button"
+      aria-label={aria}
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-full p-2 hover:bg-gray-100 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed dark:hover:bg-zinc-800"
+    >
       {children}
     </button>
   );
