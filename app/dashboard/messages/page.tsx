@@ -16,7 +16,7 @@ import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
 
-// ✅ unified RTC helpers
+// RTC helpers
 import { ICE_SERVERS, sigChannel, getSignalChannel, ensureSubscribed } from "@/lib/chat/rtc";
 
 /* ------------------------------- Types ---------------------------------- */
@@ -69,14 +69,16 @@ export default function DashboardMessagesPage() {
   const [sending, setSending] = useState(false);
 
   // Call state
-  const [incomingCall, setIncomingCall] = useState<{ fromName: string; room: string; mode: "audio" | "video" } | null>(null);
+  type CallPhase = "idle" | "ringing" | "active";
+  const [callPhase, setCallPhase] = useState<CallPhase>("idle");
+  const [incomingCall, setIncomingCall] = useState<{ fromId: string; fromName: string; room: string; mode: "audio" | "video" } | null>(null);
   const [showCall, setShowCall] = useState(false);
   const [callRole, setCallRole] = useState<"caller" | "callee">("caller");
   const [callMode, setCallMode] = useState<"audio" | "video">("audio");
   const callRoomRef = useRef<string | null>(null);
   const ringAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Realtime signaling — single, canonical channel per conversation
+  // Realtime signaling — single channel per conversation
   const callChRef = useRef<ReturnType<typeof sigChannel> | null>(null);
 
   // Sidebar tab
@@ -151,22 +153,32 @@ export default function DashboardMessagesPage() {
     const ping = () => { try { ch.track({ user_id: me.id, at: Date.now() }); } catch {} };
     const keepAlive = setInterval(ping, 1500); ping();
 
-    // ✅ signaling: single canonical room == conversationId
     (async () => {
+      if (callChRef.current) { try { supabase.removeChannel(callChRef.current); } catch {} }
       callChRef.current = await getSignalChannel(callChRef as any, selectedId, true);
       callChRef.current
         .on("broadcast", { event: "ring" }, (p) => {
-          const { room, fromName, mode } = (p.payload || {}) as { room: string; fromName: string; mode: "audio" | "video" };
+          const { room, fromId, fromName, mode } = (p.payload || {}) as { room: string; fromId: string; fromName: string; mode: "audio" | "video" };
           if (room !== selectedId) return;
-          setIncomingCall({ room, fromName: fromName || "Caller", mode: mode || "audio" });
+          if (fromId === me.id) return;                  // ✅ ignore self
+          if (callPhase === "active") return;            // ✅ busy: ignore
+          setIncomingCall({ room, fromId, fromName: fromName || "Caller", mode: mode || "audio" });
           playRing(true);
+          setCallPhase("ringing");
+        })
+        .on("broadcast", { event: "answered" }, (p) => {
+          const { room } = (p.payload || {}) as any;
+          if (room !== selectedId) return;
+          stopRing();
+          setCallPhase("active");
         })
         .on("broadcast", { event: "hangup" }, (p) => {
           const { room } = (p.payload || {}) as any;
           if (room && room !== selectedId) return;
-          stopRing(); setIncomingCall(null);
-        })
-        .on("broadcast", { event: "answered" }, () => stopRing());
+          stopRing(); setIncomingCall(null); setShowCall(false);
+          setCallPhase("idle");
+        });
+      await ensureSubscribed(callChRef.current);
     })().catch(() => {});
 
     return () => {
@@ -176,8 +188,11 @@ export default function DashboardMessagesPage() {
       try { if (callChRef.current) supabase.removeChannel(callChRef.current); } catch {}
       callChRef.current = null;
       stopRing();
+      setIncomingCall(null);
+      setShowCall(false);
+      setCallPhase("idle");
     };
-  }, [selectedId, me]);
+  }, [selectedId, me, callPhase]);
 
   /* --------------------------------- STAFF → CONVERSATION -------------------------------- */
   async function ensureConversationWith(providerUserId: string) {
@@ -317,22 +332,29 @@ export default function DashboardMessagesPage() {
 
   async function startCall(mode: "audio" | "video") {
     if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
+    if (callPhase !== "idle") return; // ✅ block spam / glitch
     try {
-      // Use the thread’s room (conversation id) and allow self=true so the other tab in dev can see the ring too
       const ch = await getSignalChannel(callChRef as any, selectedId, true);
+      await ensureSubscribed(ch);
       const room = selectedId;
       callRoomRef.current = room;
       setCallRole("caller"); setCallMode(mode); setShowCall(true); playRing(true);
-      await ch.send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name, mode } });
-    } catch (e: any) { await Swal.fire("Call failed", e?.message || "Signaling not ready.", "error"); }
+      setCallPhase("ringing");
+      await ch.send({ type: "broadcast", event: "ring", payload: { room, fromId: me.id, fromName: me.name, mode } });
+    } catch (e: any) { await Swal.fire("Call failed", e?.message || "Signaling not ready.", "error"); setCallPhase("idle"); stopRing(); }
   }
-  function acceptIncoming(room: string, mode: "audio" | "video") {
-    callRoomRef.current = room; setCallRole("callee"); setCallMode(mode); setIncomingCall(null); stopRing();
-    try { callChRef.current?.send({ type: "broadcast", event: "answered", payload: { room } }); } catch {}
-    setShowCall(true);
+  async function acceptIncoming(room: string, mode: "audio" | "video") {
+    try {
+      const ch = await getSignalChannel(callChRef as any, selectedId!, true);
+      await ensureSubscribed(ch);
+      callRoomRef.current = room; setCallRole("callee"); setCallMode(mode); setIncomingCall(null); stopRing();
+      await ch.send({ type: "broadcast", event: "answered", payload: { room } });
+      setShowCall(true);
+      setCallPhase("active");
+    } catch {}
   }
   function declineIncoming() {
-    setIncomingCall(null); stopRing();
+    stopRing(); setIncomingCall(null); setCallPhase("idle");
     try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
   }
 
@@ -381,20 +403,8 @@ export default function DashboardMessagesPage() {
               <MessageCircle className="h-5 w-5" />
               <div className="font-medium">Conversations</div>
               <div className="ml-auto flex gap-1">
-                <Button
-                  size="sm"
-                  variant={sidebarTab === "convs" ? "default" : "outline"}
-                  onClick={() => setSidebarTab("convs")}
-                >
-                  Chats
-                </Button>
-                <Button
-                  size="sm"
-                  variant={sidebarTab === "staff" ? "default" : "outline"}
-                  onClick={() => setSidebarTab("staff")}
-                >
-                  <Users className="mr-1 h-4 w-4" /> Staff
-                </Button>
+                <Button size="sm" variant={sidebarTab === "convs" ? "default" : "outline"} onClick={() => setSidebarTab("convs")}>Chats</Button>
+                <Button size="sm" variant={sidebarTab === "staff" ? "default" : "outline"} onClick={() => setSidebarTab("staff")}><Users className="mr-1 h-4 w-4" /> Staff</Button>
               </div>
             </div>
             <div className="relative">
@@ -423,9 +433,7 @@ export default function DashboardMessagesPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between">
                         <div className="truncate font-medium">{name}</div>
-                        <div className="text-xs text-gray-500">
-                          {new Date(c.last_message_at ?? c.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                        </div>
+                        <div className="text-xs text-gray-500">{new Date(c.last_message_at ?? c.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant="secondary" className="capitalize">{c.provider_role ?? "staff"}</Badge>
@@ -490,10 +498,18 @@ export default function DashboardMessagesPage() {
                   <div className="font-semibold">{providerInfo.name}</div>
                 </div>
                 <div className="ml-auto flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="rounded-full" onClick={() => startCall("audio")} title="Start audio call">
+                  <Button
+                    variant="ghost" size="icon" className="rounded-full"
+                    onClick={() => startCall("audio")} title="Start audio call"
+                    disabled={callPhase !== "idle"} // ✅ no glitch
+                  >
                     <Phone className="h-5 w-5" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="rounded-full" onClick={() => startCall("video")} title="Start video call">
+                  <Button
+                    variant="ghost" size="icon" className="rounded-full"
+                    onClick={() => startCall("video")} title="Start video call"
+                    disabled={callPhase !== "idle"} // ✅ no glitch
+                  >
                     <Video className="h-5 w-5" />
                   </Button>
                 </div>
@@ -533,7 +549,7 @@ export default function DashboardMessagesPage() {
                 {msgs.length === 0 && <div className="text-sm text-gray-500 text-center py-6">No messages yet.</div>}
               </div>
 
-              {/* Sticky composer so it never disappears */}
+              {/* Sticky composer */}
               <div className="border-t dark:border-zinc-800 p-3 sticky bottom-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur supports-[backdrop-filter]:bg-white/70">
                 {draft && (
                   <div className="mx-1 mb-2 flex items-center gap-3 rounded-xl border bg-white p-2 pr-3 text-sm shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
@@ -572,6 +588,7 @@ export default function DashboardMessagesPage() {
         onClose={() => {
           setShowCall(false);
           stopRing();
+          setCallPhase("idle");
           try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
         }}
         role={callRole}
@@ -629,18 +646,20 @@ function CallModal({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === "m") setMicOn((v) => { streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !v)); return !v; });
-      if (e.key.toLowerCase() === "c") setCamOn((v) => { streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !v)); return !v; });
+      if (e.key.toLowerCase() === "m") { const next = !micOn; streamRef.current?.getAudioTracks().forEach(t => t.enabled = next); setMicOn(next); }
+      if (e.key.toLowerCase() === "c") { if (mode !== "video") return; const next = !camOn; streamRef.current?.getVideoTracks().forEach(t => t.enabled = next); setCamOn(next); }
       if (e.key.toLowerCase() === "s") void toggleShare();
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, micOn, camOn, mode, onClose]);
 
   useEffect(() => {
     if (!open || !conversationId || !roomId) return;
     let ended = false;
+    const pendingICE: RTCIceCandidateInit[] = [];
 
     async function setup() {
       const pc = new RTCPeerConnection(pcInit);
@@ -648,9 +667,6 @@ function CallModal({
 
       pc.oniceconnectionstatechange = () => console.log("[webrtc] ice:", pc.iceConnectionState);
       pc.onconnectionstatechange = () => console.log("[webrtc] pc:", pc.connectionState);
-
-      // buffer ICE until remoteDescription is set
-      const pendingICE: RTCIceCandidateInit[] = [];
 
       pc.ontrack = async (e) => {
         const [remote] = e.streams;
@@ -684,54 +700,38 @@ function CallModal({
 
       // signaling (no self echo)
       const ch = await getSignalChannel(chanRef as any, conversationId, false);
+      await ensureSubscribed(ch);
       chanRef.current = ch;
 
       ch
         .on("broadcast", { event: "offer" }, async (p) => {
-          if (role === "caller") return; // caller must not handle own offer
-          const { room, sdp } = p.payload as any;
-          if (room !== roomId || !pcRef.current) return;
+          if (role === "caller") return;
+          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
 
           await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-
-          // drain buffered ICE
-          for (const c of pendingICE.splice(0)) {
-            try { await pcRef.current.addIceCandidate(new RTCIceCandidate(c)); } catch {}
-          }
-
+          for (const c of pendingICE.splice(0)) { try { await pcRef.current.addIceCandidate(new RTCIceCandidate(c)); } catch {} }
           const answer = await pcRef.current.createAnswer();
           await pcRef.current.setLocalDescription(answer);
           await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
         })
         .on("broadcast", { event: "answer" }, async (p) => {
-          if (role === "callee") return; // callee does not handle answer
-          const { room, sdp } = p.payload as any;
-          if (room !== roomId || !pcRef.current) return;
+          if (role === "callee") return;
+          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
 
           await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-          // drain buffered ICE
-          for (const c of pendingICE.splice(0)) {
-            try { await pcRef.current.addIceCandidate(new RTCIceCandidate(c)); } catch {}
-          }
+          for (const c of pendingICE.splice(0)) { try { await pcRef.current.addIceCandidate(new RTCIceCandidate(c)); } catch {} }
         })
         .on("broadcast", { event: "ice" }, async (p) => {
-          const { room, candidate } = p.payload as any;
-          if (room !== roomId || !pcRef.current) return;
-
-          if (!pcRef.current.remoteDescription) {
-            pendingICE.push(candidate);
-          } else {
-            try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
-          }
+          const { room, candidate } = p.payload as any; if (room !== roomId || !pcRef.current) return;
+          if (!pcRef.current.remoteDescription) pendingICE.push(candidate);
+          else { try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {} }
         })
         .on("broadcast", { event: "hangup" }, (p) => {
           const { room } = p.payload as any; if (room && room !== roomId) return;
           if (!ended) cleanup();
         });
 
-      await ensureSubscribed(ch);
-
-      // Caller creates the offer once subscribed
+      // Caller -> offer
       if (role === "caller") {
         if (mode === "video") {
           pc.addTransceiver("video", { direction: "sendrecv" });
@@ -739,17 +739,13 @@ function CallModal({
         } else {
           pc.addTransceiver("audio", { direction: "sendrecv" });
         }
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: mode === "video",
-        });
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: mode === "video" });
         await pc.setLocalDescription(offer);
         await ch.send({ type: "broadcast", event: "offer", payload: { room: roomId, sdp: offer } });
       }
     }
 
     function cleanup() {
-      ended = true;
       try { chanRef.current && supabase.removeChannel(chanRef.current); } catch {}
       chanRef.current = null;
       try { screenRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
@@ -763,9 +759,10 @@ function CallModal({
     }
 
     setup();
-    // IMPORTANT: do NOT re-run on mic/cam/speaker toggles; they just enable/disable tracks
-    return () => { if (!ended) cleanup(); };
-  }, [open, role, conversationId, roomId, onClose, mode]);
+    return () => { cleanup(); };
+    // do not depend on mic/cam/speaker toggles; they only enable/disable tracks
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, role, conversationId, roomId, mode]);
 
   async function toggleShare() {
     if (mode !== "video") return;
@@ -791,36 +788,6 @@ function CallModal({
     } catch {}
   }
 
-  function headerDown(e: React.PointerEvent) {
-    if (ui === "max") return;
-    dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-  function headerMove(e: React.PointerEvent) {
-    if (!dragRef.current || ui === "max") return;
-    const vw = window.innerWidth, vh = window.innerHeight;
-    setPos({ x: clamp(e.clientX - dragRef.current.dx, 0, vw - size.w), y: clamp(e.clientY - dragRef.current.dy, 0, vh - size.h) });
-  }
-  function headerUp(e: React.PointerEvent) {
-    if (!dragRef.current) return; dragRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-  }
-  function resizeDown(e: React.PointerEvent) {
-    if (ui !== "window") return;
-    resizeRef.current = { w0: size.w, h0: size.h, x0: e.clientX, y0: e.clientY };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-  function resizeMove(e: React.PointerEvent) {
-    const st = resizeRef.current; if (!st || ui !== "window") return;
-    const vw = window.innerWidth, vh = window.innerHeight;
-    setSize({
-      w: clamp(st.w0 + (e.clientX - st.x0), 540, vw - pos.x - 8),
-      h: clamp(st.h0 + (e.clientY - st.y0), 360, vh - pos.y - 8),
-    });
-  }
-  function resizeUp(e: React.PointerEvent) {
-    if (!resizeRef.current) return; resizeRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-  }
-
   const hhmmss = useMemo(() => {
     const s = elapsedSec; const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
     return [h, m, ss].map((n) => String(n).padStart(2, "0")).join(":");
@@ -834,7 +801,6 @@ function CallModal({
 
   return (
     <>
-      {/* remove backdrop if you want to chat while on a call */}
       <div
         className={`fixed z-[70] bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md border dark:border-zinc-800 rounded-2xl overflow-hidden shadow-2xl ${ui === "max" ? "inset-0" : ""}`}
         style={ui === "max" ? styleMax : ui === "window" ? styleWin : styleMini}
@@ -843,9 +809,13 @@ function CallModal({
         <div
           className={`flex items-center gap-3 border-b dark:border-zinc-800 px-3 py-2 select-none ${ui !== "max" ? "cursor-default" : ""}`}
           onDoubleClick={() => setUi((s) => (s === "max" ? "window" : "max"))}
-          onPointerDown={headerDown}
-          onPointerMove={headerMove}
-          onPointerUp={headerUp}
+          onPointerDown={(e) => { if (ui === "max") return; dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
+          onPointerMove={(e) => {
+            if (!dragRef.current || ui === "max") return;
+            const vw = window.innerWidth, vh = window.innerHeight;
+            setPos({ x: clamp(e.clientX - dragRef.current.dx, 0, vw - size.w), y: clamp(e.clientY - dragRef.current.dy, 0, vh - size.h) });
+          }}
+          onPointerUp={(e) => { if (!dragRef.current) return; dragRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); }}
         >
           <Avatar className="h-6 w-6"><AvatarImage src={peerAvatar} /><AvatarFallback>{initials(peerName)}</AvatarFallback></Avatar>
           <div className="text-sm font-medium">{peerName}</div>
@@ -885,23 +855,21 @@ function CallModal({
 
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/90 dark:bg-zinc-900/90 px-2 py-1 shadow-lg border dark:border-zinc-700">
             <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
-              setSpeakerOn((v) => {
-                const next = !v;
-                if (remoteAudioRef.current) { remoteAudioRef.current.muted = !next; safePlay(remoteAudioRef.current); }
-                if (remoteVideoRef.current) { remoteVideoRef.current.muted = !next; safePlay(remoteVideoRef.current); }
-                return next;
-              });
+              const next = !speakerOn;
+              if (remoteAudioRef.current) { remoteAudioRef.current.muted = !next; safePlay(remoteAudioRef.current); }
+              if (remoteVideoRef.current) { remoteVideoRef.current.muted = !next; safePlay(remoteVideoRef.current); }
+              setSpeakerOn(next);
             }}>
               {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             </Button>
             <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
-              streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !micOn)); setMicOn(!micOn);
+              const next = !micOn; streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = next)); setMicOn(next);
             }} title="Mic (M)">
               {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
             </Button>
             {mode === "video" && (
               <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
-                streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !camOn)); setCamOn(!camOn);
+                const next = !camOn; streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = next)); setCamOn(next);
               }} title="Camera (C)">
                 {camOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
               </Button>
@@ -919,7 +887,14 @@ function CallModal({
 
           {ui === "window" && (
             <div className="absolute bottom-1 right-1 h-4 w-4 cursor-nwse-resize opacity-60"
-              onPointerDown={resizeDown} onPointerMove={resizeMove} onPointerUp={resizeUp} />
+              onPointerDown={(e) => { if (ui !== "window") return; resizeRef.current = { w0: size.w, h0: size.h, x0: e.clientX, y0: e.clientY }; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
+              onPointerMove={(e) => {
+                const st = resizeRef.current; if (!st || ui !== "window") return;
+                const vw = window.innerWidth, vh = window.innerHeight;
+                setSize({ w: clamp(st.w0 + (e.clientX - st.x0), 540, vw - pos.x - 8), h: clamp(st.h0 + (e.clientY - st.y0), 360, vh - pos.y - 8) });
+              }}
+              onPointerUp={(e) => { if (!resizeRef.current) return; resizeRef.current = null; (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); }}
+            />
           )}
         </div>
       </div>
