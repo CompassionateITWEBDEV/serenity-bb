@@ -30,9 +30,8 @@ import {
   Camera,
   Mic,
   CheckCheck,
-  X,
-  Minimize2,
   Maximize2,
+  Minimize2,
   PhoneOff,
   Monitor,
   Volume2,
@@ -148,20 +147,18 @@ function ChatBoxInner(props: {
   const [recording, setRecording] = useState<boolean>(false);
 
   const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
-  const [resolvedPatient, setResolvedPatient] = useState<{ name?: string; email?: string; avatar?: string | null } | null>(null);
+  const [resolvedPatient] = useState<{ name?: string; email?: string; avatar?: string | null } | null>(null);
 
-  const [dbOnline, setDbOnline] = useState<boolean>(false);
-  const [rtOnline, setRtOnline] = useState<boolean>(false);
-  const [presenceLoading, setPresenceLoading] = useState<boolean>(true);
+  const [dbOnline] = useState<boolean>(false);
+  const [rtOnline] = useState<boolean>(false);
+  const [presenceLoading] = useState<boolean>(false);
 
   // CALL state
   const [callOpen, setCallOpen] = useState(false);
   const [callRole, setCallRole] = useState<CallRole>("caller");
   const [callMode, setCallMode] = useState<CallMode>("audio");
   const [incoming, setIncoming] = useState<{ conversationId: string; fromId: string; fromName: string; mode: CallMode } | null>(null);
-
-  // Prevent double-offer / button mashing (FIX)
-  const [placingCall, setPlacingCall] = useState(false);
+  const [placingCall, setPlacingCall] = useState(false); // guard
 
   // Floating call dock (mini window)
   const [callDockVisible, setCallDockVisible] = useState(false);
@@ -175,7 +172,12 @@ function ChatBoxInner(props: {
   const chunksRef = useRef<Blob[]>([]);
 
   const [draft, setDraft] = useState<{ blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string } | null>(null);
-  useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
+  useEffect(
+    () => () => {
+      if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
+    },
+    [draft?.previewUrl]
+  );
 
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
@@ -225,12 +227,20 @@ function ChatBoxInner(props: {
         .eq("provider_id", pid)
         .maybeSingle();
 
-      if (conv?.id) { setConversationId(conv.id); return conv.id; }
+      if (conv?.id) {
+        setConversationId(conv.id);
+        return conv.id;
+      }
 
       const { data: created, error: upErr } = await supabase
         .from("conversations")
         .upsert(
-          { patient_id: props.patientId, provider_id: pid, provider_name: props.providerName ?? null, provider_role: props.providerRole ?? null },
+          {
+            patient_id: props.patientId,
+            provider_id: pid,
+            provider_name: props.providerName ?? null,
+            provider_role: props.providerRole ?? null,
+          },
           { onConflict: "patient_id,provider_id" }
         )
         .select("id")
@@ -248,12 +258,20 @@ function ChatBoxInner(props: {
         .eq("patient_id", uid)
         .eq("provider_id", props.providerId!)
         .maybeSingle();
-      if (conv?.id) { setConversationId(conv.id); return conv.id; }
+      if (conv?.id) {
+        setConversationId(conv.id);
+        return conv.id;
+      }
 
       const { data: created, error } = await supabase
         .from("conversations")
         .upsert(
-          { patient_id: uid, provider_id: props.providerId!, provider_name: props.providerName ?? null, provider_role: props.providerRole ?? null },
+          {
+            patient_id: uid,
+            provider_id: props.providerId!,
+            provider_name: props.providerName ?? null,
+            provider_role: props.providerRole ?? null,
+          },
           { onConflict: "patient_id,provider_id" }
         )
         .select("id")
@@ -264,7 +282,9 @@ function ChatBoxInner(props: {
     }
   }, [conversationId, mode, props.patientId, props.providerId, props.providerName, props.providerRole]);
 
-  useEffect(() => { void ensureConversation().catch(console.error); }, [ensureConversation]);
+  useEffect(() => {
+    void ensureConversation().catch(console.error);
+  }, [ensureConversation]);
 
   // initial load
   useLayoutEffect(() => {
@@ -378,61 +398,19 @@ function ChatBoxInner(props: {
 
     ch.subscribe();
     return () => {
-      try { supabase.removeChannel(ch); } catch {}
+      try {
+        supabase.removeChannel(ch);
+      } catch {}
     };
   }, [me?.id, conversationId]);
 
-  // Determine peer user id for *this* chat (FIX: ensure we pass it to CallDialog)
-const peerUserId = useMemo(
-  () => (mode === "staff" ? patientId : (providerId || "")),
-  [mode, patientId, providerId]
-);
+  // Determine peer user id for *this* chat (MUST pass to CallDialog)
+  const peerUserId = useMemo(
+    () => (mode === "staff" ? patientId : (providerId || "")),
+    [mode, patientId, providerId]
+  );
 
-// BEGIN CALL — remove preflight, just ring and open (prevents double-permission)  // ⬅ CHANGED
-const beginCall = useCallback(
-  async (m: CallMode) => {
-    const convId = await ensureConversation();
-    if (!me?.id || !peerUserId || !convId) return;
-    if (placingCall) return;
-    setPlacingCall(true);
-    try {
-      await sendRing(peerUserId, { conversationId: convId, fromId: me.id, fromName: me.name, mode: m });
-      setCallRole("caller");
-      setCallMode(m);
-      setCallOpen(true);
-      setCallDockVisible(true);
-      setCallDockMin(false);
-      setCallStatus("ringing");
-    } catch (err: any) {
-      alert(err?.message || "Failed to start call.");
-    } finally {
-      setPlacingCall(false);
-    }
-  },
-  [ensureConversation, me?.id, me?.name, peerUserId, placingCall]
-);
-
-// onOpenChange — don’t set “connected” on close; let CallDialog drive status    // ⬅ CHANGED
-{conversationId && me && (
-  <CallDialog
-    open={callOpen}
-    onOpenChange={(v) => {
-      setCallOpen(v);
-      setCallDockVisible(v || !!incoming);
-      // no forced status mutation here
-    }}
-    conversationId={conversationId}
-    role={callRole}
-    mode={callMode}
-    meId={me.id}
-    meName={me.name}
-    peerUserId={peerUserId}                       // ⬅ ADDED (critical)
-    peerName={mode === "staff" ? (patientName || "Patient") : (providerName || "Provider")}
-    peerAvatar={(mode === "staff" ? patientAvatarUrl : providerAvatarUrl) ?? undefined}
-  />
-)}
-
-  // Preflight mic/cam; then signal ring; then open dialog (FIX)
+  // BEGIN CALL — guarded, single definition
   const beginCall = useCallback(
     async (m: CallMode) => {
       const convId = await ensureConversation();
@@ -440,13 +418,13 @@ const beginCall = useCallback(
       if (placingCall) return;
       setPlacingCall(true);
       try {
-        // Preflight to avoid “open → close” flicker from permission errors
+        // Minimal preflight to fail early if permissions blocked (no double-open flicker)
         const constraints: MediaStreamConstraints = {
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
           video: m === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
         };
         const s = await navigator.mediaDevices.getUserMedia(constraints);
-        s.getTracks().forEach(t => t.stop());
+        s.getTracks().forEach((t) => t.stop());
 
         await sendRing(peerUserId, { conversationId: convId, fromId: me.id, fromName: me.name, mode: m });
         setCallRole("caller");
@@ -472,7 +450,7 @@ const beginCall = useCallback(
     setIncoming(null);
     setCallDockVisible(true);
     setCallDockMin(false);
-    // status will turn connected once WebRTC connects; keep dock visible
+    // status transitions to connected after WebRTC connects
   }, [incoming, me]);
 
   const onDeclineIncoming = useCallback(async () => {
@@ -485,7 +463,9 @@ const beginCall = useCallback(
 
   const hangup = useCallback(async () => {
     if (!conversationId || !peerUserId) return;
-    try { await sendHangupToUser(peerUserId, conversationId); } catch {}
+    try {
+      await sendHangupToUser(peerUserId, conversationId);
+    } catch {}
     setCallOpen(false);
     setCallDockVisible(false);
     setCallStatus("ended");
@@ -550,7 +530,10 @@ const beginCall = useCallback(
     return path;
   }
 
-  const canSend = useMemo(() => (!!text.trim() || !!draft) && !!me && !!conversationId, [text, me, conversationId, draft]);
+  const canSend = useMemo(
+    () => (!!text.trim() || !!draft) && !!me && !!conversationId,
+    [text, me, conversationId, draft]
+  );
 
   const send = useCallback(async () => {
     if (!canSend) return;
@@ -610,18 +593,25 @@ const beginCall = useCallback(
 
   /* ------------------------------ UI ------------------------------ */
   const isOnline = mode === "staff" ? dbOnline || rtOnline || threadOtherPresent : false;
-  const otherName = mode === "staff" ? resolvedPatient?.name || patientName || resolvedPatient?.email || "Patient" : providerName || "Provider";
-  const otherAvatar = mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
+  const otherName =
+    mode === "staff"
+      ? resolvedPatient?.name || patientName || resolvedPatient?.email || "Patient"
+      : providerName || "Provider";
+  const otherAvatar =
+    mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
 
   return (
     <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
       <CardContent className="flex h-full flex-col p-0">
-
         {/* Header */}
         <div className="flex items-center gap-3 border-b bg-white/80 px-3 py-2 backdrop-blur dark:bg-zinc-900/70">
           <div className="flex items-center gap-2">
             {onBack && (
-              <button className="rounded-full p-2 hover:bg-gray-100 dark:hover:bg-zinc-800" onClick={onBack} aria-label="Back">
+              <button
+                className="rounded-full p-2 hover:bg-gray-100 dark:hover:bg-zinc-800"
+                onClick={onBack}
+                aria-label="Back"
+              >
                 <ArrowLeft className="h-5 w-5" />
               </button>
             )}
@@ -636,7 +626,7 @@ const beginCall = useCallback(
               {mode === "staff" && (
                 <span
                   className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${
-                    presenceLoading ? "bg-yellow-400" : isOnline ? "bg-emerald-500" : "bg-gray-400"
+                    isOnline ? "bg-emerald-500" : "bg-gray-400"
                   }`}
                 />
               )}
@@ -645,17 +635,14 @@ const beginCall = useCallback(
               <div className="text-[15px] font-semibold">{otherName}</div>
               <div className="flex items-center gap-1 text-[11px]">
                 {mode === "staff" ? (
-                  presenceLoading ? (
-                    <>
-                      <span className="inline-block h-2 w-2 rounded-full bg-yellow-400" />
-                      <span className="text-yellow-600">Checking…</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className={`inline-block h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
-                      <span className={isOnline ? "text-emerald-600" : "text-gray-500"}>{isOnline ? "Online" : "Offline"}</span>
-                    </>
-                  )
+                  <>
+                    <span
+                      className={`inline-block h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`}
+                    />
+                    <span className={isOnline ? "text-emerald-600" : "text-gray-500"}>
+                      {isOnline ? "Online" : "Offline"}
+                    </span>
+                  </>
                 ) : (
                   <span className="text-gray-500">{providerRole || ""}</span>
                 )}
@@ -667,14 +654,14 @@ const beginCall = useCallback(
             <IconButton
               aria="Voice call"
               onClick={() => (phoneHref ? window.open(phoneHref, "_blank") : beginCall("audio"))}
-              disabled={placingCall} // FIX
+              disabled={placingCall}
             >
               <Phone className="h-5 w-5" />
             </IconButton>
             <IconButton
               aria="Video call"
               onClick={() => (videoHref ? window.open(videoHref, "_blank") : beginCall("video"))}
-              disabled={placingCall} // FIX
+              disabled={placingCall}
             >
               <Video className="h-5 w-5" />
             </IconButton>
@@ -685,7 +672,10 @@ const beginCall = useCallback(
         </div>
 
         {/* Messages */}
-        <div ref={listRef} className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 to-white p-4 dark:from-zinc-900 dark:to-zinc-950">
+        <div
+          ref={listRef}
+          className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 to-white p-4 dark:from-zinc-900 dark:to-zinc-950"
+        >
           <div className="mx-auto max-w-xl space-y-3">
             {msgs.map((m) => {
               const own = m.sender_id === me?.id;
@@ -703,7 +693,9 @@ const beginCall = useCallback(
               );
             })}
             {typing && <div className="px-1 text-xs text-gray-500">…typing</div>}
-            {msgs.length === 0 && <div className="py-10 text-center text-sm text-gray-500">No messages yet. Say hello 👋</div>}
+            {msgs.length === 0 && (
+              <div className="py-10 text-center text-sm text-gray-500">No messages yet. Say hello 👋</div>
+            )}
           </div>
         </div>
 
@@ -764,7 +756,12 @@ const beginCall = useCallback(
               }`}
             />
 
-            <Button disabled={!canSend} onClick={send} className="h-11 rounded-2xl px-4 shadow-md" aria-busy={!!uploading}>
+            <Button
+              disabled={!canSend}
+              onClick={send}
+              className="h-11 rounded-2xl px-4 shadow-md"
+              aria-busy={!!uploading}
+            >
               <Send className="h-4 w-4" />
             </Button>
           </div>
@@ -785,21 +782,25 @@ const beginCall = useCallback(
         />
       )}
 
-      {/* Shared CallDialog (FIX: pass peerUserId) */}
+      {/* Shared CallDialog (pass peerUserId) */}
       {conversationId && me && (
         <CallDialog
           open={callOpen}
           onOpenChange={(v) => {
-            setCallOpen(v);
-            setCallDockVisible(v || !!incoming);
-            if (!v && !incoming) setCallStatus("connected");
+            // Only let dialog open itself; closing is initiated inside CallDialog (hangup+cleanup)
+            if (v) {
+              setCallOpen(true);
+              setCallDockVisible(true);
+            } else {
+              // no-op; CallDialog will call hangup/cleanup itself
+            }
           }}
           conversationId={conversationId}
           role={callRole}
           mode={callMode}
           meId={me.id}
           meName={me.name}
-          peerUserId={peerUserId} // <<< CRITICAL: who we’re calling
+          peerUserId={peerUserId}
           peerName={mode === "staff" ? (patientName || "Patient") : (providerName || "Provider")}
           peerAvatar={(mode === "staff" ? patientAvatarUrl : providerAvatarUrl) ?? undefined}
         />
@@ -817,7 +818,8 @@ const beginCall = useCallback(
       return;
     }
     const previewUrl = URL.createObjectURL(file);
-    const kind: "image" | "audio" | "file" = file.type.startsWith("image/") ? "image" : file.type.startsWith("audio/") ? "audio" : "file";
+    const kind: "image" | "audio" | "file" =
+      file.type.startsWith("image/") ? "image" : file.type.startsWith("audio/") ? "audio" : "file";
     setDraft({ blob: file, type: kind, name: file.name, previewUrl });
   }
   async function takePhoto() {
@@ -833,7 +835,9 @@ const beginCall = useCallback(
       canvas.width = (video as any).videoWidth || 640;
       canvas.height = (video as any).videoHeight || 480;
       canvas.getContext("2d")!.drawImage(video, 0, 0);
-      const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error("No photo"))), "image/jpeg", 0.9)!);
+      const blob = await new Promise<Blob>((res, rej) =>
+        canvas.toBlob((b) => (b ? res(b) : rej(new Error("No photo"))), "image/jpeg", 0.9)!
+      );
       const previewUrl = URL.createObjectURL(blob);
       setDraft({ blob, type: "image", name: "photo.jpg", previewUrl });
     } catch (e: any) {
@@ -866,7 +870,6 @@ const beginCall = useCallback(
       : "";
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     chunksRef.current = [];
-    const started = Date.now();
     rec.ondataavailable = (e) => {
       if (e.data?.size) chunksRef.current.push(e.data);
     };
@@ -876,7 +879,6 @@ const beginCall = useCallback(
       const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
       const previewUrl = URL.createObjectURL(blob);
       setDraft({ blob, type: "audio", name: "voice.webm", previewUrl });
-      void started;
     };
     mediaRecRef.current = rec;
     setRecording(true);
@@ -1089,7 +1091,9 @@ function CallDock(props: {
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{name}</div>
-          <div className="text-xs text-gray-500 capitalize">{mode} • {status}</div>
+          <div className="text-xs text-gray-500 capitalize">
+            {mode} • {status}
+          </div>
         </div>
         <button
           type="button"
