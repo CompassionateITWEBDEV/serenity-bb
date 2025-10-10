@@ -16,12 +16,8 @@ import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
 
-import {
-  ICE_SERVERS,
-  sigChannel,
-  getSignalChannel,
-  ensureSubscribed,
-} from "@/lib/chat/rtc";
+// ✅ unified RTC helpers
+import { ICE_SERVERS, sigChannel, getSignalChannel, ensureSubscribed } from "@/lib/chat/rtc";
 
 /* ------------------------------- Types ---------------------------------- */
 type ProviderRole = "doctor" | "nurse" | "counselor";
@@ -49,7 +45,7 @@ function initials(name?: string | null) {
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 async function safePlay(el?: HTMLMediaElement | null) { try { await el?.play?.(); } catch {} }
 
-/* -------------------------------- Page ---------------------------------- */
+/* ------------------------------ Page (PATIENT) -------------------------- */
 export default function DashboardMessagesPage() {
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
 
@@ -72,15 +68,15 @@ export default function DashboardMessagesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
 
-  // Calls
-  const [incomingCall, setIncomingCall] = useState<{ fromId: string; fromName: string; room: string; mode: "audio" | "video" } | null>(null);
+  // Call state
+  const [incomingCall, setIncomingCall] = useState<{ fromName: string; room: string; mode: "audio" | "video" } | null>(null);
   const [showCall, setShowCall] = useState(false);
   const [callRole, setCallRole] = useState<"caller" | "callee">("caller");
   const [callMode, setCallMode] = useState<"audio" | "video">("audio");
   const callRoomRef = useRef<string | null>(null);
   const ringAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Signaling per conversation
+  // Realtime signaling — single, canonical channel per conversation
   const callChRef = useRef<ReturnType<typeof sigChannel> | null>(null);
 
   // Sidebar tab
@@ -155,27 +151,22 @@ export default function DashboardMessagesPage() {
     const ping = () => { try { ch.track({ user_id: me.id, at: Date.now() }); } catch {} };
     const keepAlive = setInterval(ping, 1500); ping();
 
+    // ✅ signaling: single canonical room == conversationId
     (async () => {
       callChRef.current = await getSignalChannel(callChRef as any, selectedId, true);
       callChRef.current
         .on("broadcast", { event: "ring" }, (p) => {
-          const { room, fromId, fromName, mode } = (p.payload || {}) as { room: string; fromId: string; fromName: string; mode: "audio" | "video" };
+          const { room, fromName, mode } = (p.payload || {}) as { room: string; fromName: string; mode: "audio" | "video" };
           if (room !== selectedId) return;
-          if (fromId === me.id) return;
-          setIncomingCall({ fromId, fromName: fromName || "Caller", room, mode: mode || "audio" });
+          setIncomingCall({ room, fromName: fromName || "Caller", mode: mode || "audio" });
           playRing(true);
-        })
-        .on("broadcast", { event: "answered" }, (p) => {
-          const { room } = (p.payload || {}) as any;
-          if (room !== selectedId) return;
-          stopRing();
         })
         .on("broadcast", { event: "hangup" }, (p) => {
           const { room } = (p.payload || {}) as any;
-          if (room !== selectedId) return;
-          stopRing(); setIncomingCall(null); setShowCall(false);
-        });
-      await ensureSubscribed(callChRef.current);
+          if (room && room !== selectedId) return;
+          stopRing(); setIncomingCall(null);
+        })
+        .on("broadcast", { event: "answered" }, () => stopRing());
     })().catch(() => {});
 
     return () => {
@@ -185,8 +176,6 @@ export default function DashboardMessagesPage() {
       try { if (callChRef.current) supabase.removeChannel(callChRef.current); } catch {}
       callChRef.current = null;
       stopRing();
-      setIncomingCall(null);
-      setShowCall(false);
     };
   }, [selectedId, me]);
 
@@ -309,6 +298,13 @@ export default function DashboardMessagesPage() {
   }
 
   /* ------------------------------ CALLING -------------------------------- */
+  const selectedConv = useMemo(() => convs.find((c) => c.id === selectedId) || null, [convs, selectedId]);
+  const providerInfo = useMemo(() => {
+    const s = staffDir.find((x) => x.user_id === selectedConv?.provider_id);
+    const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
+    return { name, avatar: s?.avatar_url ?? undefined };
+  }, [staffDir, selectedConv?.provider_id]);
+
   function playRing(loop = true) {
     try {
       if (!ringAudioRef.current) {
@@ -322,32 +318,27 @@ export default function DashboardMessagesPage() {
   async function startCall(mode: "audio" | "video") {
     if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
     try {
+      // Use the thread’s room (conversation id) and allow self=true so the other tab in dev can see the ring too
       const ch = await getSignalChannel(callChRef as any, selectedId, true);
-      await ensureSubscribed(ch);
       const room = selectedId;
       callRoomRef.current = room;
       setCallRole("caller"); setCallMode(mode); setShowCall(true); playRing(true);
-      await ch.send({ type: "broadcast", event: "ring", payload: { room, fromId: me.id, fromName: me.name, mode } });
+      await ch.send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name, mode } });
     } catch (e: any) { await Swal.fire("Call failed", e?.message || "Signaling not ready.", "error"); }
   }
-
-  async function acceptIncoming(room: string, mode: "audio" | "video") {
-    try {
-      const ch = await getSignalChannel(callChRef as any, selectedId!, true);
-      await ensureSubscribed(ch);
-      callRoomRef.current = room; setCallRole("callee"); setCallMode(mode); setIncomingCall(null); stopRing();
-      await ch.send({ type: "broadcast", event: "answered", payload: { room } });
-      setShowCall(true);
-    } catch {}
+  function acceptIncoming(room: string, mode: "audio" | "video") {
+    callRoomRef.current = room; setCallRole("callee"); setCallMode(mode); setIncomingCall(null); stopRing();
+    try { callChRef.current?.send({ type: "broadcast", event: "answered", payload: { room } }); } catch {}
+    setShowCall(true);
   }
-
   function declineIncoming() {
-    stopRing(); setIncomingCall(null);
+    setIncomingCall(null); stopRing();
     try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
   }
 
-  /* ------------------------------ Derived ------------------------------ */
+  /* ------------------------------ Lists / filters ------------------------------ */
   const search = q.trim().toLowerCase();
+
   const convsSorted = useMemo(
     () => [...convs].sort((a, b) => (b.last_message_at || b.created_at || "").localeCompare(a.last_message_at || a.created_at || "")),
     [convs]
@@ -367,13 +358,6 @@ export default function DashboardMessagesPage() {
     }) : staffDir),
     [staffDir, search]
   );
-
-  const selectedConv = useMemo(() => convs.find((c) => c.id === selectedId) || null, [convs, selectedId]);
-  const providerInfo = useMemo(() => {
-    const s = staffDir.find((x) => x.user_id === selectedConv?.provider_id);
-    const name = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
-    return { name, avatar: s?.avatar_url ?? undefined };
-  }, [staffDir, selectedConv?.provider_id]);
 
   if (loading) return <div className="p-6">Loading…</div>;
 
@@ -397,10 +381,18 @@ export default function DashboardMessagesPage() {
               <MessageCircle className="h-5 w-5" />
               <div className="font-medium">Conversations</div>
               <div className="ml-auto flex gap-1">
-                <Button size="sm" variant={sidebarTab === "convs" ? "default" : "outline"} onClick={() => setSidebarTab("convs")}>
+                <Button
+                  size="sm"
+                  variant={sidebarTab === "convs" ? "default" : "outline"}
+                  onClick={() => setSidebarTab("convs")}
+                >
                   Chats
                 </Button>
-                <Button size="sm" variant={sidebarTab === "staff" ? "default" : "outline"} onClick={() => setSidebarTab("staff")}>
+                <Button
+                  size="sm"
+                  variant={sidebarTab === "staff" ? "default" : "outline"}
+                  onClick={() => setSidebarTab("staff")}
+                >
                   <Users className="mr-1 h-4 w-4" /> Staff
                 </Button>
               </div>
@@ -475,7 +467,7 @@ export default function DashboardMessagesPage() {
           </div>
         </div>
 
-        {/* Thread + Call Window */}
+        {/* Thread */}
         <div className="lg:col-span-2 min-h-0 rounded-xl border bg-white dark:bg-zinc-900 dark:border-zinc-800 flex flex-col">
           {!selectedId ? (
             <div className="flex flex-1 items-center justify-center">
@@ -541,30 +533,59 @@ export default function DashboardMessagesPage() {
                 {msgs.length === 0 && <div className="text-sm text-gray-500 text-center py-6">No messages yet.</div>}
               </div>
 
-              {/* Call Window */}
-              <CallModal
-                open={showCall}
-                onClose={() => {
-                  setShowCall(false);
-                  stopRing();
-                  try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
-                }}
-                role={callRole}
-                conversationId={selectedId || ""}
-                roomId={callRoomRef.current || selectedId || ""}
-                mode={callMode}
-                peerName={providerInfo.name}
-                peerAvatar={providerInfo.avatar}
-              />
+              {/* Sticky composer so it never disappears */}
+              <div className="border-t dark:border-zinc-800 p-3 sticky bottom-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur supports-[backdrop-filter]:bg-white/70">
+                {draft && (
+                  <div className="mx-1 mb-2 flex items-center gap-3 rounded-xl border bg-white p-2 pr-3 text-sm shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+                    <div className="max-h-20 max-w-[180px] overflow-hidden rounded-lg ring-1 ring-gray-200 dark:ring-zinc-700">
+                      {draft.type === "image" && <img src={draft.previewUrl} alt="preview" className="h-20 w-auto object-cover" />}
+                      {draft.type === "audio" && <audio controls src={draft.previewUrl} className="h-10 w-[180px]" />}
+                      {draft.type === "file"  && <div className="p-3">📎 {draft.name || "file"}</div>}
+                    </div>
+                    <button type="button" className="ml-auto rounded-full p-1.5 hover:bg-gray-100 dark:hover:bg-zinc-700"
+                      onClick={() => { if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl); setDraft(null); }} aria-label="Remove attachment">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-end gap-2">
+                  <div className="flex shrink-0 gap-1">
+                    <Button type="button" variant="ghost" size="icon" onClick={openFilePicker} className="rounded-full"><ImageIcon className="h-5 w-5" /></Button>
+                    <input ref={fileInputRef} type="file" hidden accept="image/*,audio/*" onChange={onPickFile} />
+                    <Button type="button" variant="ghost" size="icon" onClick={takePhoto} className="rounded-full"><Camera className="h-5 w-5" /></Button>
+                    <Button type="button" variant="ghost" size="icon" onClick={toggleRecord} className={`rounded-full ${recording ? "animate-pulse" : ""}`}><Mic className="h-5 w-5" /></Button>
+                  </div>
+                  <Textarea placeholder="Type your message…" value={compose} onChange={(e) => setCompose(e.target.value)}
+                    className="min-h-[44px] max-h-[140px] flex-1 rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700"
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} />
+                  <Button onClick={send} disabled={!canSend} className="shrink-0 rounded-2xl h-11 px-4 shadow-md" aria-busy={sending}><Send className="h-4 w-4" /></Button>
+                </div>
+              </div>
             </>
           )}
         </div>
       </div>
+
+      {/* CALL UI */}
+      <CallModal
+        open={showCall}
+        onClose={() => {
+          setShowCall(false);
+          stopRing();
+          try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
+        }}
+        role={callRole}
+        conversationId={selectedId || ""}
+        roomId={callRoomRef.current || ""}
+        mode={callMode}
+        peerName={providerInfo.name}
+        peerAvatar={providerInfo.avatar}
+      />
     </div>
   );
 }
 
-/* ------------------------------- Call Modal (Window) ------------------------------ */
+/* ------------------------------- Call Modal ------------------------------ */
 type CallUIState = "max" | "window" | "mini";
 
 function CallModal({
@@ -620,7 +641,6 @@ function CallModal({
   useEffect(() => {
     if (!open || !conversationId || !roomId) return;
     let ended = false;
-    const pendingICE: RTCIceCandidateInit[] = [];
 
     async function setup() {
       const pc = new RTCPeerConnection(pcInit);
@@ -628,6 +648,9 @@ function CallModal({
 
       pc.oniceconnectionstatechange = () => console.log("[webrtc] ice:", pc.iceConnectionState);
       pc.onconnectionstatechange = () => console.log("[webrtc] pc:", pc.connectionState);
+
+      // buffer ICE until remoteDescription is set
+      const pendingICE: RTCIceCandidateInit[] = [];
 
       pc.ontrack = async (e) => {
         const [remote] = e.streams;
@@ -647,7 +670,7 @@ function CallModal({
         }
       };
 
-      // Local media
+      // local media
       streamRef.current = await navigator.mediaDevices.getUserMedia(mode === "video" ? { video: true, audio: true } : { audio: true, video: false });
       streamRef.current.getAudioTracks().forEach((t) => (t.enabled = micOn));
       streamRef.current.getVideoTracks().forEach((t) => (t.enabled = camOn));
@@ -659,37 +682,45 @@ function CallModal({
         if (localAudioRef.current) { localAudioRef.current.srcObject = streamRef.current; await safePlay(localAudioRef.current); }
       }
 
-      // Signaling (avoid self-echo here)
+      // signaling (no self echo)
       const ch = await getSignalChannel(chanRef as any, conversationId, false);
-      await ensureSubscribed(ch);
       chanRef.current = ch;
 
       ch
         .on("broadcast", { event: "offer" }, async (p) => {
-          if (role === "caller") return;
-          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
+          if (role === "caller") return; // caller must not handle own offer
+          const { room, sdp } = p.payload as any;
+          if (room !== roomId || !pcRef.current) return;
 
           await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+
+          // drain buffered ICE
           for (const c of pendingICE.splice(0)) {
             try { await pcRef.current.addIceCandidate(new RTCIceCandidate(c)); } catch {}
           }
+
           const answer = await pcRef.current.createAnswer();
           await pcRef.current.setLocalDescription(answer);
           await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
         })
         .on("broadcast", { event: "answer" }, async (p) => {
-          if (role === "callee") return;
-          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
+          if (role === "callee") return; // callee does not handle answer
+          const { room, sdp } = p.payload as any;
+          if (room !== roomId || !pcRef.current) return;
 
           await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          // drain buffered ICE
           for (const c of pendingICE.splice(0)) {
             try { await pcRef.current.addIceCandidate(new RTCIceCandidate(c)); } catch {}
           }
         })
         .on("broadcast", { event: "ice" }, async (p) => {
-          const { room, candidate } = p.payload as any; if (room !== roomId || !pcRef.current) return;
-          if (!pcRef.current.remoteDescription) pendingICE.push(candidate);
-          else {
+          const { room, candidate } = p.payload as any;
+          if (room !== roomId || !pcRef.current) return;
+
+          if (!pcRef.current.remoteDescription) {
+            pendingICE.push(candidate);
+          } else {
             try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
           }
         })
@@ -698,7 +729,9 @@ function CallModal({
           if (!ended) cleanup();
         });
 
-      // Caller -> offer
+      await ensureSubscribed(ch);
+
+      // Caller creates the offer once subscribed
       if (role === "caller") {
         if (mode === "video") {
           pc.addTransceiver("video", { direction: "sendrecv" });
@@ -730,8 +763,9 @@ function CallModal({
     }
 
     setup();
+    // IMPORTANT: do NOT re-run on mic/cam/speaker toggles; they just enable/disable tracks
     return () => { if (!ended) cleanup(); };
-  }, [open, role, conversationId, roomId, onClose, mode, micOn, camOn, speakerOn]);
+  }, [open, role, conversationId, roomId, onClose, mode]);
 
   async function toggleShare() {
     if (mode !== "video") return;
@@ -800,8 +834,7 @@ function CallModal({
 
   return (
     <>
-      {ui !== "mini" && <div className="fixed inset-0 z-[60] bg-black/50" />}
-
+      {/* remove backdrop if you want to chat while on a call */}
       <div
         className={`fixed z-[70] bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md border dark:border-zinc-800 rounded-2xl overflow-hidden shadow-2xl ${ui === "max" ? "inset-0" : ""}`}
         style={ui === "max" ? styleMax : ui === "window" ? styleWin : styleMini}
@@ -926,7 +959,7 @@ function MiniBubble({ onClick, onClose, peerAvatar, name }: { onClick: () => voi
           <div className="absolute inset-0 grid place-items-center bg-gray-100 text-gray-700 text-xl">{initials(name)}</div>}
         <span className="absolute bottom-1 right-1 h-5 w-5 rounded-full bg-red-500 text-white text-[10px] grid place-items-center">●</span>
       </button>
-      <Button className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-white shadow ring-1 ring-gray-200 text-xs" onClick={onClose}>✕</Button>
+      <button className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-white shadow ring-1 ring-gray-200 text-xs" onClick={onClose}>✕</button>
     </div>
   );
 }
