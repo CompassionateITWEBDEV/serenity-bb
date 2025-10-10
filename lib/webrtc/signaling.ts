@@ -1,142 +1,53 @@
+// File: lib/webrtc/signaling.ts
 import { supabase } from "@/lib/supabase/client";
 
-/**
- * WHY: STUN-only fails behind symmetric NATs; add TURN for production.
- * Replace TURN creds with your own (coturn/Twilio/etc).
- */
+export type CallMode = "audio" | "video";
+
+/** Shared ICE servers */
 export const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
-    // STUN backup(s)
-    { urls: ["stun:global.stun.twilio.com:3478"] },
-    // TURN (REPLACE with real creds; remove if you inject from server)
-    // { urls: "turn:your.turn.host:3478?transport=udp", username: "USER", credential: "PASS" },
-    // { urls: "turns:your.turn.host:5349?transport=tcp", username: "USER", credential: "PASS" },
+    { urls: "stun:global.stun.twilio.com:3478?transport=udp" },
   ],
 };
 
-export const CHANNEL_PREFIX = "call:"; // MUST match everywhere (UI + staff/patient apps)
-const channelName = (roomId: string) => `${CHANNEL_PREFIX}${roomId}`;
-
-export function sigChannel(roomId: string, self = true) {
-  // WHY: self=true lets you test both ends in one tab; handlers still guard by roomId.
-  return supabase.channel(channelName(roomId), {
-    config: { broadcast: { self } },
-  });
+/** Per-user “ring” channel */
+export function userRingChannel(userId: string) {
+  return supabase.channel(`user:${userId}`, { config: { presence: { key: userId } } });
 }
 
-/** Ensure the Supabase Realtime channel is subscribed (with timeout). */
-export async function ensureSubscribed(
-  ch: ReturnType<typeof sigChannel>,
-  timeoutMs = 8000
-): Promise<void> {
-  // @ts-expect-error runtime field set after success for fast-path
-  if (ch._joined) return;
-
-  await new Promise<void>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("Signaling subscribe timeout")), timeoutMs);
-    ch.subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        clearTimeout(t);
-        // @ts-expect-error mark joined for fast-path
-        ch._joined = true;
-        resolve();
-      } else if (
-        status === "TIMED_OUT" ||
-        status === "CLOSED" ||
-        status === "CHANNEL_ERROR"
-      ) {
-        clearTimeout(t);
-        reject(new Error(status));
-      }
-    });
-  });
+/** Per-conversation signaling channel (SDP/ICE/hangup) */
+export function conversationChannel(conversationId: string) {
+  return supabase.channel(`conv:${conversationId}`);
 }
 
-/** Subscribe with retries for flaky networks. */
-export async function subscribeWithRetry(
-  ch: ReturnType<typeof sigChannel>,
-  {
-    tries = 3,
-    timeoutMs = 8000,
-    delayMs = 700,
-  }: { tries?: number; timeoutMs?: number; delayMs?: number } = {}
-) {
-  let lastErr: unknown;
-  for (let i = 0; i < tries; i++) {
-    try {
-      await ensureSubscribed(ch, timeoutMs);
-      // @ts-expect-error
-      ch._joined = true;
-      return ch;
-    } catch (e) {
-      lastErr = e;
-      if (i < tries - 1) await new Promise((r) => setTimeout(r, delayMs));
-    }
-  }
-  throw lastErr;
-}
-
-/** Get (and subscribe) a reusable channel instance in a ref. */
-export async function getSignalChannel(
-  ref: { current: ReturnType<typeof sigChannel> | null },
-  roomId: string,
-  self = true
-) {
-  let ch = ref.current;
-  if (!ch) {
-    ch = sigChannel(roomId, self);
-    ref.current = ch;
-  }
-  // @ts-expect-error
-  if (!ch._joined) {
-    await subscribeWithRetry(ch);
-  }
+/** Ensure subscribed before sending */
+export async function ensureSubscribed(ch: ReturnType<typeof supabase.channel>) {
+  const status = await ch.subscribe();
+  if (status !== "SUBSCRIBED") throw new Error("Signaling not ready");
   return ch;
 }
 
-/** Fire-and-forget broadcast helper. */
-export async function sendEvent<T extends object = Record<string, unknown>>(
-  ch: ReturnType<typeof sigChannel>,
-  event: string,
-  payload: T
+/** Send a ring to a specific user */
+export async function sendRing(
+  toUserId: string,
+  payload: { conversationId: string; fromId: string; fromName: string; mode: CallMode }
 ) {
-  await ch.send({ type: "broadcast", event, payload });
+  const ch = userRingChannel(toUserId);
+  await ensureSubscribed(ch);
+  await ch.send({ type: "broadcast", event: "ring", payload });
 }
 
-/** Register a broadcast handler, returns an unsubscribe fn. */
-export function onEvent<T = any>(
-  ch: ReturnType<typeof sigChannel>,
-  event: string,
-  handler: (payload: T) => void
-) {
-  const sub = ch.on("broadcast", { event }, (p) => {
-    handler(p.payload as T);
-  });
-  return () => {
-    try {
-      // @ts-ignore remove single handler is not exposed; remove whole channel if needed outside
-      sub.off?.();
-    } catch {}
-  };
+/** Clear incoming banner on the callee side */
+export async function sendHangupToUser(toUserId: string, conversationId: string) {
+  const ch = userRingChannel(toUserId);
+  await ensureSubscribed(ch);
+  await ch.send({ type: "broadcast", event: "hangup", payload: { conversationId } });
 }
 
-/** Leave and cleanup a channel. */
-export function leaveChannel(ref: { current: ReturnType<typeof sigChannel> | null }) {
-  try {
-    if (ref.current) {
-      supabase.removeChannel(ref.current);
-    }
-  } catch {}
-  ref.current = null as any;
-}
-
-/** Ensure autoplay after setting srcObject (esp. for audio). */
-export async function ensureMediaAutoplay(el?: HTMLMediaElement | null) {
-  if (!el) return;
-  try {
-    await el.play();
-  } catch {
-    // Ignore; UI should provide an Accept/Play gesture already.
-  }
+/** (Optional) announce hangup on conversation channel */
+export async function sendHangupToConversation(conversationId: string) {
+  const ch = conversationChannel(conversationId);
+  await ensureSubscribed(ch);
+  await ch.send({ type: "broadcast", event: "hangup", payload: {} });
 }
