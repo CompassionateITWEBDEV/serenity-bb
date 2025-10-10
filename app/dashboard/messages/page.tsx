@@ -16,6 +16,14 @@ import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
 
+// ✅ use the SAME helper everywhere
+import {
+  ICE_SERVERS,
+  sigChannel,
+  getSignalChannel,
+  ensureSubscribed,
+} from "@/lib/chat/rtc";
+
 /* ------------------------------- Types ---------------------------------- */
 type ProviderRole = "doctor" | "nurse" | "counselor";
 type MessageRow = {
@@ -40,29 +48,7 @@ function initials(name?: string | null) {
   return s.split(/\s+/).map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 }
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-
-/* ---- signaling helpers (robust) ---- */
-function sigChannel(conversationId: string, self = true) {
-  return supabase.channel(`video_${conversationId}`, { config: { broadcast: { self } } });
-}
-async function ensureSubscribed(ch: ReturnType<typeof sigChannel>, timeoutMs = 8000) {
-  // @ts-ignore (runtime state is available on channel)
-  if (ch.state === "joined" || ch._isJoined) return;
-  await new Promise<void>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("Signaling not ready")), timeoutMs);
-    ch.subscribe((status: string) => {
-      if (status === "SUBSCRIBED") {
-        // @ts-ignore mark joined for fast-path
-        ch._isJoined = true;
-        clearTimeout(t);
-        resolve();
-      } else if (status === "TIMED_OUT" || status === "CLOSED" || status === "CHANNEL_ERROR") {
-        clearTimeout(t);
-        reject(new Error(status));
-      }
-    });
-  });
-}
+async function safePlay(el?: HTMLMediaElement | null) { try { await el?.play?.(); } catch {} }
 
 /* ------------------------------ Page (PATIENT) -------------------------- */
 export default function DashboardMessagesPage() {
@@ -95,7 +81,7 @@ export default function DashboardMessagesPage() {
   const callRoomRef = useRef<string | null>(null);
   const ringAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Realtime signaling
+  // Realtime signaling — single, canonical channel per conversation
   const callChRef = useRef<ReturnType<typeof sigChannel> | null>(null);
 
   // Sidebar tab
@@ -170,20 +156,23 @@ export default function DashboardMessagesPage() {
     const ping = () => { try { ch.track({ user_id: me.id, at: Date.now() }); } catch {} };
     const keepAlive = setInterval(ping, 1500); ping();
 
-    // signaling channel for calls — one per selected thread
-    const callCh = sigChannel(selectedId, true);
-    callChRef.current = callCh;
-
-    callCh
-      .on("broadcast", { event: "ring" }, (p) => {
-        const { room, fromName, mode } = (p.payload || {}) as { room: string; fromName: string; mode: "audio" | "video" };
-        setIncomingCall({ room, fromName: fromName || "Caller", mode: mode || "audio" });
-        playRing(true);
-      })
-      .on("broadcast", { event: "hangup" }, () => { stopRing(); setIncomingCall(null); })
-      .on("broadcast", { event: "answered" }, () => stopRing());
-
-    void ensureSubscribed(callCh).catch(() => {});
+    // ✅ signaling: single canonical room == conversationId
+    (async () => {
+      callChRef.current = await getSignalChannel(callChRef as any, selectedId, true);
+      callChRef.current
+        .on("broadcast", { event: "ring" }, (p) => {
+          const { room, fromName, mode } = (p.payload || {}) as { room: string; fromName: string; mode: "audio" | "video" };
+          if (room !== selectedId) return;
+          setIncomingCall({ room, fromName: fromName || "Caller", mode: mode || "audio" });
+          playRing(true);
+        })
+        .on("broadcast", { event: "hangup" }, (p) => {
+          const { room } = (p.payload || {}) as any;
+          if (room && room !== selectedId) return;
+          stopRing(); setIncomingCall(null);
+        })
+        .on("broadcast", { event: "answered" }, () => stopRing());
+    })().catch(() => {});
 
     return () => {
       alive = false;
@@ -199,11 +188,7 @@ export default function DashboardMessagesPage() {
   async function ensureConversationWith(providerUserId: string) {
     if (!me?.id) return;
     const staff = staffDir.find((s) => s.user_id === providerUserId);
-    // FIX: use `staff?.email` (was `s?.email`)
-    const provider_name =
-      [staff?.first_name, staff?.last_name].filter(Boolean).join(" ") ||
-      staff?.email ||
-      "Staff";
+    const provider_name = [staff?.first_name, staff?.last_name].filter(Boolean).join(" ") || staff?.email || "Staff";
 
     const { data: existing } = await supabase
       .from("conversations")
@@ -237,10 +222,7 @@ export default function DashboardMessagesPage() {
     if (error) { await Swal.fire("Cannot start chat", error.message, "error"); return; }
 
     const newConv: Conversation = created as any;
-    setConvs((prev) => {
-      const exists = prev.some((c) => c.id === newConv.id);
-      return exists ? prev : [newConv, ...prev];
-    });
+    setConvs((prev) => (prev.some((c) => c.id === newConv.id) ? prev : [newConv, ...prev]));
     setSelectedId(newConv.id);
     setSidebarTab("convs");
   }
@@ -259,7 +241,7 @@ export default function DashboardMessagesPage() {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: true });
       const video = document.createElement("video");
-      (video as any).muted = true; // allow autoplay
+      (video as any).muted = true;
       video.srcObject = stream as any; await video.play();
       const canvas = document.createElement("canvas");
       canvas.width = (video as any).videoWidth || 640; canvas.height = (video as any).videoHeight || 480;
@@ -341,10 +323,8 @@ export default function DashboardMessagesPage() {
   async function startCall(mode: "audio" | "video") {
     if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
     try {
-      const ch = callChRef.current ?? sigChannel(selectedId, true);
-      await ensureSubscribed(ch);
-      callChRef.current = ch;
-      const room = `${selectedId}`;
+      const ch = await getSignalChannel(callChRef as any, selectedId, true);
+      const room = selectedId;
       callRoomRef.current = room;
       setCallRole("caller"); setCallMode(mode); setShowCall(true); playRing(true);
       await ch.send({ type: "broadcast", event: "ring", payload: { room, fromName: me.name, mode } });
@@ -357,7 +337,7 @@ export default function DashboardMessagesPage() {
   }
   function declineIncoming() {
     setIncomingCall(null); stopRing();
-    try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: {} }); } catch {}
+    try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
   }
 
   /* ------------------------------ Lists / filters ------------------------------ */
@@ -592,7 +572,11 @@ export default function DashboardMessagesPage() {
       {/* CALL UI */}
       <CallModal
         open={showCall}
-        onClose={() => { setShowCall(false); stopRing(); try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: {} }); } catch {} }}
+        onClose={() => {
+          setShowCall(false);
+          stopRing();
+          try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
+        }}
         role={callRole}
         conversationId={selectedId || ""}
         roomId={callRoomRef.current || ""}
@@ -604,7 +588,7 @@ export default function DashboardMessagesPage() {
   );
 }
 
-/* ------------------------------- Call Modal (Messenger-like) ------------------------------ */
+/* ------------------------------- Call Modal ------------------------------ */
 type CallUIState = "max" | "window" | "mini";
 
 function CallModal({
@@ -637,13 +621,7 @@ function CallModal({
   const chanRef = useRef<ReturnType<typeof sigChannel> | null>(null);
   const timerRef = useRef<number | null>(null);
 
-  const pcInit: RTCConfiguration = {
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      // NOTE: Replace with your own TURN for production reliability.
-      { urls: ["turn:global.turn.twilio.com:3478?transport=udp"], username: "demo", credential: "demo" },
-    ],
-  };
+  const pcInit: RTCConfiguration = ICE_SERVERS;
 
   useEffect(() => {
     if (!open) return;
@@ -668,13 +646,23 @@ function CallModal({
     let ended = false;
 
     async function setup() {
+      // PeerConnection
       const pc = new RTCPeerConnection(pcInit);
       pcRef.current = pc;
 
-      pc.ontrack = (e) => {
+      pc.oniceconnectionstatechange = () => console.log("[webrtc] ice:", pc.iceConnectionState);
+      pc.onconnectionstatechange = () => console.log("[webrtc] pc:", pc.connectionState);
+
+      pc.ontrack = async (e) => {
         const [remote] = e.streams;
-        if (mode === "video") { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remote; }
-        else { if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remote; }
+        if (!remote) return;
+        if (mode === "video") {
+          const v = remoteVideoRef.current;
+          if (v) { v.srcObject = remote; v.muted = !speakerOn; v.playsInline = true; v.autoplay = true; await safePlay(v); }
+        } else {
+          const a = remoteAudioRef.current;
+          if (a) { a.srcObject = remote; a.muted = !speakerOn; a.autoplay = true; await safePlay(a); }
+        }
       };
 
       pc.onicecandidate = async (e) => {
@@ -683,44 +671,57 @@ function CallModal({
         }
       };
 
+      // Local media
       streamRef.current = await navigator.mediaDevices.getUserMedia(mode === "video" ? { video: true, audio: true } : { audio: true, video: false });
       streamRef.current.getAudioTracks().forEach((t) => (t.enabled = micOn));
       streamRef.current.getVideoTracks().forEach((t) => (t.enabled = camOn));
       streamRef.current.getTracks().forEach((t) => pc.addTrack(t, streamRef.current!));
 
-      if (mode === "video") { if (localVideoRef.current) { localVideoRef.current.muted = true; localVideoRef.current.srcObject = streamRef.current; } }
-      else { if (localAudioRef.current) { localAudioRef.current.srcObject = streamRef.current; } }
+      if (mode === "video") {
+        if (localVideoRef.current) { localVideoRef.current.muted = true; localVideoRef.current.srcObject = streamRef.current; await safePlay(localVideoRef.current); }
+      } else {
+        if (localAudioRef.current) { localAudioRef.current.srcObject = streamRef.current; await safePlay(localAudioRef.current); }
+      }
 
-      const ch = sigChannel(conversationId, false);
+      // Signaling
+      const ch = await getSignalChannel(chanRef as any, conversationId, true);
       chanRef.current = ch;
 
-      ch.on("broadcast", { event: "offer" }, async (p) => {
-        const { room, sdp } = p.payload as any;
-        if (room !== roomId || !pcRef.current) return;
-        await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-        const answer = await pcRef.current.createAnswer();
-        await pcRef.current.setLocalDescription(answer);
-        await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
-      });
-
-      ch.on("broadcast", { event: "answer" }, async (p) => {
-        const { room, sdp } = p.payload as any;
-        if (room !== roomId || !pcRef.current) return;
-        await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-      });
-
-      ch.on("broadcast", { event: "ice" }, async (p) => {
-        const { room, candidate } = p.payload as any;
-        if (room !== roomId || !pcRef.current) return;
-        try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
-      });
-
-      ch.on("broadcast", { event: "hangup" }, () => { if (!ended) cleanup(); });
+      ch
+        .on("broadcast", { event: "offer" }, async (p) => {
+          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          const answer = await pcRef.current.createAnswer();
+          await pcRef.current.setLocalDescription(answer);
+          await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
+        })
+        .on("broadcast", { event: "answer" }, async (p) => {
+          const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+        })
+        .on("broadcast", { event: "ice" }, async (p) => {
+          const { room, candidate } = p.payload as any; if (room !== roomId || !pcRef.current) return;
+          try { await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+        })
+        .on("broadcast", { event: "hangup" }, (p) => {
+          const { room } = p.payload as any; if (room && room !== roomId) return;
+          if (!ended) cleanup();
+        });
 
       await ensureSubscribed(ch);
 
+      // Offer (caller)
       if (role === "caller") {
-        const offer = await pc.createOffer();
+        if (mode === "video") {
+          pc.addTransceiver("video", { direction: "sendrecv" });
+          pc.addTransceiver("audio", { direction: "sendrecv" });
+        } else {
+          pc.addTransceiver("audio", { direction: "sendrecv" });
+        }
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: mode === "video",
+        });
         await pc.setLocalDescription(offer);
         await ch.send({ type: "broadcast", event: "offer", payload: { room: roomId, sdp: offer } });
       }
@@ -742,7 +743,7 @@ function CallModal({
 
     setup();
     return () => { if (!ended) cleanup(); };
-  }, [open, role, conversationId, roomId, onClose, mode, micOn, camOn]);
+  }, [open, role, conversationId, roomId, onClose, mode, micOn, camOn, speakerOn]);
 
   async function toggleShare() {
     if (mode !== "video") return;
@@ -835,15 +836,17 @@ function CallModal({
               </Button>
             )}
             <Button size="sm" variant="outline" onClick={() => setUi("mini")} title="Minimize to bubble">Mini</Button>
-            <Button size="sm" variant="destructive" onClick={onClose}>End</Button>
+            <Button size="sm" variant="destructive" onClick={() => {
+              try { chanRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: roomId } }); } catch {}
+              onClose();
+            }}>End</Button>
           </div>
         </div>
 
         <div className={`${ui === "max" ? "h-[calc(100vh-48px)]" : "h-[calc(100%-44px)]"} relative`}>
           {mode === "video" ? (
             <div className="absolute inset-0 grid place-items-center">
-              {/* clarity: was muted={!true} */}
-              <video ref={remoteVideoRef} autoPlay playsInline muted={false} className="w-full h-full object-cover" />
+              <video ref={remoteVideoRef} autoPlay playsInline muted={!speakerOn} className="w-full h-full object-cover" />
               <video ref={localVideoRef} autoPlay muted playsInline className="absolute bottom-4 right-4 w-40 h-28 rounded-lg ring-1 ring-white/50 bg-black object-cover" />
             </div>
           ) : (
@@ -854,31 +857,31 @@ function CallModal({
               </div>
               <div className="rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center">
                 <div className="text-sm text-gray-600 dark:text-gray-300">Peer</div>
-                <audio ref={remoteAudioRef} autoPlay />
+                <audio ref={remoteAudioRef} autoPlay muted={!speakerOn} />
               </div>
             </div>
           )}
 
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/90 dark:bg-zinc-900/90 px-2 py-1 shadow-lg border dark:border-zinc-700">
-            <Button
-              size="sm"
-              variant="outline"
-              className="rounded-full"
-              onClick={() => {
-                // Users expect one toggle for both sinks in this simple UI
-                if (remoteAudioRef.current) remoteAudioRef.current.muted = !speakerOn;
-                if (remoteVideoRef.current) remoteVideoRef.current.muted = !speakerOn;
-                setSpeakerOn((v) => !v);
-              }}
-              title="Speaker"
-            >
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
+              setSpeakerOn((v) => {
+                const next = !v;
+                if (remoteAudioRef.current) { remoteAudioRef.current.muted = !next; safePlay(remoteAudioRef.current); }
+                if (remoteVideoRef.current) { remoteVideoRef.current.muted = !next; safePlay(remoteVideoRef.current); }
+                return next;
+              });
+            }}>
               {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             </Button>
-            <Button size="sm" variant="outline" className="rounded-full" onClick={() => { streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !micOn)); setMicOn(!micOn); }} title="Mic (M)">
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
+              streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !micOn)); setMicOn(!micOn);
+            }} title="Mic (M)">
               {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
             </Button>
             {mode === "video" && (
-              <Button size="sm" variant="outline" className="rounded-full" onClick={() => { streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !camOn)); setCamOn(!camOn); }} title="Camera (C)">
+              <Button size="sm" variant="outline" className="rounded-full" onClick={() => {
+                streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !camOn)); setCamOn(!camOn);
+              }} title="Camera (C)">
                 {camOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
               </Button>
             )}
@@ -887,7 +890,10 @@ function CallModal({
                 {sharing ? <MonitorX className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
               </Button>
             )}
-            <Button size="sm" variant="destructive" className="rounded-full" onClick={onClose}>End</Button>
+            <Button size="sm" variant="destructive" className="rounded-full" onClick={() => {
+              try { chanRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: roomId } }); } catch {}
+              onClose();
+            }}>End</Button>
           </div>
 
           {ui === "window" && (
