@@ -16,7 +16,6 @@ import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
 
-// RTC helpers (make sure these exist exactly at this path)
 import {
   ICE_SERVERS,
   sigChannel,
@@ -73,7 +72,7 @@ export default function DashboardMessagesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
 
-  // Call state
+  // Calls
   const [incomingCall, setIncomingCall] = useState<{ fromId: string; fromName: string; room: string; mode: "audio" | "video" } | null>(null);
   const [showCall, setShowCall] = useState(false);
   const [callRole, setCallRole] = useState<"caller" | "callee">("caller");
@@ -81,7 +80,7 @@ export default function DashboardMessagesPage() {
   const callRoomRef = useRef<string | null>(null);
   const ringAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Signaling channel for current conversation
+  // Signaling per conversation
   const callChRef = useRef<ReturnType<typeof sigChannel> | null>(null);
 
   // Sidebar tab
@@ -156,14 +155,13 @@ export default function DashboardMessagesPage() {
     const ping = () => { try { ch.track({ user_id: me.id, at: Date.now() }); } catch {} };
     const keepAlive = setInterval(ping, 1500); ping();
 
-    // signaling subscribe (self:true so you can receive answered/hangup)
     (async () => {
       callChRef.current = await getSignalChannel(callChRef as any, selectedId, true);
       callChRef.current
         .on("broadcast", { event: "ring" }, (p) => {
           const { room, fromId, fromName, mode } = (p.payload || {}) as { room: string; fromId: string; fromName: string; mode: "audio" | "video" };
           if (room !== selectedId) return;
-          if (fromId === me.id) return; // ignore your own
+          if (fromId === me.id) return;
           setIncomingCall({ fromId, fromName: fromName || "Caller", room, mode: mode || "audio" });
           playRing(true);
         })
@@ -175,9 +173,7 @@ export default function DashboardMessagesPage() {
         .on("broadcast", { event: "hangup" }, (p) => {
           const { room } = (p.payload || {}) as any;
           if (room !== selectedId) return;
-          stopRing();
-          setIncomingCall(null);
-          setShowCall(false);
+          stopRing(); setIncomingCall(null); setShowCall(false);
         });
       await ensureSubscribed(callChRef.current);
     })().catch(() => {});
@@ -327,28 +323,19 @@ export default function DashboardMessagesPage() {
     if (!selectedId || !me) { Swal.fire("Select a chat", "Open a conversation first.", "info"); return; }
     try {
       const ch = await getSignalChannel(callChRef as any, selectedId, true);
-      await ensureSubscribed(ch); // critical: subscribe before sending ring
+      await ensureSubscribed(ch);
       const room = selectedId;
       callRoomRef.current = room;
-      setCallRole("caller");
-      setCallMode(mode);
-      setShowCall(true);
-      playRing(true);
+      setCallRole("caller"); setCallMode(mode); setShowCall(true); playRing(true);
       await ch.send({ type: "broadcast", event: "ring", payload: { room, fromId: me.id, fromName: me.name, mode } });
-    } catch (e: any) {
-      await Swal.fire("Call failed", e?.message || "Signaling not ready.", "error");
-    }
+    } catch (e: any) { await Swal.fire("Call failed", e?.message || "Signaling not ready.", "error"); }
   }
 
   async function acceptIncoming(room: string, mode: "audio" | "video") {
     try {
       const ch = await getSignalChannel(callChRef as any, selectedId!, true);
       await ensureSubscribed(ch);
-      callRoomRef.current = room;
-      setCallRole("callee");
-      setCallMode(mode);
-      setIncomingCall(null);
-      stopRing();
+      callRoomRef.current = room; setCallRole("callee"); setCallMode(mode); setIncomingCall(null); stopRing();
       await ch.send({ type: "broadcast", event: "answered", payload: { room } });
       setShowCall(true);
     } catch {}
@@ -359,9 +346,8 @@ export default function DashboardMessagesPage() {
     try { callChRef.current?.send({ type: "broadcast", event: "hangup", payload: { room: selectedId } }); } catch {}
   }
 
-  /* ------------------------------ Lists / filters ------------------------------ */
+  /* ------------------------------ Derived ------------------------------ */
   const search = q.trim().toLowerCase();
-
   const convsSorted = useMemo(
     () => [...convs].sort((a, b) => (b.last_message_at || b.created_at || "").localeCompare(a.last_message_at || a.created_at || "")),
     [convs]
@@ -489,7 +475,7 @@ export default function DashboardMessagesPage() {
           </div>
         </div>
 
-        {/* Thread */}
+        {/* Thread + Call Window */}
         <div className="lg:col-span-2 min-h-0 rounded-xl border bg-white dark:bg-zinc-900 dark:border-zinc-800 flex flex-col">
           {!selectedId ? (
             <div className="flex flex-1 items-center justify-center">
@@ -555,7 +541,7 @@ export default function DashboardMessagesPage() {
                 {msgs.length === 0 && <div className="text-sm text-gray-500 text-center py-6">No messages yet.</div>}
               </div>
 
-              {/* Call Window (modal) */}
+              {/* Call Window */}
               <CallModal
                 open={showCall}
                 onClose={() => {
@@ -629,7 +615,7 @@ function CallModal({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, onClose]);
 
   useEffect(() => {
     if (!open || !conversationId || !roomId) return;
@@ -673,14 +659,14 @@ function CallModal({
         if (localAudioRef.current) { localAudioRef.current.srcObject = streamRef.current; await safePlay(localAudioRef.current); }
       }
 
-      // Signaling (self:false to avoid receiving your own SDP/ICE)
+      // Signaling (avoid self-echo here)
       const ch = await getSignalChannel(chanRef as any, conversationId, false);
       await ensureSubscribed(ch);
       chanRef.current = ch;
 
       ch
         .on("broadcast", { event: "offer" }, async (p) => {
-          if (role === "caller") return; // caller must not handle own offer
+          if (role === "caller") return;
           const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
 
           await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -692,7 +678,7 @@ function CallModal({
           await ch.send({ type: "broadcast", event: "answer", payload: { room: roomId, sdp: answer } });
         })
         .on("broadcast", { event: "answer" }, async (p) => {
-          if (role === "callee") return; // callee must not handle answer
+          if (role === "callee") return;
           const { room, sdp } = p.payload as any; if (room !== roomId || !pcRef.current) return;
 
           await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -712,7 +698,7 @@ function CallModal({
           if (!ended) cleanup();
         });
 
-      // Caller sends the offer only after subscribed
+      // Caller -> offer
       if (role === "caller") {
         if (mode === "video") {
           pc.addTransceiver("video", { direction: "sendrecv" });
@@ -940,6 +926,7 @@ function MiniBubble({ onClick, onClose, peerAvatar, name }: { onClick: () => voi
           <div className="absolute inset-0 grid place-items-center bg-gray-100 text-gray-700 text-xl">{initials(name)}</div>}
         <span className="absolute bottom-1 right-1 h-5 w-5 rounded-full bg-red-500 text-white text-[10px] grid place-items-center">●</span>
       </button>
-      <button className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-white shadow ring-1 ring-gray-200 text-xs" onClick={onClose}>✕</button>
+      <Button className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-white shadow ring-1 ring-gray-200 text-xs" onClick={onClose}>✕</Button>
     </div>
   );
+}
