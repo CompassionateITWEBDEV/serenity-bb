@@ -132,6 +132,9 @@ function ChatBoxInner(props: {
     conversationId: conversationIdProp,
   } = props;
 
+  /* Guard: avoid crashes when staff page forgets providerId */
+  const staffIdMissing = mode === "staff" && !providerId;
+
   const [conversationId, setConversationId] = useState<string | null>(conversationIdProp ?? null);
   const [me, setMe] = useState<{ id: string; name: string; role: "patient" | Provider } | null>(null);
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
@@ -142,11 +145,11 @@ function ChatBoxInner(props: {
   const [recording, setRecording] = useState<boolean>(false);
 
   const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
-  const [resolvedPatient, setResolvedPatient] = useState<{ name?: string; email?: string; avatar?: string | null } | null>(null);
+  const [resolvedPatient] = useState<{ name?: string; email?: string; avatar?: string | null } | null>(null);
 
-  const [dbOnline, setDbOnline] = useState<boolean>(false);
-  const [rtOnline, setRtOnline] = useState<boolean>(false);
-  const [presenceLoading, setPresenceLoading] = useState<boolean>(true);
+  const [dbOnline] = useState<boolean>(false);
+  const [rtOnline] = useState<boolean>(false);
+  const [presenceLoading] = useState<boolean>(false);
 
   /* ---- CALL state ---- */
   const [callOpen, setCallOpen] = useState(false);
@@ -191,15 +194,17 @@ function ChatBoxInner(props: {
 
   /* Resolve conversation + me */
   useEffect(() => setConversationId(conversationIdProp ?? null), [conversationIdProp]);
+
   useEffect(() => {
+    if (staffIdMissing) return;
     (async () => {
       const { data: au } = await supabase.auth.getUser();
       const uid = au.user?.id;
       if (!uid) return;
 
       if (mode === "staff") {
-        const pid = providerId!;
-        setMe({ id: pid, name: providerName || "Me", role: providerRole! });
+        const pid = providerId as string; // guarded
+        setMe({ id: pid, name: providerName || "Me", role: (providerRole as Provider) || "doctor" });
 
         if (!conversationIdProp) {
           const { data: conv } = await supabase
@@ -218,7 +223,7 @@ function ChatBoxInner(props: {
               )
               .select("id")
               .single();
-            if (upErr) { alert(`Failed to ensure conversation.\n\n${upErr.message}`); return; }
+            if (upErr) { console.error(upErr); return; }
             setConversationId(created!.id);
           }
         }
@@ -229,33 +234,33 @@ function ChatBoxInner(props: {
             .from("conversations")
             .select("id")
             .eq("patient_id", uid)
-            .eq("provider_id", providerId!)
+            .eq("provider_id", providerId as string)
             .maybeSingle();
           if (conv?.id) setConversationId(conv.id);
         }
       }
     })();
-  }, [mode, patientId, providerId, providerName, providerRole, conversationIdProp]);
+  }, [mode, patientId, providerId, providerName, providerRole, conversationIdProp, staffIdMissing]);
 
   /* Initial load */
   useLayoutEffect(() => {
-    if (!conversationId || !me) return;
+    if (!conversationId || !me || staffIdMissing) return;
     (async () => {
       const { data, error } = await supabase
         .from("messages")
         .select("*")
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
-      if (error) { alert(`Failed to load messages.\n\n${error.message}`); return; }
+      if (error) { console.error(error); return; }
       setMsgs((data as MessageRow[]) ?? []);
       scrollToBottom(false);
       await markReadHelper(conversationId, me.role);
     })();
-  }, [conversationId, me, scrollToBottom]);
+  }, [conversationId, me, scrollToBottom, staffIdMissing]);
 
   /* Live updates + typing */
   useEffect(() => {
-    if (!conversationId || !me) return;
+    if (!conversationId || !me || staffIdMissing) return;
     if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
 
     const ch = supabase
@@ -295,18 +300,17 @@ function ChatBoxInner(props: {
       window.removeEventListener("online", refetch);
       if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
     };
-  }, [conversationId, me, ding, scrollToBottom]);
+  }, [conversationId, me, ding, scrollToBottom, staffIdMissing]);
 
   /* ---------------------------- CALL: ring/accept/decline ---------------------------- */
-
   useEffect(() => {
-    if (!me?.id) return;
+    if (!me?.id || staffIdMissing) return;
     const ch = userRingChannel(me.id);
 
     ch.on("broadcast", { event: "ring" }, (p) => {
       const { conversationId: convId, fromId, fromName, mode } = (p.payload || {}) as any;
       if (!convId || !fromId) return;
-      if (conversationId && convId !== conversationId) return; // only show for the open thread (staff ChatBox for that patient)
+      if (conversationId && convId !== conversationId) return; // only show for open thread on staff
       setIncoming({ conversationId: convId, fromId, fromName: fromName || "Caller", mode: (mode || "audio") as CallMode });
     });
 
@@ -319,17 +323,17 @@ function ChatBoxInner(props: {
 
     ch.subscribe();
     return () => { try { supabase.removeChannel(ch); } catch {} };
-  }, [me?.id, conversationId]);
+  }, [me?.id, conversationId, staffIdMissing]);
 
   const onStartCall = useCallback(async (m: CallMode) => {
-    if (!conversationId || !me?.id) return;
+    if (!conversationId || !me?.id || staffIdMissing) return;
     const peerId = mode === "staff" ? patientId : (providerId || "");
     if (!peerId) return;
     await sendRing(peerId, { conversationId, fromId: me.id, fromName: me.name, mode: m });
     setCallRole("caller");
     setCallMode(m);
     setCallOpen(true);
-  }, [conversationId, me?.id, me?.name, mode, patientId, providerId]);
+  }, [conversationId, me?.id, me?.name, mode, patientId, providerId, staffIdMissing]);
 
   const onAcceptIncoming = useCallback(() => {
     if (!incoming || !me) return;
@@ -346,7 +350,6 @@ function ChatBoxInner(props: {
   }, [incoming]);
 
   /* --------------------------------- send ops --------------------------------- */
-
   async function insertMessage(payload: { content: string; attachment_url?: string | null; attachment_type?: "image" | "audio" | "file" | null; }) {
     if (!me || !conversationId) return;
     const optimistic: MessageRow = {
@@ -425,11 +428,112 @@ function ChatBoxInner(props: {
     }
   }, [canSend, text, draft]);
 
+  /* --------------------------------- UI helpers --------------------------------- */
+
+  const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; e.target.value = "";
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { alert("File too large (max 10 MB)."); return; }
+    const previewUrl = URL.createObjectURL(file);
+    const kind: "image" | "audio" | "file" = file.type.startsWith("image/") ? "image" : file.type.startsWith("audio") ? "audio" : "file";
+    setDraft({ blob: file, type: kind, name: file.name, previewUrl });
+  };
+
+  const takePhoto = async () => {
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const video = document.createElement("video");
+      (video as any).muted = true;
+      video.srcObject = stream as any; await video.play();
+      const canvas = document.createElement("canvas");
+      canvas.width = (video as any).videoWidth || 640; canvas.height = (video as any).videoHeight || 480;
+      canvas.getContext("2d")!.drawImage(video, 0, 0);
+      const blob = await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error("No photo"))), "image/jpeg", 0.9)!);
+      const previewUrl = URL.createObjectURL(blob);
+      setDraft({ blob, type: "image", name: "photo.jpg", previewUrl });
+    } catch (e: any) { alert(`Camera error.\n\n${e?.message ?? ""}`); }
+    finally { stream?.getTracks().forEach((t) => t.stop()); }
+  };
+
+  const toggleRecord = async () => {
+    if (recording) { mediaRecRef.current?.stop(); return; }
+    if (typeof window.MediaRecorder === "undefined") { alert("Voice recording isn’t supported by this browser."); return; }
+    let stream: MediaStream | null = null;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { alert("Microphone permission denied."); return; }
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus"
+      : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+    const startedAt = Date.now();
+    chunksRef.current = [];
+    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    rec.ondataavailable = (e) => { if (e.data?.size) chunksRef.current.push(e.data); };
+    rec.onstop = () => {
+      stream?.getTracks().forEach((t) => t.stop()); setRecording(false);
+      const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
+      const previewUrl = URL.createObjectURL(blob);
+      const duration = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+      setDraft({ blob, type: "audio", name: "voice.webm", previewUrl });
+      // duration available if you want to store
+      void duration;
+    };
+    mediaRecRef.current = rec; setRecording(true); rec.start();
+  };
+
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const file = Array.from(e.clipboardData.files || [])[0];
+    if (file && file.type.startsWith("image/")) {
+      e.preventDefault();
+      if (file.size > 10 * 1024 * 1024) { alert("File too large (max 10 MB)."); return; }
+      const url = URL.createObjectURL(file);
+      setDraft({ blob: file, type: "image", name: file.name || "pasted.jpg", previewUrl: url });
+    }
+  };
+
+  function shouldShowPlainContent(content?: string | null) {
+    const t = (content ?? "").trim().toLowerCase();
+    return !!t && t !== "(image)" && t !== "(photo)" && t !== "(voice note)";
+  }
+  function extractImageUrlFromContent(content?: string | null) {
+    if (!content) return null;
+    try {
+      const maybe = JSON.parse(content);
+      if (maybe && typeof maybe === "object" && (maybe as any).type === "image" && typeof (maybe as any).url === "string")
+        return (maybe as any).url as string;
+    } catch {}
+    const match = content.match(/https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp|heic|svg)(?:\?\S*)?/i);
+    return match?.[0] ?? null;
+  }
+  function isHttp(u?: string | null) { return !!u && /^https?:\/\//i.test(u); }
+  async function toUrlFromPath(path: string) {
+    try {
+      const { data } = await supabase.storage.from(CHAT_BUCKET).createSignedUrl(path, 60 * 60 * 24);
+      if (data?.signedUrl) return data.signedUrl;
+    } catch {}
+    try {
+      const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
+      return pub?.data?.publicUrl ?? null;
+    } catch { return null; }
+  }
+
   /* --------------------------------- UI --------------------------------- */
 
   const isOnline = mode === "staff" ? dbOnline || rtOnline || threadOtherPresent : false;
-  const otherName = mode === "staff" ? resolvedPatient?.name || patientName || resolvedPatient?.email || "Patient" : providerName || "Provider";
-  const otherAvatar = mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
+  const otherName = mode === "staff" ? patientName || "Patient" : providerName || "Provider";
+  const otherAvatar = mode === "staff" ? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
+
+  /* If staff props are incomplete, render a gentle inline message instead of crashing */
+  if (staffIdMissing) {
+    return (
+      <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
+        <CardContent className="flex h-full items-center justify-center p-6">
+          <div className="text-sm text-red-600">
+            Missing <code>providerId</code> for staff ChatBox. Pass it to <code>&lt;ChatBox mode="staff" /&gt;</code>.
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
@@ -462,17 +566,10 @@ function ChatBoxInner(props: {
               <div className="text-[15px] font-semibold">{otherName}</div>
               <div className="flex items-center gap-1 text-[11px]">
                 {mode === "staff" ? (
-                  presenceLoading ? (
-                    <>
-                      <span className="inline-block h-2 w-2 rounded-full bg-yellow-400" />
-                      <span className="text-yellow-600">Checking…</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className={`inline-block h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
-                      <span className={isOnline ? "text-emerald-600" : "text-gray-500"}>{isOnline ? "Online" : "Offline"}</span>
-                    </>
-                  )
+                  <>
+                    <span className={`inline-block h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
+                    <span className={isOnline ? "text-emerald-600" : "text-gray-500"}>{isOnline ? "Online" : "Offline"}</span>
+                  </>
                 ) : (
                   <span className="text-gray-500">{providerRole || ""}</span>
                 )}
