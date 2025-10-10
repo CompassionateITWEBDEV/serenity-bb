@@ -62,9 +62,9 @@ export default function DashboardMessagesPage() {
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
   const [recording, setRecording] = useState(false);
-  const mediaRecRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecRef = useRef<MediaRecorder | null>(null);     // FIX: missing ref
+  const chunksRef = useRef<Blob[]>([]);                       // FIX: missing ref
+  const fileInputRef = useRef<HTMLInputElement>(null);        // FIX: missing ref
   const [sending, setSending] = useState(false);
 
   // CALL (slim): role/mode + modal state + incoming ring
@@ -161,11 +161,10 @@ export default function DashboardMessagesPage() {
       // Auto-focus the right thread so the banner appears in-context.
       setSelectedId((curr) => curr || conversationId);
       setIncoming({ conversationId, fromId, fromName: fromName || "Caller", mode: (mode || "audio") as CallMode });
-      // Why: make it obvious to the patient who is calling and from which thread.
-      try { if (document.visibilityState === "hidden") { /* best-effort: bring attention via title/notification if you add one later */ } } catch {}
+      try { if (document.visibilityState === "hidden") { /* optional: notify */ } } catch {}
     });
 
-    ch.on("broadcast", { event: "hangup" }, (/* p */) => {
+    ch.on("broadcast", { event: "hangup" }, () => {
       setIncoming(null);
       setCallOpen(false);
     });
@@ -312,7 +311,6 @@ export default function DashboardMessagesPage() {
 
   const acceptIncoming = useCallback(() => {
     if (!incoming) return;
-    // Ensure the correct thread is active for the call.
     if (incoming.conversationId && incoming.conversationId !== selectedId) setSelectedId(incoming.conversationId);
     setCallRole("callee");
     setCallMode(incoming.mode);
@@ -366,7 +364,7 @@ export default function DashboardMessagesPage() {
         {/* Sidebar */}
         <div className="min-h-0 rounded-xl border bg-white dark:bg-zinc-900 dark:border-zinc-800 flex flex-col">
           <div className="p-4 border-b dark:border-zinc-800">
-            <div className="flex items-center gap-2 mb-3">
+            <div className="mb-3 flex items-center gap-2">
               <MessageCircle className="h-5 w-5" />
               <div className="font-medium">Conversations</div>
               <div className="ml-auto flex gap-1">
@@ -375,12 +373,12 @@ export default function DashboardMessagesPage() {
               </div>
             </div>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input placeholder={sidebarTab === "convs" ? "Search conversations…" : "Search staff…"} className="pl-10" value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto divide-y dark:divide-zinc-800">
+          <div className="min-h-0 flex-1 divide-y overflow-y-auto dark:divide-zinc-800">
             {sidebarTab === "convs" ? (
               filteredConvs.map((c) => {
                 const s = staffDir.find((x) => x.user_id === c.provider_id);
@@ -391,7 +389,7 @@ export default function DashboardMessagesPage() {
                   <button
                     key={`conv-${c.id}`}
                     onClick={() => setSelectedId(c.id)}
-                    className={`w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900 flex items-center gap-3 border-l-4 ${active ? "border-cyan-500 bg-cyan-50/40 dark:bg-cyan-900/10" : "border-transparent"}`}
+                    className={`flex w-full items-center gap-3 border-l-4 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900 ${active ? "border-cyan-500 bg-cyan-50/40 dark:bg-cyan-900/10" : "border-transparent"}`}
                   >
                     <Avatar className="h-9 w-9">
                       <AvatarImage src={avatar} />
@@ -417,7 +415,7 @@ export default function DashboardMessagesPage() {
                   <button
                     key={`staff-${s.user_id}`}
                     onClick={() => ensureConversationWith(s.user_id)}
-                    className="w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900 flex items-center gap-3"
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-zinc-900"
                     title={`Chat with ${name}`}
                   >
                     <Avatar className="h-9 w-9">
@@ -443,7 +441,7 @@ export default function DashboardMessagesPage() {
         </div>
 
         {/* Thread */}
-        <div className="lg:col-span-2 min-h-0 rounded-xl border bg-white dark:bg-zinc-900 dark:border-zinc-800 flex flex-col">
+        <div className="lg:col-span-2 flex min-h-0 flex-col rounded-xl border bg-white dark:border-zinc-800 dark:bg-zinc-900">
           {!selectedId ? (
             <div className="flex flex-1 items-center justify-center">
               <div className="text-center text-gray-500">
@@ -453,7 +451,7 @@ export default function DashboardMessagesPage() {
             </div>
           ) : (
             <>
-              <div className="px-4 py-3 border-b dark:border-zinc-800 flex items-center gap-3">
+              <div className="flex items-center gap-3 border-b px-4 py-3 dark:border-zinc-800">
                 <Button variant="ghost" size="icon" onClick={() => setSelectedId(null)} className="rounded-full lg:hidden">
                   <ChevronLeft className="h-5 w-5" />
                 </Button>
@@ -485,7 +483,7 @@ export default function DashboardMessagesPage() {
                 </div>
               )}
 
-              <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-slate-50 to-white dark:from-zinc-900 dark:to-zinc-950">
+              <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-gradient-to-b from-slate-50 to-white p-4 dark:from-zinc-900 dark:to-zinc-950">
                 {msgs.map((m) => {
                   const own = m.sender_id === me?.id;
                   const bubble = own ? "bg-cyan-500 text-white rounded-2xl px-4 py-2 shadow-sm"
@@ -506,11 +504,11 @@ export default function DashboardMessagesPage() {
                     </div>
                   );
                 })}
-                {msgs.length === 0 && <div className="text-sm text-gray-500 text-center py-6">No messages yet.</div>}
+                {msgs.length === 0 && <div className="py-6 text-center text-sm text-gray-500">No messages yet.</div>}
               </div>
 
               {/* Sticky composer */}
-              <div className="border-t dark:border-zinc-800 p-3 sticky bottom-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur supports-[backdrop-filter]:bg-white/70">
+              <div className="sticky bottom-0 border-t bg-white/95 p-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95 supports-[backdrop-filter]:bg-white/70">
                 {draft && (
                   <div className="mx-1 mb-2 flex items-center gap-3 rounded-xl border bg-white p-2 pr-3 text-sm shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
                     <div className="max-h-20 max-w-[180px] overflow-hidden rounded-lg ring-1 ring-gray-200 dark:ring-zinc-700">
@@ -531,10 +529,14 @@ export default function DashboardMessagesPage() {
                     <Button type="button" variant="ghost" size="icon" onClick={takePhoto} className="rounded-full"><Camera className="h-5 w-5" /></Button>
                     <Button type="button" variant="ghost" size="icon" onClick={toggleRecord} className={`rounded-full ${recording ? "animate-pulse" : ""}`}><Mic className="h-5 w-5" /></Button>
                   </div>
-                  <Textarea placeholder="Type your message…" value={compose} onChange={(e) => setCompose(e.target.value)}
+                  <Textarea
+                    placeholder="Type your message…"
+                    value={compose}
+                    onChange={(e) => setCompose(e.target.value)}
                     className="min-h-[44px] max-h-[140px] flex-1 rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700"
-                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} />
-                  <Button onClick={send} disabled={!canSend} className="shrink-0 rounded-2xl h-11 px-4 shadow-md" aria-busy={sending}><Send className="h-4 w-4" /></Button>
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
+                  />
+                  <Button onClick={send} disabled={!canSend} className="h-11 shrink-0 rounded-2xl px-4 shadow-md" aria-busy={sending}><Send className="h-4 w-4" /></Button>
                 </div>
               </div>
             </>
@@ -552,7 +554,6 @@ export default function DashboardMessagesPage() {
           mode={callMode}
           meId={me.id}
           meName={me.name}
-          /* Better UX: show peer info in the dialog */
           peerName={providerInfo.name}
           peerAvatar={providerInfo.avatar}
         />
