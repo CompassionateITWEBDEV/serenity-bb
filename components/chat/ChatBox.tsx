@@ -30,7 +30,6 @@ import {
   Camera,
   Mic,
   CheckCheck,
-  X,
   Minimize2,
   Maximize2,
   PhoneOff,
@@ -40,7 +39,7 @@ import {
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
 
-// Calling (existing)
+// Calling
 import IncomingCallBanner from "@/components/call/IncomingCallBanner";
 import CallDialog, { type CallMode, type CallRole } from "@/components/call/CallDialog";
 import { userRingChannel, sendRing, sendHangupToUser } from "@/lib/webrtc/signaling";
@@ -160,16 +159,20 @@ function ChatBoxInner(props: {
   const [callMode, setCallMode] = useState<CallMode>("audio");
   const [incoming, setIncoming] = useState<{ conversationId: string; fromId: string; fromName: string; mode: CallMode } | null>(null);
 
-  // Floating call dock (mini window)
+  // Call UX helpers
   const [callDockVisible, setCallDockVisible] = useState(false);
   const [callDockMin, setCallDockMin] = useState(false);
   const [callStatus, setCallStatus] = useState<"ringing" | "connected" | "ended">("ringing");
+
+  const [placingCall, setPlacingCall] = useState(false); // FIX: single-flight guard
 
   const listRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+
+  const lastRingTsRef = useRef<number>(0); // FIX: dedup frequent 'ring' events
 
   const [draft, setDraft] = useState<{ blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string } | null>(null);
   useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
@@ -297,6 +300,7 @@ function ChatBoxInner(props: {
         const others = Object.entries(s).flatMap(([, v]: any) => v) as any[];
         setTyping(others.some((x) => x.status === "typing"));
         setThreadOtherPresent(others.some((x) => x.user_id && x.user_id !== me.id));
+        setPresenceLoading(false); // FIX: mark presence resolved
       })
       .on(
         "postgres_changes",
@@ -309,18 +313,6 @@ function ChatBoxInner(props: {
             ding();
             await markReadHelper(conversationId, me.role);
           }
-        }
-      )
-      .on(
-        "postgres_changes",
-        { schema: "public", table: "messages", event: "UPDATE", filter: `conversation_id=eq.${conversationId}` },
-        async () => {
-          const { data } = await supabase
-            .from("messages")
-            .select("*")
-            .eq("conversation_id", conversationId)
-            .order("created_at", { ascending: true });
-          setMsgs((data as MessageRow[]) ?? []);
         }
       )
       .subscribe();
@@ -355,9 +347,13 @@ function ChatBoxInner(props: {
     const ch = userRingChannel(me.id);
 
     ch.on("broadcast", { event: "ring" }, (p) => {
+      const now = Date.now();
+      if (now - lastRingTsRef.current < 2000) return; // FIX: dedup bursts
+      lastRingTsRef.current = now;
+
       const { conversationId: convId, fromId, fromName, mode } = (p.payload || {}) as any;
       if (!convId || !fromId) return;
-      if (conversationId && convId !== conversationId) return; // only show pop for open thread
+      if (conversationId && convId !== conversationId) return; // show only for this thread
       setIncoming({ conversationId: convId, fromId, fromName: fromName || "Caller", mode: (mode || "audio") as CallMode });
       setCallStatus("ringing");
       setCallDockVisible(true);
@@ -381,24 +377,47 @@ function ChatBoxInner(props: {
     };
   }, [me?.id, conversationId]);
 
+  // FIX: compute the actual peer user ID for routing SDP/ICE
   const peerUserId = useMemo(
     () => (mode === "staff" ? patientId : (providerId || "")),
     [mode, patientId, providerId]
   );
 
+  // Small helper to preflight media to avoid “glitch” from blocked permissions
+  const preflightMedia = useCallback(
+    async (m: CallMode) => {
+      const constraints: MediaStreamConstraints = {
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: m === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+      };
+      const s = await navigator.mediaDevices.getUserMedia(constraints);
+      s.getTracks().forEach((t) => t.stop());
+    },
+    []
+  );
+
   const beginCall = useCallback(
     async (m: CallMode) => {
-      const convId = await ensureConversation();
-      if (!me?.id || !peerUserId || !convId) return;
-      await sendRing(peerUserId, { conversationId: convId, fromId: me.id, fromName: me.name, mode: m });
-      setCallRole("caller");
-      setCallMode(m);
-      setCallOpen(true);
-      setCallDockVisible(true);
-      setCallDockMin(false);
-      setCallStatus("ringing");
+      if (placingCall) return; // FIX: ignore double clicks
+      setPlacingCall(true);
+      try {
+        await preflightMedia(m); // FIX: fail fast if blocked
+        const convId = await ensureConversation();
+        if (!me?.id || !peerUserId || !convId) return;
+        await sendRing(peerUserId, { conversationId: convId, fromId: me.id, fromName: me.name, mode: m });
+        setCallRole("caller");
+        setCallMode(m);
+        setCallOpen(true);
+        setCallDockVisible(true);
+        setCallDockMin(false);
+        setCallStatus("ringing");
+      } catch (e: any) {
+        alert(e?.message || "Could not start the call. Please allow microphone/camera.");
+      } finally {
+        setPlacingCall(false);
+      }
     },
-    [ensureConversation, me?.id, me?.name, peerUserId]
+    [placingCall, preflightMedia, ensureConversation, me?.id, me?.name, peerUserId]
   );
 
   const onAcceptIncoming = useCallback(() => {
@@ -611,7 +630,7 @@ function ChatBoxInner(props: {
               aria="Video call"
               onClick={() => (videoHref ? window.open(videoHref, "_blank") : beginCall("video"))}
             >
-              <Video className="h-5 w-5" />
+              <Video className={`h-5 w-5 ${placingCall ? "opacity-50 pointer-events-none" : ""}`} /> {/* FIX: disable while placing */}
             </IconButton>
             <IconButton aria="More">
               <MoreVertical className="h-5 w-5" />
@@ -706,7 +725,7 @@ function ChatBoxInner(props: {
         </div>
       </CardContent>
 
-      {/* Call dock (Messenger-style mini window) */}
+      {/* Call dock (mini window) */}
       {me && callDockVisible && (
         <CallDock
           minimized={callDockMin}
@@ -726,7 +745,7 @@ function ChatBoxInner(props: {
           open={callOpen}
           onOpenChange={(v) => {
             setCallOpen(v);
-            setCallDockVisible(v || !!incoming); // keep dock visible while dialog is open
+            setCallDockVisible(v || !!incoming);
             if (!v && !incoming) setCallStatus("connected");
           }}
           conversationId={conversationId}
@@ -734,6 +753,7 @@ function ChatBoxInner(props: {
           mode={callMode}
           meId={me.id}
           meName={me.name}
+          peerUserId={peerUserId}              /* FIX: pass the peer explicitly */
           peerName={mode === "staff" ? (patientName || "Patient") : (providerName || "Provider")}
           peerAvatar={(mode === "staff" ? patientAvatarUrl : providerAvatarUrl) ?? undefined}
         />
@@ -800,7 +820,6 @@ function ChatBoxInner(props: {
       : "";
     const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
     chunksRef.current = [];
-    const started = Date.now();
     rec.ondataavailable = (e) => {
       if (e.data?.size) chunksRef.current.push(e.data);
     };
@@ -810,7 +829,6 @@ function ChatBoxInner(props: {
       const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
       const previewUrl = URL.createObjectURL(blob);
       setDraft({ blob, type: "audio", name: "voice.webm", previewUrl });
-      void started;
     };
     mediaRecRef.current = rec;
     setRecording(true);
@@ -1032,7 +1050,6 @@ function CallDock(props: {
             <button
               type="button"
               className="rounded-md border px-2 py-1.5 text-sm hover:bg-gray-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-              // NOTE: placeholder for mute; actual mute handled inside CallDialog
               onClick={() => {}}
               title="Mute (use controls in the dialog)"
             >
