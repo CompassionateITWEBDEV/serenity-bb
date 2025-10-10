@@ -35,20 +35,12 @@ import {
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
 
-// Call system
+/* NEW: shared calling */
 import IncomingCallBanner from "@/components/call/IncomingCallBanner";
-import CallDialog, {
-  type CallMode,
-  type CallRole,
-} from "@/components/call/CallDialog";
-import {
-  userRingChannel,
-  sendRing,
-  sendHangupToUser,
-} from "@/lib/webrtc/signaling";
+import CallDialog, { type CallMode, type CallRole } from "@/components/call/CallDialog";
+import { userRingChannel, sendRing, sendHangupToUser } from "@/lib/webrtc/signaling";
 
-/* -------------------------------- Types -------------------------------- */
-
+/* ----------------------------- Types & settings ---------------------------- */
 type Provider = ProviderRole;
 
 type MessageMeta = {
@@ -81,10 +73,9 @@ type UiSettings = {
   sound?: boolean;
 };
 
-const CHAT_BUCKET =
-  process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET?.trim() || "chat";
+const CHAT_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET?.trim() || "chat";
 
-/* ------------------------------- Wrapper -------------------------------- */
+/* -------------------------------- Component -------------------------------- */
 
 export default function ChatBox(props: {
   mode: "staff" | "patient";
@@ -141,14 +132,8 @@ function ChatBoxInner(props: {
     conversationId: conversationIdProp,
   } = props;
 
-  const [conversationId, setConversationId] = useState<string | null>(
-    conversationIdProp ?? null
-  );
-  const [me, setMe] = useState<{
-    id: string;
-    name: string;
-    role: "patient" | Provider;
-  } | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(conversationIdProp ?? null);
+  const [me, setMe] = useState<{ id: string; name: string; role: "patient" | Provider } | null>(null);
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
   const [text, setText] = useState("");
   const [typing, setTyping] = useState(false);
@@ -157,26 +142,17 @@ function ChatBoxInner(props: {
   const [recording, setRecording] = useState<boolean>(false);
 
   const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
-  const [resolvedPatient, setResolvedPatient] = useState<{
-    name?: string;
-    email?: string;
-    avatar?: string | null;
-  } | null>(null);
+  const [resolvedPatient, setResolvedPatient] = useState<{ name?: string; email?: string; avatar?: string | null } | null>(null);
 
   const [dbOnline, setDbOnline] = useState<boolean>(false);
   const [rtOnline, setRtOnline] = useState<boolean>(false);
   const [presenceLoading, setPresenceLoading] = useState<boolean>(true);
 
-  // CALL
+  /* ---- CALL state ---- */
   const [callOpen, setCallOpen] = useState(false);
   const [callRole, setCallRole] = useState<CallRole>("caller");
   const [callMode, setCallMode] = useState<CallMode>("audio");
-  const [incoming, setIncoming] = useState<{
-    conversationId: string;
-    fromId: string;
-    fromName: string;
-    mode: CallMode;
-  } | null>(null);
+  const [incoming, setIncoming] = useState<{ conversationId: string; fromId: string; fromName: string; mode: CallMode } | null>(null);
 
   const listRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -184,62 +160,37 @@ function ChatBoxInner(props: {
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  const [draft, setDraft] = useState<{
-    blob: Blob;
-    type: "image" | "audio" | "file";
-    name?: string;
-    previewUrl: string;
-  } | null>(null);
-  useEffect(
-    () => () => {
-      if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
-    },
-    [draft?.previewUrl]
-  );
+  const [draft, setDraft] = useState<{ blob: Blob; type: "image" | "audio" | "file"; name?: string; previewUrl: string } | null>(null);
+  useEffect(() => () => { if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl); }, [draft?.previewUrl]);
 
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
     " px-4 py-2 " +
-    ((settings?.density ?? "comfortable") === "compact"
-      ? "text-sm"
-      : "text-[15px]");
+    ((settings?.density ?? "comfortable") === "compact" ? "text-sm" : "text-[15px]");
 
   const ding = useCallback(() => {
     if (!settings?.sound) return;
     try {
-      const ctx =
-        new (window.AudioContext ||
-          (window as any).webkitAudioContext)();
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const o = ctx.createOscillator();
       const g = ctx.createGain();
       o.type = "sine";
       o.frequency.value = 920;
       g.gain.value = 0.001;
-      o.connect(g);
-      g.connect(ctx.destination);
+      o.connect(g); g.connect(ctx.destination);
       o.start();
-      g.gain.exponentialRampToValueAtTime(
-        0.00001,
-        ctx.currentTime + 0.12
-      );
+      g.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.12);
       o.stop(ctx.currentTime + 0.12);
     } catch {}
   }, [settings?.sound]);
 
   const scrollToBottom = useCallback((smooth = false) => {
-    const el = listRef.current;
-    if (!el) return;
-    el.scrollTo({
-      top: el.scrollHeight,
-      behavior: smooth ? "smooth" : "auto",
-    });
+    const el = listRef.current; if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
-  // resolve conversation + me
-  useEffect(
-    () => setConversationId(conversationIdProp ?? null),
-    [conversationIdProp]
-  );
+  /* Resolve conversation + me */
+  useEffect(() => setConversationId(conversationIdProp ?? null), [conversationIdProp]);
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
@@ -247,12 +198,8 @@ function ChatBoxInner(props: {
       if (!uid) return;
 
       if (mode === "staff") {
-        const pid = props.providerId!;
-        setMe({
-          id: pid,
-          name: props.providerName || "Me",
-          role: props.providerRole!,
-        });
+        const pid = providerId!;
+        setMe({ id: pid, name: providerName || "Me", role: providerRole! });
 
         if (!conversationIdProp) {
           const { data: conv } = await supabase
@@ -266,29 +213,17 @@ function ChatBoxInner(props: {
             const { data: created, error: upErr } = await supabase
               .from("conversations")
               .upsert(
-                {
-                  patient_id: patientId,
-                  provider_id: pid,
-                  provider_name: props.providerName ?? null,
-                  provider_role: props.providerRole ?? null,
-                },
+                { patient_id: patientId, provider_id: pid, provider_name: providerName ?? null, provider_role: providerRole ?? null },
                 { onConflict: "patient_id,provider_id" }
               )
               .select("id")
               .single();
-            if (upErr) {
-              alert(`Failed to ensure conversation.\n\n${upErr.message}`);
-              return;
-            }
+            if (upErr) { alert(`Failed to ensure conversation.\n\n${upErr.message}`); return; }
             setConversationId(created!.id);
           }
         }
       } else {
-        setMe({
-          id: uid,
-          name: au.user?.email || "Me",
-          role: "patient",
-        });
+        setMe({ id: uid, name: au.user?.email || "Me", role: "patient" });
         if (!conversationIdProp) {
           const { data: conv } = await supabase
             .from("conversations")
@@ -300,16 +235,9 @@ function ChatBoxInner(props: {
         }
       }
     })();
-  }, [
-    mode,
-    patientId,
-    providerId,
-    props.providerName,
-    props.providerRole,
-    conversationIdProp,
-  ]);
+  }, [mode, patientId, providerId, providerName, providerRole, conversationIdProp]);
 
-  // initial load
+  /* Initial load */
   useLayoutEffect(() => {
     if (!conversationId || !me) return;
     (async () => {
@@ -318,81 +246,45 @@ function ChatBoxInner(props: {
         .select("*")
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
-      if (error) {
-        alert(`Failed to load messages.\n\n${error.message}`);
-        return;
-      }
+      if (error) { alert(`Failed to load messages.\n\n${error.message}`); return; }
       setMsgs((data as MessageRow[]) ?? []);
       scrollToBottom(false);
       await markReadHelper(conversationId, me.role);
     })();
   }, [conversationId, me, scrollToBottom]);
 
-  // live updates + typing
+  /* Live updates + typing */
   useEffect(() => {
     if (!conversationId || !me) return;
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-      channelRef.current = null;
-    }
+    if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
 
     const ch = supabase
-      .channel(`thread_${conversationId}`, {
-        config: { presence: { key: me.id } },
-      })
+      .channel(`thread_${conversationId}`, { config: { presence: { key: me.id } } })
       .on("presence", { event: "sync" }, () => {
-        const s = ch.presenceState();
-        const others = Object.entries(s).flatMap(([, v]: any) => v) as any[];
+        const s = ch.presenceState(); const others = Object.entries(s).flatMap(([, v]: any) => v) as any[];
         setTyping(others.some((x) => x.status === "typing"));
-        setThreadOtherPresent(
-          others.some((x) => x.user_id && x.user_id !== me.id)
-        );
+        setThreadOtherPresent(others.some((x) => x.user_id && x.user_id !== me.id));
       })
-      .on(
-        "postgres_changes",
-        {
-          schema: "public",
-          table: "messages",
-          event: "INSERT",
-          filter: `conversation_id=eq.${conversationId}`,
-        },
+      .on("postgres_changes",
+        { schema: "public", table: "messages", event: "INSERT", filter: `conversation_id=eq.${conversationId}` },
         async (p) => {
           const row = p.new as MessageRow;
           setMsgs((prev) => (prev.some((x) => x.id === row.id) ? prev : [...prev, row]));
           scrollToBottom(true);
-          if (row.sender_id !== me.id) {
-            ding();
-            await markReadHelper(conversationId, me.role);
-          }
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          schema: "public",
-          table: "messages",
-          event: "UPDATE",
-          filter: `conversation_id=eq.${conversationId}`,
-        },
+          if (row.sender_id !== me.id) { ding(); await markReadHelper(conversationId, me.role); }
+        })
+      .on("postgres_changes",
+        { schema: "public", table: "messages", event: "UPDATE", filter: `conversation_id=eq.${conversationId}` },
         async () => {
-          const { data } = await supabase
-            .from("messages")
-            .select("*")
-            .eq("conversation_id", conversationId)
-            .order("created_at", { ascending: true });
+          const { data } = await supabase.from("messages").select("*").eq("conversation_id", conversationId).order("created_at", { ascending: true });
           setMsgs((data as MessageRow[]) ?? []);
-        }
-      )
+        })
       .subscribe();
 
     channelRef.current = ch;
 
     const refetch = async () => {
-      const { data } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true });
+      const { data } = await supabase.from("messages").select("*").eq("conversation_id", conversationId).order("created_at", { ascending: true });
       setMsgs((data as MessageRow[]) ?? []);
       await markReadHelper(conversationId, me.role);
     };
@@ -401,236 +293,43 @@ function ChatBoxInner(props: {
     return () => {
       window.removeEventListener("focus", refetch);
       window.removeEventListener("online", refetch);
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
+      if (channelRef.current) { supabase.removeChannel(channelRef.current); channelRef.current = null; }
     };
   }, [conversationId, me, ding, scrollToBottom]);
 
-  // typing beacon
-  useEffect(() => {
-    if (!channelRef.current || !me) return;
-    const ch = channelRef.current;
-    const t = setInterval(() => {
-      ch.track({ user_id: me.id, status: text ? "typing" : "idle" });
-    }, 1500);
-    ch.track({ user_id: me.id, status: text ? "typing" : "idle" });
-    return () => clearInterval(t);
-  }, [text, me]);
+  /* ---------------------------- CALL: ring/accept/decline ---------------------------- */
 
-  // patient presence heartbeat
-  useEffect(() => {
-    if (mode !== "patient") return;
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      const uid = data.user?.id;
-      if (!uid) return;
-      const beat = async () => {
-        try {
-          await supabase.rpc("patient_heartbeat");
-        } catch {}
-      };
-      await beat();
-      const fast = setInterval(beat, 1000);
-      setTimeout(() => clearInterval(fast), 2200);
-      const slow = setInterval(beat, 10000);
-      const ch = supabase.channel(`online:${uid}`, {
-        config: { presence: { key: uid } },
-      });
-      ch.subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          const ping = () => ch.track({ online: true, at: Date.now() });
-          ping();
-          setTimeout(ping, 600);
-        }
-      });
-      const onFocus = () => {
-        void beat();
-        try {
-          ch.track({ online: true, at: Date.now() });
-        } catch {}
-      };
-      const onVis = () => {
-        if (document.visibilityState === "visible") onFocus();
-      };
-      window.addEventListener("focus", onFocus);
-      document.addEventListener("visibilitychange", onVis);
-      return () => {
-        clearInterval(slow);
-        try {
-          supabase.removeChannel(ch);
-        } catch {}
-        window.removeEventListener("focus", onFocus);
-        document.removeEventListener("visibilitychange", onVis);
-      };
-    })();
-  }, [mode]);
-
-  // staff presence view
-  useEffect(() => {
-    if (mode !== "staff" || !patientId) return;
-    let cancelled = false;
-    setPresenceLoading(true);
-    const fetchOnce = async () => {
-      try {
-        const { data } = await supabase
-          .from("v_patient_online")
-          .select("online,last_seen")
-          .eq("user_id", patientId)
-          .maybeSingle();
-        if (!cancelled && data) setDbOnline(!!data.online);
-      } catch {}
-    };
-    const dbCh = supabase
-      .channel(`presence_db_${patientId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "patient_presence",
-          filter: `user_id=eq.${patientId}`,
-        },
-        (p) => {
-          const last = new Date(p.new.last_seen as string).getTime();
-          setDbOnline(Date.now() - last < 15000);
-          setPresenceLoading(false);
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "patient_presence",
-          filter: `user_id=eq.${patientId}`,
-        },
-        (p) => {
-          const last = new Date(p.new.last_seen as string).getTime();
-          setDbOnline(Date.now() - last < 15000);
-          setPresenceLoading(false);
-        }
-      )
-      .subscribe();
-    const staffKey = `staff-${crypto.randomUUID()}`;
-    const rtCh = supabase.channel(`online:${patientId}`, {
-      config: { presence: { key: staffKey } },
-    });
-    const computeRtOnline = () => {
-      const state = rtCh.presenceState() as Record<string, any[]>;
-      const entries = state[patientId] || [];
-      return Array.isArray(entries) && entries.length > 0;
-    };
-    const updateRt = () => {
-      setRtOnline(computeRtOnline());
-      setPresenceLoading(false);
-    };
-    rtCh
-      .on("presence", { event: "sync" }, updateRt)
-      .on("presence", { event: "join" }, updateRt)
-      .on("presence", { event: "leave" }, updateRt)
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          try {
-            await rtCh.track({ observer: true, at: Date.now() });
-          } catch {}
-          updateRt();
-          setTimeout(updateRt, 700);
-        }
-      });
-    void fetchOnce();
-    const t1 = setTimeout(fetchOnce, 600);
-    const refetchPresence = () => {
-      void fetchOnce();
-      updateRt();
-    };
-    const onVis = () => {
-      if (document.visibilityState === "visible") refetchPresence();
-    };
-    window.addEventListener("focus", refetchPresence);
-    window.addEventListener("online", refetchPresence);
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      cancelled = true;
-      clearTimeout(t1);
-      try {
-        supabase.removeChannel(dbCh);
-      } catch {}
-      try {
-        supabase.removeChannel(rtCh);
-      } catch {}
-      window.removeEventListener("focus", refetchPresence);
-      window.removeEventListener("online", refetchPresence);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [mode, patientId]);
-
-  // derived
-  const canSend = useMemo(
-    () => (!!text.trim() || !!draft) && !!me && !!conversationId,
-    [text, me, conversationId, draft]
-  );
-  const isOnline =
-    mode === "staff" ? dbOnline || rtOnline || threadOtherPresent : false;
-  const otherName =
-    mode === "staff"
-      ? resolvedPatient?.name ||
-        patientName ||
-        resolvedPatient?.email ||
-        "Patient"
-      : providerName || "Provider";
-  const otherAvatar =
-    mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
-
-  // --- CALL wiring
-  const chatMode = mode;
   useEffect(() => {
     if (!me?.id) return;
     const ch = userRingChannel(me.id);
+
     ch.on("broadcast", { event: "ring" }, (p) => {
-      const { conversationId: convId, fromId, fromName, mode: m } =
-        (p.payload || {}) as any;
+      const { conversationId: convId, fromId, fromName, mode } = (p.payload || {}) as any;
       if (!convId || !fromId) return;
-      if (!conversationId || convId !== conversationId) return; // ignore other threads
-      setIncoming({
-        conversationId: convId,
-        fromId,
-        fromName: fromName || "Caller",
-        mode: (m || "audio") as CallMode,
-      });
+      if (conversationId && convId !== conversationId) return; // only show for the open thread (staff ChatBox for that patient)
+      setIncoming({ conversationId: convId, fromId, fromName: fromName || "Caller", mode: (mode || "audio") as CallMode });
     });
+
     ch.on("broadcast", { event: "hangup" }, (p) => {
       const { conversationId: convId } = (p.payload || {}) as any;
       if (convId && conversationId && convId !== conversationId) return;
       setIncoming(null);
       setCallOpen(false);
     });
+
     ch.subscribe();
-    return () => {
-      try {
-        supabase.removeChannel(ch);
-      } catch {}
-    };
+    return () => { try { supabase.removeChannel(ch); } catch {} };
   }, [me?.id, conversationId]);
 
-  const onStartCall = useCallback(
-    async (m: CallMode) => {
-      if (!conversationId || !me?.id) return;
-      const peerId = chatMode === "staff" ? patientId : (providerId || "");
-      if (!peerId) return;
-      await sendRing(peerId, {
-        conversationId,
-        fromId: me.id,
-        fromName: me.name,
-        mode: m,
-      });
-      setCallRole("caller");
-      setCallMode(m);
-      setCallOpen(true);
-    },
-    [conversationId, me?.id, me?.name, chatMode, patientId, providerId]
-  );
+  const onStartCall = useCallback(async (m: CallMode) => {
+    if (!conversationId || !me?.id) return;
+    const peerId = mode === "staff" ? patientId : (providerId || "");
+    if (!peerId) return;
+    await sendRing(peerId, { conversationId, fromId: me.id, fromName: me.name, mode: m });
+    setCallRole("caller");
+    setCallMode(m);
+    setCallOpen(true);
+  }, [conversationId, me?.id, me?.name, mode, patientId, providerId]);
 
   const onAcceptIncoming = useCallback(() => {
     if (!incoming || !me) return;
@@ -646,12 +345,9 @@ function ChatBoxInner(props: {
     setIncoming(null);
   }, [incoming]);
 
-  // DB insert
-  async function insertMessage(payload: {
-    content: string;
-    attachment_url?: string | null;
-    attachment_type?: "image" | "audio" | "file" | null;
-  }) {
+  /* --------------------------------- send ops --------------------------------- */
+
+  async function insertMessage(payload: { content: string; attachment_url?: string | null; attachment_type?: "image" | "audio" | "file" | null; }) {
     if (!me || !conversationId) return;
     const optimistic: MessageRow = {
       id: `tmp-${crypto.randomUUID()}`,
@@ -684,34 +380,26 @@ function ChatBoxInner(props: {
     });
     if (error) {
       setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
-      throw error;
+      alert(`Failed to send.\n\n${error.message}`);
     }
   }
 
-  // upload
   async function uploadToChat(fileOrBlob: Blob, fileName?: string) {
     if (!conversationId || !me) throw new Error("Missing conversation");
     const detected = (fileOrBlob as File).type || (fileOrBlob as any).type || "";
     const extFromName = (fileName || "").split(".").pop() || "";
-    const ext =
-      extFromName ||
-      (detected.startsWith("image/") ? detected.split("/")[1] : detected ? "webm" : "bin");
+    const ext = extFromName || (detected.startsWith("image/") ? detected.split("/")[1] : detected ? "webm" : "bin");
     const path = `${conversationId}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
-    const { error: upErr } = await supabase.storage
-      .from(CHAT_BUCKET)
-      .upload(path, fileOrBlob, {
-        contentType: detected || "application/octet-stream",
-        upsert: false,
-      });
+    const { error: upErr } = await supabase.storage.from(CHAT_BUCKET).upload(path, fileOrBlob, { contentType: detected || "application/octet-stream", upsert: false });
     if (upErr) {
-      if (/not found/i.test(upErr.message))
-        throw new Error(`Bucket "${CHAT_BUCKET}" not found.`);
+      if (/not found/i.test(upErr.message)) throw new Error(`Bucket "${CHAT_BUCKET}" not found.`);
       throw upErr;
     }
     return path;
   }
 
-  // send
+  const canSend = useMemo(() => (!!text.trim() || !!draft) && !!me && !!conversationId, [text, me, conversationId, draft]);
+
   const send = useCallback(async () => {
     if (!canSend) return;
     const contentText = text.trim();
@@ -721,20 +409,10 @@ function ChatBoxInner(props: {
         setUploading({ label: "Sending…" });
         const storagePath = await uploadToChat(
           draft.blob,
-          draft.name ||
-            (draft.type === "image"
-              ? "image.jpg"
-              : draft.type === "audio"
-              ? "voice.webm"
-              : "file.bin")
+          draft.name || (draft.type === "image" ? "image.jpg" : draft.type === "audio" ? "voice.webm" : "file.bin")
         );
-        const content =
-          draft.type === "audio" ? contentText || "(voice note)" : contentText;
-        await insertMessage({
-          content: content || "",
-          attachment_url: storagePath,
-          attachment_type: draft.type,
-        });
+        const content = draft.type === "audio" ? contentText || "(voice note)" : contentText;
+        await insertMessage({ content: content || "", attachment_url: storagePath, attachment_type: draft.type });
         if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
         setDraft(null);
         setUploading(null);
@@ -747,160 +425,20 @@ function ChatBoxInner(props: {
     }
   }, [canSend, text, draft]);
 
-  // pick/capture/record
-  function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !me || !conversationId) return;
-    if (file.size > 10 * 1024 * 1024) {
-      alert("File too large (max 10 MB).");
-      return;
-    }
-    const previewUrl = URL.createObjectURL(file);
-    const kind: "image" | "audio" | "file" = file.type.startsWith("image/")
-      ? "image"
-      : file.type.startsWith("audio/")
-      ? "audio"
-      : "file";
-    setDraft({ blob: file, type: kind, name: file.name, previewUrl });
-  }
-  async function takePhoto() {
-    if (!me || !conversationId) return;
-    let stream: MediaStream | null = null;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      const video = document.createElement("video");
-      video.srcObject = stream as any;
-      await video.play();
-      const canvas = document.createElement("canvas");
-      canvas.width = (video as any).videoWidth || 640;
-      canvas.height = (video as any).videoHeight || 480;
-      const ctx = canvas.getContext("2d")!;
-      ctx.drawImage(video, 0, 0);
-      const blob = await new Promise<Blob>((res, rej) =>
-        canvas.toBlob(
-          (b) => (b ? res(b) : rej(new Error("No photo"))),
-          "image/jpeg",
-          0.9
-        )!
-      );
-      const previewUrl = URL.createObjectURL(blob);
-      setDraft({ blob, type: "image", name: "photo.jpg", previewUrl });
-    } catch (e: any) {
-      alert(`Camera error.\n\n${e?.message ?? ""}`);
-    } finally {
-      stream?.getTracks().forEach((t) => t.stop());
-    }
-  }
-  async function toggleRecord() {
-    if (recording) {
-      mediaRecRef.current?.stop();
-      return;
-    }
-    if (!me || !conversationId) return;
-    if (typeof window.MediaRecorder === "undefined") {
-      alert("Voice recording isn’t supported by this browser.");
-      return;
-    }
-    let stream: MediaStream | null = null;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      alert("Microphone permission denied.");
-      return;
-    }
-    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus"
-      : MediaRecorder.isTypeSupported("audio/webm")
-      ? "audio/webm"
-      : "";
-    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    chunksRef.current = [];
-    rec.ondataavailable = (e) => {
-      if (e.data?.size) chunksRef.current.push(e.data);
-    };
-    rec.onstop = () => {
-      stream?.getTracks().forEach((t) => t.stop());
-      setRecording(false);
-      const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
-      const previewUrl = URL.createObjectURL(blob);
-      setDraft({ blob, type: "audio", name: "voice.webm", previewUrl });
-    };
-    mediaRecRef.current = rec;
-    setRecording(true);
-    rec.start();
-  }
+  /* --------------------------------- UI --------------------------------- */
 
-  // paste -> image
-  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const file = Array.from(e.clipboardData.files || [])[0];
-    if (file && file.type.startsWith("image/")) {
-      e.preventDefault();
-      if (file.size > 10 * 1024 * 1024) {
-        alert("File too large (max 10 MB).");
-        return;
-      }
-      const url = URL.createObjectURL(file);
-      setDraft({
-        blob: file,
-        type: "image",
-        name: file.name || "pasted.jpg",
-        previewUrl: url,
-      });
-    }
-  };
-
-  function shouldShowPlainContent(content?: string | null) {
-    const t = (content ?? "").trim().toLowerCase();
-    return !!t && t !== "(image)" && t !== "(photo)" && t !== "(voice note)";
-  }
-  function extractImageUrlFromContent(content?: string | null) {
-    if (!content) return null;
-    try {
-      const maybe = JSON.parse(content);
-      if (
-        maybe &&
-        typeof maybe === "object" &&
-        (maybe as any).type === "image" &&
-        typeof (maybe as any).url === "string"
-      )
-        return (maybe as any).url as string;
-    } catch {}
-    const match = content.match(
-      /https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp|heic|svg)(?:\?\S*)?/i
-    );
-    return match?.[0] ?? null;
-  }
-  function isHttp(u?: string | null) {
-    return !!u && /^https?:\/\//i.test(u);
-  }
-
-  async function toUrlFromPath(path: string) {
-    try {
-      const { data } = await supabase.storage
-        .from(CHAT_BUCKET)
-        .createSignedUrl(path, 60 * 60 * 24);
-      if (data?.signedUrl) return data.signedUrl;
-    } catch {}
-    try {
-      const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
-      return pub?.data?.publicUrl ?? null;
-    } catch {
-      return null;
-    }
-  }
+  const isOnline = mode === "staff" ? dbOnline || rtOnline || threadOtherPresent : false;
+  const otherName = mode === "staff" ? resolvedPatient?.name || patientName || resolvedPatient?.email || "Patient" : providerName || "Provider";
+  const otherAvatar = mode === "staff" ? resolvedPatient?.avatar ?? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
 
   return (
     <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
       <CardContent className="flex h-full flex-col p-0">
+        {/* Header */}
         <div className="flex items-center gap-3 border-b bg-white/80 px-3 py-2 backdrop-blur dark:bg-zinc-900/70">
           <div className="flex items-center gap-2">
             {onBack && (
-              <button
-                className="rounded-full p-2 hover:bg-gray-100 dark:hover:bg-zinc-800"
-                onClick={onBack}
-                aria-label="Back"
-              >
+              <button className="rounded-full p-2 hover:bg-gray-100 dark:hover:bg-zinc-800" onClick={onBack} aria-label="Back">
                 <ArrowLeft className="h-5 w-5" />
               </button>
             )}
@@ -915,11 +453,7 @@ function ChatBoxInner(props: {
               {mode === "staff" && (
                 <span
                   className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${
-                    presenceLoading
-                      ? "bg-yellow-400"
-                      : isOnline
-                      ? "bg-emerald-500"
-                      : "bg-gray-400"
+                    presenceLoading ? "bg-yellow-400" : isOnline ? "bg-emerald-500" : "bg-gray-400"
                   }`}
                 />
               )}
@@ -935,16 +469,8 @@ function ChatBoxInner(props: {
                     </>
                   ) : (
                     <>
-                      <span
-                        className={`inline-block h-2 w-2 rounded-full ${
-                          isOnline ? "bg-emerald-500" : "bg-gray-400"
-                        }`}
-                      />
-                      <span
-                        className={isOnline ? "text-emerald-600" : "text-gray-500"}
-                      >
-                        {isOnline ? "Online" : "Offline"}
-                      </span>
+                      <span className={`inline-block h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-gray-400"}`} />
+                      <span className={isOnline ? "text-emerald-600" : "text-gray-500"}>{isOnline ? "Online" : "Offline"}</span>
                     </>
                   )
                 ) : (
@@ -955,20 +481,10 @@ function ChatBoxInner(props: {
           </div>
 
           <div className="ml-auto flex items-center gap-1">
-            <IconButton
-              aria="Voice call"
-              onClick={() =>
-                phoneHref ? window.open(phoneHref, "_blank") : onStartCall("audio")
-              }
-            >
+            <IconButton aria="Voice call" onClick={() => (phoneHref ? window.open(phoneHref, "_blank") : onStartCall("audio"))}>
               <Phone className="h-5 w-5" />
             </IconButton>
-            <IconButton
-              aria="Video call"
-              onClick={() =>
-                videoHref ? window.open(videoHref, "_blank") : onStartCall("video")
-              }
-            >
+            <IconButton aria="Video call" onClick={() => (videoHref ? window.open(videoHref, "_blank") : onStartCall("video"))}>
               <Video className="h-5 w-5" />
             </IconButton>
             <IconButton aria="More">
@@ -977,10 +493,8 @@ function ChatBoxInner(props: {
           </div>
         </div>
 
-        <div
-          ref={listRef}
-          className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 to-white p-4 dark:from-zinc-900 dark:to-zinc-950"
-        >
+        {/* Messages */}
+        <div ref={listRef} className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 to-white p-4 dark:from-zinc-900 dark:to-zinc-950">
           <div className="mx-auto max-w-xl space-y-3">
             {msgs.map((m) => {
               const own = m.sender_id === me?.id;
@@ -998,46 +512,21 @@ function ChatBoxInner(props: {
               );
             })}
             {typing && <div className="px-1 text-xs text-gray-500">…typing</div>}
-            {msgs.length === 0 && (
-              <div className="py-10 text-center text-sm text-gray-500">
-                No messages yet. Say hello 👋
-              </div>
-            )}
+            {msgs.length === 0 && <div className="py-10 text-center text-sm text-gray-500">No messages yet. Say hello 👋</div>}
           </div>
         </div>
 
-        {draft && (
-          <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2">
-            <div className="flex items-center gap-2 rounded-xl border bg-white px-2 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-800">
-              <div className="max-h-16 max-w-[160px] overflow-hidden rounded-md ring-1 ring-gray-200 dark:ring-zinc-700">
-                {draft.type === "image" && (
-                  <img
-                    src={draft.previewUrl}
-                    alt="preview"
-                    className="h-16 w-auto object-cover"
-                  />
-                )}
-                {draft.type === "audio" && (
-                  <audio controls src={draft.previewUrl} className="h-10 w-[160px]" />
-                )}
-                {draft.type === "file" && (
-                  <div className="px-2 py-3">📎 {draft.name || "file"}</div>
-                )}
-              </div>
-              <button
-                className="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-zinc-700"
-                onClick={() => {
-                  if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
-                  setDraft(null);
-                }}
-                aria-label="Remove attachment"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
+        {/* Incoming call banner (patient→staff pop-up) */}
+        {incoming && (
+          <IncomingCallBanner
+            callerName={incoming.fromName}
+            mode={incoming.mode}
+            onAccept={onAcceptIncoming}
+            onDecline={onDeclineIncoming}
+          />
         )}
 
+        {/* Composer */}
         <div className="border-t bg-white/80 px-3 py-2 backdrop-blur dark:bg-zinc-900/70">
           <div className="mx-auto flex max-w-xl items-end gap-2">
             <div className="flex shrink-0 items-center gap-1">
@@ -1048,9 +537,7 @@ function ChatBoxInner(props: {
                   </IconButton>
                 </DialogTrigger>
                 <DialogContent className="max-w-sm">
-                  <DialogHeader>
-                    <DialogTitle>Pick an emoji</DialogTitle>
-                  </DialogHeader>
+                  <DialogHeader><DialogTitle>Pick an emoji</DialogTitle></DialogHeader>
                   <EmojiGrid onPick={(e) => setText((v) => v + e)} />
                 </DialogContent>
               </Dialog>
@@ -1058,19 +545,9 @@ function ChatBoxInner(props: {
               <IconButton aria="Attach image" onClick={() => fileInputRef.current?.click()}>
                 <ImageIcon className="h-5 w-5" />
               </IconButton>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,audio/*"
-                hidden
-                onChange={onPickFile}
-              />
-              <IconButton aria="Camera" onClick={takePhoto}>
-                <Camera className="h-5 w-5" />
-              </IconButton>
-              <IconButton aria="Voice note" onClick={toggleRecord}>
-                <Mic className={`h-5 w-5 ${recording ? "animate-pulse" : ""}`} />
-              </IconButton>
+              <input ref={fileInputRef} type="file" accept="image/*,audio/*" hidden onChange={onPickFile} />
+              <IconButton aria="Camera" onClick={takePhoto}><Camera className="h-5 w-5" /></IconButton>
+              <IconButton aria="Voice note" onClick={toggleRecord}><Mic className={`h-5 w-5 ${recording ? "animate-pulse" : ""}`} /></IconButton>
             </div>
 
             <Textarea
@@ -1078,39 +555,20 @@ function ChatBoxInner(props: {
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
                 const enterToSend = settings?.enterToSend ?? true;
-                if (e.key === "Enter" && !e.shiftKey && enterToSend) {
-                  e.preventDefault();
-                  void send();
-                }
+                if (e.key === "Enter" && !e.shiftKey && enterToSend) { e.preventDefault(); void send(); }
               }}
               onPaste={onPaste}
               placeholder="Type your message…"
-              className={`min-h=[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${
-                settings?.density === "compact" ? "text-sm" : ""
-              }`}
+              className={`min-h=[46px] max-h-[140px] flex-1 resize-none rounded-2xl bg-slate-50 px-4 py-3 shadow-inner ring-1 ring-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-500 dark:bg-zinc-800 dark:ring-zinc-700 ${settings?.density === "compact" ? "text-sm" : ""}`}
             />
-
-            <Button
-              disabled={!canSend}
-              onClick={send}
-              className="h-11 rounded-2xl px-4 shadow-md"
-              aria-busy={!!uploading}
-            >
+            <Button disabled={!canSend} onClick={send} className="h-11 rounded-2xl px-4 shadow-md" aria-busy={!!uploading}>
               <Send className="h-4 w-4" />
             </Button>
           </div>
         </div>
-
-        {incoming && (
-          <IncomingCallBanner
-            callerName={incoming.fromName}
-            mode={incoming.mode}
-            onAccept={onAcceptIncoming}
-            onDecline={onDeclineIncoming}
-          />
-        )}
       </CardContent>
 
+      {/* Shared CallDialog (opens for both caller/callee) */}
       {conversationId && me && (
         <CallDialog
           open={callOpen}
@@ -1120,32 +578,19 @@ function ChatBoxInner(props: {
           mode={callMode}
           meId={me.id}
           meName={me.name}
-          peerName={otherName}
-          peerAvatar={otherAvatar ?? undefined}
+          peerName={mode === "staff" ? (patientName || "Patient") : (providerName || "Provider")}
+          peerAvatar={(mode === "staff" ? patientAvatarUrl : providerAvatarUrl) ?? undefined}
         />
       )}
     </Card>
   );
 }
 
-/* ------------------------------ Small helpers ------------------------------ */
+/* ------------------------------ helpers ------------------------------ */
 
-function IconButton({
-  children,
-  aria,
-  onClick,
-}: {
-  children: React.ReactNode;
-  aria: string;
-  onClick?: () => void;
-}) {
+function IconButton({ children, aria, onClick }: { children: React.ReactNode; aria: string; onClick?: () => void }) {
   return (
-    <button
-      type="button"
-      aria-label={aria}
-      onClick={onClick}
-      className="rounded-full p-2 hover:bg-gray-100 active:scale-95 dark:hover:bg-zinc-800"
-    >
+    <button type="button" aria-label={aria} onClick={onClick} className="rounded-full p-2 hover:bg-gray-100 active:scale-95 dark:hover:bg-zinc-800">
       {children}
     </button>
   );
@@ -1165,12 +610,7 @@ function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
           <p className="mb-2 text-xs font-medium text-gray-500">{label}</p>
           <div className="grid grid-cols-10 gap-2">
             {list.map((e) => (
-              <button
-                key={e}
-                onClick={() => onPick(e)}
-                className="rounded-md border p-2 text-xl hover:bg-gray-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-                aria-label={`Insert ${e}`}
-              >
+              <button key={e} onClick={() => onPick(e)} className="rounded-md border p-2 text-xl hover:bg-gray-50 dark:border-zinc-700 dark:hover:bg-zinc-900" aria-label={`Insert ${e}`}>
                 {e}
               </button>
             ))}
@@ -1181,6 +621,7 @@ function EmojiGrid({ onPick }: { onPick: (emoji: string) => void }) {
   );
 }
 
+/** Message bubble: resolves storage paths to usable URLs (all types). */
 function MessageBubble({
   m,
   own,
@@ -1208,52 +649,26 @@ function MessageBubble({
     let cancelled = false;
     (async () => {
       if (m.meta?.image_path) {
-        const url = isHttp(m.meta.image_path)
-          ? m.meta.image_path
-          : await toUrlFromPath(m.meta.image_path);
-        if (!cancelled) setAttUrl(url);
-        return;
+        const url = isHttp(m.meta.image_path) ? m.meta.image_path : await toUrlFromPath(m.meta.image_path);
+        if (!cancelled) setAttUrl(url); return;
       }
       if (m.meta?.audio_path) {
-        const url = isHttp(m.meta.audio_path)
-          ? m.meta.audio_path
-          : await toUrlFromPath(m.meta.audio_path);
-        if (!cancelled) setAttUrl(url);
-        return;
+        const url = isHttp(m.meta.audio_path) ? m.meta.audio_path : await toUrlFromPath(m.meta.audio_path);
+        if (!cancelled) setAttUrl(url); return;
       }
-
       if (m.attachment_url) {
-        if (isHttp(m.attachment_url)) {
-          if (!cancelled) setAttUrl(m.attachment_url);
-        } else {
-          const url = await toUrlFromPath(m.attachment_url);
-          if (!cancelled) setAttUrl(url);
-        }
+        if (isHttp(m.attachment_url)) { if (!cancelled) setAttUrl(m.attachment_url); }
+        else { const url = await toUrlFromPath(m.attachment_url); if (!cancelled) setAttUrl(url); }
         return;
       }
-
       const fromContent = extractImageUrlFromContent(m.content);
       if (!cancelled) setAttUrl(fromContent || null);
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    m.id,
-    m.meta?.image_path,
-    m.meta?.audio_path,
-    m.attachment_type,
-    m.attachment_url,
-    m.content,
-    isHttp,
-    toUrlFromPath,
-    extractImageUrlFromContent,
-  ]);
+    return () => { cancelled = true; };
+  }, [m.id, m.meta?.image_path, m.meta?.audio_path, m.attachment_type, m.attachment_url, m.content, isHttp, toUrlFromPath, extractImageUrlFromContent]);
 
   const showText = shouldShowPlainContent(m.content);
-
-  const mediaKind: "image" | "audio" | "file" | null =
-    m.meta?.image_path ? "image" : m.meta?.audio_path ? "audio" : m.attachment_type ?? null;
+  const mediaKind: "image" | "audio" | "file" | null = m.meta?.image_path ? "image" : m.meta?.audio_path ? "audio" : m.attachment_type ?? null;
 
   return (
     <div className={`flex items-end gap-2 ${own ? "justify-end" : "justify-start"}`}>
@@ -1265,29 +680,12 @@ function MessageBubble({
         </div>
       )}
       <div className={`max-w-[82%] sm:max-w-[70%] ${bubble}`}>
-        {mediaKind === "image" && attUrl && (
-          <img
-            src={attUrl}
-            alt="image"
-            className="mb-2 max-h-64 w-full rounded-xl object-cover"
-            onError={() => setAttUrl(null)}
-          />
-        )}
-        {mediaKind === "audio" && attUrl && (
-          <audio className="mb-2 w-full" controls src={attUrl} onError={() => setAttUrl(null)} />
-        )}
-        {mediaKind === "file" && attUrl && (
-          <a className="mb-2 block underline" href={attUrl} target="_blank" rel="noreferrer">
-            Download file
-          </a>
-        )}
-
+        {mediaKind === "image" && attUrl && <img src={attUrl} alt="image" className="mb-2 max-h-64 w-full rounded-xl object-cover" onError={() => setAttUrl(null)} />}
+        {mediaKind === "audio" && attUrl && <audio className="mb-2 w-full" controls src={attUrl} onError={() => setAttUrl(null)} />}
+        {mediaKind === "file"  && attUrl && <a className="mb-2 block underline" href={attUrl} target="_blank" rel="noreferrer">Download file</a>}
         {showText && <div className="whitespace-pre-wrap break-words">{m.content}</div>}
         <div className={`mt-1 flex items-center gap-1 text-[10px] ${own ? "text-cyan-100/90" : "text-gray-500"}`}>
-          {new Date(m.created_at).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
+          {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           {own && m.read && <CheckCheck className="ml-0.5 inline h-3.5 w-3.5 opacity-90" />}
         </div>
       </div>
@@ -1297,28 +695,13 @@ function MessageBubble({
 
 /* ----------------------------- Error Boundary ------------------------------ */
 
-class ErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  { hasError: boolean }
-> {
-  constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-  componentDidCatch(err: any, info: any) {
-    console.error("[ChatBox] crashed:", err, info);
-  }
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode }) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(err: any, info: any) { console.error("[ChatBox] crashed:", err, info); }
   render() {
     if (this.state.hasError) {
-      return (
-        <div className="p-4 text-sm text-red-600">
-          Chat failed to render. Please reload this page. If it persists, check
-          Storage permissions and message attachments.
-        </div>
-      );
+      return <div className="p-4 text-sm text-red-600">Chat failed to render. Please reload this page. If it persists, check Storage permissions and message attachments.</div>;
     }
     return this.props.children;
   }
