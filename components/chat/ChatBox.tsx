@@ -378,30 +378,50 @@ function ChatBoxInner(props: {
   // BEGIN CALL
   const beginCall = useCallback(
   async (m: CallMode) => {
-    console.log("[beginCall] Started with mode:", m);
-    
-    const convId = await ensureConversation();
-    console.log("[beginCall] ensureConversation returned:", convId);
-    
-    console.log("[beginCall] Prerequisites check:");
-    console.log("   me?.id:", me?.id);
-    console.log("   peerUserId:", peerUserId);
-    console.log("   convId:", convId);
-    
-    if (!me?.id || !peerUserId || !convId) {
-      console.error("[beginCall] Missing required data, aborting");
-      return;
-    }
+    console.log("[beginCall] ===== CALL START =====");
+    console.log("[beginCall] Mode:", m);
+    console.log("[beginCall] me:", me);
+    console.log("[beginCall] peerUserId:", peerUserId);
+    console.log("[beginCall] conversationId:", conversationId);
+    console.log("[beginCall] placingCall:", placingCall);
     
     if (placingCall) {
-      console.warn("[beginCall] Already placing a call, ignoring");
+      console.warn("[beginCall] Already placing call, aborting");
       return;
     }
-    
-    setPlacingCall(true);
-    
+
+    let convId: string | null = null;
     try {
-      console.log("[beginCall] Sending ring to peerUserId:", peerUserId);
+      console.log("[beginCall] Calling ensureConversation...");
+      convId = await ensureConversation();
+      console.log("[beginCall] ensureConversation returned:", convId);
+    } catch (err) {
+      console.error("[beginCall] ensureConversation threw error:", err);
+      return;
+    }
+
+    console.log("[beginCall] Final check before sendRing:");
+    console.log("  me?.id =", me?.id, "| truthy:", !!me?.id);
+    console.log("  peerUserId =", peerUserId, "| truthy:", !!peerUserId);
+    console.log("  convId =", convId, "| truthy:", !!convId);
+    
+    if (!me?.id) {
+      console.error("[beginCall] me?.id is missing!");
+      return;
+    }
+    if (!peerUserId) {
+      console.error("[beginCall] peerUserId is missing!");
+      return;
+    }
+    if (!convId) {
+      console.error("[beginCall] convId is missing!");
+      return;
+    }
+
+    setPlacingCall(true);
+
+    try {
+      console.log("[beginCall] Sending ring...");
       console.log("[beginCall] Ring payload:", {
         conversationId: convId,
         fromId: me.id,
@@ -415,23 +435,25 @@ function ChatBoxInner(props: {
         fromName: me.name,
         mode: m,
       });
-      
-      console.log("[beginCall] Ring sent successfully!");
-      
+
+      console.log("[beginCall] ✅ Ring sent successfully!");
+
       setCallRole("caller");
       setCallMode(m);
       setCallOpen(true);
       setCallDockVisible(true);
       setCallDockMin(false);
       setCallStatus("ringing");
-      
-      console.log("[beginCall] Call state updated successfully");
+
+      console.log("[beginCall] ✅ Call dialog opened");
     } catch (err) {
-      console.error("[beginCall] Failed to start call:", err);
-      console.error("[beginCall] Error message:", err?.message);
-      console.error("[beginCall] Full error:", err);
+      console.error("[beginCall] ❌ Exception caught:");
+      console.error("[beginCall] Message:", err?.message);
+      console.error("[beginCall] Stack:", err?.stack);
+      console.error("[beginCall] Full error object:", err);
     } finally {
       setPlacingCall(false);
+      console.log("[beginCall] ===== CALL END =====");
     }
   },
   [ensureConversation, me?.id, me?.name, peerUserId, placingCall]
