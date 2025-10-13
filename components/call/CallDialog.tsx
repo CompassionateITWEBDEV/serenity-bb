@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff, Video, VideoOff, PhoneOff } from "lucide-react";
-import { useWebRTCCall, CallMode, CallRole } from "@/hooks/useWebRTCCall";
+import { useWebRTCCall, type CallMode, type CallRole } from "@/hooks/useWebRTCCall";
 
 type Props = {
   open: boolean;
@@ -20,14 +20,16 @@ type Props = {
   mode: CallMode;
   meId: string;
   peerUserId: string;
-  /** Optional: purely for UI labels/avatars */
+  /** Optional labels/avatars for UI only */
   peerName?: string;
   peerAvatar?: string;
   meName?: string;
-  /** Optional: TURN credentials for restrictive networks */
+  /** Optional TURN creds */
   turn?: { urls: string[]; username?: string; credential?: string };
   /** Optional: notify parent about status transitions */
-  onStatus?: (s: "idle" | "ringing" | "connecting" | "connected" | "missed" | "ended" | "failed") => void;
+  onStatus?: (
+    s: "idle" | "ringing" | "connecting" | "connected" | "missed" | "ended" | "failed"
+  ) => void;
 };
 
 export default function CallDialog({
@@ -39,8 +41,8 @@ export default function CallDialog({
   meId,
   peerUserId,
   peerName,
-  peerAvatar, // not used here but allowed for future UI
-  meName,     // not used here but allowed for future UI
+  peerAvatar, // reserved for future UI
+  meName,     // reserved for future UI
   turn,
   onStatus,
 }: Props) {
@@ -60,14 +62,14 @@ export default function CallDialog({
     meId,
     peerUserId,
     turn,
-    onStatus, // if your hook supports it; otherwise harmless
+    onStatus,
   });
 
-  // Close handler that always hangs up first
+  // Always hang up before closing the dialog
   const handleOpenChange = React.useCallback(
     (v: boolean) => {
       if (!v) {
-        // Best-effort hangup; ignore errors
+        // best-effort cleanup; swallow errors
         Promise.resolve(hangup()).catch(() => {});
       }
       onOpenChange(v);
@@ -77,6 +79,7 @@ export default function CallDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
+      {/* Fixes: add Description + aria-describedby to remove shadcn warning */}
       <DialogContent className="max-w-3xl overflow-hidden" aria-describedby="call-desc">
         <DialogHeader>
           <DialogTitle>
@@ -104,7 +107,7 @@ export default function CallDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Network diagnostics */}
+        {/* lightweight diagnostics (non-blocking) */}
         <div className="mb-2 rounded-md border p-2 text-xs">
           <div className="flex flex-wrap items-center gap-3">
             <span>
@@ -123,12 +126,19 @@ export default function CallDialog({
           </div>
         </div>
 
-        {/* Media panes */}
+        {/* media panes */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {/* Remote */}
           <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
-            <video ref={setRemoteVideoRef as any} className="h-full w-full object-cover" />
-            <audio ref={setRemoteAudioRef as any} className="hidden" />
+            {/* IMPORTANT: autoplay + playsInline to avoid iOS/Chrome autoplay blocks */}
+            <video
+              ref={setRemoteVideoRef as any}
+              className="h-full w-full object-cover"
+              autoPlay
+              playsInline
+            />
+            {/* hidden audio element to play remote audio if remote sends audio-only */}
+            <audio ref={setRemoteAudioRef as any} className="hidden" autoPlay />
             {state.status !== "connected" && state.status !== "ended" && !state.mediaError && (
               <div className="absolute inset-0 grid place-items-center text-sm text-white/70">
                 {state.status === "ringing"
@@ -143,11 +153,19 @@ export default function CallDialog({
                 Call ended
               </div>
             )}
+            {/* Non-blocking media error (e.g., devices missing) */}
             {state.mediaError && (
               <div className="absolute inset-0 grid place-items-center p-3 text-center text-sm text-white">
                 <div className="rounded-lg bg-black/60 p-3">
                   <p className="mb-2">{state.mediaError}</p>
-                  <div className="flex justify-center">
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {/* If camera was the problem, suggest turning cam off */}
+                    {mode === "video" && (
+                      <Button size="sm" variant="secondary" onClick={() => setCamOff(true)}>
+                        Continue without camera
+                      </Button>
+                    )}
+                    {/* Always allow closing */}
                     <Button size="sm" onClick={() => handleOpenChange(false)}>
                       Close
                     </Button>
@@ -159,7 +177,14 @@ export default function CallDialog({
 
           {/* Local */}
           <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
-            <video ref={setLocalVideoRef as any} className="h-full w-full object-cover" />
+            {/* IMPORTANT: local should be muted to satisfy autoplay policies */}
+            <video
+              ref={setLocalVideoRef as any}
+              className="h-full w-full object-cover"
+              autoPlay
+              playsInline
+              muted
+            />
             {state.camOff && (
               <div className="absolute inset-0 grid place-items-center text-sm text-white/70">
                 Camera off
@@ -180,6 +205,7 @@ export default function CallDialog({
               >
                 {state.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
               </Button>
+
               {mode === "video" && (
                 <Button
                   variant={state.camOff ? "secondary" : "default"}
@@ -190,6 +216,7 @@ export default function CallDialog({
                   {state.camOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
                 </Button>
               )}
+
               <Button
                 variant="destructive"
                 onClick={() => handleOpenChange(false)}
