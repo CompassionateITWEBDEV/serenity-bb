@@ -1,12 +1,12 @@
 import { supabase } from "@/lib/supabase/client";
 
 /* ============================================================================
- * WebRTC Signaling via Supabase Realtime (robust)
- * - Per-user broadcast channels: `webrtc_user_${userId}`
- * - Cache channels, subscribe once, ACK+retry on send
+ * Robust Supabase Realtime signaling
+ * - Cached per-user channels: `webrtc_user_${userId}`
+ * - Subscribe-before-send
+ * - sendWithAck: treat undefined status as success (Supabase can return void)
  * ========================================================================== */
 
-/* ----------------------------- Types ------------------------------------- */
 export type CallMode = "audio" | "video";
 
 export type RingPayload = {
@@ -32,52 +32,52 @@ export type ICEPayload = {
   candidate: RTCIceCandidateInit;
 };
 
-/* ----------------------------- Channel Cache ------------------------------ */
 type RealtimeChannel = ReturnType<typeof supabase.channel>;
 
 const channelCache = new Map<string, RealtimeChannel>();
 
-function channelNameFor(userId: string) {
+function chanName(userId: string) {
   return `webrtc_user_${userId}`;
 }
 
-/**
- * Return a (cached) channel. Caller may attach `.on(...)` and call `.subscribe()`.
- * Keeps old UI contracts where the UI manually subscribes.
- */
+/** Create/return cached channel (not auto-subscribed). UI can attach listeners to this. */
 export function userRingChannel(userId: string): RealtimeChannel {
-  const key = channelNameFor(userId);
-  let ch = channelCache.get(key);
+  const name = chanName(userId);
+  let ch = channelCache.get(name);
   if (!ch) {
-    ch = supabase.channel(key, { config: { broadcast: { ack: true } } });
-    channelCache.set(key, ch);
+    ch = supabase.channel(name, { config: { broadcast: { ack: true } } });
+    channelCache.set(name, ch);
   }
   return ch;
 }
 
-/**
- * Internal: ensure the channel for a user is SUBSCRIBED before sending.
- */
+/** Ensure channel is SUBSCRIBED before sending. */
 async function getUserChannel(userId: string): Promise<RealtimeChannel> {
   const ch = userRingChannel(userId);
-  // Already joined?
-  if ((ch as any).state === "joined") return ch;
+  const state = (ch as any).state;
+  if (state === "joined") return ch;
 
   await new Promise<void>((resolve, reject) => {
-    ch.subscribe((status) => {
+    const sub = ch.subscribe((status) => {
       if (status === "SUBSCRIBED") resolve();
-      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+      else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
         reject(new Error(`Subscribe failed: ${status}`));
       }
     });
+    // defensive: if join happened sync
+    if ((sub as any)?.state === "joined") resolve();
   });
 
   return ch;
 }
 
-/* ----------------------------- Send with ACK ------------------------------ */
-type SendResult = { status: "ok" | "timed_out" | "error"; response?: any };
+type SendResult = { status?: "ok" | "timed_out" | "error"; response?: unknown } | void;
 
+/**
+ * sendWithAck:
+ * - If `send()` resolves and `res?.status` is missing → treat as success (Supabase often returns void).
+ * - Retry only on thrown errors or explicit non-ok statuses.
+ */
 async function sendWithAck(
   ch: RealtimeChannel,
   event: string,
@@ -86,21 +86,32 @@ async function sendWithAck(
   baseDelayMs = 200
 ): Promise<void> {
   let lastErr: unknown = null;
+
   for (let i = 0; i < attempts; i++) {
     try {
       const res = (await ch.send({ type: "broadcast", event, payload })) as SendResult;
-      if (res?.status === "ok") return;
-      lastErr = new Error(`broadcast ${event} returned status: ${res?.status}`);
+
+      // If no status returned, assume success.
+      if (!res || (res as any).status === undefined) return;
+
+      const status = (res as any).status as SendResult extends { status: infer S } ? S : unknown;
+      if (status === "ok") return;
+
+      // Explicit error/timed_out → retry
+      lastErr = new Error(`broadcast ${event} status: ${String(status)}`);
     } catch (e) {
       lastErr = e;
     }
+
     const delay = Math.floor(baseDelayMs * Math.pow(1.5, i));
     await new Promise((r) => setTimeout(r, delay));
   }
+
   throw lastErr ?? new Error(`broadcast ${event} failed`);
 }
 
-/* ----------------------------- Call Control ------------------------------- */
+/* ----------------------------- Public API -------------------------------- */
+
 export async function sendRing(toUserId: string, payload: RingPayload) {
   const ch = await getUserChannel(toUserId);
   await sendWithAck(ch, "ring", payload);
@@ -112,7 +123,6 @@ export async function sendHangupToUser(toUserId: string, conversationId?: string
   await sendWithAck(ch, "hangup", payload);
 }
 
-/* ----------------------------- WebRTC Signaling --------------------------- */
 export async function sendOfferToUser(toUserId: string, payload: SDPPayload) {
   const ch = await getUserChannel(toUserId);
   await sendWithAck(ch, "webrtc-offer", payload);
@@ -128,7 +138,8 @@ export async function sendIceToUser(toUserId: string, payload: ICEPayload) {
   await sendWithAck(ch, "webrtc-ice", payload);
 }
 
-/* ----------------------------- Utilities ---------------------------------- */
+/* ----------------------------- Utilities --------------------------------- */
+
 export async function broadcastToUsers(userIds: string[], event: string, payload: any) {
   for (const id of userIds) {
     const ch = await getUserChannel(id);
@@ -136,24 +147,19 @@ export async function broadcastToUsers(userIds: string[], event: string, payload
   }
 }
 
-/**
- * Returns true if we have a cached, joined channel to that topic.
- * (Note: not peer presence; just our connection state.)
- */
+/** Our client’s channel state (not peer presence). */
 export function isUserChannelActive(userId: string): boolean {
-  const ch = channelCache.get(channelNameFor(userId));
+  const ch = channelCache.get(chanName(userId));
   const st = (ch as any)?.state;
   return st === "joined" || st === "joining";
 }
 
 export async function cleanupUserChannel(userId: string) {
-  const key = channelNameFor(userId);
+  const key = chanName(userId);
   const ch = channelCache.get(key);
   if (!ch) return;
   try {
     await supabase.removeChannel(ch);
-  } catch (err) {
-    console.warn(`Failed to cleanup channel for user ${userId}:`, err);
   } finally {
     channelCache.delete(key);
   }
