@@ -39,10 +39,6 @@ import {
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
 
-import IncomingCallBanner from "@/components/call/IncomingCallBanner";
-import CallDialog, { type CallMode, type CallRole } from "@/components/call/CallDialog";
-import { userRingChannel, sendHangupToUser } from "@/lib/webrtc/signaling";
-
 /* ----------------------------- Types & settings ---------------------------- */
 
 type Provider = ProviderRole;
@@ -143,17 +139,11 @@ function ChatBoxInner(props: {
 
   const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
 
-  // CALL state (kept for incoming banners / optional dialog UX)
-  const [callOpen, setCallOpen] = useState(false);
-  const [callRole, setCallRole] = useState<CallRole>("caller");
-  const [callMode, setCallMode] = useState<CallMode>("audio");
-  const [incoming, setIncoming] = useState<{ conversationId: string; fromId: string; fromName: string; mode: CallMode } | null>(null);
-  const [placingCall, setPlacingCall] = useState(false);
-
-  // Floating call dock
+  // Minimal call state (no ring or signaling here)
   const [callDockVisible, setCallDockVisible] = useState(false);
   const [callDockMin, setCallDockMin] = useState(false);
-  const [callStatus, setCallStatus] = useState<"ringing" | "connected" | "ended">("ringing");
+  const [callStatus, setCallStatus] = useState<"ringing" | "connected" | "ended">("ended");
+  const [callMode] = useState<"audio" | "video">("audio");
 
   const listRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -338,89 +328,32 @@ function ChatBoxInner(props: {
     };
   }, [conversationId, me, ding, scrollToBottom]);
 
-  /* ---------------------------- CALL: ring/accept/decline ---------------------------- */
-
-  useEffect(() => {
-    if (!me?.id) return;
-    const ch = userRingChannel(me.id);
-
-    ch.on("broadcast", { event: "ring" }, (p) => {
-      const { conversationId: convId, fromId, fromName, mode } = (p.payload || {}) as any;
-      if (!convId || !fromId) return;
-      if (conversationId && convId !== conversationId) return;
-      setIncoming({ conversationId: convId, fromId, fromName: fromName || "Caller", mode: (mode || "audio") as CallMode });
-      setCallStatus("ringing");
-      setCallDockVisible(true);
-      setCallDockMin(false);
-    });
-
-    ch.on("broadcast", { event: "hangup" }, (p) => {
-      const { conversationId: convId } = (p.payload || {}) as any;
-      if (convId && conversationId && convId !== conversationId) return;
-      setIncoming(null);
-      setCallOpen(false);
-      setCallDockVisible(false);
-      setCallStatus("ended");
-    });
-
-    ch.subscribe();
-    return () => {
-      try { supabase.removeChannel(ch); } catch {}
-    };
-  }, [me?.id, conversationId]);
-
-  // Determine peer user id for *this* chat
+  // Determine peer user id (for building the /call URL only)
   const peerUserId = useMemo(
     () => (mode === "staff" ? patientId : (providerId || "")),
     [mode, patientId, providerId]
   );
 
-  // BEGIN CALL — open dedicated call page (no sendRing here)
+  // Open /call page (no ring/signaling here)
   const beginCall = useCallback(
-    async (m: CallMode) => {
-      if (placingCall) return;
-      setPlacingCall(true);
-      try {
-        const convId = await ensureConversation();
-        if (!convId || !me?.id || !peerUserId) return;
-
-        const url = `/call/${convId}?role=caller&mode=${m}&peer=${encodeURIComponent(
-          peerUserId
-        )}&peerName=${encodeURIComponent(mode === "staff" ? (patientName || "Patient") : (providerName || "Provider"))}`;
-        // open a new tab/window like Messenger
-        window.open(url, "_blank", "noopener,noreferrer");
-      } finally {
-        setPlacingCall(false);
-      }
+    async (m: "audio" | "video") => {
+      const convId = await ensureConversation().catch(() => null);
+      if (!convId || !peerUserId) return;
+      const url = `/call/${convId}?role=caller&mode=${m}&peer=${encodeURIComponent(
+        peerUserId
+      )}&peerName=${encodeURIComponent(mode === "staff" ? (patientName || "Patient") : (providerName || "Provider"))}`;
+      window.open(url, "_blank", "noopener,noreferrer");
+      setCallDockVisible(true);
+      setCallStatus("connected"); // purely UI, no signaling
     },
-    [ensureConversation, me?.id, peerUserId, placingCall, mode, patientName, providerName]
+    [ensureConversation, peerUserId, mode, patientName, providerName]
   );
 
-  const onAcceptIncoming = useCallback(() => {
-    if (!incoming || !me) return;
-    setCallRole("callee");
-    setCallMode(incoming.mode);
-    setCallOpen(true); // optional in-app dialog
-    setIncoming(null);
-    setCallDockVisible(true);
-    setCallDockMin(false);
-  }, [incoming, me]);
-
-  const onDeclineIncoming = useCallback(async () => {
-    if (!incoming) return;
-    await sendHangupToUser(incoming.fromId, incoming.conversationId);
-    setIncoming(null);
-    setCallDockVisible(false);
-    setCallStatus("ended");
-  }, [incoming]);
-
   const hangup = useCallback(async () => {
-    if (!conversationId || !peerUserId) return;
-    try { await sendHangupToUser(peerUserId, conversationId); } catch {}
-    setCallOpen(false);
+    // purely UI (no signaling)
     setCallDockVisible(false);
     setCallStatus("ended");
-  }, [conversationId, peerUserId]);
+  }, []);
 
   /* ----------------------------- send ops ----------------------------- */
   async function insertMessage(payload: {
@@ -588,14 +521,12 @@ function ChatBoxInner(props: {
             <IconButton
               aria="Voice call"
               onClick={() => (phoneHref ? window.open(phoneHref, "_blank") : beginCall("audio"))}
-              disabled={placingCall}
             >
               <Phone className="h-5 w-5" />
             </IconButton>
             <IconButton
               aria="Video call"
               onClick={() => (videoHref ? window.open(videoHref, "_blank") : beginCall("video"))}
-              disabled={placingCall}
             >
               <Video className="h-5 w-5" />
             </IconButton>
@@ -627,16 +558,6 @@ function ChatBoxInner(props: {
             {msgs.length === 0 && <div className="py-10 text-center text-sm text-gray-500">No messages yet. Say hello 👋</div>}
           </div>
         </div>
-
-        {/* Incoming call banner */}
-        {incoming && (
-          <IncomingCallBanner
-            callerName={incoming.fromName}
-            mode={incoming.mode}
-            onAccept={onAcceptIncoming}
-            onDecline={onDeclineIncoming}
-          />
-        )}
 
         {/* Composer */}
         <div className="border-t bg-white/80 px-3 py-2 backdrop-blur dark:bg-zinc-900/70">
@@ -690,8 +611,8 @@ function ChatBoxInner(props: {
         </div>
       </CardContent>
 
-      {/* Call dock (optional mini UI) */}
-      {me && callDockVisible && (
+      {/* Tiny call dock (purely visual now) */}
+      {callDockVisible && (
         <CallDock
           minimized={callDockMin}
           onToggleMin={() => setCallDockMin((v) => !v)}
@@ -699,42 +620,8 @@ function ChatBoxInner(props: {
           mode={callMode}
           name={mode === "staff" ? (patientName || "Patient") : (providerName || "Provider")}
           avatar={(mode === "staff" ? patientAvatarUrl : providerAvatarUrl) ?? undefined}
-          onOpen={() => setCallOpen(true)}
+          onOpen={() => {}}
           onHangup={hangup}
-        />
-      )}
-
-      {/* Call dialog (still available, but calls are started on /call page) */}
-      {conversationId && me && (
-        <CallDialog
-          open={callOpen}
-          onOpenChange={(v) => {
-            setCallOpen(v);
-            if (!v) {
-              setCallDockVisible(false);
-              setCallStatus("ended");
-              setIncoming(null);
-            } else {
-              setCallDockVisible(true);
-            }
-          }}
-          conversationId={conversationId}
-          role={callRole}
-          mode={callMode}
-          meId={me.id}
-          meName={me.name}
-          peerUserId={peerUserId}
-          peerName={mode === "staff" ? (patientName || "Patient") : (providerName || "Provider")}
-          peerAvatar={(mode === "staff" ? patientAvatarUrl : providerAvatarUrl) ?? undefined}
-          onStatus={(s) => {
-            if (s === "connected") setCallStatus("connected");
-            if (s === "ended" || s === "failed" || s === "missed") {
-              setCallStatus("ended");
-              setCallDockVisible(false);
-              setCallOpen(false);
-              setIncoming(null);
-            }
-          }}
         />
       )}
     </Card>
@@ -836,20 +723,17 @@ function IconButton({
   children,
   aria,
   onClick,
-  disabled,
 }: {
   children: React.ReactNode;
   aria: string;
   onClick?: () => void;
-  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       aria-label={aria}
       onClick={onClick}
-      disabled={disabled}
-      className="rounded-full p-2 hover:bg-gray-100 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed dark:hover:bg-zinc-800"
+      className="rounded-full p-2 hover:bg-gray-100 active:scale-95 dark:hover:bg-zinc-800"
     >
       {children}
     </button>
@@ -987,7 +871,7 @@ function CallDock(props: {
   minimized: boolean;
   onToggleMin: () => void;
   status: "ringing" | "connected" | "ended";
-  mode: CallMode;
+  mode: "audio" | "video";
   name: string;
   avatar?: string;
   onOpen: () => void;
