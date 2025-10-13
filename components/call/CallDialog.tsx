@@ -32,6 +32,7 @@ type Props = {
   peerAvatar?: string;
 };
 
+/** TURN (optional; recommended in prod) */
 const turnUrls = (process.env.NEXT_PUBLIC_TURN_URL || "")
   .split(",")
   .map((u) => u.trim())
@@ -79,7 +80,7 @@ export default function CallDialog({
   const localStreamRef = React.useRef<MediaStream | null>(null);
   const remoteStreamRef = React.useRef<MediaStream | null>(null);
 
-  // Signaling
+  // Signaling channel (this side)
   const chanRef = React.useRef<ReturnType<typeof userRingChannel> | null>(null);
 
   // Timers/guards
@@ -91,6 +92,16 @@ export default function CallDialog({
   // ICE race handling
   const remoteDescSetRef = React.useRef(false);
   const pendingRemoteIce = React.useRef<RTCIceCandidateInit[]>([]);
+
+  // Remote disconnect grace
+  const disconnectGraceRef = React.useRef<number | null>(null);
+  const DISCONNECT_GRACE_MS = 8_000;
+
+  // Offer resend (prevents first-message drop)
+  const offerRetryRef = React.useRef<number | null>(null);
+  const offerAttemptsRef = React.useRef(0);
+  const MAX_OFFER_ATTEMPTS = 6;
+  let lastOffer: RTCSessionDescriptionInit | null = null;
 
   /* reflect controls */
   React.useEffect(() => {
@@ -115,16 +126,28 @@ export default function CallDialog({
     closingRef.current = false;
     let cancelled = false;
 
+    const beforeUnload = () => {
+      try {
+        sendHangupToUser(peerUserId, conversationId);
+      } catch {}
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+
     (async () => {
       setStatus(role === "caller" ? "ringing" : "connecting");
 
-      // 1) Local media first (ensures autoplay-friendly engagement)
+      // 0) Subscribe FIRST to avoid dropping early signals
+      const ch = userRingChannel(meId);
+      chanRef.current = ch;
+      await ensureSubscribed(ch);
+
+      // 1) Local media first
       const stream = await getUserStream(mode);
       if (cancelled) return;
       localStreamRef.current = stream;
       attachStream(localRef.current, stream, true);
 
-      // 2) PeerConnection
+      // 2) RTCPeerConnection
       const pc = new RTCPeerConnection(RTC_CONFIG);
       pcRef.current = pc;
 
@@ -155,21 +178,16 @@ export default function CallDialog({
         if (!remoteStreamRef.current) return;
         remoteStreamRef.current.addTrack(e.track);
 
-        // Force immediate playback when first remote track arrives
+        // Autoplay immediately when first remote track arrives
         forcePlay(remoteRef.current);
 
-        const v = remoteRef.current;
-        if (v) {
-          const onMeta = () => {
-            // Why: some browsers require metadata before play
-            forcePlay(v);
-            v.removeEventListener("loadedmetadata", onMeta);
-          };
-          v.addEventListener("loadedmetadata", onMeta);
-        }
+        // Detect remote leaving via track end
+        e.track.onended = () => {
+          if (allRemoteTracksEnded()) endDueToRemote();
+        };
       });
 
-      // 5) Trickle ICE
+      // 5) ICE → send to peer
       pc.onicecandidate = async (e) => {
         if (e.candidate) {
           try {
@@ -182,32 +200,48 @@ export default function CallDialog({
         }
       };
 
-      // 6) Autoplay kick when connected
+      // 6) Auto-connect transitions + immediate end on remote drop
+      const clearDisconnectGrace = () => {
+        if (disconnectGraceRef.current) {
+          clearTimeout(disconnectGraceRef.current);
+          disconnectGraceRef.current = null;
+        }
+      };
+      const scheduleDisconnectGrace = () => {
+        if (disconnectGraceRef.current) return;
+        disconnectGraceRef.current = window.setTimeout(() => endDueToRemote(), DISCONNECT_GRACE_MS) as unknown as number;
+      };
+
       pc.onconnectionstatechange = () => {
         const s = pc.connectionState;
         if (s === "connected") {
           answeredRef.current = true;
           setStatus("connected");
           stopDialTimer();
-          // Ensure both elements are actively playing (audio/video)
+          clearDisconnectGrace();
           forcePlay(localRef.current);
           forcePlay(remoteRef.current);
-        } else if (s === "failed" || s === "disconnected") {
-          // small grace; then fail
-          window.setTimeout(() => {
-            if (!pcRef.current) return;
-            const cs = pcRef.current.connectionState;
-            if (cs === "failed" || cs === "disconnected") {
-              cleanupAndClose("failed");
-            }
-          }, 2500);
+          // Stop resending offer once connected
+          stopResendOffer();
+        } else if (s === "disconnected") {
+          scheduleDisconnectGrace();
+        } else if (s === "failed" || s === "closed") {
+          endDueToRemote();
         }
       };
 
-      // 7) Signaling
-      const ch = userRingChannel(meId);
-      chanRef.current = ch;
+      pc.oniceconnectionstatechange = () => {
+        const s = pc.iceConnectionState;
+        if (s === "connected" || s === "completed") {
+          clearDisconnectGrace();
+        } else if (s === "disconnected") {
+          scheduleDisconnectGrace();
+        } else if (s === "failed" || s === "closed") {
+          endDueToRemote();
+        }
+      };
 
+      // 7) Signaling handlers (now safe; we're subscribed)
       ch.on("broadcast", { event: "webrtc-answer" }, async (msg) => {
         const p = (msg.payload || {}) as any;
         if (p.conversationId !== conversationId) return;
@@ -221,8 +255,8 @@ export default function CallDialog({
             } catch {}
           }
           pendingRemoteIce.current = [];
-          // Kick autoplay in case tracks are ready post-answer
-          forcePlay(remoteRef.current);
+          // We got the answer → stop offer retries
+          stopResendOffer();
         } catch {}
       });
 
@@ -264,12 +298,12 @@ export default function CallDialog({
       });
 
       ch.on("broadcast", { event: "hangup" }, () => {
-        cleanupAndClose("ended");
+        endDueToRemote();
       });
 
       ch.subscribe();
 
-      // 8) Caller: create + send offer
+      // 8) Caller: create + send offer (with resend guard)
       if (role === "caller") {
         try {
           const offer = await pc.createOffer({
@@ -277,8 +311,10 @@ export default function CallDialog({
             offerToReceiveVideo: mode === "video",
           });
           await pc.setLocalDescription(offer);
+          lastOffer = offer;
           await sendOfferToUser(peerUserId, { conversationId, fromId: meId, sdp: offer });
           startDialTimer();
+          startResendOffer(); // mitigate receiver-not-subscribed race
         } catch {
           cleanupAndClose("failed");
         }
@@ -288,11 +324,49 @@ export default function CallDialog({
     });
 
     return () => {
-      cancelled = true;
+      window.removeEventListener("beforeunload", beforeUnload);
+      stopResendOffer();
       teardownSignalingAndPc();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  /* ensure we are SUBSCRIBED before signaling */
+  function ensureSubscribed(channel: ReturnType<typeof userRingChannel>) {
+    return new Promise<void>((resolve) => {
+      let done = false;
+      channel.subscribe((status) => {
+        if (!done && status === "SUBSCRIBED") {
+          done = true;
+          resolve();
+        }
+      });
+    });
+  }
+
+  /* offer resend loop */
+  function startResendOffer() {
+    stopResendOffer();
+    offerAttemptsRef.current = 0;
+    offerRetryRef.current = window.setInterval(async () => {
+      if (remoteDescSetRef.current || offerAttemptsRef.current >= MAX_OFFER_ATTEMPTS) {
+        stopResendOffer();
+        return;
+      }
+      offerAttemptsRef.current += 1;
+      if (lastOffer) {
+        try {
+          await sendOfferToUser(peerUserId, { conversationId, fromId: meId, sdp: lastOffer });
+        } catch {}
+      }
+    }, 1500) as unknown as number;
+  }
+  function stopResendOffer() {
+    if (offerRetryRef.current) {
+      clearInterval(offerRetryRef.current);
+      offerRetryRef.current = null;
+    }
+  }
 
   /* timers */
   function startDialTimer() {
@@ -332,10 +406,9 @@ export default function CallDialog({
     cleanupAndClose("ended");
   }
 
-  /* autoplay helpers */
+  /* helpers */
   function forcePlay(el: HTMLVideoElement | null | undefined) {
     if (!el) return;
-    // Why: Some browsers gate autoplay; retries after user acceptance typically succeed.
     const tryPlay = (attempts = 6) => {
       const p = el.play();
       if (!p || typeof p.catch !== "function") return;
@@ -350,7 +423,7 @@ export default function CallDialog({
   function attachStream(el: HTMLVideoElement | null, stream: MediaStream | null, mirror: boolean) {
     if (!el) return;
     (el as any).srcObject = stream || null;
-    el.muted = mirror;              // local preview muted; remote must be audible
+    el.muted = mirror;              // local preview muted; remote audible
     el.playsInline = true;
     el.autoplay = true;
     el.style.transform = mirror ? "scaleX(-1)" : "none";
@@ -367,6 +440,21 @@ export default function CallDialog({
     } catch {
       throw new Error("Could not access microphone/camera. Please allow permissions.");
     }
+  }
+
+  function allRemoteTracksEnded(): boolean {
+    const rs = remoteStreamRef.current;
+    if (!rs) return false;
+    const tracks = rs.getTracks();
+    return tracks.length > 0 && tracks.every((t) => t.readyState === "ended");
+  }
+
+  function endDueToRemote() {
+    // Mirror Messenger: instant "Call ended"
+    try {
+      sendHangupToUser(peerUserId, conversationId);
+    } catch {}
+    cleanupAndClose("ended");
   }
 
   function teardownSignalingAndPc() {
@@ -394,15 +482,48 @@ export default function CallDialog({
     remoteStreamRef.current = null;
 
     stopDialTimer();
-    answeredRef.current = false;
-    closingRef.current = false;
+    if (disconnectGraceRef.current) {
+      clearTimeout(disconnectGraceRef.current);
+      disconnectGraceRef.current = null;
+    }
+    stopResendOffer();
     remoteDescSetRef.current = false;
     pendingRemoteIce.current = [];
+    answeredRef.current = false;
+    closingRef.current = false;
   }
+
+  function cleanupAndClose(finalStatus: "ended" | "failed" | "missed") {
+    if (closingRef.current) return;
+    closingRef.current = true;
+
+    setStatus(finalStatus);
+    teardownSignalingAndPc();
+
+    // Keep dialog open when ended (to show state + Close button)
+    if (finalStatus === "ended") {
+      closingRef.current = false;
+      return;
+    }
+
+    onOpenChange(false);
+  }
+
+  /* IMPORTANT: ensure local close notifies peer */
+  const handleDialogOpenChange = (v: boolean) => {
+    if (v) {
+      onOpenChange(true);
+    } else {
+      try {
+        sendHangupToUser(peerUserId, conversationId);
+      } catch {}
+      cleanupAndClose("ended");
+    }
+  };
 
   /* UI */
   return (
-    <Dialog open={open} onOpenChange={(v) => (v ? onOpenChange(true) : cleanupAndClose("ended"))}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="max-w-3xl overflow-hidden" aria-describedby="call-desc">
         <DialogHeader>
           <DialogTitle>
@@ -410,6 +531,7 @@ export default function CallDialog({
             {status === "ringing" && (
               <span className="ml-2 text-xs text-gray-500">Dialing… {formatTime(dialSeconds)}</span>
             )}
+            {status === "ended" && <span className="ml-2 text-xs text-gray-500">Call ended</span>}
           </DialogTitle>
           <DialogDescription id="call-desc" className="sr-only">
             Real-time {mode} call with {peerName || "contact"}.
@@ -420,10 +542,13 @@ export default function CallDialog({
           {/* REMOTE */}
           <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
             <video ref={remoteRef} className="h-full w-full object-cover" />
-            {status !== "connected" && (
+            {status !== "connected" && status !== "ended" && (
               <div className="absolute inset-0 grid place-items-center text-sm text-white/70">
                 {status === "ringing" ? "Ringing…" : status === "connecting" ? "Connecting…" : "Waiting…"}
               </div>
+            )}
+            {status === "ended" && (
+              <div className="absolute inset-0 grid place-items-center text-sm text-white/70">Call ended</div>
             )}
           </div>
 
@@ -435,29 +560,42 @@ export default function CallDialog({
         </div>
 
         <div className="mt-3 flex items-center justify-center gap-2">
-          <Button
-            variant={muted ? "secondary" : "default"}
-            onClick={() => setMuted((v) => !v)}
-            className="rounded-full"
-            title={muted ? "Unmute" : "Mute"}
-          >
-            {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-          </Button>
+          {status !== "ended" ? (
+            <>
+              <Button
+                variant={muted ? "secondary" : "default"}
+                onClick={() => setMuted((v) => !v)}
+                className="rounded-full"
+                title={muted ? "Unmute" : "Mute"}
+              >
+                {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+              </Button>
 
-          {mode === "video" && (
-            <Button
-              variant={camOff ? "secondary" : "default"}
-              onClick={() => setCamOff((v) => !v)}
-              className="rounded-full"
-              title={camOff ? "Turn camera on" : "Turn camera off"}
-            >
-              {camOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
-            </Button>
+              {mode === "video" && (
+                <Button
+                  variant={camOff ? "secondary" : "default"}
+                  onClick={() => setCamOff((v) => !v)}
+                  className="rounded-full"
+                  title={camOff ? "Turn camera on" : "Turn camera off"}
+                >
+                  {camOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
+                </Button>
+              )}
+
+              <Button variant="destructive" onClick={onHangupClick} className="rounded-full" title="End call">
+                <PhoneOff className="h-5 w-5" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" disabled className="rounded-full" title="Call ended">
+                Call ended
+              </Button>
+              <Button onClick={() => onOpenChange(false)} className="rounded-full" title="Close">
+                Close
+              </Button>
+            </>
           )}
-
-          <Button variant="destructive" onClick={onHangupClick} className="rounded-full" title="End call">
-            <PhoneOff className="h-5 w-5" />
-          </Button>
         </div>
 
         {status === "missed" && (
