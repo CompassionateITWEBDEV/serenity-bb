@@ -34,42 +34,70 @@ export type SignalPayload =
     };
 
 // ------------------ Channel Cache ------------------
-/**
- * Keep one active Supabase channel per user to prevent duplicate subscriptions.
- */
+// One channel per user id.
 const channelCache = new Map<string, ReturnType<typeof supabase.channel>>();
+
+// A single readiness promise per channel.
+const channelReady = new WeakMap<
+  ReturnType<typeof supabase.channel>,
+  Promise<void>
+>();
+
+function makeReadyPromise(
+  ch: ReturnType<typeof supabase.channel>,
+  userId: string
+): Promise<void> {
+  // Why: resolve exactly once; avoid deadlocks from duplicate subscribe calls.
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`[RTC] Channel subscribe timeout for user ${userId}`));
+    }, 10_000);
+
+    ch.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        clearTimeout(timeout);
+        console.debug(`[RTC] Channel subscribed for user ${userId}`);
+        resolve();
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        clearTimeout(timeout);
+        reject(new Error(`[RTC] Channel error (${status}) for user ${userId}`));
+      } else {
+        console.debug(`[RTC] Channel status for ${userId}: ${status}`);
+      }
+    });
+  });
+}
 
 export function userRingChannel(userId: string) {
   if (!userId) throw new Error("userId is required for userRingChannel");
 
-  if (channelCache.has(userId)) {
-    return channelCache.get(userId)!;
-  }
+  const existing = channelCache.get(userId);
+  if (existing) return existing;
 
   const ch = supabase.channel(`webrtc:${userId}`, {
     config: { broadcast: { self: false } },
   });
 
-  ch.subscribe((status) => {
-    if (status === "SUBSCRIBED") {
-      console.debug(`[RTC] Channel subscribed for user ${userId}`);
-    } else {
-      console.debug(`[RTC] Channel status for ${userId}: ${status}`);
-    }
-  });
+  // Create and cache the readiness promise once.
+  channelReady.set(ch, makeReadyPromise(ch, userId));
 
   channelCache.set(userId, ch);
   return ch;
 }
 
 // ------------------ Helper: ensure channel ready ------------------
-async function ensureSubscribed(channel: ReturnType<typeof supabase.channel>) {
-  return new Promise<void>((resolve) => {
-    if ((channel as any).state === "joined") return resolve();
-    channel.subscribe((status: string) => {
-      if (status === "SUBSCRIBED") resolve();
-    });
-  });
+async function ensureSubscribed(
+  channel: ReturnType<typeof supabase.channel>
+): Promise<void> {
+  const ready = channelReady.get(channel);
+  if (ready) {
+    await ready;
+    return;
+  }
+  // Defensive: proceed rather than re-subscribing and risking hang.
+  console.warn(
+    "[RTC] ensureSubscribed called on channel without ready promise; proceeding"
+  );
 }
 
 // ------------------ Send helpers ------------------
@@ -80,7 +108,12 @@ export async function sendOfferToUser(
   const ch = userRingChannel(toUserId);
   await ensureSubscribed(ch);
   console.debug("[RTC] Sending offer →", toUserId);
-  await ch.send({ type: "broadcast", event: "webrtc-offer", payload });
+  const { status, error } = await ch.send({
+    type: "broadcast",
+    event: "webrtc-offer",
+    payload,
+  });
+  if (status !== "ok") throw error ?? new Error("Failed to send offer");
 }
 
 export async function sendAnswerToUser(
@@ -90,7 +123,12 @@ export async function sendAnswerToUser(
   const ch = userRingChannel(toUserId);
   await ensureSubscribed(ch);
   console.debug("[RTC] Sending answer →", toUserId);
-  await ch.send({ type: "broadcast", event: "webrtc-answer", payload });
+  const { status, error } = await ch.send({
+    type: "broadcast",
+    event: "webrtc-answer",
+    payload,
+  });
+  if (status !== "ok") throw error ?? new Error("Failed to send answer");
 }
 
 export async function sendIceToUser(
@@ -100,7 +138,12 @@ export async function sendIceToUser(
   const ch = userRingChannel(toUserId);
   await ensureSubscribed(ch);
   console.debug("[RTC] Sending ICE candidate →", toUserId);
-  await ch.send({ type: "broadcast", event: "webrtc-ice", payload });
+  const { status, error } = await ch.send({
+    type: "broadcast",
+    event: "webrtc-ice",
+    payload,
+  });
+  if (status !== "ok") throw error ?? new Error("Failed to send ICE");
 }
 
 export async function sendHangupToUser(
@@ -111,11 +154,12 @@ export async function sendHangupToUser(
   const ch = userRingChannel(toUserId);
   await ensureSubscribed(ch);
   console.debug("[RTC] Sending hangup →", toUserId);
-  await ch.send({
+  const { status, error } = await ch.send({
     type: "broadcast",
     event: "hangup",
     payload: { type: "hangup", conversationId, fromId: fromId ?? "system" },
   });
+  if (status !== "ok") throw error ?? new Error("Failed to send hangup");
 }
 
 export async function sendRing(
@@ -130,16 +174,18 @@ export async function sendRing(
   const ch = userRingChannel(toUserId);
   await ensureSubscribed(ch);
   console.debug("[RTC] Sending ring →", toUserId);
-  await ch.send({ type: "broadcast", event: "ring", payload });
+  const { status, error } = await ch.send({
+    type: "broadcast",
+    event: "ring",
+    payload,
+  });
+  if (status !== "ok") throw error ?? new Error("Failed to send ring");
 }
 
 // ------------------ Debug Utility ------------------
-/**
- * Listen to all events for debugging connectivity.
- * Use only during development.
- */
-export function attachDebugListener(userId: string) {
+export async function attachDebugListener(userId: string) {
   const ch = userRingChannel(userId);
+  await ensureSubscribed(ch);
   ch.on("broadcast", { event: "*" }, (msg) =>
     console.log("[RTC DEBUG]", msg.event, msg.payload)
   );
