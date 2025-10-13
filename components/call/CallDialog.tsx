@@ -32,7 +32,7 @@ type Props = {
   peerAvatar?: string;
 };
 
-/* ---------- TURN config ---------- */
+/* ---------- TURN config (recommended) ---------- */
 const turnUrls = (process.env.NEXT_PUBLIC_TURN_URL || "")
   .split(",")
   .map((u) => u.trim())
@@ -74,6 +74,7 @@ function callActive() {
   }
 }
 
+/* ---------- Types ---------- */
 type MediaPreflight = {
   audioId?: string;
   videoId?: string;
@@ -127,7 +128,7 @@ export default function CallDialog({
   const disconnectGraceRef = React.useRef<number | null>(null);
   const DISCONNECT_GRACE_MS = 8_000;
 
-  /* reflect controls */
+  /* reflect controls -> actual tracks */
   React.useEffect(() => {
     const s = localStreamRef.current;
     if (!s) return;
@@ -142,22 +143,17 @@ export default function CallDialog({
   /* open/close lifecycle */
   React.useEffect(() => {
     if (!open) {
-      // allow another call start from the page
       setCallActive(false);
       stopDialTimer();
       return;
     }
 
-    // Block double-start (clicking both icons)
     if (callActive()) {
-      // show friendly message and exit
       setMediaError("A call is already starting. Please end it or wait, then try again.");
       setStatus("failed");
       return;
     }
     setCallActive(true);
-
-    // reset error UI on open/retry
     setMediaError(null);
 
     closingRef.current = false;
@@ -173,16 +169,15 @@ export default function CallDialog({
     (async () => {
       setStatus(role === "caller" ? "ringing" : "connecting");
 
-      // Subscribe BEFORE signaling
+      // Subscribe BEFORE signaling so first SDP/ICE isn't dropped
       const ch = userRingChannel(meId);
       chanRef.current = ch;
       await ensureSubscribed(ch);
 
-      // Media preflight + robust getUserMedia
+      // Robust media preflight + retries (this fixes “Requested device not found”)
       const stream = await getUserStreamWithRetries(mode).catch((err: any) => {
-        const msg = String(err?.message || err || "Media devices are unavailable.");
-        setMediaError(msg);
-        setStatus("failed"); // unlock UI
+        setMediaError(err?.message || "Media devices are unavailable.");
+        setStatus("failed"); // never leave Dialing/Connecting stuck
         throw err;
       });
       if (cancelled) return;
@@ -193,20 +188,6 @@ export default function CallDialog({
       // RTCPeerConnection
       const pc = new RTCPeerConnection(RTC_CONFIG);
       pcRef.current = pc;
-
-      pc.addEventListener("icegatheringstatechange", () =>
-        console.debug("[RTC]", "iceGatheringState:", pc.iceGatheringState)
-      );
-      pc.addEventListener("iceconnectionstatechange", () =>
-        console.debug("[RTC]", "iceConnectionState:", pc.iceConnectionState)
-      );
-      pc.addEventListener("connectionstatechange", () =>
-        console.debug("[RTC]", "connectionState:", pc.connectionState)
-      );
-      pc.addEventListener("signalingstatechange", () =>
-        console.debug("[RTC]", "signalingState:", pc.signalingState)
-      );
-      pc.addEventListener("icecandidateerror", (e: any) => console.warn("[RTC]", "icecandidateerror", e));
 
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
@@ -224,6 +205,7 @@ export default function CallDialog({
         };
       });
 
+      // Trickle ICE
       pc.onicecandidate = async (e) => {
         if (e.candidate) {
           try {
@@ -236,6 +218,7 @@ export default function CallDialog({
         }
       };
 
+      // Connection lifecycle
       const clearDisconnectGrace = () => {
         if (disconnectGraceRef.current) {
           clearTimeout(disconnectGraceRef.current);
@@ -274,7 +257,7 @@ export default function CallDialog({
         }
       };
 
-      // Signaling
+      // Signaling handlers
       ch.on("broadcast", { event: "webrtc-answer" }, async (msg) => {
         const p = (msg.payload || {}) as any;
         if (p.conversationId !== conversationId) return;
@@ -360,7 +343,7 @@ export default function CallDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, retryNonce]);
 
-  /* timers */
+  /* ---------- timers ---------- */
   function startDialTimer() {
     stopDialTimer();
     setDialSeconds(0);
@@ -389,7 +372,7 @@ export default function CallDialog({
     }
   }
 
-  /* UI controls */
+  /* ---------- UI controls ---------- */
   async function onHangupClick() {
     try {
       await sendHangupToUser(peerUserId, conversationId);
@@ -397,17 +380,16 @@ export default function CallDialog({
     cleanupAndClose("ended");
   }
 
-  /* autoplay helpers */
+  /* ---------- autoplay helpers ---------- */
   function forcePlay(el: HTMLVideoElement | null | undefined) {
     if (!el) return;
     const p = el.play();
     if (p && typeof p.catch === "function") p.catch(() => {});
   }
-
   function attachStream(el: HTMLVideoElement | null, stream: MediaStream | null, mirror: boolean) {
     if (!el) return;
     (el as any).srcObject = stream || null;
-    el.muted = mirror;
+    el.muted = mirror; // local preview muted
     el.playsInline = true;
     el.autoplay = true;
     el.style.transform = mirror ? "scaleX(-1)" : "none";
@@ -424,6 +406,7 @@ export default function CallDialog({
     if (!md || typeof md.getUserMedia !== "function" || typeof md.enumerateDevices !== "function") {
       throw new Error("Media devices API is unavailable in this browser.");
     }
+
     const devices = await navigator.mediaDevices.enumerateDevices();
     const audioInputs = devices.filter((d) => d.kind === "audioinput");
     const videoInputs = devices.filter((d) => d.kind === "videoinput");
@@ -431,7 +414,6 @@ export default function CallDialog({
     const hasCam = videoInputs.length > 0;
 
     if (!hasMic) {
-      // acceptance copy
       throw new Error("Plug in or enable a microphone/camera, then click Try again.");
     }
     if (m === "video" && !hasCam) {
@@ -439,7 +421,7 @@ export default function CallDialog({
     }
 
     return {
-      audioId: audioInputs[0]?.deviceId,
+      audioId: audioInputs[0]?.deviceId, // first available deviceId
       videoId: videoInputs[0]?.deviceId,
       hasMic,
       hasCam,
@@ -478,24 +460,25 @@ export default function CallDialog({
   }
 
   async function getUserStreamWithRetries(m: CallMode): Promise<MediaStream> {
-    let pre: MediaPreflight;
-    try {
-      pre = await ensureMediaPreflight(m);
-    } catch (err: any) {
-      throw new Error(err?.message || "Media devices are unavailable.");
-    }
+    // preflight + picker
+    let pre = await ensureMediaPreflight(m);
 
-    // 1) strict
+    // Attempt 1: strict (exact deviceId, 720p)
     try {
       return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "strict"));
     } catch (e: any) {
       const name = e?.name || "";
-      // 2) NotFound/DevicesNotFound → relax
+      // NotFound/DevicesNotFound: deviceId stale or unplugged
       if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        // Re-enumerate once in case devices changed
+        try {
+          pre = await ensureMediaPreflight(m);
+        } catch {
+          throw new Error("Plug in or enable a microphone/camera, then click Try again.");
+        }
         try {
           return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "relaxed"));
-        } catch (e2: any) {
-          // Final fallback: generic audio/video true (no specific constraints)
+        } catch {
           try {
             return await navigator.mediaDevices.getUserMedia({ audio: true, video: m === "video" ? true : false });
           } catch {
@@ -504,7 +487,7 @@ export default function CallDialog({
         }
       }
 
-      // 3) Overconstrained → drop conflicting constraints once
+      // Overconstrained: drop width/height/frameRate once
       if (name === "OverconstrainedError") {
         try {
           return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "fallback"));
@@ -513,22 +496,22 @@ export default function CallDialog({
         }
       }
 
-      // 4) Device busy / OS blocking
+      // Device busy / OS blocking
       if (name === "NotReadableError" || name === "AbortError") {
         throw new Error("Camera or microphone is in use by another app or tab. Close it, then click Try again.");
       }
 
-      // 5) Permissions blocked
+      // Permissions blocked
       if (name === "NotAllowedError" || name === "SecurityError") {
         throw new Error("Allow Camera and Microphone for this site, then try again.");
       }
 
-      // 6) Unknown
+      // Unknown
       throw new Error("Could not access microphone/camera. Please try again.");
     }
   }
 
-  /* misc helpers */
+  /* ---------- misc helpers ---------- */
   function allRemoteTracksEnded(): boolean {
     const rs = remoteStreamRef.current;
     if (!rs) return false;
@@ -589,7 +572,6 @@ export default function CallDialog({
       closingRef.current = false; // keep visible with "Call ended"
       return;
     }
-
     onOpenChange(false);
   }
 
@@ -619,7 +601,7 @@ export default function CallDialog({
     }
   };
 
-  /* UI */
+  /* ---------- UI ---------- */
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="max-w-3xl overflow-hidden" aria-describedby="call-desc">
