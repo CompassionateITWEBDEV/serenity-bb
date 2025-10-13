@@ -515,53 +515,51 @@ export default function DashboardMessagesPage() {
     };
   }, [staffDir, selectedConv?.provider_id]);
 
-  const startCall = useCallback(
+const startCall = useCallback(
   async (mode: CallMode) => {
     if (!selectedId || !me?.id) {
       await Swal.fire("Select a chat", "Open a conversation first.", "info");
       return;
     }
     const peerUserId = providerInfo.id;
-    if (!peerUserId) return;
+    if (!peerUserId || peerUserId === me.id) {
+      await Swal.fire("Unavailable", "Cannot place a call at the moment.", "info");
+      return;
+    }
 
+    // Preflight permissions so the user sees the prompt before we ring
     try {
-      // (Optional) quick preflight for permissions; ignore failures for audio-only if you want
       const constraints: MediaStreamConstraints = {
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         video: mode === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
       };
-      try {
-        const s = await navigator.mediaDevices.getUserMedia(constraints);
-        s.getTracks().forEach((t) => t.stop());
-      } catch {
-        // If device missing, still try to ring — the dialog will show media errors.
-      }
+      const s = await navigator.mediaDevices.getUserMedia(constraints);
+      s.getTracks().forEach((t) => t.stop());
+    } catch (err: any) {
+      await Swal.fire("Permissions required", err?.message || "Please allow microphone/camera first.", "info");
+      return;
+    }
 
-      console.log("[startCall] Sending ring to:", peerUserId);
-      
+    try {
       await sendRing(peerUserId, {
         conversationId: selectedId,
         fromId: me.id,
         fromName: me.name,
         mode,
       });
-
-      console.log("[startCall] Ring sent successfully");
-      
-      setCallRole("caller");
-      setCallMode(mode);
-      setCallOpen(true);
     } catch (err: any) {
-      console.error("[startCall] sendRing failed:", err);
-      await Swal.fire(
-        "Call failed", 
-        err?.message || "Could not start the call. Please try again.", 
-        "error"
-      );
+      // Why: you saw “Failed to send ring” → surface the actual reason
+      await Swal.fire("Call failed", err?.message || "Could not reach the other user (ring).", "error");
+      return;
     }
+
+    setCallRole("caller");
+    setCallMode(mode);
+    setCallOpen(true);
   },
   [selectedId, me?.id, me?.name, providerInfo.id]
 );
+
   
   const acceptIncoming = useCallback(() => {
     if (!incoming) return;
