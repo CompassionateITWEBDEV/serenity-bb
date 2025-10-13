@@ -32,6 +32,7 @@ type Props = {
   peerAvatar?: string;
 };
 
+/* ---------- TURN config ---------- */
 const turnUrls = (process.env.NEXT_PUBLIC_TURN_URL || "")
   .split(",")
   .map((u) => u.trim())
@@ -53,6 +54,25 @@ const RTC_CONFIG: RTCConfiguration = {
   iceTransportPolicy: "all",
   bundlePolicy: "balanced",
 };
+
+/* ---------- Global call guard (prevents double-start) ---------- */
+declare global {
+  interface Window {
+    __callActive?: boolean;
+  }
+}
+function setCallActive(v: boolean) {
+  try {
+    window.__callActive = v;
+  } catch {}
+}
+function callActive() {
+  try {
+    return !!window.__callActive;
+  } catch {
+    return false;
+  }
+}
 
 type MediaPreflight = {
   audioId?: string;
@@ -81,7 +101,6 @@ export default function CallDialog({
 
   // Media/setup error UI
   const [mediaError, setMediaError] = React.useState<string | null>(null);
-  const [canRetry, setCanRetry] = React.useState(false);
   const [retryNonce, setRetryNonce] = React.useState(0);
 
   // Core refs
@@ -114,7 +133,6 @@ export default function CallDialog({
     if (!s) return;
     s.getAudioTracks().forEach((t) => (t.enabled = !muted));
   }, [muted]);
-
   React.useEffect(() => {
     const s = localStreamRef.current;
     if (!s) return;
@@ -124,13 +142,23 @@ export default function CallDialog({
   /* open/close lifecycle */
   React.useEffect(() => {
     if (!open) {
+      // allow another call start from the page
+      setCallActive(false);
       stopDialTimer();
       return;
     }
 
-    // reset error UI each open/retry
+    // Block double-start (clicking both icons)
+    if (callActive()) {
+      // show friendly message and exit
+      setMediaError("A call is already starting. Please end it or wait, then try again.");
+      setStatus("failed");
+      return;
+    }
+    setCallActive(true);
+
+    // reset error UI on open/retry
     setMediaError(null);
-    setCanRetry(false);
 
     closingRef.current = false;
     let cancelled = false;
@@ -145,18 +173,16 @@ export default function CallDialog({
     (async () => {
       setStatus(role === "caller" ? "ringing" : "connecting");
 
-      // Subscribe before signaling
+      // Subscribe BEFORE signaling
       const ch = userRingChannel(meId);
       chanRef.current = ch;
       await ensureSubscribed(ch);
 
       // Media preflight + robust getUserMedia
       const stream = await getUserStreamWithRetries(mode).catch((err: any) => {
-        // Map known messages to UI; never leave stuck
         const msg = String(err?.message || err || "Media devices are unavailable.");
         setMediaError(msg);
-        setCanRetry(true);
-        setStatus("failed"); // important: unblock UI state
+        setStatus("failed"); // unlock UI
         throw err;
       });
       if (cancelled) return;
@@ -248,7 +274,7 @@ export default function CallDialog({
         }
       };
 
-      // Signaling handlers
+      // Signaling
       ch.on("broadcast", { event: "webrtc-answer" }, async (msg) => {
         const p = (msg.payload || {}) as any;
         if (p.conversationId !== conversationId) return;
@@ -308,7 +334,7 @@ export default function CallDialog({
 
       ch.subscribe();
 
-      // Caller offer
+      // Caller → send offer
       if (role === "caller") {
         try {
           const offer = await pc.createOffer({
@@ -322,11 +348,14 @@ export default function CallDialog({
           cleanupAndClose("failed");
         }
       }
-    })().catch(() => { /* media error already handled */ });
+    })()
+      .catch(() => {})
+      .finally(() => {});
 
     return () => {
       window.removeEventListener("beforeunload", beforeUnload);
       teardownSignalingAndPc();
+      setCallActive(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, retryNonce]);
@@ -349,7 +378,6 @@ export default function CallDialog({
       }
     }, 5 * 60 * 1000) as unknown as number;
   }
-
   function stopDialTimer() {
     if (dialTimerRef.current) {
       clearTimeout(dialTimerRef.current);
@@ -390,7 +418,7 @@ export default function CallDialog({
   async function ensureMediaPreflight(m: CallMode): Promise<MediaPreflight> {
     if (typeof window === "undefined") throw new Error("Media not available.");
     if (!window.isSecureContext) {
-      throw new Error("Use HTTPS: Media devices require a secure connection.");
+      throw new Error("Use HTTPS to access camera/mic, then try again.");
     }
     const md = navigator.mediaDevices as any;
     if (!md || typeof md.getUserMedia !== "function" || typeof md.enumerateDevices !== "function") {
@@ -403,6 +431,7 @@ export default function CallDialog({
     const hasCam = videoInputs.length > 0;
 
     if (!hasMic) {
+      // acceptance copy
       throw new Error("Plug in or enable a microphone/camera, then click Try again.");
     }
     if (m === "video" && !hasCam) {
@@ -422,104 +451,84 @@ export default function CallDialog({
     ids: { audioId?: string; videoId?: string },
     quality: "strict" | "relaxed" | "fallback"
   ): MediaStreamConstraints {
-    const baseAudio: MediaTrackConstraints = {
+    const audio: MediaTrackConstraints = {
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
       ...(ids.audioId && quality !== "relaxed" ? { deviceId: { exact: ids.audioId } } : {}),
     };
 
-    const baseVideoStrict: MediaTrackConstraints = {
+    const videoStrict: MediaTrackConstraints = {
       width: { ideal: 1280, max: 1920 },
       height: { ideal: 720, max: 1080 },
       frameRate: { ideal: 30, max: 60 },
       ...(ids.videoId && quality !== "relaxed" ? { deviceId: { exact: ids.videoId } } : {}),
     };
-
-    const baseVideoRelaxed: MediaTrackConstraints = {
+    const videoRelaxed: MediaTrackConstraints = {
       width: { ideal: 640 },
       height: { ideal: 360 },
       frameRate: { ideal: 24 },
       ...(ids.videoId ? { deviceId: { ideal: ids.videoId } } : {}),
     };
 
-    const audio = baseAudio;
-    const video =
-      m === "video"
-        ? quality === "strict"
-          ? baseVideoStrict
-          : quality === "relaxed"
-          ? baseVideoRelaxed
-          : true
-        : false;
-
-    return { audio, video };
+    return {
+      audio,
+      video: m === "video" ? (quality === "strict" ? videoStrict : quality === "relaxed" ? videoRelaxed : true) : false,
+    };
   }
 
   async function getUserStreamWithRetries(m: CallMode): Promise<MediaStream> {
-    // Preconditions + device picker
     let pre: MediaPreflight;
     try {
       pre = await ensureMediaPreflight(m);
     } catch (err: any) {
-      const msg = String(err?.message || err);
-      // Map to acceptance copy when relevant
-      if (msg.includes("secure") || msg.includes("HTTPS")) {
-        throw new Error("Use HTTPS to access camera/mic, then try again.");
-      }
-      if (msg.includes("API is unavailable")) {
-        throw new Error("Media devices API is unavailable in this browser.");
-      }
-      if (msg.includes("Plug in or enable")) {
-        throw new Error("Plug in or enable a microphone/camera, then click Try again.");
-      }
-      throw new Error(msg);
+      throw new Error(err?.message || "Media devices are unavailable.");
     }
 
-    // Attempt 1: strict (picked devices, 720p)
+    // 1) strict
     try {
       return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "strict"));
     } catch (e: any) {
       const name = e?.name || "";
-      const msg = e?.message || "";
-      // NotFound → retry relaxed (no exact device, lower res)
+      // 2) NotFound/DevicesNotFound → relax
       if (name === "NotFoundError" || name === "DevicesNotFoundError") {
         try {
           return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "relaxed"));
         } catch (e2: any) {
-          // Final fallback: drop video constraints entirely if video mode
-          if (m === "video") {
-            try {
-              return await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-            } catch (e3: any) {
-              throw new Error("Plug in or enable a microphone/camera, then click Try again.");
-            }
+          // Final fallback: generic audio/video true (no specific constraints)
+          try {
+            return await navigator.mediaDevices.getUserMedia({ audio: true, video: m === "video" ? true : false });
+          } catch {
+            throw new Error("Plug in or enable a microphone/camera, then click Try again.");
           }
-          throw new Error("Plug in or enable a microphone/camera, then click Try again.");
         }
       }
 
-      // Overconstrained → drop conflicting constraints and retry once
+      // 3) Overconstrained → drop conflicting constraints once
       if (name === "OverconstrainedError") {
         try {
-          const c = buildConstraints(m, pre, "fallback");
-          return await navigator.mediaDevices.getUserMedia(c);
+          return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "fallback"));
         } catch {
-          throw new Error("Could not match the requested camera settings. Try again.");
+          throw new Error("Could not match camera settings. Try again.");
         }
       }
 
-      // Permissions blocked
+      // 4) Device busy / OS blocking
+      if (name === "NotReadableError" || name === "AbortError") {
+        throw new Error("Camera or microphone is in use by another app or tab. Close it, then click Try again.");
+      }
+
+      // 5) Permissions blocked
       if (name === "NotAllowedError" || name === "SecurityError") {
         throw new Error("Allow Camera and Microphone for this site, then try again.");
       }
 
-      // Generic
-      console.warn("getUserMedia error:", name, msg);
+      // 6) Unknown
       throw new Error("Could not access microphone/camera. Please try again.");
     }
   }
 
+  /* misc helpers */
   function allRemoteTracksEnded(): boolean {
     const rs = remoteStreamRef.current;
     if (!rs) return false;
@@ -584,7 +593,7 @@ export default function CallDialog({
     onOpenChange(false);
   }
 
-  /* ensure we are SUBSCRIBED before signaling */
+  /* subscribe helper */
   function ensureSubscribed(channel: ReturnType<typeof userRingChannel>) {
     return new Promise<void>((resolve) => {
       let done = false;
@@ -597,7 +606,7 @@ export default function CallDialog({
     });
   }
 
-  /* dialog close → notify */
+  /* Dialog open/close → notify peer + reset guard */
   const handleDialogOpenChange = (v: boolean) => {
     if (v) {
       onOpenChange(true);
@@ -606,6 +615,7 @@ export default function CallDialog({
         sendHangupToUser(peerUserId, conversationId);
       } catch {}
       cleanupAndClose("ended");
+      setCallActive(false);
     }
   };
 
@@ -616,11 +626,9 @@ export default function CallDialog({
         <DialogHeader>
           <DialogTitle>
             {mode === "video" ? "Video Call" : "Audio Call"} • {peerName || "Contact"}
-            {status === "ringing" && (
-              <span className="ml-2 text-xs text-gray-500">Dialing… {formatTime(dialSeconds)}</span>
-            )}
+            {status === "ringing" && <span className="ml-2 text-xs text-gray-500">Dialing… {formatTime(dialSeconds)}</span>}
             {status === "connecting" && <span className="ml-2 text-xs text-gray-500">Connecting…</span>}
-            {status === "connected" && <span className="ml-2 text-xs text-xs text-green-600">Connected</span>}
+            {status === "connected" && <span className="ml-2 text-xs text-green-600">Connected</span>}
             {status === "ended" && <span className="ml-2 text-xs text-gray-500">Call ended</span>}
           </DialogTitle>
           <DialogDescription id="call-desc" className="sr-only">
@@ -649,7 +657,6 @@ export default function CallDialog({
                       size="sm"
                       onClick={() => {
                         setMediaError(null);
-                        setCanRetry(false);
                         setStatus(role === "caller" ? "ringing" : "connecting");
                         setRetryNonce((n) => n + 1);
                       }}
