@@ -24,51 +24,83 @@ export type SignalPayload =
       type: "hangup";
       conversationId: string;
       fromId: string;
+    }
+  | {
+      type: "ring";
+      conversationId: string;
+      fromId: string;
+      fromName: string;
+      mode: "audio" | "video";
     };
 
-// ------------------ Channel ------------------
+// ------------------ Channel Cache ------------------
 /**
- * Create a dedicated signaling channel per user.
- * Used for listening to WebRTC offers, answers, ICE candidates, and call control events.
+ * Keep one active Supabase channel per user to prevent duplicate subscriptions.
  */
+const channelCache = new Map<string, ReturnType<typeof supabase.channel>>();
+
 export function userRingChannel(userId: string) {
-  return supabase.channel(`webrtc:${userId}`, {
-    config: { broadcast: { self: false } }, // Prevent self-echo
+  if (!userId) throw new Error("userId is required for userRingChannel");
+
+  if (channelCache.has(userId)) {
+    return channelCache.get(userId)!;
+  }
+
+  const ch = supabase.channel(`webrtc:${userId}`, {
+    config: { broadcast: { self: false } },
+  });
+
+  ch.subscribe((status) => {
+    if (status === "SUBSCRIBED") {
+      console.debug(`[RTC] Channel subscribed for user ${userId}`);
+    } else {
+      console.debug(`[RTC] Channel status for ${userId}: ${status}`);
+    }
+  });
+
+  channelCache.set(userId, ch);
+  return ch;
+}
+
+// ------------------ Helper: ensure channel ready ------------------
+async function ensureSubscribed(channel: ReturnType<typeof supabase.channel>) {
+  return new Promise<void>((resolve) => {
+    if ((channel as any).state === "joined") return resolve();
+    channel.subscribe((status: string) => {
+      if (status === "SUBSCRIBED") resolve();
+    });
   });
 }
 
-// ------------------ Offer/Answer/ICE/Hangup ------------------
+// ------------------ Send helpers ------------------
 export async function sendOfferToUser(
   toUserId: string,
-  p: Extract<SignalPayload, { type: "webrtc-offer" }>
+  payload: Extract<SignalPayload, { type: "webrtc-offer" }>
 ) {
-  await supabase.channel(`webrtc:${toUserId}`).send({
-    type: "broadcast",
-    event: "webrtc-offer",
-    payload: p,
-  });
+  const ch = userRingChannel(toUserId);
+  await ensureSubscribed(ch);
+  console.debug("[RTC] Sending offer →", toUserId);
+  await ch.send({ type: "broadcast", event: "webrtc-offer", payload });
 }
 
 export async function sendAnswerToUser(
   toUserId: string,
-  p: Extract<SignalPayload, { type: "webrtc-answer" }>
+  payload: Extract<SignalPayload, { type: "webrtc-answer" }>
 ) {
-  await supabase.channel(`webrtc:${toUserId}`).send({
-    type: "broadcast",
-    event: "webrtc-answer",
-    payload: p,
-  });
+  const ch = userRingChannel(toUserId);
+  await ensureSubscribed(ch);
+  console.debug("[RTC] Sending answer →", toUserId);
+  await ch.send({ type: "broadcast", event: "webrtc-answer", payload });
 }
 
 export async function sendIceToUser(
   toUserId: string,
-  p: Extract<SignalPayload, { type: "webrtc-ice" }>
+  payload: Extract<SignalPayload, { type: "webrtc-ice" }>
 ) {
-  await supabase.channel(`webrtc:${toUserId}`).send({
-    type: "broadcast",
-    event: "webrtc-ice",
-    payload: p,
-  });
+  const ch = userRingChannel(toUserId);
+  await ensureSubscribed(ch);
+  console.debug("[RTC] Sending ICE candidate →", toUserId);
+  await ch.send({ type: "broadcast", event: "webrtc-ice", payload });
 }
 
 export async function sendHangupToUser(
@@ -76,23 +108,16 @@ export async function sendHangupToUser(
   conversationId: string,
   fromId?: string
 ) {
-  await supabase.channel(`webrtc:${toUserId}`).send({
+  const ch = userRingChannel(toUserId);
+  await ensureSubscribed(ch);
+  console.debug("[RTC] Sending hangup →", toUserId);
+  await ch.send({
     type: "broadcast",
     event: "hangup",
-    payload: {
-      type: "hangup",
-      conversationId,
-      fromId: fromId ?? "system",
-    },
+    payload: { type: "hangup", conversationId, fromId: fromId ?? "system" },
   });
 }
 
-// ------------------ Ring (NEW) ------------------
-/**
- * Notifies the peer that a call is incoming.
- * @param toUserId - The receiver’s Supabase user ID
- * @param payload - Basic call metadata (conversationId, caller, mode)
- */
 export async function sendRing(
   toUserId: string,
   payload: {
@@ -102,27 +127,20 @@ export async function sendRing(
     mode: "audio" | "video";
   }
 ) {
-  await supabase.channel(`webrtc:${toUserId}`).send({
-    type: "broadcast",
-    event: "ring",
-    payload,
-  });
+  const ch = userRingChannel(toUserId);
+  await ensureSubscribed(ch);
+  console.debug("[RTC] Sending ring →", toUserId);
+  await ch.send({ type: "broadcast", event: "ring", payload });
 }
 
-// ------------------ Ensure Subscribed ------------------
+// ------------------ Debug Utility ------------------
 /**
- * Ensures a Realtime channel is fully subscribed before sending signals.
+ * Listen to all events for debugging connectivity.
+ * Use only during development.
  */
-export function ensureSubscribed(
-  channel: ReturnType<typeof userRingChannel>
-): Promise<void> {
-  return new Promise((resolve) => {
-    let done = false;
-    channel.subscribe((status: string) => {
-      if (!done && status === "SUBSCRIBED") {
-        done = true;
-        resolve();
-      }
-    });
-  });
+export function attachDebugListener(userId: string) {
+  const ch = userRingChannel(userId);
+  ch.on("broadcast", { event: "*" }, (msg) =>
+    console.log("[RTC DEBUG]", msg.event, msg.payload)
+  );
 }
