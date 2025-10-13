@@ -1,21 +1,14 @@
 import { supabase } from "@/lib/supabase/client";
 
 /* ============================================================================
- * WebRTC Signaling via Supabase Realtime
- * ============================================================================
- * Per-user broadcast channels for peer-to-peer call signaling.
- * Each user subscribes to their own channel: `webrtc_user_{userId}`
- * 
- * Events:
- *   - ring        → Notify incoming call
- *   - hangup      → End/decline call
- *   - webrtc-offer   → WebRTC SDP offer
- *   - webrtc-answer  → WebRTC SDP answer
- *   - webrtc-ice     → ICE candidate exchange
+ * WebRTC Signaling via Supabase Realtime (robust)
+ * - Per-user broadcast channels: `webrtc_user_{userId}`
+ * - Single subscribed channel per user (cached)
+ * - ACKed sends with retry/backoff (prevents dropped first messages)
+ * - Clean teardown helpers
  * ========================================================================== */
 
 /* ----------------------------- Types ------------------------------------- */
-
 export type CallMode = "audio" | "video";
 
 export type RingPayload = {
@@ -26,7 +19,7 @@ export type RingPayload = {
 };
 
 export type HangupPayload = {
-  conversationId?: string;
+  conversationId: string; // always present (was optional before)
 };
 
 export type SDPPayload = {
@@ -41,167 +34,162 @@ export type ICEPayload = {
   candidate: RTCIceCandidateInit;
 };
 
-/* ----------------------------- Channel Factory --------------------------- */
+/* ----------------------------- Channel Cache ------------------------------ */
+// Why: Avoid sending on ad-hoc, unsubscribed channels which can drop early messages.
+const ChannelCache = new Map<string, ReturnType<typeof supabase.channel>>();
 
-/**
- * Create or reference a user's signaling channel.
- * Subscribe to this channel to listen for incoming calls and WebRTC signals.
- * 
- * @param userId - The user ID to create a channel for
- * @returns Supabase RealtimeChannel instance
- */
-export function userRingChannel(userId: string) {
-  return supabase.channel(`webrtc_user_${userId}`, {
-    config: { 
-      broadcast: { ack: true } 
-    },
-  });
-}
-
-/* ----------------------------- Call Control ------------------------------ */
-
-/**
- * Send a ring notification to initiate a call.
- * The recipient will receive this on their `webrtc_user_{toUserId}` channel.
- * 
- * @param toUserId - User ID to ring
- * @param payload - Call details (conversation, caller info, mode)
- */
-export async function sendRing(toUserId: string, payload: RingPayload) {
-  const channel = supabase.channel(`webrtc_user_${toUserId}`);
-  
-  return channel.send({
-    type: "broadcast",
-    event: "ring",
-    payload,
-  });
+function channelNameFor(userId: string) {
+  return `webrtc_user_${userId}`;
 }
 
 /**
- * Send hangup signal to end or decline a call.
- * 
- * @param toUserId - User ID to notify
- * @param conversationId - Optional conversation ID for context
+ * Get a broadcast channel for a user, lazily create+subscribe, and await SUBSCRIBED.
+ * Multiple callers will reuse the same subscribed channel.
  */
-export async function sendHangupToUser(
-  toUserId: string, 
-  conversationId?: string
-) {
-  const channel = supabase.channel(`webrtc_user_${toUserId}`);
-  
-  return channel.send({
-    type: "broadcast",
-    event: "hangup",
-    payload: { conversationId } as HangupPayload,
+export async function getUserChannel(userId: string) {
+  const key = channelNameFor(userId);
+  let ch = ChannelCache.get(key);
+
+  if (!ch) {
+    ch = supabase.channel(key, {
+      config: { broadcast: { ack: true } },
+    });
+    ChannelCache.set(key, ch);
+  }
+
+  // Already subscribed
+  if ((ch as any).state === "joined") return ch;
+
+  // Subscribe and await SUBSCRIBED
+  await new Promise<void>((resolve, reject) => {
+    const sub = ch!.subscribe((status) => {
+      if (status === "SUBSCRIBED") resolve();
+      else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        reject(new Error(`Channel ${key} subscribe failed: ${status}`));
+      }
+    });
+    // Safety: if subscribe() returns synchronously joined (rare), resolve immediately
+    if ((sub as any).state === "joined") resolve();
   });
+
+  return ch;
 }
 
-/* ----------------------------- WebRTC Signaling -------------------------- */
+/* ----------------------------- Send w/ ACK + Retry ------------------------ */
+type SendResult = { status: "ok" | "timed_out" | "error"; response?: any };
 
-/**
- * Send WebRTC offer (SDP) to peer.
- * This is the first step in establishing a peer connection.
- * 
- * @param toUserId - Peer user ID
- * @param payload - Offer details (conversation, caller, SDP)
- */
-export async function sendOfferToUser(toUserId: string, payload: SDPPayload) {
-  const channel = supabase.channel(`webrtc_user_${toUserId}`);
-  
-  return channel.send({
-    type: "broadcast",
-    event: "webrtc-offer",
-    payload,
-  });
-}
-
-/**
- * Send WebRTC answer (SDP) to peer.
- * This is the response to an offer, completing the SDP exchange.
- * 
- * @param toUserId - Peer user ID
- * @param payload - Answer details (conversation, answerer, SDP)
- */
-export async function sendAnswerToUser(toUserId: string, payload: SDPPayload) {
-  const channel = supabase.channel(`webrtc_user_${toUserId}`);
-  
-  return channel.send({
-    type: "broadcast",
-    event: "webrtc-answer",
-    payload,
-  });
-}
-
-/**
- * Send ICE candidate to peer.
- * ICE candidates are exchanged continuously during connection setup.
- * 
- * @param toUserId - Peer user ID
- * @param payload - ICE candidate details
- */
-export async function sendIceToUser(toUserId: string, payload: ICEPayload) {
-  const channel = supabase.channel(`webrtc_user_${toUserId}`);
-  
-  return channel.send({
-    type: "broadcast",
-    event: "webrtc-ice",
-    payload,
-  });
-}
-
-/* ----------------------------- Utility Helpers --------------------------- */
-
-/**
- * Broadcast to multiple users at once (e.g., group calls).
- * 
- * @param userIds - Array of user IDs
- * @param event - Event name
- * @param payload - Event payload
- */
-export async function broadcastToUsers(
-  userIds: string[],
+async function sendWithAck(
+  ch: ReturnType<typeof supabase.channel>,
   event: string,
-  payload: any
-) {
-  return Promise.all(
-    userIds.map((userId) =>
-      supabase.channel(`webrtc_user_${userId}`).send({
+  payload: unknown,
+  opts: { attempts?: number; baseDelayMs?: number } = {}
+): Promise<void> {
+  const attempts = opts.attempts ?? 5;
+  const baseDelayMs = opts.baseDelayMs ?? 200;
+
+  let lastErr: any;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = (await ch.send({
         type: "broadcast",
         event,
         payload,
-      })
-    )
-  );
+      })) as SendResult;
+
+      if (res?.status === "ok") return;
+
+      lastErr = new Error(`send ${event} not ok: ${res?.status}`);
+    } catch (e) {
+      lastErr = e;
+    }
+    // backoff: 200ms, 300ms, 450ms, ...
+    const delay = Math.floor(baseDelayMs * Math.pow(1.5, i));
+    await wait(delay);
+  }
+  throw lastErr ?? new Error(`send ${event} failed`);
 }
 
+function wait(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/* ----------------------------- Public API --------------------------------- */
 /**
- * Check if a user's channel is currently subscribed/active.
- * Useful for presence detection.
- * 
- * @param userId - User ID to check
- * @returns Promise<boolean> - true if channel exists and is subscribed
+ * Subscribe to YOUR OWN channel to receive incoming ring/offer/answer/ice/hangup.
+ * In your UI, call this once per dialog open and attach `.on("broadcast", ...)` handlers.
  */
-export async function isUserChannelActive(userId: string): Promise<boolean> {
-  try {
-    const channel = supabase.channel(`webrtc_user_${userId}`);
-    const state = channel.state;
-    return state === "joined" || state === "joining";
-  } catch {
-    return false;
+export async function userRingChannel(userId: string) {
+  return getUserChannel(userId); // ensures subscribed + cached
+}
+
+/** Initiate ring (notify callee). */
+export async function sendRing(toUserId: string, payload: RingPayload) {
+  const ch = await getUserChannel(toUserId);
+  await sendWithAck(ch, "ring", payload);
+}
+
+/** Hang up / decline: ends call on peer immediately. */
+export async function sendHangupToUser(toUserId: string, conversationId: string) {
+  const ch = await getUserChannel(toUserId);
+  const payload: HangupPayload = { conversationId };
+  await sendWithAck(ch, "hangup", payload);
+}
+
+/** WebRTC SDP Offer */
+export async function sendOfferToUser(toUserId: string, payload: SDPPayload) {
+  const ch = await getUserChannel(toUserId);
+  await sendWithAck(ch, "webrtc-offer", payload);
+}
+
+/** WebRTC SDP Answer */
+export async function sendAnswerToUser(toUserId: string, payload: SDPPayload) {
+  const ch = await getUserChannel(toUserId);
+  await sendWithAck(ch, "webrtc-answer", payload);
+}
+
+/** Trickle ICE */
+export async function sendIceToUser(toUserId: string, payload: ICEPayload) {
+  const ch = await getUserChannel(toUserId);
+  await sendWithAck(ch, "webrtc-ice", payload);
+}
+
+/* ----------------------------- Utilities ---------------------------------- */
+export async function broadcastToUsers(userIds: string[], event: string, payload: any) {
+  // Send sequentially w/ ack to avoid fan-out throttling; parallel if needed.
+  for (const id of userIds) {
+    const ch = await getUserChannel(id);
+    await sendWithAck(ch, event, payload);
   }
 }
 
 /**
- * Cleanup/unsubscribe from a user channel.
- * Call this when leaving a page or ending a call.
- * 
- * @param userId - User ID whose channel to clean up
+ * Simple presence-ish check: returns true if we have a joined channel in cache.
+ * Note: This checks *our* connection to that topic, not peer online presence.
  */
+export function isUserChannelActive(userId: string): boolean {
+  const ch = ChannelCache.get(channelNameFor(userId));
+  const st = (ch as any)?.state;
+  return st === "joined" || st === "joining";
+}
+
+/** Remove one user's channel (use when ending a call). */
 export async function cleanupUserChannel(userId: string) {
-  try {
-    const channel = supabase.channel(`webrtc_user_${userId}`);
-    await supabase.removeChannel(channel);
-  } catch (err) {
-    console.warn(`Failed to cleanup channel for user ${userId}:`, err);
+  const key = channelNameFor(userId);
+  const ch = ChannelCache.get(key);
+  if (ch) {
+    try {
+      await supabase.removeChannel(ch);
+    } catch {}
+    ChannelCache.delete(key);
+  }
+}
+
+/** Remove all cached channels (use on page unload / global cleanup). */
+export async function cleanupAllUserChannels() {
+  for (const [key, ch] of ChannelCache.entries()) {
+    try {
+      await supabase.removeChannel(ch);
+    } catch {}
+    ChannelCache.delete(key);
   }
 }
