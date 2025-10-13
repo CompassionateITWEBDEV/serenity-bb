@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import type { ProviderRole } from "@/lib/chat";
 import { markRead as markReadHelper } from "@/lib/chat";
+import IncomingCallBanner from "@/components/call/IncomingCallBanner";
 
 /* ----------------------------- Types & settings ---------------------------- */
 
@@ -139,7 +140,15 @@ function ChatBoxInner(props: {
 
   const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
 
-  // Minimal call state (no ring or signaling here)
+  // Incoming call banner state
+  const [incoming, setIncoming] = useState<{
+    conversationId: string;
+    fromId: string;
+    fromName: string;
+    mode: "audio" | "video";
+  } | null>(null);
+
+  // Visual call dock (optional)
   const [callDockVisible, setCallDockVisible] = useState(false);
   const [callDockMin, setCallDockMin] = useState(false);
   const [callStatus, setCallStatus] = useState<"ringing" | "connected" | "ended">("ended");
@@ -157,7 +166,7 @@ function ChatBoxInner(props: {
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
     " px-4 py-2 " +
-    ((settings?.density ?? "comfortable") === "compact" ? "text-sm" : "text-[15px]");
+    ((settings?.density ?? "comfortable") === "compact" ? "text-sm" : "text-[15px]"));
 
   const ding = useCallback(() => {
     if (!settings?.sound) return;
@@ -328,152 +337,72 @@ function ChatBoxInner(props: {
     };
   }, [conversationId, me, ding, scrollToBottom]);
 
-  // Determine peer user id (for building the /call URL only)
+  /* ---------------------------- INVITE listener (banner) ---------------------------- */
+  useEffect(() => {
+    let ch: ReturnType<typeof supabase.channel> | null = null;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      const uid = data.user?.id;
+      if (!uid) return;
+      ch = supabase.channel(`user_${uid}`, { config: { broadcast: { ack: true } } });
+      ch.on("broadcast", { event: "invite" }, (p) => {
+        const { conversationId: convId, fromId, fromName, mode } = (p.payload || {}) as any;
+        if (!convId || !fromId) return;
+        // only show banner for the current thread (to avoid confusion)
+        if (conversationId && convId !== conversationId) return;
+        setIncoming({ conversationId: convId, fromId, fromName: fromName || "Caller", mode: (mode || "audio") });
+      });
+      ch.on("broadcast", { event: "bye" }, () => setIncoming(null));
+      ch.subscribe();
+    })();
+    return () => { if (ch) try { supabase.removeChannel(ch); } catch {} };
+  }, [conversationId]);
+
+  // Determine peer user id (build /call URL)
   const peerUserId = useMemo(
     () => (mode === "staff" ? patientId : (providerId || "")),
     [mode, patientId, providerId]
   );
 
-  // Open /call page (no ring/signaling here)
+  // Start call (navigate; /call page does the signaling)
   const beginCall = useCallback(
     async (m: "audio" | "video") => {
-      const convId = await ensureConversation().catch(() => null);
+      const convId = (await ensureConversation().catch(() => null)) || conversationId;
       if (!convId || !peerUserId) return;
       const url = `/call/${convId}?role=caller&mode=${m}&peer=${encodeURIComponent(
         peerUserId
       )}&peerName=${encodeURIComponent(mode === "staff" ? (patientName || "Patient") : (providerName || "Provider"))}`;
       window.open(url, "_blank", "noopener,noreferrer");
       setCallDockVisible(true);
-      setCallStatus("connected"); // purely UI, no signaling
+      setCallStatus("connected"); // visual only
     },
-    [ensureConversation, peerUserId, mode, patientName, providerName]
+    [ensureConversation, conversationId, peerUserId, mode, patientName, providerName]
   );
 
-  const hangup = useCallback(async () => {
-    // purely UI (no signaling)
+  // Accept/Decline banner
+  const acceptIncoming = useCallback(() => {
+    if (!incoming) return;
+    const url = `/call/${incoming.conversationId}?role=callee&mode=${incoming.mode}&peer=${encodeURIComponent(
+      incoming.fromId
+    )}&peerName=${encodeURIComponent(incoming.fromName || "Caller")}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+    setIncoming(null);
+  }, [incoming]);
+
+  const declineIncoming = useCallback(async () => {
+    if (!incoming) return;
+    const ch = supabase.channel(`user_${incoming.fromId}`, { config: { broadcast: { ack: true } } });
+    await new Promise<void>((res) => ch.subscribe((s) => s === "SUBSCRIBED" && res()));
+    await ch.send({ type: "broadcast", event: "bye", payload: { conversationId: incoming.conversationId } });
+    setIncoming(null);
+  }, [incoming]);
+
+  const hangup = useCallback(() => {
     setCallDockVisible(false);
     setCallStatus("ended");
   }, []);
 
-  /* ----------------------------- send ops ----------------------------- */
-  async function insertMessage(payload: {
-    content: string;
-    attachment_url?: string | null;
-    attachment_type?: "image" | "audio" | "file" | null;
-  }) {
-    if (!me || !conversationId) return;
-    const optimistic: MessageRow = {
-      id: `tmp-${crypto.randomUUID()}`,
-      conversation_id: conversationId,
-      patient_id: mode === "patient" ? me.id : patientId,
-      sender_id: me.id,
-      sender_name: me.name,
-      sender_role: me.role,
-      content: payload.content,
-      created_at: new Date().toISOString(),
-      read: false,
-      urgent: false,
-      attachment_url: payload.attachment_url ?? null,
-      attachment_type: payload.attachment_type ?? null,
-      meta: null,
-    };
-    setMsgs((m) => [...m, optimistic]);
-    scrollToBottom(true);
-    const { error } = await supabase.from("messages").insert({
-      conversation_id: optimistic.conversation_id,
-      patient_id: optimistic.patient_id,
-      sender_id: optimistic.sender_id,
-      sender_name: optimistic.sender_name,
-      sender_role: optimistic.sender_role,
-      content: optimistic.content,
-      read: false,
-      urgent: false,
-      attachment_url: optimistic.attachment_url,
-      attachment_type: optimistic.attachment_type,
-    });
-    if (error) {
-      setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
-      alert(`Failed to send.\n\n${error.message}`);
-    }
-  }
-
-  async function uploadToChat(fileOrBlob: Blob, fileName?: string) {
-    if (!conversationId || !me) throw new Error("Missing conversation");
-    const detected = (fileOrBlob as File).type || (fileOrBlob as any).type || "";
-    const extFromName = (fileName || "").split(".").pop() || "";
-    const ext = extFromName || (detected.startsWith("image/") ? detected.split("/")[1] : detected ? "webm" : "bin");
-    const path = `${conversationId}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
-    const { error: upErr } = await supabase.storage.from(CHAT_BUCKET).upload(path, fileOrBlob, {
-      contentType: detected || "application/octet-stream",
-      upsert: false,
-    });
-    if (upErr) {
-      if (/not found/i.test(upErr.message)) throw new Error(`Bucket "${CHAT_BUCKET}" not found.`);
-      throw upErr;
-    }
-    return path;
-  }
-
-  const canSend = useMemo(
-    () => (!!text.trim() || !!draft) && !!me && !!conversationId,
-    [text, me, conversationId, draft]
-  );
-
-  const send = useCallback(async () => {
-    if (!canSend) return;
-    const contentText = text.trim();
-    setText("");
-    try {
-      if (draft) {
-        setUploading({ label: "Sending…" });
-        const storagePath = await uploadToChat(
-          draft.blob,
-          draft.name || (draft.type === "image" ? "image.jpg" : draft.type === "audio" ? "voice.webm" : "file.bin")
-        );
-        const content = draft.type === "audio" ? contentText || "(voice note)" : contentText;
-        await insertMessage({ content: content || "", attachment_url: storagePath, attachment_type: draft.type });
-        if (draft.previewUrl) URL.revokeObjectURL(draft.previewUrl);
-        setDraft(null);
-        setUploading(null);
-        return;
-      }
-      await insertMessage({ content: contentText });
-    } catch (err: any) {
-      alert(`Failed to send.\n\n${err?.message ?? ""}`);
-      setUploading(null);
-    }
-  }, [canSend, text, draft]);
-
-  /* ------------------------------ helpers for content ------------------------------ */
-  function shouldShowPlainContent(content?: string | null) {
-    const t = (content ?? "").trim().toLowerCase();
-    return !!t && t !== "(image)" && t !== "(photo)" && t !== "(voice note)";
-  }
-  function extractImageUrlFromContent(content?: string | null) {
-    if (!content) return null;
-    try {
-      const maybe = JSON.parse(content);
-      if (maybe && typeof maybe === "object" && (maybe as any).type === "image" && typeof (maybe as any).url === "string")
-        return (maybe as any).url as string;
-    } catch {}
-    const match = content.match(/https?:\/\/\S+\.(?:png|jpe?g|gif|webp|bmp|heic|svg)(?:\?\S*)?/i);
-    return match?.[0] ?? null;
-  }
-  function isHttp(u?: string | null) {
-    return !!u && /^https?:\/\//i.test(u);
-  }
-  async function toUrlFromPath(path: string) {
-    try {
-      const { data } = await supabase.storage.from(CHAT_BUCKET).createSignedUrl(path, 60 * 60 * 24);
-      if (data?.signedUrl) return data.signedUrl;
-    } catch {}
-    try {
-      const pub = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
-      return pub?.data?.publicUrl ?? null;
-    } catch {
-      return null;
-    }
-  }
+  /* ------------------------------ UI ------------------------------ */
 
   const isOnline = mode === "staff" ? threadOtherPresent : false;
   const otherName = mode === "staff" ? (patientName || "Patient") : (providerName || "Provider");
@@ -536,6 +465,18 @@ function ChatBoxInner(props: {
           </div>
         </div>
 
+        {/* Incoming call banner (top of thread area) */}
+        {incoming && (
+          <div className="px-3 pt-2">
+            <IncomingCallBanner
+              callerName={incoming.fromName}
+              mode={incoming.mode}
+              onAccept={acceptIncoming}
+              onDecline={declineIncoming}
+            />
+          </div>
+        )}
+
         {/* Messages */}
         <div ref={listRef} className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-50 to-white p-4 dark:from-zinc-900 dark:to-zinc-950">
           <div className="mx-auto max-w-xl space-y-3">
@@ -569,9 +510,10 @@ function ChatBoxInner(props: {
                     <Smile className="h-5 w-5" />
                   </IconButton>
                 </DialogTrigger>
-                <DialogContent className="max-w-sm">
+                <DialogContent className="max-w-sm" aria-describedby="emoji-picker-desc">
                   <DialogHeader>
                     <DialogTitle>Pick an emoji</DialogTitle>
+                    <p id="emoji-picker-desc" className="sr-only">Insert an emoji into your message</p>
                   </DialogHeader>
                   <EmojiGrid onPick={(e) => setText((v) => v + e)} />
                 </DialogContent>
@@ -611,7 +553,7 @@ function ChatBoxInner(props: {
         </div>
       </CardContent>
 
-      {/* Tiny call dock (purely visual now) */}
+      {/* Tiny call dock (visual) */}
       {callDockVisible && (
         <CallDock
           minimized={callDockMin}
@@ -723,17 +665,20 @@ function IconButton({
   children,
   aria,
   onClick,
+  disabled,
 }: {
   children: React.ReactNode;
   aria: string;
   onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       aria-label={aria}
       onClick={onClick}
-      className="rounded-full p-2 hover:bg-gray-100 active:scale-95 dark:hover:bg-zinc-800"
+      disabled={disabled}
+      className="rounded-full p-2 hover:bg-gray-100 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed dark:hover:bg-zinc-800"
     >
       {children}
     </button>
