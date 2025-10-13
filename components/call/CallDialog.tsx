@@ -1,17 +1,10 @@
-// file: app/components/CallDialog.tsx
 "use client";
 
 import * as React from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff, Video, VideoOff, PhoneOff } from "lucide-react";
-import {
-  userRingChannel,
-  sendOfferToUser,
-  sendAnswerToUser,
-  sendIceToUser,
-  sendHangupToUser,
-} from "@/lib/webrtc/signaling";
+import { userRingChannel, sendOfferToUser, sendAnswerToUser, sendIceToUser, sendHangupToUser } from "@/lib/webrtc/signaling";
 import { supabase } from "@/lib/supabase/client";
 
 export type CallMode = "audio" | "video";
@@ -20,14 +13,11 @@ export type CallRole = "caller" | "callee";
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-
   conversationId: string;
   role: CallRole;
   mode: CallMode;
-
   meId: string;
   meName: string;
-
   peerUserId: string;
   peerName?: string;
   peerAvatar?: string;
@@ -58,10 +48,22 @@ const RTC_CONFIG: RTCConfiguration = {
 
 /* ---------- Global call guard ---------- */
 declare global {
-  interface Window { __callActive?: boolean }
+  interface Window {
+    __callActive?: boolean;
+  }
 }
-function setCallActive(v: boolean) { try { window.__callActive = v; } catch {} }
-function callActive() { try { return !!window.__callActive; } catch { return false } }
+function setCallActive(v: boolean) {
+  try {
+    window.__callActive = v;
+  } catch {}
+}
+function callActive() {
+  try {
+    return !!window.__callActive;
+  } catch {
+    return false;
+  }
+}
 
 /* ---------- Types ---------- */
 type MediaPreflight = { audioId?: string; videoId?: string; hasMic: boolean; hasCam: boolean };
@@ -85,36 +87,36 @@ export default function CallDialog({
   const [camOff, setCamOff] = React.useState(mode === "audio");
   const [dialSeconds, setDialSeconds] = React.useState(0);
 
-  /* Media/setup error UI */
+  // Media/setup error UI
   const [mediaError, setMediaError] = React.useState<string | null>(null);
   const [retryNonce, setRetryNonce] = React.useState(0);
 
-  /* Core refs */
+  // Core refs
   const pcRef = React.useRef<RTCPeerConnection | null>(null);
   const localRef = React.useRef<HTMLVideoElement | null>(null);
   const remoteRef = React.useRef<HTMLVideoElement | null>(null);
-  const remoteAudioRef = React.useRef<HTMLAudioElement | null>(null); // ensure audio playback cross-browser
+  const remoteAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const localStreamRef = React.useRef<MediaStream | null>(null);
   const remoteStreamRef = React.useRef<MediaStream | null>(null);
 
-  /* Signaling */
+  // Signaling
   const chanRef = React.useRef<ReturnType<typeof userRingChannel> | null>(null);
 
-  /* Timers/guards */
+  // Timers/guards
   const dialTimerRef = React.useRef<number | null>(null);
   const dialTickRef = React.useRef<number | null>(null);
   const answeredRef = React.useRef(false);
   const closingRef = React.useRef(false);
 
-  /* ICE race guard */
+  // ICE race guard
   const remoteDescSetRef = React.useRef(false);
   const pendingRemoteIce = React.useRef<RTCIceCandidateInit[]>([]);
 
-  /* Disconnect grace */
+  // Disconnect grace
   const disconnectGraceRef = React.useRef<number | null>(null);
   const DISCONNECT_GRACE_MS = 8_000;
 
-  /* Re-send loops */
+  // Re-send loops
   const offerRetryRef = React.useRef<number | null>(null);
   const answerRetryRef = React.useRef<number | null>(null);
   const offerAttemptsRef = React.useRef(0);
@@ -126,11 +128,13 @@ export default function CallDialog({
 
   /* Reflect controls to tracks */
   React.useEffect(() => {
-    const s = localStreamRef.current; if (!s) return;
+    const s = localStreamRef.current;
+    if (!s) return;
     s.getAudioTracks().forEach((t) => (t.enabled = !muted));
   }, [muted]);
   React.useEffect(() => {
-    const s = localStreamRef.current; if (!s) return;
+    const s = localStreamRef.current;
+    if (!s) return;
     s.getVideoTracks().forEach((t) => (t.enabled = !camOff));
   }, [camOff]);
 
@@ -151,7 +155,11 @@ export default function CallDialog({
     setMediaError(null);
     closingRef.current = false;
 
-    const beforeUnload = () => { try { sendHangupToUser(peerUserId, conversationId); } catch {} };
+    const beforeUnload = () => {
+      try {
+        sendHangupToUser(peerUserId, conversationId);
+      } catch {}
+    };
     window.addEventListener("beforeunload", beforeUnload);
 
     (async () => {
@@ -163,9 +171,13 @@ export default function CallDialog({
       await ensureSubscribed(ch);
 
       // 2) Robust media preflight + gUM retries
-      const stream = await getUserStreamWithRetries(mode).catch((err: any) => {
+      const stream = await getUserStreamWithRetries(mode).catch(async (err: any) => {
         setMediaError(err?.message || "Media devices are unavailable.");
         setStatus("failed");
+        // Important: tell peer to exit “Ringing”
+        try {
+          await sendHangupToUser(peerUserId, conversationId);
+        } catch {}
         throw err;
       });
 
@@ -188,21 +200,32 @@ export default function CallDialog({
         remoteStreamRef.current.addTrack(e.track);
         forcePlay(remoteRef.current);
         forcePlay(remoteAudioRef.current);
-        e.track.onended = () => { if (allRemoteTracksEnded()) endDueToRemote(); };
+        e.track.onended = () => {
+          if (allRemoteTracksEnded()) endDueToRemote();
+        };
       });
 
       // Trickle ICE
       pc.onicecandidate = async (e) => {
         if (e.candidate) {
           try {
-            await sendIceToUser(peerUserId, { conversationId, fromId: meId, candidate: e.candidate.toJSON() });
+            await sendIceToUser(peerUserId, {
+              conversationId,
+              fromId: meId,
+              candidate: e.candidate.toJSON(),
+            });
           } catch {}
         }
       };
       pc.addEventListener("icecandidateerror", (e) => console.warn("[RTC] icecandidateerror", e));
 
       // Connection lifecycle
-      const clearDisconnectGrace = () => { if (disconnectGraceRef.current) { clearTimeout(disconnectGraceRef.current); disconnectGraceRef.current = null; } };
+      const clearDisconnectGrace = () => {
+        if (disconnectGraceRef.current) {
+          clearTimeout(disconnectGraceRef.current);
+          disconnectGraceRef.current = null;
+        }
+      };
       const scheduleDisconnectGrace = () => {
         if (disconnectGraceRef.current) return;
         disconnectGraceRef.current = window.setTimeout(() => endDueToRemote(), DISCONNECT_GRACE_MS) as unknown as number;
@@ -246,7 +269,11 @@ export default function CallDialog({
         try {
           await pcRef.current.setRemoteDescription(p.sdp);
           remoteDescSetRef.current = true;
-          for (const c of pendingRemoteIce.current) { try { await pcRef.current.addIceCandidate(c); } catch {} }
+          for (const c of pendingRemoteIce.current) {
+            try {
+              await pcRef.current.addIceCandidate(c);
+            } catch {}
+          }
           pendingRemoteIce.current = [];
           stopResendOffer();
         } catch {}
@@ -261,7 +288,11 @@ export default function CallDialog({
           await pcRef.current.setRemoteDescription(p.sdp);
           remoteDescSetRef.current = true;
 
-          for (const c of pendingRemoteIce.current) { try { await pcRef.current.addIceCandidate(c); } catch {} }
+          for (const c of pendingRemoteIce.current) {
+            try {
+              await pcRef.current.addIceCandidate(c);
+            } catch {}
+          }
           pendingRemoteIce.current = [];
 
           const ans = await pcRef.current.createAnswer();
@@ -279,8 +310,13 @@ export default function CallDialog({
         const p = (msg.payload || {}) as any;
         if (p.conversationId !== conversationId) return;
         if (!pcRef.current) return;
-        if (!remoteDescSetRef.current) { pendingRemoteIce.current.push(p.candidate); return; }
-        try { await pcRef.current.addIceCandidate(p.candidate); } catch {}
+        if (!remoteDescSetRef.current) {
+          pendingRemoteIce.current.push(p.candidate);
+          return;
+        }
+        try {
+          await pcRef.current.addIceCandidate(p.candidate);
+        } catch {}
       });
 
       ch.on("broadcast", { event: "hangup" }, () => endDueToRemote());
@@ -290,7 +326,10 @@ export default function CallDialog({
       // 5) Caller → send offer (+resend loop)
       if (role === "caller") {
         try {
-          const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: mode === "video" });
+          const offer = await pc.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: mode === "video",
+          });
           await pc.setLocalDescription(offer);
           lastOffer = offer;
           await sendOfferToUser(peerUserId, { conversationId, fromId: meId, sdp: offer });
@@ -300,7 +339,7 @@ export default function CallDialog({
           cleanupAndClose("failed");
         }
       }
-    })().catch(() => { /* media error already surfaced */ });
+    })().catch(() => {});
 
     return () => {
       window.removeEventListener("beforeunload", beforeUnload);
@@ -322,11 +361,18 @@ export default function CallDialog({
         return;
       }
       offerAttemptsRef.current += 1;
-      if (lastOffer) { try { await sendOfferToUser(peerUserId, { conversationId, fromId: meId, sdp: lastOffer }); } catch {} }
+      if (lastOffer) {
+        try {
+          await sendOfferToUser(peerUserId, { conversationId, fromId: meId, sdp: lastOffer });
+        } catch {}
+      }
     }, RESEND_MS) as unknown as number;
   }
   function stopResendOffer() {
-    if (offerRetryRef.current) { clearInterval(offerRetryRef.current); offerRetryRef.current = null; }
+    if (offerRetryRef.current) {
+      clearInterval(offerRetryRef.current);
+      offerRetryRef.current = null;
+    }
   }
 
   function startResendAnswer() {
@@ -338,11 +384,18 @@ export default function CallDialog({
         return;
       }
       answerAttemptsRef.current += 1;
-      if (lastAnswer) { try { await sendAnswerToUser(peerUserId, { conversationId, fromId: meId, sdp: lastAnswer }); } catch {} }
+      if (lastAnswer) {
+        try {
+          await sendAnswerToUser(peerUserId, { conversationId, fromId: meId, sdp: lastAnswer });
+        } catch {}
+      }
     }, RESEND_MS) as unknown as number;
   }
   function stopResendAnswer() {
-    if (answerRetryRef.current) { clearInterval(answerRetryRef.current); answerRetryRef.current = null; }
+    if (answerRetryRef.current) {
+      clearInterval(answerRetryRef.current);
+      answerRetryRef.current = null;
+    }
   }
 
   /* ---------- timers ---------- */
@@ -354,30 +407,41 @@ export default function CallDialog({
     dialTimerRef.current = window.setTimeout(async () => {
       if (!answeredRef.current) {
         setStatus("missed");
-        try { await sendHangupToUser(peerUserId, conversationId); } catch {}
+        try {
+          await sendHangupToUser(peerUserId, conversationId);
+        } catch {}
         cleanupAndClose("missed");
       }
     }, 5 * 60 * 1000) as unknown as number;
   }
   function stopDialTimer() {
-    if (dialTimerRef.current) { clearTimeout(dialTimerRef.current); dialTimerRef.current = null; }
-    if (dialTickRef.current) { clearInterval(dialTickRef.current); dialTickRef.current = null; }
+    if (dialTimerRef.current) {
+      clearTimeout(dialTimerRef.current);
+      dialTimerRef.current = null;
+    }
+    if (dialTickRef.current) {
+      clearInterval(dialTickRef.current);
+      dialTickRef.current = null;
+    }
   }
 
   /* ---------- UI controls ---------- */
   async function onHangupClick() {
-    try { await sendHangupToUser(peerUserId, conversationId); } catch {}
+    try {
+      await sendHangupToUser(peerUserId, conversationId);
+    } catch {}
     cleanupAndClose("ended");
   }
 
   /* ---------- media element helpers ---------- */
   function forcePlay(el: HTMLMediaElement | null | undefined) {
     if (!el) return;
-    // retry a few times to bypass racy autoplay policies
     const tryPlay = (n = 8) => {
       const p = el.play();
       if (p && typeof p.catch === "function") {
-        p.catch(() => { if (n > 0) setTimeout(() => tryPlay(n - 1), 250); });
+        p.catch(() => {
+          if (n > 0) setTimeout(() => tryPlay(n - 1), 250);
+        });
       }
     };
     tryPlay();
@@ -408,32 +472,47 @@ export default function CallDialog({
     if (!md || typeof md.getUserMedia !== "function" || typeof md.enumerateDevices !== "function") {
       throw new Error("Media devices API is unavailable in this browser.");
     }
-    const devices = await navigator.mediaDevices.enumerateDevices();
+
+    // Firefox quirk: device list can be empty until a gUM prompt occurs.
+    let devices = await navigator.mediaDevices.enumerateDevices();
+    const noInputsYet = !devices.some((d) => d.kind === "audioinput" || d.kind === "videoinput");
+    if (noInputsYet) {
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true, video: m === "video" ? true : false });
+        devices = await navigator.mediaDevices.enumerateDevices();
+      } catch (e: any) {
+        const name = e?.name || "";
+        if (name === "NotAllowedError" || name === "SecurityError") {
+          throw new Error("Allow Camera and Microphone for this site, then try again.");
+        }
+        if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+          throw new Error("Plug in or enable a microphone/camera, then click Try again.");
+        }
+        throw new Error("Could not access microphone/camera. Please try again.");
+      }
+    }
+
     const audioInputs = devices.filter((d) => d.kind === "audioinput");
     const videoInputs = devices.filter((d) => d.kind === "videoinput");
     const hasMic = audioInputs.length > 0;
     const hasCam = videoInputs.length > 0;
     if (!hasMic) throw new Error("Plug in or enable a microphone/camera, then click Try again.");
     if (m === "video" && !hasCam) throw new Error("Plug in or enable a microphone/camera, then click Try again.");
+
     return { audioId: audioInputs[0]?.deviceId, videoId: videoInputs[0]?.deviceId, hasMic, hasCam };
   }
 
   function buildConstraints(
     m: CallMode,
     ids: { audioId?: string; videoId?: string },
-    quality: "strict" | "relaxed" | "fallback"
+    quality: "relaxed" | "strict" | "fallback"
   ): MediaStreamConstraints {
+    // Use 'ideal' first to avoid Firefox exact-device failures
     const audio: MediaTrackConstraints = {
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
-      ...(ids.audioId && quality !== "relaxed" ? { deviceId: { exact: ids.audioId } } : {}),
-    };
-    const videoStrict: MediaTrackConstraints = {
-      width: { ideal: 1280, max: 1920 },
-      height: { ideal: 720, max: 1080 },
-      frameRate: { ideal: 30, max: 60 },
-      ...(ids.videoId && quality !== "relaxed" ? { deviceId: { exact: ids.videoId } } : {}),
+      ...(ids.audioId && quality !== "fallback" ? { deviceId: { ideal: ids.audioId } } : {}),
     };
     const videoRelaxed: MediaTrackConstraints = {
       width: { ideal: 640 },
@@ -441,74 +520,107 @@ export default function CallDialog({
       frameRate: { ideal: 24 },
       ...(ids.videoId ? { deviceId: { ideal: ids.videoId } } : {}),
     };
-    return { audio, video: m === "video" ? (quality === "strict" ? videoStrict : quality === "relaxed" ? videoRelaxed : true) : false };
+    const videoStrict: MediaTrackConstraints = {
+      width: { ideal: 1280, max: 1920 },
+      height: { ideal: 720, max: 1080 },
+      frameRate: { ideal: 30, max: 60 },
+      ...(ids.videoId ? { deviceId: { exact: ids.videoId } } : {}),
+    };
+
+    return {
+      audio,
+      video: m === "video" ? (quality === "relaxed" ? videoRelaxed : quality === "strict" ? videoStrict : true) : false,
+    };
   }
 
   async function getUserStreamWithRetries(m: CallMode): Promise<MediaStream> {
     let pre: MediaPreflight;
-    try { pre = await ensureMediaPreflight(m); }
-    catch (err: any) { throw new Error(err?.message || "Media devices are unavailable."); }
-
     try {
-      return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "strict"));
-    } catch (e: any) {
-      const name = e?.name || "";
+      pre = await ensureMediaPreflight(m);
+    } catch (err: any) {
+      throw new Error(err?.message || "Media devices are unavailable.");
+    }
 
-      if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-        try { pre = await ensureMediaPreflight(m); }
-        catch { throw new Error("Plug in or enable a microphone/camera, then click Try again."); }
-        try {
-          return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "relaxed"));
-        } catch {
+    // Attempt 1: RELAXED (best cross-browser)
+    try {
+      return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "relaxed"));
+    } catch (e1: any) {
+      const n1 = e1?.name || "";
+
+      // Attempt 2: STRICT (exact deviceId + 720p)
+      try {
+        return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "strict"));
+      } catch (e2: any) {
+        const n2 = e2?.name || "";
+
+        if (n2 === "OverconstrainedError") {
+          // Attempt 3: FALLBACK (drop all detailed constraints)
           try {
-            return await navigator.mediaDevices.getUserMedia({ audio: true, video: m === "video" ? true : false });
+            return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "fallback"));
           } catch {
-            throw new Error("Plug in or enable a microphone/camera, then click Try again.");
+            throw new Error("Could not match camera settings. Try again.");
           }
         }
-      }
 
-      if (name === "OverconstrainedError") {
-        try { return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "fallback")); }
-        catch { throw new Error("Could not match camera settings. Try again."); }
-      }
+        if (n2 === "NotReadableError" || n2 === "AbortError") {
+          throw new Error("Camera or microphone is in use by another app or tab. Close it, then click Try again.");
+        }
+        if (n2 === "NotAllowedError" || n2 === "SecurityError") {
+          throw new Error("Allow Camera and Microphone for this site, then try again.");
+        }
+        if (n2 === "NotFoundError" || n2 === "DevicesNotFoundError") {
+          throw new Error("Plug in or enable a microphone/camera, then click Try again.");
+        }
 
-      if (name === "NotReadableError" || name === "AbortError") {
-        throw new Error("Camera or microphone is in use by another app or tab. Close it, then click Try again.");
+        throw new Error("Could not access microphone/camera. Please try again.");
       }
-
-      if (name === "NotAllowedError" || name === "SecurityError") {
-        throw new Error("Allow Camera and Microphone for this site, then try again.");
-      }
-
-      throw new Error("Could not access microphone/camera. Please try again.");
     }
   }
 
   /* ---------- misc ---------- */
   function allRemoteTracksEnded(): boolean {
-    const rs = remoteStreamRef.current; if (!rs) return false;
+    const rs = remoteStreamRef.current;
+    if (!rs) return false;
     const tracks = rs.getTracks();
     return tracks.length > 0 && tracks.every((t) => t.readyState === "ended");
   }
 
   function endDueToRemote() {
-    try { sendHangupToUser(peerUserId, conversationId); } catch {}
+    try {
+      sendHangupToUser(peerUserId, conversationId);
+    } catch {}
     cleanupAndClose("ended");
   }
 
   function teardownSignalingAndPc() {
-    if (chanRef.current) { try { supabase.removeChannel(chanRef.current); } catch {} chanRef.current = null; }
-    try { pcRef.current?.getSenders().forEach((s) => s.track && s.track.stop()); pcRef.current?.getReceivers().forEach((r) => r.track && r.track.stop()); pcRef.current?.close(); } catch {}
+    if (chanRef.current) {
+      try {
+        supabase.removeChannel(chanRef.current);
+      } catch {}
+      chanRef.current = null;
+    }
+
+    try {
+      pcRef.current?.getSenders().forEach((s) => s.track && s.track.stop());
+      pcRef.current?.getReceivers().forEach((r) => r.track && r.track.stop());
+      pcRef.current?.close();
+    } catch {}
     pcRef.current = null;
 
-    try { localStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
-    try { remoteStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+    try {
+      localStreamRef.current?.getTracks().forEach((t) => t.stop());
+    } catch {}
+    try {
+      remoteStreamRef.current?.getTracks().forEach((t) => t.stop());
+    } catch {}
     localStreamRef.current = null;
     remoteStreamRef.current = null;
 
     stopDialTimer();
-    if (disconnectGraceRef.current) { clearTimeout(disconnectGraceRef.current); disconnectGraceRef.current = null; }
+    if (disconnectGraceRef.current) {
+      clearTimeout(disconnectGraceRef.current);
+      disconnectGraceRef.current = null;
+    }
     stopResendOffer();
     stopResendAnswer();
     remoteDescSetRef.current = false;
@@ -522,14 +634,22 @@ export default function CallDialog({
     closingRef.current = true;
     setStatus(finalStatus);
     teardownSignalingAndPc();
-    if (finalStatus === "ended") { closingRef.current = false; return; } // keep dialog showing "Call ended"
+    if (finalStatus === "ended") {
+      closingRef.current = false; // keep dialog showing "Call ended"
+      return;
+    }
     onOpenChange(false);
   }
 
   function ensureSubscribed(channel: ReturnType<typeof userRingChannel>) {
     return new Promise<void>((resolve) => {
       let done = false;
-      channel.subscribe((s) => { if (!done && s === "SUBSCRIBED") { done = true; resolve(); } });
+      channel.subscribe((s) => {
+        if (!done && s === "SUBSCRIBED") {
+          done = true;
+          resolve();
+        }
+      });
     });
   }
 
@@ -538,9 +658,7 @@ export default function CallDialog({
     <Dialog
       open={open}
       onOpenChange={(v) =>
-        v
-          ? onOpenChange(true)
-          : (sendHangupToUser(peerUserId, conversationId), cleanupAndClose("ended"), setCallActive(false))
+        v ? onOpenChange(true) : (sendHangupToUser(peerUserId, conversationId), cleanupAndClose("ended"), setCallActive(false))
       }
     >
       <DialogContent className="max-w-3xl overflow-hidden" aria-describedby="call-desc">
@@ -632,4 +750,8 @@ export default function CallDialog({
 }
 
 /* ---------- utils ---------- */
-function formatTime(s: number) { const m = Math.floor(s / 60); const r = s % 60; return `${m}:${r.toString().padStart(2, "0")}`; }
+function formatTime(s: number) {
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, "0")}`;
+}
