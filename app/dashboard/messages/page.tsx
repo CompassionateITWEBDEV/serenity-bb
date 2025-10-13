@@ -522,42 +522,18 @@ const startCall = useCallback(
       return;
     }
     const peerUserId = providerInfo.id;
-    if (!peerUserId || peerUserId === me.id) {
-      await Swal.fire("Unavailable", "Cannot place a call at the moment.", "info");
+    if (!peerUserId) {
+      await Swal.fire("Unavailable", "No peer available for this conversation.", "info");
       return;
     }
 
-    // Preflight permissions so the user sees the prompt before we ring
-    try {
-      const constraints: MediaStreamConstraints = {
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: mode === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
-      };
-      const s = await navigator.mediaDevices.getUserMedia(constraints);
-      s.getTracks().forEach((t) => t.stop());
-    } catch (err: any) {
-      await Swal.fire("Permissions required", err?.message || "Please allow microphone/camera first.", "info");
-      return;
-    }
-
-    try {
-      await sendRing(peerUserId, {
-        conversationId: selectedId,
-        fromId: me.id,
-        fromName: me.name,
-        mode,
-      });
-    } catch (err: any) {
-      // Why: you saw “Failed to send ring” → surface the actual reason
-      await Swal.fire("Call failed", err?.message || "Could not reach the other user (ring).", "error");
-      return;
-    }
-
-    setCallRole("caller");
-    setCallMode(mode);
-    setCallOpen(true);
+    // Open the full-screen call page. It will do permissions + sendRing itself.
+    const url = `/call/${selectedId}?role=caller&mode=${mode}&peer=${encodeURIComponent(
+      peerUserId
+    )}&peerName=${encodeURIComponent(providerInfo.name || "Contact")}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   },
-  [selectedId, me?.id, me?.name, providerInfo.id]
+  [selectedId, me?.id, providerInfo.id, providerInfo.name]
 );
 
   
