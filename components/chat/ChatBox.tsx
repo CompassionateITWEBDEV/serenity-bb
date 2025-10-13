@@ -376,40 +376,66 @@ function ChatBoxInner(props: {
   );
 
   // BEGIN CALL
-   const beginCall = useCallback(
-    async (m: CallMode) => {
-      const convId = await ensureConversation();
-      if (!me?.id || !peerUserId || !convId) return;
-      if (placingCall) return;
-      setPlacingCall(true);
-
-      try {
-        // 1) Send ring right away
-        await sendRing(peerUserId, {
-          conversationId: convId,
-          fromId: me.id,
-          fromName: me.name,
-          mode: m,
-        });
-
-        // 2) Open dialog — it will handle media acquisition + fallbacks
-        setCallRole("caller");
-        setCallMode(m);
-        setCallOpen(true);
-        setCallDockVisible(true);
-        setCallDockMin(false);
-        setCallStatus("ringing");
-      } catch (err) {
-        // Non-blocking error path (avoid alert popups)
-        console.error("[Call] Failed to start call:", err);
-        // Optionally surface a toast if you have one
-        // toast.error("Unable to start call. Please try again.");
-      } finally {
-        setPlacingCall(false);
-      }
-    },
-    [ensureConversation, me?.id, me?.name, peerUserId, placingCall]
-  );
+  const beginCall = useCallback(
+  async (m: CallMode) => {
+    console.log("[beginCall] Started with mode:", m);
+    
+    const convId = await ensureConversation();
+    console.log("[beginCall] ensureConversation returned:", convId);
+    
+    console.log("[beginCall] Prerequisites check:");
+    console.log("   me?.id:", me?.id);
+    console.log("   peerUserId:", peerUserId);
+    console.log("   convId:", convId);
+    
+    if (!me?.id || !peerUserId || !convId) {
+      console.error("[beginCall] Missing required data, aborting");
+      return;
+    }
+    
+    if (placingCall) {
+      console.warn("[beginCall] Already placing a call, ignoring");
+      return;
+    }
+    
+    setPlacingCall(true);
+    
+    try {
+      console.log("[beginCall] Sending ring to peerUserId:", peerUserId);
+      console.log("[beginCall] Ring payload:", {
+        conversationId: convId,
+        fromId: me.id,
+        fromName: me.name,
+        mode: m,
+      });
+      
+      await sendRing(peerUserId, {
+        conversationId: convId,
+        fromId: me.id,
+        fromName: me.name,
+        mode: m,
+      });
+      
+      console.log("[beginCall] Ring sent successfully!");
+      
+      setCallRole("caller");
+      setCallMode(m);
+      setCallOpen(true);
+      setCallDockVisible(true);
+      setCallDockMin(false);
+      setCallStatus("ringing");
+      
+      console.log("[beginCall] Call state updated successfully");
+    } catch (err) {
+      console.error("[beginCall] Failed to start call:", err);
+      console.error("[beginCall] Error message:", err?.message);
+      console.error("[beginCall] Full error:", err);
+    } finally {
+      setPlacingCall(false);
+    }
+  },
+  [ensureConversation, me?.id, me?.name, peerUserId, placingCall]
+);
 
 
   const onAcceptIncoming = useCallback(() => {
