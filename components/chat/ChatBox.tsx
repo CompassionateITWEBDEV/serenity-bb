@@ -41,7 +41,7 @@ import { markRead as markReadHelper } from "@/lib/chat";
 
 import IncomingCallBanner from "@/components/call/IncomingCallBanner";
 import CallDialog, { type CallMode, type CallRole } from "@/components/call/CallDialog";
-import { userRingChannel, sendRing, sendHangupToUser } from "@/lib/webrtc/signaling";
+import { userRingChannel, sendHangupToUser } from "@/lib/webrtc/signaling";
 
 /* ----------------------------- Types & settings ---------------------------- */
 
@@ -143,7 +143,7 @@ function ChatBoxInner(props: {
 
   const [threadOtherPresent, setThreadOtherPresent] = useState<boolean>(false);
 
-  // CALL state
+  // CALL state (kept for incoming banners / optional dialog UX)
   const [callOpen, setCallOpen] = useState(false);
   const [callRole, setCallRole] = useState<CallRole>("caller");
   const [callMode, setCallMode] = useState<CallMode>("audio");
@@ -375,96 +375,32 @@ function ChatBoxInner(props: {
     [mode, patientId, providerId]
   );
 
-  // BEGIN CALL
+  // BEGIN CALL — open dedicated call page (no sendRing here)
   const beginCall = useCallback(
-  async (m: CallMode) => {
-    console.log("[beginCall] ===== CALL START =====");
-    console.log("[beginCall] Mode:", m);
-    console.log("[beginCall] me:", me);
-    console.log("[beginCall] peerUserId:", peerUserId);
-    console.log("[beginCall] conversationId:", conversationId);
-    console.log("[beginCall] placingCall:", placingCall);
-    
-    if (placingCall) {
-      console.warn("[beginCall] Already placing call, aborting");
-      return;
-    }
+    async (m: CallMode) => {
+      if (placingCall) return;
+      setPlacingCall(true);
+      try {
+        const convId = await ensureConversation();
+        if (!convId || !me?.id || !peerUserId) return;
 
-    let convId: string | null = null;
-    try {
-      console.log("[beginCall] Calling ensureConversation...");
-      convId = await ensureConversation();
-      console.log("[beginCall] ensureConversation returned:", convId);
-    } catch (err) {
-      console.error("[beginCall] ensureConversation threw error:", err);
-      return;
-    }
-
-    console.log("[beginCall] Final check before sendRing:");
-    console.log("  me?.id =", me?.id, "| truthy:", !!me?.id);
-    console.log("  peerUserId =", peerUserId, "| truthy:", !!peerUserId);
-    console.log("  convId =", convId, "| truthy:", !!convId);
-    
-    if (!me?.id) {
-      console.error("[beginCall] me?.id is missing!");
-      return;
-    }
-    if (!peerUserId) {
-      console.error("[beginCall] peerUserId is missing!");
-      return;
-    }
-    if (!convId) {
-      console.error("[beginCall] convId is missing!");
-      return;
-    }
-
-    setPlacingCall(true);
-
-    try {
-      console.log("[beginCall] Sending ring...");
-      console.log("[beginCall] Ring payload:", {
-        conversationId: convId,
-        fromId: me.id,
-        fromName: me.name,
-        mode: m,
-      });
-      
-      await sendRing(peerUserId, {
-        conversationId: convId,
-        fromId: me.id,
-        fromName: me.name,
-        mode: m,
-      });
-
-      console.log("[beginCall] ✅ Ring sent successfully!");
-
-      setCallRole("caller");
-      setCallMode(m);
-      setCallOpen(true);
-      setCallDockVisible(true);
-      setCallDockMin(false);
-      setCallStatus("ringing");
-
-      console.log("[beginCall] ✅ Call dialog opened");
-    } catch (err) {
-      console.error("[beginCall] ❌ Exception caught:");
-      console.error("[beginCall] Message:", err?.message);
-      console.error("[beginCall] Stack:", err?.stack);
-      console.error("[beginCall] Full error object:", err);
-    } finally {
-      setPlacingCall(false);
-      console.log("[beginCall] ===== CALL END =====");
-    }
-  },
-  [ensureConversation, me?.id, me?.name, peerUserId, placingCall]
-);
-
+        const url = `/call/${convId}?role=caller&mode=${m}&peer=${encodeURIComponent(
+          peerUserId
+        )}&peerName=${encodeURIComponent(mode === "staff" ? (patientName || "Patient") : (providerName || "Provider"))}`;
+        // open a new tab/window like Messenger
+        window.open(url, "_blank", "noopener,noreferrer");
+      } finally {
+        setPlacingCall(false);
+      }
+    },
+    [ensureConversation, me?.id, peerUserId, placingCall, mode, patientName, providerName]
+  );
 
   const onAcceptIncoming = useCallback(() => {
     if (!incoming || !me) return;
     setCallRole("callee");
     setCallMode(incoming.mode);
-    setCallOpen(true);
+    setCallOpen(true); // optional in-app dialog
     setIncoming(null);
     setCallDockVisible(true);
     setCallDockMin(false);
@@ -754,7 +690,7 @@ function ChatBoxInner(props: {
         </div>
       </CardContent>
 
-      {/* Call dock */}
+      {/* Call dock (optional mini UI) */}
       {me && callDockVisible && (
         <CallDock
           minimized={callDockMin}
@@ -768,7 +704,7 @@ function ChatBoxInner(props: {
         />
       )}
 
-      {/* Call dialog */}
+      {/* Call dialog (still available, but calls are started on /call page) */}
       {conversationId && me && (
         <CallDialog
           open={callOpen}
@@ -804,7 +740,7 @@ function ChatBoxInner(props: {
     </Card>
   );
 
-  /* -------------- media pick/record (unchanged) -------------- */
+  /* -------------- media pick/record -------------- */
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
