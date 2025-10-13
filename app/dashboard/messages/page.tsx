@@ -516,48 +516,53 @@ export default function DashboardMessagesPage() {
   }, [staffDir, selectedConv?.provider_id]);
 
   const startCall = useCallback(
-    async (mode: CallMode) => {
-      if (!selectedId || !me?.id) {
-        await Swal.fire("Select a chat", "Open a conversation first.", "info");
-        return;
-      }
-      const peerUserId = providerInfo.id;
-      if (!peerUserId) return;
+  async (mode: CallMode) => {
+    if (!selectedId || !me?.id) {
+      await Swal.fire("Select a chat", "Open a conversation first.", "info");
+      return;
+    }
+    const peerUserId = providerInfo.id;
+    if (!peerUserId) return;
 
+    try {
+      // (Optional) quick preflight for permissions; ignore failures for audio-only if you want
+      const constraints: MediaStreamConstraints = {
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: mode === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+      };
       try {
-        // Warm peer channel to avoid "Failed to send ring"
-        await ensurePeerChannelReady(peerUserId);
-
-        // (Optional) quick preflight for permissions; ignore failures for audio-only if you want
-        const constraints: MediaStreamConstraints = {
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          video: mode === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
-        };
-        try {
-          const s = await navigator.mediaDevices.getUserMedia(constraints);
-          s.getTracks().forEach((t) => t.stop());
-        } catch {
-          // If device missing, still try to ring — the dialog will show media errors.
-        }
-
-        await sendRing(peerUserId, {
-          conversationId: selectedId,
-          fromId: me.id,
-          fromName: me.name,
-          mode,
-        });
-
-        setCallRole("caller");
-        setCallMode(mode);
-        setCallOpen(true);
-      } catch (err: any) {
-        console.error("[RTC] sendRing failed:", err);
-        await Swal.fire("Call failed", err?.message || "Could not start the call. Please try again.", "error");
+        const s = await navigator.mediaDevices.getUserMedia(constraints);
+        s.getTracks().forEach((t) => t.stop());
+      } catch {
+        // If device missing, still try to ring — the dialog will show media errors.
       }
-    },
-    [selectedId, me?.id, me?.name, providerInfo.id, ensurePeerChannelReady]
-  );
 
+      console.log("[startCall] Sending ring to:", peerUserId);
+      
+      await sendRing(peerUserId, {
+        conversationId: selectedId,
+        fromId: me.id,
+        fromName: me.name,
+        mode,
+      });
+
+      console.log("[startCall] Ring sent successfully");
+      
+      setCallRole("caller");
+      setCallMode(mode);
+      setCallOpen(true);
+    } catch (err: any) {
+      console.error("[startCall] sendRing failed:", err);
+      await Swal.fire(
+        "Call failed", 
+        err?.message || "Could not start the call. Please try again.", 
+        "error"
+      );
+    }
+  },
+  [selectedId, me?.id, me?.name, providerInfo.id]
+);
+  
   const acceptIncoming = useCallback(() => {
     if (!incoming) return;
     if (incoming.conversationId && incoming.conversationId !== selectedId)
