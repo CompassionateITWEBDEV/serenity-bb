@@ -26,10 +26,6 @@ import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
 
-// Calling utilities (no sendRing here)
-import IncomingCallBanner from "@/components/call/IncomingCallBanner";
-import { userRingChannel, sendHangupToUser } from "@/lib/webrtc/signaling";
-
 /* ------------------------------- Types ---------------------------------- */
 type ProviderRole = "doctor" | "nurse" | "counselor";
 type MessageRow = {
@@ -109,14 +105,6 @@ export default function DashboardMessagesPage() {
   const chunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
-
-  // incoming ring (navigate to /call when accepted)
-  const [incoming, setIncoming] = useState<{
-    conversationId: string;
-    fromId: string;
-    fromName: string;
-    mode: "audio" | "video";
-  } | null>(null);
 
   const [sidebarTab, setSidebarTab] = useState<"convs" | "staff">("convs");
 
@@ -220,29 +208,6 @@ export default function DashboardMessagesPage() {
       try { supabase.removeChannel(ch); } catch {}
     };
   }, [selectedId, me]);
-
-  /* -------------------- Incoming ring -------------------- */
-  useEffect(() => {
-    if (!me?.id) return;
-    const ch = userRingChannel(me.id);
-
-    ch.on("broadcast", { event: "ring" }, (p) => {
-      const { conversationId, fromId, fromName, mode } = (p.payload || {}) as any;
-      if (!conversationId || !fromId) return;
-      setSelectedId((curr) => curr || conversationId);
-      setIncoming({ conversationId, fromId, fromName: fromName || "Caller", mode: (mode || "audio") });
-    });
-
-    ch.on("broadcast", { event: "hangup" }, () => {
-      setIncoming(null);
-    });
-
-    // keep subscribed (don’t remove on unmount to avoid publish race)
-    ch.subscribe();
-    return () => {
-      // intentionally not removing the user ring channel
-    };
-  }, [me?.id]);
 
   /* --------------------------------- STAFF → CONVERSATION -------------------------------- */
   async function ensureConversationWith(providerUserId: string) {
@@ -422,29 +387,12 @@ export default function DashboardMessagesPage() {
         await Swal.fire("Unavailable", "No peer available for this conversation.", "info");
         return;
       }
-      // Navigate: call page will handle permissions + ringing
       router.push(
         `/call/${selectedId}?role=caller&mode=${mode}&peer=${encodeURIComponent(peerUserId)}&peerName=${encodeURIComponent(providerInfo.name || "Contact")}`
       );
     },
     [selectedId, me?.id, providerInfo.id, providerInfo.name, router]
   );
-
-  const acceptIncoming = useCallback(() => {
-    if (!incoming) return;
-    router.push(
-      `/call/${incoming.conversationId}?role=callee&mode=${incoming.mode}&peer=${encodeURIComponent(
-        incoming.fromId
-      )}&peerName=${encodeURIComponent(incoming.fromName || "Caller")}`
-    );
-    setIncoming(null);
-  }, [incoming, router]);
-
-  const declineIncoming = useCallback(async () => {
-    if (!incoming) return;
-    await sendHangupToUser(incoming.fromId, incoming.conversationId);
-    setIncoming(null);
-  }, [incoming]);
 
   /* ------------------------------ Lists / filters ------------------------------ */
   const search = q.trim().toLowerCase();
@@ -616,17 +564,6 @@ export default function DashboardMessagesPage() {
                   </Button>
                 </div>
               </div>
-
-              {incoming && (
-                <div className="mx-4 mt-3">
-                  <IncomingCallBanner
-                    callerName={incoming.fromName}
-                    mode={incoming.mode}
-                    onAccept={acceptIncoming}
-                    onDecline={declineIncoming}
-                  />
-                </div>
-              )}
 
               <div
                 ref={listRef}
