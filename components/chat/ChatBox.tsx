@@ -376,36 +376,41 @@ function ChatBoxInner(props: {
   );
 
   // BEGIN CALL
-  const beginCall = useCallback(
+   const beginCall = useCallback(
     async (m: CallMode) => {
       const convId = await ensureConversation();
       if (!me?.id || !peerUserId || !convId) return;
       if (placingCall) return;
       setPlacingCall(true);
-      try {
-        // preflight permissions
-        const constraints: MediaStreamConstraints = {
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          video: m === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
-        };
-        const s = await navigator.mediaDevices.getUserMedia(constraints);
-        s.getTracks().forEach((t) => t.stop());
 
-        await sendRing(peerUserId, { conversationId: convId, fromId: me.id, fromName: me.name, mode: m });
+      try {
+        // 1) Send ring right away
+        await sendRing(peerUserId, {
+          conversationId: convId,
+          fromId: me.id,
+          fromName: me.name,
+          mode: m,
+        });
+
+        // 2) Open dialog — it will handle media acquisition + fallbacks
         setCallRole("caller");
         setCallMode(m);
         setCallOpen(true);
         setCallDockVisible(true);
         setCallDockMin(false);
         setCallStatus("ringing");
-      } catch (err: any) {
-        alert(err?.message || "Please allow microphone/camera access.");
+      } catch (err) {
+        // Non-blocking error path (avoid alert popups)
+        console.error("[Call] Failed to start call:", err);
+        // Optionally surface a toast if you have one
+        // toast.error("Unable to start call. Please try again.");
       } finally {
         setPlacingCall(false);
       }
     },
     [ensureConversation, me?.id, me?.name, peerUserId, placingCall]
   );
+
 
   const onAcceptIncoming = useCallback(() => {
     if (!incoming || !me) return;
