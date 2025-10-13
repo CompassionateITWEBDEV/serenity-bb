@@ -1,12 +1,25 @@
 "use client";
 
 import * as React from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff, Video, VideoOff, PhoneOff } from "lucide-react";
-import { userRingChannel, sendOfferToUser, sendAnswerToUser, sendIceToUser, sendHangupToUser } from "@/lib/webrtc/signaling";
+import {
+  userRingChannel,
+  sendOfferToUser,
+  sendAnswerToUser,
+  sendIceToUser,
+  sendHangupToUser,
+} from "@/lib/webrtc/signaling";
 import { supabase } from "@/lib/supabase/client";
 
+/** public props */
 export type CallMode = "audio" | "video";
 export type CallRole = "caller" | "callee";
 
@@ -44,9 +57,10 @@ const RTC_CONFIG: RTCConfiguration = {
   ],
   iceTransportPolicy: "all",
   bundlePolicy: "balanced",
+  // unified-plan is default in modern browsers; no legacy plan-b.
 };
 
-/* ---------- Global call guard ---------- */
+/* ---------- Global call guard (avoid parallel calls) ---------- */
 declare global {
   interface Window {
     __callActive?: boolean;
@@ -66,9 +80,16 @@ function callActive() {
 }
 
 /* ---------- Types ---------- */
-type MediaPreflight = { audioId?: string; videoId?: string; hasMic: boolean; hasCam: boolean };
+type MediaPreflight = {
+  audioId?: string;
+  videoId?: string;
+  hasMic: boolean;
+  hasCam: boolean;
+};
 
-/* ---------- Component ---------- */
+/* ============================================================= */
+/* ======================== Component ========================== */
+/* ============================================================= */
 export default function CallDialog({
   open,
   onOpenChange,
@@ -80,14 +101,14 @@ export default function CallDialog({
   peerUserId,
   peerName,
 }: Props) {
-  const [status, setStatus] = React.useState<"ringing" | "connecting" | "connected" | "ended" | "failed" | "missed">(
-    role === "caller" ? "ringing" : "connecting"
-  );
+  const [status, setStatus] = React.useState<
+    "ringing" | "connecting" | "connected" | "ended" | "failed" | "missed"
+  >(role === "caller" ? "ringing" : "connecting");
   const [muted, setMuted] = React.useState(false);
   const [camOff, setCamOff] = React.useState(mode === "audio");
   const [dialSeconds, setDialSeconds] = React.useState(0);
 
-  // Media/setup error UI
+  // Error UI
   const [mediaError, setMediaError] = React.useState<string | null>(null);
   const [retryNonce, setRetryNonce] = React.useState(0);
 
@@ -98,6 +119,10 @@ export default function CallDialog({
   const remoteAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const localStreamRef = React.useRef<MediaStream | null>(null);
   const remoteStreamRef = React.useRef<MediaStream | null>(null);
+
+  // Persisted last SDP for resend loops (fix: do not use function-scope lets)
+  const lastOfferRef = React.useRef<RTCSessionDescriptionInit | null>(null);
+  const lastAnswerRef = React.useRef<RTCSessionDescriptionInit | null>(null);
 
   // Signaling
   const chanRef = React.useRef<ReturnType<typeof userRingChannel> | null>(null);
@@ -123,8 +148,6 @@ export default function CallDialog({
   const answerAttemptsRef = React.useRef(0);
   const MAX_RESEND_ATTEMPTS = 20;
   const RESEND_MS = 1200;
-  let lastOffer: RTCSessionDescriptionInit | null = null;
-  let lastAnswer: RTCSessionDescriptionInit | null = null;
 
   /* Reflect controls to tracks */
   React.useEffect(() => {
@@ -147,16 +170,20 @@ export default function CallDialog({
     }
 
     if (callActive()) {
-      setMediaError("A call is already starting. Please end it or wait, then try again.");
+      setMediaError(
+        "A call is already active or starting. End it first, then try again."
+      );
       setStatus("failed");
       return;
     }
+
     setCallActive(true);
     setMediaError(null);
     closingRef.current = false;
 
     const beforeUnload = () => {
       try {
+        // Why: ensure remote leaves "ringing" if tab closes mid-call.
         sendHangupToUser(peerUserId, conversationId);
       } catch {}
     };
@@ -165,16 +192,15 @@ export default function CallDialog({
     (async () => {
       setStatus(role === "caller" ? "ringing" : "connecting");
 
-      // 1) Subscribe BEFORE signaling (prevents missed first SDP/ICE)
+      // 1) Subscribe BEFORE any send (avoid missing first messages)
       const ch = userRingChannel(meId);
       chanRef.current = ch;
       await ensureSubscribed(ch);
 
-      // 2) Robust media preflight + gUM retries
-      const stream = await getUserStreamWithRetries(mode).catch(async (err: any) => {
+      // 2) Get media (with robust retries)
+      const stream = await getUserStreamWithRetries(mode).catch(async (err) => {
         setMediaError(err?.message || "Media devices are unavailable.");
         setStatus("failed");
-        // Important: tell peer to exit “Ringing”
         try {
           await sendHangupToUser(peerUserId, conversationId);
         } catch {}
@@ -187,6 +213,8 @@ export default function CallDialog({
       // 3) RTCPeerConnection
       const pc = new RTCPeerConnection(RTC_CONFIG);
       pcRef.current = pc;
+
+      // addTrack early to include in first offer/answer
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
       // Remote stream → video + hidden audio
@@ -207,17 +235,18 @@ export default function CallDialog({
 
       // Trickle ICE
       pc.onicecandidate = async (e) => {
-        if (e.candidate) {
-          try {
-            await sendIceToUser(peerUserId, {
-              conversationId,
-              fromId: meId,
-              candidate: e.candidate.toJSON(),
-            });
-          } catch {}
-        }
+        if (!e.candidate) return;
+        try {
+          await sendIceToUser(peerUserId, {
+            conversationId,
+            fromId: meId,
+            candidate: e.candidate.toJSON(),
+          });
+        } catch {}
       };
-      pc.addEventListener("icecandidateerror", (e) => console.warn("[RTC] icecandidateerror", e));
+      pc.addEventListener("icecandidateerror", (e) =>
+        console.warn("[RTC] icecandidateerror", e)
+      );
 
       // Connection lifecycle
       const clearDisconnectGrace = () => {
@@ -228,7 +257,10 @@ export default function CallDialog({
       };
       const scheduleDisconnectGrace = () => {
         if (disconnectGraceRef.current) return;
-        disconnectGraceRef.current = window.setTimeout(() => endDueToRemote(), DISCONNECT_GRACE_MS) as unknown as number;
+        disconnectGraceRef.current = window.setTimeout(
+          () => endDueToRemote(),
+          DISCONNECT_GRACE_MS
+        ) as unknown as number;
       };
 
       pc.onconnectionstatechange = () => {
@@ -265,6 +297,7 @@ export default function CallDialog({
       ch.on("broadcast", { event: "webrtc-answer" }, async (msg) => {
         const p = (msg.payload || {}) as any;
         if (p.conversationId !== conversationId) return;
+        if (p.fromId !== peerUserId) return; // why: ignore foreign answers
         if (!pcRef.current || p?.sdp?.type !== "answer") return;
         try {
           await pcRef.current.setRemoteDescription(p.sdp);
@@ -276,18 +309,22 @@ export default function CallDialog({
           }
           pendingRemoteIce.current = [];
           stopResendOffer();
-        } catch {}
+        } catch (e) {
+          console.warn("[RTC] setRemoteDescription(answer) failed", e);
+        }
       });
 
       ch.on("broadcast", { event: "webrtc-offer" }, async (msg) => {
         if (!pcRef.current || role !== "callee") return;
         const p = (msg.payload || {}) as any;
         if (p.conversationId !== conversationId) return;
+        if (p.fromId !== peerUserId) return; // why: ignore unrelated callers
 
         try {
           await pcRef.current.setRemoteDescription(p.sdp);
           remoteDescSetRef.current = true;
 
+          // Apply any queued ICE now that remote SDP is set.
           for (const c of pendingRemoteIce.current) {
             try {
               await pcRef.current.addIceCandidate(c);
@@ -297,11 +334,18 @@ export default function CallDialog({
 
           const ans = await pcRef.current.createAnswer();
           await pcRef.current.setLocalDescription(ans);
-          lastAnswer = ans;
-          await sendAnswerToUser(peerUserId, { conversationId, fromId: meId, sdp: ans });
+          lastAnswerRef.current = ans;
+
+          await sendAnswerToUser(peerUserId, {
+            conversationId,
+            fromId: meId,
+            sdp: ans,
+          });
+
           setStatus("connecting");
-          startResendAnswer(); // keep answering until caller applies
-        } catch {
+          startResendAnswer(); // keep resending until we become connected
+        } catch (e) {
+          console.warn("[RTC] offer handling failed", e);
           cleanupAndClose("failed");
         }
       });
@@ -309,14 +353,19 @@ export default function CallDialog({
       ch.on("broadcast", { event: "webrtc-ice" }, async (msg) => {
         const p = (msg.payload || {}) as any;
         if (p.conversationId !== conversationId) return;
+        if (p.fromId !== peerUserId) return;
         if (!pcRef.current) return;
+
+        // Queue until remote description is set (fix: avoid addIce before SRD)
         if (!remoteDescSetRef.current) {
           pendingRemoteIce.current.push(p.candidate);
           return;
         }
         try {
           await pcRef.current.addIceCandidate(p.candidate);
-        } catch {}
+        } catch (e) {
+          console.warn("[RTC] addIceCandidate failed", e);
+        }
       });
 
       ch.on("broadcast", { event: "hangup" }, () => endDueToRemote());
@@ -331,11 +380,18 @@ export default function CallDialog({
             offerToReceiveVideo: mode === "video",
           });
           await pc.setLocalDescription(offer);
-          lastOffer = offer;
-          await sendOfferToUser(peerUserId, { conversationId, fromId: meId, sdp: offer });
+          lastOfferRef.current = offer;
+
+          await sendOfferToUser(peerUserId, {
+            conversationId,
+            fromId: meId,
+            sdp: offer,
+          });
+
           startDialTimer();
-          startResendOffer();
-        } catch {
+          startResendOffer(); // why: unreliable delivery across tabs/slow networks
+        } catch (e) {
+          console.warn("[RTC] createOffer failed", e);
           cleanupAndClose("failed");
         }
       }
@@ -356,16 +412,24 @@ export default function CallDialog({
     stopResendOffer();
     offerAttemptsRef.current = 0;
     offerRetryRef.current = window.setInterval(async () => {
-      if (remoteDescSetRef.current || offerAttemptsRef.current >= MAX_RESEND_ATTEMPTS || status === "connected") {
+      if (
+        remoteDescSetRef.current ||
+        offerAttemptsRef.current >= MAX_RESEND_ATTEMPTS ||
+        status === "connected"
+      ) {
         stopResendOffer();
         return;
       }
       offerAttemptsRef.current += 1;
-      if (lastOffer) {
-        try {
-          await sendOfferToUser(peerUserId, { conversationId, fromId: meId, sdp: lastOffer });
-        } catch {}
-      }
+      const lastOffer = lastOfferRef.current;
+      if (!lastOffer) return;
+      try {
+        await sendOfferToUser(peerUserId, {
+          conversationId,
+          fromId: meId,
+          sdp: lastOffer,
+        });
+      } catch {}
     }, RESEND_MS) as unknown as number;
   }
   function stopResendOffer() {
@@ -384,11 +448,15 @@ export default function CallDialog({
         return;
       }
       answerAttemptsRef.current += 1;
-      if (lastAnswer) {
-        try {
-          await sendAnswerToUser(peerUserId, { conversationId, fromId: meId, sdp: lastAnswer });
-        } catch {}
-      }
+      const lastAnswer = lastAnswerRef.current;
+      if (!lastAnswer) return;
+      try {
+        await sendAnswerToUser(peerUserId, {
+          conversationId,
+          fromId: meId,
+          sdp: lastAnswer,
+        });
+      } catch {}
     }, RESEND_MS) as unknown as number;
   }
   function stopResendAnswer() {
@@ -402,7 +470,11 @@ export default function CallDialog({
   function startDialTimer() {
     stopDialTimer();
     setDialSeconds(0);
-    dialTickRef.current = window.setInterval(() => setDialSeconds((v) => v + 1), 1000) as unknown as number;
+
+    dialTickRef.current = window.setInterval(
+      () => setDialSeconds((v) => v + 1),
+      1000
+    ) as unknown as number;
 
     dialTimerRef.current = window.setTimeout(async () => {
       if (!answeredRef.current) {
@@ -412,7 +484,7 @@ export default function CallDialog({
         } catch {}
         cleanupAndClose("missed");
       }
-    }, 5 * 60 * 1000) as unknown as number;
+    }, 5 * 60 * 1000) as unknown as number; // 5 minutes
   }
   function stopDialTimer() {
     if (dialTimerRef.current) {
@@ -438,15 +510,20 @@ export default function CallDialog({
     if (!el) return;
     const tryPlay = (n = 8) => {
       const p = el.play();
-      if (p && typeof p.catch === "function") {
-        p.catch(() => {
+      if (p && typeof (p as any).catch === "function") {
+        (p as Promise<void>).catch(() => {
           if (n > 0) setTimeout(() => tryPlay(n - 1), 250);
         });
       }
     };
     tryPlay();
   }
-  function attachVideo(el: HTMLVideoElement | null, stream: MediaStream | null, mirror: boolean) {
+
+  function attachVideo(
+    el: HTMLVideoElement | null,
+    stream: MediaStream | null,
+    mirror: boolean
+  ) {
     if (!el) return;
     (el as any).srcObject = stream || null;
     el.muted = mirror;
@@ -455,6 +532,7 @@ export default function CallDialog({
     el.style.transform = mirror ? "scaleX(-1)" : "none";
     forcePlay(el);
   }
+
   function attachAudio(el: HTMLAudioElement | null, stream: MediaStream | null) {
     if (!el) return;
     (el as any).srcObject = stream || null;
@@ -467,18 +545,29 @@ export default function CallDialog({
   /* ---------- robust gUM ---------- */
   async function ensureMediaPreflight(m: CallMode): Promise<MediaPreflight> {
     if (typeof window === "undefined") throw new Error("Media not available.");
-    if (!window.isSecureContext) throw new Error("Use HTTPS to access camera/mic, then try again.");
+    if (!window.isSecureContext)
+      throw new Error("Use HTTPS to access camera/mic, then try again.");
+
     const md = navigator.mediaDevices as any;
-    if (!md || typeof md.getUserMedia !== "function" || typeof md.enumerateDevices !== "function") {
+    if (
+      !md ||
+      typeof md.getUserMedia !== "function" ||
+      typeof md.enumerateDevices !== "function"
+    ) {
       throw new Error("Media devices API is unavailable in this browser.");
     }
 
-    // Firefox quirk: device list can be empty until a gUM prompt occurs.
     let devices = await navigator.mediaDevices.enumerateDevices();
-    const noInputsYet = !devices.some((d) => d.kind === "audioinput" || d.kind === "videoinput");
+    const noInputsYet = !devices.some(
+      (d) => d.kind === "audioinput" || d.kind === "videoinput"
+    );
+
     if (noInputsYet) {
       try {
-        await navigator.mediaDevices.getUserMedia({ audio: true, video: m === "video" ? true : false });
+        await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: m === "video" ? true : false,
+        });
         devices = await navigator.mediaDevices.enumerateDevices();
       } catch (e: any) {
         const name = e?.name || "";
@@ -496,10 +585,16 @@ export default function CallDialog({
     const videoInputs = devices.filter((d) => d.kind === "videoinput");
     const hasMic = audioInputs.length > 0;
     const hasCam = videoInputs.length > 0;
-    if (!hasMic) throw new Error("Plug in or enable a microphone/camera, then click Try again.");
-    if (m === "video" && !hasCam) throw new Error("Plug in or enable a microphone/camera, then click Try again.");
+    if (!hasMic) throw new Error("No microphone found. Plug in/enable it, then Try again.");
+    if (m === "video" && !hasCam)
+      throw new Error("No camera found. Plug in/enable it, then Try again.");
 
-    return { audioId: audioInputs[0]?.deviceId, videoId: videoInputs[0]?.deviceId, hasMic, hasCam };
+    return {
+      audioId: audioInputs[0]?.deviceId,
+      videoId: videoInputs[0]?.deviceId,
+      hasMic,
+      hasCam,
+    };
   }
 
   function buildConstraints(
@@ -507,13 +602,15 @@ export default function CallDialog({
     ids: { audioId?: string; videoId?: string },
     quality: "relaxed" | "strict" | "fallback"
   ): MediaStreamConstraints {
-    // Use 'ideal' first to avoid Firefox exact-device failures
     const audio: MediaTrackConstraints = {
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
-      ...(ids.audioId && quality !== "fallback" ? { deviceId: { ideal: ids.audioId } } : {}),
+      ...(ids.audioId && quality !== "fallback"
+        ? { deviceId: { ideal: ids.audioId } }
+        : {}),
     };
+
     const videoRelaxed: MediaTrackConstraints = {
       width: { ideal: 640 },
       height: { ideal: 360 },
@@ -529,7 +626,14 @@ export default function CallDialog({
 
     return {
       audio,
-      video: m === "video" ? (quality === "relaxed" ? videoRelaxed : quality === "strict" ? videoStrict : true) : false,
+      video:
+        m === "video"
+          ? quality === "relaxed"
+            ? videoRelaxed
+            : quality === "strict"
+            ? videoStrict
+            : true
+          : false,
     };
   }
 
@@ -541,37 +645,37 @@ export default function CallDialog({
       throw new Error(err?.message || "Media devices are unavailable.");
     }
 
-    // Attempt 1: RELAXED (best cross-browser)
     try {
-      return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "relaxed"));
+      return await navigator.mediaDevices.getUserMedia(
+        buildConstraints(m, pre, "relaxed")
+      );
     } catch (e1: any) {
-      const n1 = e1?.name || "";
-
-      // Attempt 2: STRICT (exact deviceId + 720p)
       try {
-        return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "strict"));
+        return await navigator.mediaDevices.getUserMedia(
+          buildConstraints(m, pre, "strict")
+        );
       } catch (e2: any) {
         const n2 = e2?.name || "";
-
         if (n2 === "OverconstrainedError") {
-          // Attempt 3: FALLBACK (drop all detailed constraints)
           try {
-            return await navigator.mediaDevices.getUserMedia(buildConstraints(m, pre, "fallback"));
+            return await navigator.mediaDevices.getUserMedia(
+              buildConstraints(m, pre, "fallback")
+            );
           } catch {
             throw new Error("Could not match camera settings. Try again.");
           }
         }
-
         if (n2 === "NotReadableError" || n2 === "AbortError") {
-          throw new Error("Camera or microphone is in use by another app or tab. Close it, then click Try again.");
+          throw new Error(
+            "Camera or microphone is in use by another app/tab. Close it, then Try again."
+          );
         }
         if (n2 === "NotAllowedError" || n2 === "SecurityError") {
-          throw new Error("Allow Camera and Microphone for this site, then try again.");
+          throw new Error("Allow Camera and Microphone for this site, then Try again.");
         }
         if (n2 === "NotFoundError" || n2 === "DevicesNotFoundError") {
-          throw new Error("Plug in or enable a microphone/camera, then click Try again.");
+          throw new Error("Plug in or enable a microphone/camera, then Try again.");
         }
-
         throw new Error("Could not access microphone/camera. Please try again.");
       }
     }
@@ -627,6 +731,8 @@ export default function CallDialog({
     pendingRemoteIce.current = [];
     answeredRef.current = false;
     closingRef.current = false;
+    lastOfferRef.current = null;
+    lastAnswerRef.current = null;
   }
 
   function cleanupAndClose(finalStatus: "ended" | "failed" | "missed") {
@@ -634,8 +740,10 @@ export default function CallDialog({
     closingRef.current = true;
     setStatus(finalStatus);
     teardownSignalingAndPc();
+
     if (finalStatus === "ended") {
-      closingRef.current = false; // keep dialog showing "Call ended"
+      // keep dialog to show "Call ended"
+      closingRef.current = false;
       return;
     }
     onOpenChange(false);
@@ -644,7 +752,7 @@ export default function CallDialog({
   function ensureSubscribed(channel: ReturnType<typeof userRingChannel>) {
     return new Promise<void>((resolve) => {
       let done = false;
-      channel.subscribe((s) => {
+      channel.subscribe((s: string) => {
         if (!done && s === "SUBSCRIBED") {
           done = true;
           resolve();
@@ -658,17 +766,31 @@ export default function CallDialog({
     <Dialog
       open={open}
       onOpenChange={(v) =>
-        v ? onOpenChange(true) : (sendHangupToUser(peerUserId, conversationId), cleanupAndClose("ended"), setCallActive(false))
+        v
+          ? onOpenChange(true)
+          : (sendHangupToUser(peerUserId, conversationId),
+            cleanupAndClose("ended"),
+            setCallActive(false))
       }
     >
       <DialogContent className="max-w-3xl overflow-hidden" aria-describedby="call-desc">
         <DialogHeader>
           <DialogTitle>
             {mode === "video" ? "Video Call" : "Audio Call"} • {peerName || "Contact"}
-            {status === "ringing" && <span className="ml-2 text-xs text-gray-500">Dialing… {formatTime(dialSeconds)}</span>}
-            {status === "connecting" && <span className="ml-2 text-xs text-gray-500">Connecting…</span>}
-            {status === "connected" && <span className="ml-2 text-xs text-green-600">Connected</span>}
-            {status === "ended" && <span className="ml-2 text-xs text-gray-500">Call ended</span>}
+            {status === "ringing" && (
+              <span className="ml-2 text-xs text-gray-500">
+                Dialing… {formatTime(dialSeconds)}
+              </span>
+            )}
+            {status === "connecting" && (
+              <span className="ml-2 text-xs text-gray-500">Connecting…</span>
+            )}
+            {status === "connected" && (
+              <span className="ml-2 text-xs text-green-600">Connected</span>
+            )}
+            {status === "ended" && (
+              <span className="ml-2 text-xs text-gray-500">Call ended</span>
+            )}
           </DialogTitle>
           <DialogDescription id="call-desc" className="sr-only">
             Real-time {mode} call with {peerName || "contact"}.
@@ -682,10 +804,18 @@ export default function CallDialog({
             <audio ref={remoteAudioRef} className="hidden" />
             {status !== "connected" && status !== "ended" && !mediaError && (
               <div className="absolute inset-0 grid place-items-center text-sm text-white/70">
-                {status === "ringing" ? "Ringing…" : status === "connecting" ? "Connecting…" : "Waiting…"}
+                {status === "ringing"
+                  ? "Ringing…"
+                  : status === "connecting"
+                  ? "Connecting…"
+                  : "Waiting…"}
               </div>
             )}
-            {status === "ended" && <div className="absolute inset-0 grid place-items-center text-sm text-white/70">Call ended</div>}
+            {status === "ended" && (
+              <div className="absolute inset-0 grid place-items-center text-sm text-white/70">
+                Call ended
+              </div>
+            )}
             {mediaError && (
               <div className="absolute inset-0 grid place-items-center p-3 text-center text-sm text-white">
                 <div className="rounded-lg bg-black/60 p-3">
@@ -710,24 +840,43 @@ export default function CallDialog({
           {/* LOCAL */}
           <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
             <video ref={localRef} className="h-full w-full object-cover" />
-            {camOff && <div className="absolute inset-0 grid place-items-center text-sm text-white/70">Camera off</div>}
+            {camOff && (
+              <div className="absolute inset-0 grid place-items-center text-sm text-white/70">
+                Camera off
+              </div>
+            )}
           </div>
         </div>
 
         <div className="mt-3 flex items-center justify-center gap-2">
           {status !== "ended" ? (
             <>
-              <Button variant={muted ? "secondary" : "default"} onClick={() => setMuted((v) => !v)} className="rounded-full" title={muted ? "Unmute" : "Mute"}>
+              <Button
+                variant={muted ? "secondary" : "default"}
+                onClick={() => setMuted((v) => !v)}
+                className="rounded-full"
+                title={muted ? "Unmute" : "Mute"}
+              >
                 {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
               </Button>
 
               {mode === "video" && (
-                <Button variant={camOff ? "secondary" : "default"} onClick={() => setCamOff((v) => !v)} className="rounded-full" title={camOff ? "Turn camera on" : "Turn camera off"}>
+                <Button
+                  variant={camOff ? "secondary" : "default"}
+                  onClick={() => setCamOff((v) => !v)}
+                  className="rounded-full"
+                  title={camOff ? "Turn camera on" : "Turn camera off"}
+                >
                   {camOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
                 </Button>
               )}
 
-              <Button variant="destructive" onClick={onHangupClick} className="rounded-full" title="End call">
+              <Button
+                variant="destructive"
+                onClick={onHangupClick}
+                className="rounded-full"
+                title="End call"
+              >
                 <PhoneOff className="h-5 w-5" />
               </Button>
             </>
@@ -743,7 +892,11 @@ export default function CallDialog({
           )}
         </div>
 
-        {status === "missed" && <p className="mt-2 text-center text-sm text-gray-500">No answer. Call timed out after 5 minutes.</p>}
+        {status === "missed" && (
+          <p className="mt-2 text-center text-sm text-gray-500">
+            No answer. Call timed out after 5 minutes.
+          </p>
+        )}
       </DialogContent>
     </Dialog>
   );
