@@ -25,6 +25,7 @@ import {
 import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
+import IncomingCallBanner from "@/components/call/IncomingCallBanner";
 
 /* ------------------------------- Types ---------------------------------- */
 type ProviderRole = "doctor" | "nurse" | "counselor";
@@ -106,6 +107,14 @@ export default function DashboardMessagesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
 
+  // Incoming invite => show banner here too
+  const [incoming, setIncoming] = useState<{
+    conversationId: string;
+    fromId: string;
+    fromName: string;
+    mode: "audio" | "video";
+  } | null>(null);
+
   const [sidebarTab, setSidebarTab] = useState<"convs" | "staff">("convs");
 
   /* ------------------------- Auth ------------------------ */
@@ -132,6 +141,31 @@ export default function DashboardMessagesPage() {
       setLoading(false);
     })();
   }, []);
+
+  /* -------------------- Incoming invite → banner -------------------- */
+  useEffect(() => {
+    if (!me?.id) return;
+    const ch = supabase.channel(`user_${me.id}`, { config: { broadcast: { ack: true } } });
+
+    ch.on("broadcast", { event: "invite" }, (p) => {
+      const { conversationId, fromId, fromName, mode } = (p.payload || {}) as any;
+      if (!conversationId || !fromId) return;
+      setSelectedId((curr) => curr || conversationId); // jump into that thread if none selected
+      setIncoming({
+        conversationId,
+        fromId,
+        fromName: fromName || "Caller",
+        mode: (mode || "audio"),
+      });
+    });
+
+    ch.on("broadcast", { event: "bye" }, () => setIncoming(null));
+
+    ch.subscribe();
+    return () => {
+      try { supabase.removeChannel(ch); } catch {}
+    };
+  }, [me?.id]);
 
   /* ------------------------ Load convos ------------------ */
   const reloadConversations = useCallback(async (patientId: string) => {
@@ -364,8 +398,7 @@ export default function DashboardMessagesPage() {
     setSending(false);
   }
 
-  /* ------------------------------ CALLING (navigate to /call) -------------------------------- */
-
+  /* ------------------------------ CALL (navigate to /call) -------------------------------- */
   const selectedConv = useMemo(
     () => convs.find((c) => c.id === selectedId) || null,
     [convs, selectedId]
@@ -393,6 +426,25 @@ export default function DashboardMessagesPage() {
     },
     [selectedId, me?.id, providerInfo.id, providerInfo.name, router]
   );
+
+  // Accept / Decline (Banner)
+  const acceptIncoming = useCallback(() => {
+    if (!incoming) return;
+    router.push(
+      `/call/${incoming.conversationId}?role=callee&mode=${incoming.mode}&peer=${encodeURIComponent(
+        incoming.fromId
+      )}&peerName=${encodeURIComponent(incoming.fromName || "Caller")}`
+    );
+    setIncoming(null);
+  }, [incoming, router]);
+
+  const declineIncoming = useCallback(async () => {
+    if (!incoming) return;
+    const ch = supabase.channel(`user_${incoming.fromId}`, { config: { broadcast: { ack: true } } });
+    await new Promise<void>((res) => ch.subscribe((s) => s === "SUBSCRIBED" && res()));
+    await ch.send({ type: "broadcast", event: "bye", payload: { conversationId: incoming.conversationId } });
+    setIncoming(null);
+  }, [incoming]);
 
   /* ------------------------------ Lists / filters ------------------------------ */
   const search = q.trim().toLowerCase();
@@ -439,8 +491,8 @@ export default function DashboardMessagesPage() {
 
       <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Sidebar */}
-        <div className="min-h-0 rounded-xl border bg-white dark:bg-zinc-900 dark:border-zinc-800 flex flex-col">
-          <div className="p-4 border-b dark:border-zinc-800">
+        <div className="minh-0 flex min-h-0 flex-col rounded-xl border bg-white dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="border-b p-4 dark:border-zinc-800">
             <div className="mb-3 flex items-center gap-2">
               <MessageCircle className="h-5 w-5" />
               <div className="font-medium">Conversations</div>
@@ -549,11 +601,21 @@ export default function DashboardMessagesPage() {
                   <ChevronLeft className="h-5 w-5" />
                 </Button>
                 <Avatar className="h-9 w-9">
-                  <AvatarImage src={providerInfo.avatar} />
-                  <AvatarFallback>{initials(providerInfo.name)}</AvatarFallback>
+                  <AvatarImage src={
+                    (staffDir.find((x) => x.user_id === convs.find((c) => c.id === selectedId)?.provider_id)?.avatar_url) || undefined
+                  } />
+                  <AvatarFallback>
+                    {initials(staffDir.find((x) => x.user_id === convs.find((c) => c.id === selectedId)?.provider_id)?.first_name || "S")}
+                  </AvatarFallback>
                 </Avatar>
                 <div className="leading-tight">
-                  <div className="font-semibold">{providerInfo.name}</div>
+                  <div className="font-semibold">
+                    {(() => {
+                      const sel = convs.find((c) => c.id === selectedId);
+                      const s = staffDir.find((x) => x.user_id === sel?.provider_id);
+                      return [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
+                    })()}
+                  </div>
                 </div>
                 <div className="ml-auto flex items-center gap-1">
                   <Button variant="ghost" size="icon" className="rounded-full" onClick={() => startCall("audio")} title="Start audio call">
@@ -564,6 +626,18 @@ export default function DashboardMessagesPage() {
                   </Button>
                 </div>
               </div>
+
+              {/* Incoming call banner */}
+              {incoming && (
+                <div className="mx-4 mt-3">
+                  <IncomingCallBanner
+                    callerName={incoming.fromName}
+                    mode={incoming.mode}
+                    onAccept={acceptIncoming}
+                    onDecline={declineIncoming}
+                  />
+                </div>
+              )}
 
               <div
                 ref={listRef}
@@ -646,6 +720,18 @@ export default function DashboardMessagesPage() {
           )}
         </div>
       </div>
+
+      {/* Sticky incoming banner if no thread selected */}
+      {!selectedId && incoming && (
+        <div className="fixed bottom-4 left-1/2 z-40 w-[min(640px,90vw)] -translate-x-1/2">
+          <IncomingCallBanner
+            callerName={incoming.fromName}
+            mode={incoming.mode}
+            onAccept={acceptIncoming}
+            onDecline={declineIncoming}
+          />
+        </div>
+      )}
     </div>
   );
 }
