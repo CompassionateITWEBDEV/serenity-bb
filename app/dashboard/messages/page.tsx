@@ -25,7 +25,7 @@ import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
 
-// NEW: calling utilities
+// Calling utilities
 import IncomingCallBanner from "@/components/call/IncomingCallBanner";
 import CallDialog, { type CallMode, type CallRole } from "@/components/call/CallDialog";
 import { userRingChannel, sendRing, sendHangupToUser } from "@/lib/webrtc/signaling";
@@ -269,11 +269,6 @@ export default function DashboardMessagesPage() {
         fromName: fromName || "Caller",
         mode: (mode || "audio") as CallMode,
       });
-      try {
-        if (document.visibilityState === "hidden") {
-          /* optional: notify */
-        }
-      } catch {}
     });
 
     ch.on("broadcast", { event: "hangup" }, () => {
@@ -281,11 +276,11 @@ export default function DashboardMessagesPage() {
       setCallOpen(false);
     });
 
+    // Subscribe ONCE and keep channel alive while the page is mounted
     ch.subscribe();
     return () => {
-      try {
-        supabase.removeChannel(ch);
-      } catch {}
+      // ⚠️ Do NOT remove the ring channel here; keeping it alive avoids publish failures.
+      // try { supabase.removeChannel(ch); } catch {}
     };
   }, [me?.id]);
 
@@ -487,6 +482,22 @@ export default function DashboardMessagesPage() {
   }
 
   /* ------------------------------ CALLING (slim) -------------------------------- */
+
+  // Helper: ensure the peer's user ring channel is SUBSCRIBED before publishing
+  const ensurePeerChannelReady = useCallback(async (userId: string) => {
+    const ch = userRingChannel(userId);
+    await new Promise<void>((resolve, reject) => {
+      // If already subscribed, supabase will synchronously call back with SUBSCRIBED
+      ch.subscribe((status) => {
+        if (status === "SUBSCRIBED") resolve();
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT")
+          reject(new Error(`Channel not ready (${status})`));
+      });
+      // Small safety timeout
+      setTimeout(() => resolve(), 1500);
+    });
+  }, []);
+
   const selectedConv = useMemo(
     () => convs.find((c) => c.id === selectedId) || null,
     [convs, selectedId]
@@ -512,17 +523,39 @@ export default function DashboardMessagesPage() {
       }
       const peerUserId = providerInfo.id;
       if (!peerUserId) return;
-      await sendRing(peerUserId, {
-        conversationId: selectedId,
-        fromId: me.id,
-        fromName: me.name,
-        mode,
-      });
-      setCallRole("caller");
-      setCallMode(mode);
-      setCallOpen(true);
+
+      try {
+        // Warm peer channel to avoid "Failed to send ring"
+        await ensurePeerChannelReady(peerUserId);
+
+        // (Optional) quick preflight for permissions; ignore failures for audio-only if you want
+        const constraints: MediaStreamConstraints = {
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: mode === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+        };
+        try {
+          const s = await navigator.mediaDevices.getUserMedia(constraints);
+          s.getTracks().forEach((t) => t.stop());
+        } catch {
+          // If device missing, still try to ring — the dialog will show media errors.
+        }
+
+        await sendRing(peerUserId, {
+          conversationId: selectedId,
+          fromId: me.id,
+          fromName: me.name,
+          mode,
+        });
+
+        setCallRole("caller");
+        setCallMode(mode);
+        setCallOpen(true);
+      } catch (err: any) {
+        console.error("[RTC] sendRing failed:", err);
+        await Swal.fire("Call failed", err?.message || "Could not start the call. Please try again.", "error");
+      }
     },
-    [selectedId, me?.id, me?.name, providerInfo.id]
+    [selectedId, me?.id, me?.name, providerInfo.id, ensurePeerChannelReady]
   );
 
   const acceptIncoming = useCallback(() => {
@@ -958,7 +991,7 @@ export default function DashboardMessagesPage() {
           mode={callMode}
           meId={me.id}
           meName={me.name}
-          peerUserId={providerInfo.id} 
+          peerUserId={providerInfo.id}
           peerName={providerInfo.name}
           peerAvatar={providerInfo.avatar}
         />
