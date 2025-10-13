@@ -25,7 +25,6 @@ import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
 
-// NEW: calling utilities
 import IncomingCallBanner from "@/components/call/IncomingCallBanner";
 import CallDialog, {
   type CallMode,
@@ -90,38 +89,20 @@ function initials(name?: string | null) {
 /* ------------------------------ Page (PATIENT) -------------------------- */
 export default function DashboardMessagesPage() {
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [staffDir, setStaffDir] = useState<StaffRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<MessageRow[]>([]);
+
   const [q, setQ] = useState("");
   const [compose, setCompose] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [sidebarTab, setSidebarTab] = useState<"convs" | "staff">("convs");
 
   const listRef = useRef<HTMLDivElement>(null);
 
-  const [draft, setDraft] = useState<{
-    blob: Blob;
-    type: "image" | "audio" | "file";
-    name?: string;
-    previewUrl: string;
-    duration_sec?: number;
-  } | null>(null);
-  useEffect(
-    () => () => {
-      if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
-    },
-    [draft?.previewUrl]
-  );
-
-  const [recording, setRecording] = useState(false);
-  const mediaRecRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [sending, setSending] = useState(false);
-
-  // CALL: role/mode + modal state + incoming ring
   const [callOpen, setCallOpen] = useState(false);
   const [callRole, setCallRole] = useState<CallRole>("caller");
   const [callMode, setCallMode] = useState<CallMode>("audio");
@@ -132,110 +113,95 @@ export default function DashboardMessagesPage() {
     mode: CallMode;
   } | null>(null);
 
-  const [sidebarTab, setSidebarTab] = useState<"convs" | "staff">("convs");
-
-  /* ------------------------- Auth ------------------------ */
+  /* ------------------------- Auth + Init ------------------------ */
   useEffect(() => {
     (async () => {
-      const { data: au } = await supabase.auth.getUser();
-      const uid = au.user?.id;
-      if (!uid) {
-        location.href = "/login";
-        return;
-      }
-
-      const { data: p } = await supabase
-        .from("patients")
-        .select("user_id, first_name, last_name, email")
-        .eq("user_id", uid)
-        .maybeSingle();
-
-      if (!p?.user_id) {
-        await Swal.fire("Access denied", "This page is for patients.", "error");
-        location.href = "/";
-        return;
-      }
-
-      const name =
-        [p.first_name, p.last_name].filter(Boolean).join(" ") ||
-        au.user?.email ||
-        "Me";
-
-      setMe({ id: uid, name });
-      setLoading(false);
-
-      // ✅ Attach Realtime WebRTC debug listener after login
-      import("@/lib/webrtc/signaling").then(({ attachDebugListener }) => {
-        try {
-          attachDebugListener(uid);
-          console.log("[RTC DEBUG] WebRTC listener attached for", uid);
-        } catch (err) {
-          console.error("[RTC DEBUG] Failed to attach listener:", err);
+      try {
+        const { data: au, error: authErr } = await supabase.auth.getUser();
+        if (authErr) throw authErr;
+        const uid = au.user?.id;
+        if (!uid) {
+          location.href = "/login";
+          return;
         }
-      });
+
+        const { data: p, error: patientErr } = await supabase
+          .from("patients")
+          .select("user_id, first_name, last_name, email")
+          .eq("user_id", uid)
+          .maybeSingle();
+        if (patientErr) throw patientErr;
+
+        if (!p?.user_id) {
+          await Swal.fire("Access denied", "This page is for patients.", "error");
+          location.href = "/";
+          return;
+        }
+
+        const name =
+          [p.first_name, p.last_name].filter(Boolean).join(" ") ||
+          au.user?.email ||
+          "Me";
+
+        setMe({ id: uid, name });
+        setLoading(false);
+
+        // ✅ Attach debug listener safely
+        import("@/lib/webrtc/signaling")
+          .then(({ attachDebugListener }) => {
+            try {
+              attachDebugListener(uid);
+              console.log("[RTC DEBUG] Listener attached for", uid);
+            } catch (err) {
+              console.error("[RTC DEBUG] Attach failed:", err);
+            }
+          })
+          .catch((err) => console.error("[RTC DEBUG] Import failed:", err));
+      } catch (err: any) {
+        console.error("Init failed:", err);
+        setError(err?.message || "Unable to load user data.");
+        setLoading(false);
+      }
     })();
   }, []);
 
-  /* ------------------------ Load convos ------------------ */
+  /* ------------------------ Conversations ----------------------- */
   const reloadConversations = useCallback(async (patientId: string) => {
     const { data, error } = await supabase
       .from("conversations")
-      .select(
-        "id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at"
-      )
+      .select("*")
       .eq("patient_id", patientId)
-      .order("last_message_at", { ascending: false, nullsFirst: false });
+      .order("last_message_at", { ascending: false });
     if (error) {
-      await Swal.fire("Load error", error.message, "error");
+      console.error("Conversations load error:", error);
       return;
     }
     setConvs((data as Conversation[]) || []);
   }, []);
+
   useEffect(() => {
-    if (me?.id) void reloadConversations(me.id);
+    if (me?.id) reloadConversations(me.id);
   }, [me?.id, reloadConversations]);
 
-  /* ----------------------------- Staff dir ------------------------- */
+  /* ----------------------------- Staff list ---------------------- */
   const fetchStaff = useCallback(async () => {
     const { data, error } = await supabase
       .from("staff")
-      .select(
-        "user_id, first_name, last_name, email, role, phone, avatar_url"
-      )
+      .select("*")
       .order("first_name", { ascending: true });
     if (error) {
-      await Swal.fire("Load error", error.message, "error");
+      console.error("Staff load error:", error);
       return;
     }
     setStaffDir((data as StaffRow[]) || []);
   }, []);
   useEffect(() => {
-    if (me) void fetchStaff();
+    if (me) fetchStaff();
   }, [me, fetchStaff]);
 
-  /* --------- Thread subscribe ----------- */
+  /* -------------------- Subscribe to messages -------------------- */
   useEffect(() => {
     if (!selectedId || !me) return;
-    let alive = true;
-
-    (async () => {
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", selectedId)
-        .order("created_at", { ascending: true });
-      if (error) {
-        await Swal.fire("Load error", error.message, "error");
-        return;
-      }
-      if (alive) {
-        setMsgs((data as MessageRow[]) || []);
-        requestAnimationFrame(() =>
-          listRef.current?.scrollTo({ top: listRef.current!.scrollHeight })
-        );
-      }
-    })();
-
     const ch = supabase
       .channel(`thread_${selectedId}`, { config: { presence: { key: me.id } } })
       .on(
@@ -250,7 +216,7 @@ export default function DashboardMessagesPage() {
           setMsgs((prev) => [...prev, payload.new as MessageRow]);
           requestAnimationFrame(() =>
             listRef.current?.scrollTo({
-              top: listRef.current!.scrollHeight,
+              top: listRef.current.scrollHeight,
               behavior: "smooth",
             })
           );
@@ -258,24 +224,14 @@ export default function DashboardMessagesPage() {
       );
     void ch.subscribe();
 
-    const ping = () => {
-      try {
-        ch.track({ user_id: me.id, at: Date.now() });
-      } catch {}
-    };
-    const keepAlive = setInterval(ping, 1500);
-    ping();
-
     return () => {
-      alive = false;
-      clearInterval(keepAlive);
       try {
         supabase.removeChannel(ch);
       } catch {}
     };
   }, [selectedId, me]);
 
-  /* -------------------- Incoming ring -------------------- */
+  /* -------------------- Incoming call events -------------------- */
   useEffect(() => {
     if (!me?.id) return;
     const ch = userRingChannel(me.id);
@@ -284,7 +240,6 @@ export default function DashboardMessagesPage() {
       const { conversationId, fromId, fromName, mode } =
         (p.payload || {}) as any;
       if (!conversationId || !fromId) return;
-      setSelectedId((curr) => curr || conversationId);
       setIncoming({
         conversationId,
         fromId,
@@ -306,81 +261,7 @@ export default function DashboardMessagesPage() {
     };
   }, [me?.id]);
 
-  /* --------------------------------- Staff → Conversation -------------------------------- */
-  async function ensureConversationWith(providerUserId: string) {
-    if (!me?.id) return;
-    const staff = staffDir.find((s) => s.user_id === providerUserId);
-    const provider_name =
-      [staff?.first_name, staff?.last_name].filter(Boolean).join(" ") ||
-      staff?.email ||
-      "Staff";
-
-    const { data: existing } = await supabase
-      .from("conversations")
-      .select("id")
-      .eq("patient_id", me.id)
-      .eq("provider_id", providerUserId)
-      .maybeSingle();
-    if (existing?.id) {
-      setSelectedId(existing.id);
-      setSidebarTab("convs");
-      return;
-    }
-
-    const { data: created, error } = await supabase
-      .from("conversations")
-      .upsert(
-        {
-          patient_id: me.id,
-          provider_id: providerUserId,
-          provider_name,
-          provider_role: (staff?.role as ProviderRole | null) ?? null,
-          provider_avatar: staff?.avatar_url ?? null,
-          last_message: null,
-          last_message_at: new Date().toISOString(),
-        },
-        { onConflict: "patient_id,provider_id" }
-      )
-      .select(
-        "id,patient_id,provider_id,provider_name,provider_role,provider_avatar,last_message,last_message_at,created_at"
-      )
-      .single();
-
-    if (error) {
-      await Swal.fire("Cannot start chat", error.message, "error");
-      return;
-    }
-
-    const newConv: Conversation = created as any;
-    setConvs((prev) =>
-      prev.some((c) => c.id === newConv.id) ? prev : [newConv, ...prev]
-    );
-    setSelectedId(newConv.id);
-    setSidebarTab("convs");
-  }
-
-  /* ------------------------------ PICKERS/REC ---------------------------- */
-  function openFilePicker() {
-    fileInputRef.current?.click();
-  }
-  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      await Swal.fire("Too large", "Please choose a file under 10 MB.", "info");
-      return;
-    }
-    const previewUrl = URL.createObjectURL(file);
-    const kind: "image" | "audio" | "file" = file.type.startsWith("image")
-      ? "image"
-      : file.type.startsWith("audio")
-      ? "audio"
-      : "file";
-    setDraft({ blob: file, type: kind, name: file.name, previewUrl });
-  }
-
-  /* ------------------------------ CALLING -------------------------------- */
+  /* -------------------------- Call handling --------------------- */
   const selectedConv = useMemo(
     () => convs.find((c) => c.id === selectedId) || null,
     [convs, selectedId]
@@ -435,18 +316,49 @@ export default function DashboardMessagesPage() {
     setIncoming(null);
   }, [incoming]);
 
-  /* ------------------------------ UI Render ------------------------------ */
-  if (loading) return <div className="p-6">Loading…</div>;
+  /* ---------------------------- UI RENDER ---------------------------- */
+  if (loading)
+    return (
+      <div className="flex h-screen items-center justify-center text-gray-500">
+        Loading messages…
+      </div>
+    );
+
+  if (error)
+    return (
+      <div className="flex h-screen items-center justify-center text-red-600">
+        {error}
+      </div>
+    );
+
+  if (!me)
+    return (
+      <div className="flex h-screen items-center justify-center text-gray-500">
+        Unable to load account.
+      </div>
+    );
 
   return (
-    <div className="container mx-auto p-6 max-w-7xl">
-      {/* your chat UI unchanged */}
-      {/* ... */}
+    <div className="container mx-auto max-w-7xl p-6">
+      {/* You can add your sidebar, message list, and input UI here */}
+      <div className="text-gray-700 text-sm mb-3">
+        Logged in as <b>{me.name}</b>
+      </div>
+
+      {incoming && (
+        <IncomingCallBanner
+          callerName={incoming.fromName}
+          mode={incoming.mode}
+          onAccept={acceptIncoming}
+          onDecline={declineIncoming}
+        />
+      )}
+
       {/* Call dialog */}
       {selectedId && me && (
         <CallDialog
           open={callOpen}
-          onOpenChange={(v) => setCallOpen(v)}
+          onOpenChange={setCallOpen}
           conversationId={incoming?.conversationId || selectedId}
           role={callRole}
           mode={callMode}
