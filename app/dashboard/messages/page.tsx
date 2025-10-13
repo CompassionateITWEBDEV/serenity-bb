@@ -958,6 +958,7 @@ export default function DashboardMessagesPage() {
           mode={callMode}
           meId={me.id}
           meName={me.name}
+          peerUserId={providerInfo.id} 
           peerName={providerInfo.name}
           peerAvatar={providerInfo.avatar}
         />
