@@ -26,7 +26,7 @@ import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
 
-// Calling utilities
+// Calling utilities (no sendRing here)
 import IncomingCallBanner from "@/components/call/IncomingCallBanner";
 import { userRingChannel, sendHangupToUser } from "@/lib/webrtc/signaling";
 
@@ -110,7 +110,7 @@ export default function DashboardMessagesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
 
-  // incoming ring (we navigate to /call when accepted)
+  // incoming ring (navigate to /call when accepted)
   const [incoming, setIncoming] = useState<{
     conversationId: string;
     fromId: string;
@@ -422,7 +422,7 @@ export default function DashboardMessagesPage() {
         await Swal.fire("Unavailable", "No peer available for this conversation.", "info");
         return;
       }
-      // Navigate: call page will request permissions + send ring
+      // Navigate: call page will handle permissions + ringing
       router.push(
         `/call/${selectedId}?role=caller&mode=${mode}&peer=${encodeURIComponent(peerUserId)}&peerName=${encodeURIComponent(providerInfo.name || "Contact")}`
       );
@@ -432,7 +432,6 @@ export default function DashboardMessagesPage() {
 
   const acceptIncoming = useCallback(() => {
     if (!incoming) return;
-    // navigate as callee; CallPage handles the rest
     router.push(
       `/call/${incoming.conversationId}?role=callee&mode=${incoming.mode}&peer=${encodeURIComponent(
         incoming.fromId
