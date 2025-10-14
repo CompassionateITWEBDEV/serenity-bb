@@ -1,118 +1,136 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   StreamVideo,
   StreamVideoClient,
   Call,
-  StreamTheme,
-  CallContent,
+  CallControls,
+  SpeakerLayout,
 } from "@stream-io/video-react-sdk";
 import "@stream-io/video-react-sdk/dist/css/styles.css";
-import { supabase } from "@/lib/supabase/client";
 
-type Props = {
-  callId: string;
-  role: "caller" | "callee";
-  mode: "audio" | "video";
-  peer: string;        // user_id of the other side
-  peerName: string;
-};
+type TokenRes = { token?: string; error?: string };
 
-export default function CallClient({ callId, mode, peer }: Props) {
-  const [client, setClient] = useState<StreamVideoClient | null>(null);
-  const [call, setCall] = useState<ReturnType<StreamVideoClient["call"]> | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+export default function CallClient() {
+  const { callId } = useParams<{ callId: string }>();
+  const router = useRouter();
+  const qs = useSearchParams();
 
-  // Use the *actual* authenticated user id
-  const me = useMemo(() => ({ id: "anonymous" }), []);
+  const mode = (qs.get("mode") as "audio" | "video") || "video";
+  const displayName = decodeURIComponent(qs.get("me") || "You");
+  const userId = qs.get("uid") || "anon"; // this comes from your messages page
+
+  const apiKey = process.env.NEXT_PUBLIC_STREAM_API_KEY as string | undefined;
+
+  const [token, setToken] = useState<string | null>(null);
+
+  // get a Stream user token for this call/user
   useEffect(() => {
+    let alive = true;
     (async () => {
-      try {
-        const { data: au } = await supabase.auth.getUser();
-        if (au.user?.id) {
-          (me as any).id = au.user.id; // keep id stable
-        }
-      } catch {}
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    let mounted = true;
-
-    (async () => {
-      try {
-        // 1) Ask our API to create the call and issue a token (also add both members)
-        const res = await fetch("/api/stream/create-call", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ callId, user: { id: me.id }, peerId: peer }),
-        });
-
-        const payload = await res.json();
-        if (!res.ok) {
-          throw new Error(payload?.error || `create-call failed (${res.status})`);
-        }
-
-        // 2) Init client
-        const c = new StreamVideoClient({
-          apiKey: payload.apiKey,
-          user: { id: String(payload.user.id) },
-          token: payload.token,
-        });
-        if (!mounted) return;
-        setClient(c);
-
-        // 3) Join the call
-        const _call = c.call("default", callId);
-        setCall(_call);
-        await _call.join({
-          create: false,
-          audio: true,
-          video: mode === "video",
-        });
-      } catch (e: any) {
-        console.error("[CallClient] join failed:", e);
-        setErr(e?.message || "Unable to start the call.");
+      if (!apiKey) {
+        console.error("Missing NEXT_PUBLIC_STREAM_API_KEY");
+        router.replace("/dashboard/messages");
+        return;
       }
+      const res = await fetch("/api/stream/create-call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          callId: String(callId),
+          userId,
+          userName: displayName,
+        }),
+      });
+      const text = await res.text();
+      let data: TokenRes = {};
+      try { data = JSON.parse(text) as TokenRes; } catch {}
+      if (!alive) return;
+      if (!res.ok || data.error || !data.token) {
+        console.error(data.error || text || "Failed creating call");
+        router.replace("/dashboard/messages");
+        return;
+      }
+      setToken(data.token);
     })();
+    return () => { alive = false; };
+  }, [apiKey, callId, userId, displayName, router]);
 
-    return () => {
-      mounted = false;
-      (async () => {
-        try {
-          await call?.leave();
-          client?.disconnectUser();
-        } catch {}
-      })();
-    };
-  }, [callId, mode, peer, me.id]);
+  const client = useMemo(() => {
+    if (!apiKey || !token) return null;
+    return new StreamVideoClient({
+      apiKey,
+      user: { id: userId, name: displayName },
+      token,
+    });
+  }, [apiKey, token, userId, displayName]);
 
-  if (err) {
+  if (!client) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="rounded-lg border p-6 text-center">
-          <div className="mb-2 text-lg font-semibold">Call error</div>
-          <div className="mb-4 text-sm text-gray-600">{err}</div>
-          <button className="rounded bg-gray-900 px-4 py-2 text-white" onClick={() => location.reload()}>
-            Retry
-          </button>
-        </div>
+      <div className="grid min-h-screen place-content-center text-sm text-gray-500">
+        Loading call…
       </div>
     );
   }
 
-  if (!client || !call) return <div className="p-6">Connecting to call…</div>;
+  const call = client.call("default", String(callId));
 
   return (
     <StreamVideo client={client}>
-      <StreamTheme>
-        <Call call={call}>
-          <CallContent />
-        </Call>
-      </StreamTheme>
+      <Call call={call}>
+        <AutoJoin mode={mode} />
+        <div className="mx-auto grid min-h-screen max-w-6xl grid-rows-[auto_1fr_auto] gap-3 p-4">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-gray-600">Call • {mode}</div>
+            <button
+              className="rounded-lg border px-3 py-1 text-sm"
+              onClick={async () => {
+                try { await call.leave(); } finally { router.push("/dashboard/messages"); }
+              }}
+              aria-label="Leave call"
+            >
+              Leave
+            </button>
+          </div>
+
+          <SpeakerLayout />
+
+          <div className="flex items-center justify-center">
+            <CallControls />
+          </div>
+        </div>
+      </Call>
     </StreamVideo>
   );
+}
+
+function AutoJoin({ mode }: { mode: "audio" | "video" }) {
+  const [joined, setJoined] = useState(false);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const joinBtn = document.querySelector(
+        "[data-test='call-controls-join-button']"
+      ) as HTMLButtonElement | null;
+      if (!joinBtn) return;
+
+      if (mode === "audio") {
+        const camToggle = document.querySelector(
+          "[data-test='toggle-camera']"
+        ) as HTMLButtonElement | null;
+        if (camToggle?.getAttribute("aria-pressed") === "true") camToggle.click();
+      }
+
+      if (!joined) {
+        joinBtn.click();
+        setJoined(true);
+      }
+      window.clearInterval(id);
+    }, 150);
+    return () => window.clearInterval(id);
+  }, [mode, joined]);
+
+  return null;
 }
