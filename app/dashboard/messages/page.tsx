@@ -27,6 +27,39 @@ import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
 import IncomingCallBanner from "@/components/call/IncomingCallBanner";
 
+/* --------------------------------- Signaling helpers --------------------------------- */
+/* Why: prevent sending before presence channel is actually subscribed */
+async function ensureSubscribedFor(
+  ch: ReturnType<typeof supabase.channel>
+) {
+  await new Promise<void>((resolve, reject) => {
+    const to = setTimeout(() => reject(new Error("subscribe timeout")), 10000);
+    ch.subscribe((s) => {
+      if (s === "SUBSCRIBED") {
+        clearTimeout(to);
+        resolve();
+      }
+      if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+        clearTimeout(to);
+        reject(new Error(String(s)));
+      }
+    });
+  });
+}
+
+/* Why: notify peer so they can show IncomingCallBanner immediately */
+async function ringPeer(toUserId: string, payload: {
+  conversationId: string;
+  fromId: string;
+  fromName: string;
+  mode: "audio" | "video";
+}) {
+  const ch = supabase.channel(`user_${toUserId}`, { config: { broadcast: { ack: true } } });
+  await ensureSubscribedFor(ch);
+  const { status, error } = await ch.send({ type: "broadcast", event: "invite", payload });
+  if (status !== "ok") throw error ?? new Error("Failed to send invite");
+}
+
 /* ------------------------------- Types ---------------------------------- */
 type ProviderRole = "doctor" | "nurse" | "counselor";
 type MessageRow = {
@@ -420,6 +453,20 @@ export default function DashboardMessagesPage() {
         await Swal.fire("Unavailable", "No peer available for this conversation.", "info");
         return;
       }
+
+      // 🔔 broadcast invite so peer shows IncomingCallBanner immediately
+      try {
+        await ringPeer(peerUserId, {
+          conversationId: selectedId,
+          fromId: me.id,
+          fromName: me.name,
+          mode,
+        });
+      } catch (e) {
+        // Why: non-blocking; user still enters call room
+        console.warn("[call] ring failed", e);
+      }
+
       router.push(
         `/call/${selectedId}?role=caller&mode=${mode}&peer=${encodeURIComponent(peerUserId)}&peerName=${encodeURIComponent(providerInfo.name || "Contact")}`
       );
