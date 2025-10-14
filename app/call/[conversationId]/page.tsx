@@ -1,14 +1,12 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams, useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Mic, MicOff, Video, VideoOff, MonitorUp, PhoneOff, RefreshCw } from "lucide-react";
 
 /**
- * Env-driven ICE; add these to .env(.local)
+ * Optional TURN/STUN via env:
  * NEXT_PUBLIC_ICE_STUN=stun:stun.l.google.com:19302
  * NEXT_PUBLIC_ICE_TURN_URI=turns:YOUR_TURN_HOST:5349
  * NEXT_PUBLIC_ICE_TURN_USER=turn_user
@@ -30,79 +28,97 @@ type SigPayload =
   | { kind: "webrtc-ice"; from: string; candidate: RTCIceCandidateInit }
   | { kind: "bye"; from: string };
 
-export default function CallPage() {
-  const { conversationId } = useParams<{ conversationId: string }>();
-  const sp = useSearchParams();
+function Tile({
+  videoRef,
+  label,
+  mirrored = false,
+}: {
+  videoRef: React.RefObject<HTMLVideoElement>;
+  label: string;
+  mirrored?: boolean;
+}) {
+  return (
+    <div className="aspect-video w-full overflow-hidden rounded-xl border bg-black/80 relative">
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={label === "You"}
+        className={`h-full w-full object-contain ${mirrored ? "scale-x-[-1]" : ""}`}
+      />
+      <div className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-xs text-white">
+        {label}
+      </div>
+    </div>
+  );
+}
+
+export default function CallRoomPage() {
   const router = useRouter();
+  const { conversationId } = useParams<{ conversationId: string }>();
+  const qs = useSearchParams();
 
-  const role = (sp.get("role") || "caller") as "caller" | "callee";
-  const mode = (sp.get("mode") || "audio") as "audio" | "video";
-  const peerUserId = sp.get("peer") || "";
-  const peerName = decodeURIComponent(sp.get("peerName") || "Peer");
+  const role = (qs.get("role") as "caller" | "callee") || "caller";
+  const mode = (qs.get("mode") as "audio" | "video") || "audio";
+  const peerUserId = qs.get("peer") || "";
+  const peerName = decodeURIComponent(qs.get("peerName") || "Peer");
 
-  const [me, setMe] = useState<{ id: string; name: string } | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [me, setMe] = useState<{ id: string; email?: string | null } | null>(null);
+
   const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "ended">("idle");
   const [muted, setMuted] = useState(false);
   const [camOff, setCamOff] = useState(mode === "audio");
-  const [authChecked, setAuthChecked] = useState(false);
+
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const threadChanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const userChanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  // ---------- Auth guard that won't bounce prematurely ----------
+  const threadChanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  // ---------- Auth (avoid unwanted redirect to /login) ----------
   useEffect(() => {
-    let cancelled = false;
+    let alive = true;
     (async () => {
-      // Try session first (faster/more reliable across tabs)
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (sessionData?.session?.user) {
-        if (!cancelled) {
-          const u = sessionData.session.user;
-          setMe({ id: u.id, name: u.email || "Me" });
-          setAuthChecked(true);
-        }
+      const { data: session } = await supabase.auth.getSession();
+      if (!alive) return;
+      if (session.session?.user) {
+        setMe({ id: session.session.user.id, email: session.session.user.email });
+        setAuthChecked(true);
         return;
       }
-      // Fallback to getUser (may refresh)
-      const { data: au } = await supabase.auth.getUser();
-      if (au.user) {
-        if (!cancelled) {
-          setMe({ id: au.user.id, name: au.user.email || "Me" });
-          setAuthChecked(true);
-        }
+      const { data: user } = await supabase.auth.getUser();
+      if (user.user) {
+        setMe({ id: user.user.id, email: user.user.email });
+        setAuthChecked(true);
         return;
       }
-      // One last gentle refresh attempt before redirecting
       const { data: refreshed } = await supabase.auth.refreshSession();
-      if (refreshed?.session?.user) {
-        if (!cancelled) {
-          const u = refreshed.session.user;
-          setMe({ id: u.id, name: u.email || "Me" });
-          setAuthChecked(true);
-        }
+      if (refreshed.session?.user) {
+        setMe({ id: refreshed.session.user.id, email: refreshed.session.user.email });
+        setAuthChecked(true);
       } else {
-        if (!cancelled) {
-          setAuthChecked(true);
-          router.push("/login");
-        }
+        // Keep next so user returns straight to the call if they log in
+        const next = encodeURIComponent(location.pathname + location.search);
+        router.replace(`/login?next=${next}`);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      alive = false;
+    };
   }, [router]);
 
-  // ---------- WebRTC: create peer connection ----------
+  // ---------- WebRTC core ----------
   const ensurePC = useCallback(() => {
     if (pcRef.current) return pcRef.current;
     const pc = new RTCPeerConnection({ iceServers: buildIceServers() });
 
-    pc.onicecandidate = (e) => {
-      if (e.candidate && me?.id) {
-        sendSignal({ kind: "webrtc-ice", from: me.id, candidate: e.candidate.toJSON() });
+    pc.onicecandidate = (ev) => {
+      if (ev.candidate && me?.id) {
+        sendSignal({ kind: "webrtc-ice", from: me.id, candidate: ev.candidate.toJSON() });
       }
     };
     pc.onconnectionstatechange = () => {
@@ -120,8 +136,12 @@ export default function CallPage() {
     return pc;
   }, [me?.id]);
 
-  // ---------- Signaling: thread channel for SDP/ICE ----------
-  const threadChannelName = useMemo(() => `thread_${conversationId}`, [conversationId]);
+  const getConstraints = useCallback((): MediaStreamConstraints => {
+    return { audio: true, video: mode === "video" ? { width: 1280, height: 720 } : false };
+  }, [mode]);
+
+  // ---------- Signaling on thread_${conversationId} ----------
+  const threadChannel = useMemo(() => `thread_${conversationId}`, [conversationId]);
 
   const sendSignal = useCallback((payload: SigPayload) => {
     if (!threadChanRef.current) return;
@@ -131,7 +151,7 @@ export default function CallPage() {
   useEffect(() => {
     if (!conversationId || !me?.id) return;
 
-    const ch = supabase.channel(threadChannelName, { config: { broadcast: { ack: true } } });
+    const ch = supabase.channel(threadChannel, { config: { broadcast: { ack: true } } });
 
     ch.on("broadcast", { event: "signal" }, async (e) => {
       const msg = (e.payload || {}) as SigPayload;
@@ -147,8 +167,8 @@ export default function CallPage() {
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
       } else if (msg.kind === "webrtc-ice") {
-        const pc = ensurePC();
         try {
+          const pc = ensurePC();
           await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
         } catch {
           /* ignore */
@@ -162,94 +182,83 @@ export default function CallPage() {
     threadChanRef.current = ch;
 
     return () => {
-      try { supabase.removeChannel(ch); } catch {}
+      try {
+        supabase.removeChannel(ch);
+      } catch {}
       threadChanRef.current = null;
     };
-  }, [conversationId, threadChannelName, ensurePC, me?.id, sendSignal]);
+  }, [conversationId, ensurePC, me?.id, sendSignal, threadChannel]);
 
-  // ---------- User channel: invite/bye to trigger IncomingCallBanner ----------
-  const userChannelName = useMemo(
-    () => (peerUserId ? `user_${peerUserId}` : null),
-    [peerUserId]
-  );
-
-  async function ensureSubscribedFor(userChannel: ReturnType<typeof supabase.channel>) {
-    await new Promise<void>((resolve, reject) => {
-      const to = setTimeout(() => reject(new Error("subscribe timeout")), 10000);
-      userChannel.subscribe((s) => {
-        if (s === "SUBSCRIBED") { clearTimeout(to); resolve(); }
-        if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") { clearTimeout(to); reject(new Error(String(s))); }
+  // ---------- Ring peer (for IncomingCallBanner) on user_${peer} ----------
+  async function ringPeer() {
+    if (!peerUserId || !conversationId || !me?.id) return;
+    const ch = supabase.channel(`user_${peerUserId}`, { config: { broadcast: { ack: true } } });
+    await new Promise<void>((res, rej) => {
+      const to = setTimeout(() => rej(new Error("subscribe timeout")), 8000);
+      ch.subscribe((s) => {
+        if (s === "SUBSCRIBED") {
+          clearTimeout(to);
+          res();
+        }
+        if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+          clearTimeout(to);
+          rej(new Error(String(s)));
+        }
       });
     });
-  }
-
-  const sendInvite = useCallback(async () => {
-    if (!userChannelName || !me?.id || !conversationId) return;
-    const ch = supabase.channel(userChannelName, { config: { broadcast: { ack: true } } });
-    await ensureSubscribedFor(ch);
     await ch.send({
       type: "broadcast",
       event: "invite",
-      payload: {
-        conversationId,
-        fromId: me.id,
-        fromName: me.name || "Caller",
-        mode,
-      },
+      payload: { conversationId, fromId: me.id, fromName: me.email || "Caller", mode },
     });
-    try { supabase.removeChannel(ch); } catch {}
-  }, [conversationId, me?.id, me?.name, mode, userChannelName]);
+    try {
+      supabase.removeChannel(ch);
+    } catch {}
+  }
 
-  const sendByeUser = useCallback(async () => {
-    if (!userChannelName || !conversationId) return;
-    const ch = supabase.channel(userChannelName, { config: { broadcast: { ack: true } } });
-    await ensureSubscribedFor(ch);
+  async function byePeer() {
+    if (!peerUserId || !conversationId) return;
+    const ch = supabase.channel(`user_${peerUserId}`, { config: { broadcast: { ack: true } } });
+    await new Promise<void>((res) => ch.subscribe((s) => s === "SUBSCRIBED" && res()));
     await ch.send({ type: "broadcast", event: "bye", payload: { conversationId } });
-    try { supabase.removeChannel(ch); } catch {}
-  }, [conversationId, userChannelName]);
+    try {
+      supabase.removeChannel(ch);
+    } catch {}
+  }
 
-  // ---------- Start local media & call flow ----------
-  const getConstraints = useCallback((): MediaStreamConstraints => {
-    return { audio: true, video: mode === "video" ? { width: 1280, height: 720 } : false };
-  }, [mode]);
-
-  const startCall = useCallback(async () => {
+  // ---------- Start flow ----------
+  const startOrPrep = useCallback(async () => {
     if (!me?.id) return;
+
     setStatus("connecting");
 
-    // Get local media
+    // 1) Get local stream early for faster negotiation
     localStreamRef.current = await navigator.mediaDevices.getUserMedia(getConstraints());
     if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
 
+    // 2) Add tracks to PC
     const pc = ensurePC();
     localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
 
+    // 3) If caller, create offer + send + ring
     if (role === "caller") {
-      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: mode === "video" });
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: mode === "video",
+      });
       await pc.setLocalDescription(offer);
       sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
-
-      // also ring via user channel so peer sees IncomingCallBanner
-      await sendInvite();
+      await ringPeer(); // show IncomingCallBanner on the peer
     }
-  }, [ensurePC, getConstraints, me?.id, mode, role, sendSignal, sendInvite]);
+  }, [ensurePC, getConstraints, me?.id, mode, role, sendSignal]);
 
-  // Prepare streams immediately; auto-start if caller
   useEffect(() => {
-    if (!me?.id || !authChecked) return;
+    if (!authChecked || !me?.id) return;
     (async () => {
-      // Prepare local stream early to reduce answer/offer latency
-      localStreamRef.current = await navigator.mediaDevices.getUserMedia(getConstraints());
-      if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
-
-      const pc = ensurePC();
-      localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
-
-      if (role === "caller") await startCall();
-      else setStatus("connecting");
+      await startOrPrep();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me?.id, authChecked]);
+  }, [authChecked, me?.id]);
 
   // ---------- Controls ----------
   const toggleMute = useCallback(() => {
@@ -266,96 +275,71 @@ export default function CallPage() {
     setCamOff((v) => !v);
   }, []);
 
-  const shareScreen = useCallback(async () => {
-    const pc = pcRef.current;
-    if (!pc || mode === "audio") return;
-    const ds: MediaStream | null =
-      (await (navigator.mediaDevices as any).getDisplayMedia?.({ video: true, audio: true }).catch(() => null)) || null;
-    if (!ds) return;
-    const sender = pc.getSenders().find((s) => s.track && s.track.kind === "video");
-    if (sender && ds.getVideoTracks()[0]) {
-      await sender.replaceTrack(ds.getVideoTracks()[0]);
-    }
-    ds.getVideoTracks()[0].addEventListener("ended", async () => {
-      const cam = localStreamRef.current?.getVideoTracks()[0];
-      if (cam && sender) await sender.replaceTrack(cam);
-    });
-  }, [mode]);
-
   const endCall = useCallback(
     (remote = false) => {
       setStatus("ended");
-      try { pcRef.current?.getSenders().forEach((s) => s.track?.stop()); } catch {}
-      try { pcRef.current?.close(); } catch {}
+      try {
+        pcRef.current?.getSenders().forEach((s) => s.track?.stop());
+      } catch {}
+      try {
+        pcRef.current?.close();
+      } catch {}
       pcRef.current = null;
-      try { localStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+      try {
+        localStreamRef.current?.getTracks().forEach((t) => t.stop());
+      } catch {}
       localStreamRef.current = null;
 
-      // tell peer via thread signal (for safety) and via user channel (to hide banner)
+      // notify via thread + user channel
       if (!remote && me?.id) {
         sendSignal({ kind: "bye", from: me.id });
-        void sendByeUser();
+        void byePeer();
       }
+
+      // back to messages
+      router.push("/dashboard/messages");
     },
-    [me?.id, sendSignal, sendByeUser]
+    [byePeer, me?.id, router, sendSignal]
   );
 
-  // Cleanup on tab close
   useEffect(() => {
-    const onUnload = () => { endCall(false); };
+    const onUnload = () => endCall(false);
     window.addEventListener("beforeunload", onUnload);
     return () => window.removeEventListener("beforeunload", onUnload);
   }, [endCall]);
 
   if (!authChecked) {
-    return (
-      <div className="grid min-h-screen place-content-center text-sm text-gray-500">
-        Preparing call…
-      </div>
-    );
+    return <div className="p-6">Joining the call…</div>;
   }
 
   return (
-    <div className="mx-auto grid min-h-screen max-w-6xl grid-rows-[auto_1fr_auto] gap-3 p-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-gray-600">
-          {role} • {mode} • {status}
+    <div className="mx-auto max-w-6xl p-6 space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Call • {mode}</h1>
+          <p className="text-sm text-gray-500">
+            You: <span className="font-mono">{me?.email || me?.id}</span> • Peer: {peerName}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">Status: {status} • Role: {role}</p>
         </div>
-        <div className="text-sm font-medium">{peerName}</div>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={toggleMute}>
+            {muted ? "Unmute" : "Mute"}
+          </Button>
+          {mode === "video" && (
+            <Button variant="secondary" onClick={toggleCamera}>
+              {camOff ? "Camera On" : "Camera Off"}
+            </Button>
+          )}
+          <Button variant="destructive" onClick={() => endCall(false)}>
+            End
+          </Button>
+        </div>
       </div>
 
-      <Card className="relative flex items-center justify-center overflow-hidden rounded-xl">
-        <video
-          ref={remoteVideoRef}
-          autoPlay
-          playsInline
-          className="h-full w-full bg-black object-contain"
-        />
-        <video
-          ref={localVideoRef}
-          autoPlay
-          muted
-          playsInline
-          className="absolute bottom-3 right-3 h-32 w-48 rounded-lg bg-black/70 object-cover ring-2 ring-white/70"
-        />
-      </Card>
-
-      <div className="flex items-center justify-center gap-3">
-        <Button variant="secondary" onClick={toggleMute} className="rounded-full">
-          {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-        </Button>
-        <Button variant="secondary" onClick={toggleCamera} className="rounded-full" disabled={mode === "audio"}>
-          {camOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
-        </Button>
-        <Button variant="secondary" onClick={shareScreen} className="rounded-full" disabled={mode === "audio"}>
-          <MonitorUp className="h-5 w-5" />
-        </Button>
-        <Button variant="secondary" onClick={startCall} className="rounded-full" title="Renegotiate">
-          <RefreshCw className="h-5 w-5" />
-        </Button>
-        <Button variant="destructive" onClick={() => endCall(false)} className="rounded-full">
-          <PhoneOff className="h-5 w-5" />
-        </Button>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Tile videoRef={remoteVideoRef} label="Remote" />
+        <Tile videoRef={localVideoRef} label="You" mirrored />
       </div>
     </div>
   );
