@@ -76,6 +76,38 @@ type UiSettings = {
 const CHAT_BUCKET =
   process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET?.trim() || "chat";
 
+/* ----------------------------- Zoho helpers (client) ----------------------------- */
+/** Why popup: isolates OAuth and keeps tokens server-only via HttpOnly cookies */
+function openPopup(url: string, title = "Zoho OAuth", w = 520, h = 640) {
+  const y = window.top?.outerHeight ? (window.top.outerHeight - h) / 2 : 100;
+  const x = window.top?.outerWidth ? (window.top.outerWidth - w) / 2 : 100;
+  const popup = window.open(
+    url,
+    title,
+    `popup=yes,toolbar=no,location=no,status=no,menubar=no,scrollbars=yes,resizable=yes,width=${w},height=${h},top=${y},left=${x}`
+  );
+  if (!popup) throw new Error("Popup blocked");
+  return popup;
+}
+/** Why: fetch with credentials to read HttpOnly cookie-driven status */
+async function getJSON<T>(url: string): Promise<T> {
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as T;
+}
+
+/** Minimal Zoho glyph; fallback-friendly and themable via fill class */
+function ZohoGlyph(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 64 24" aria-hidden="true" {...props}>
+      <rect x="1" y="2" width="14" height="20" rx="3" />
+      <rect x="17" y="2" width="14" height="20" rx="3" />
+      <rect x="33" y="2" width="14" height="20" rx="3" />
+      <rect x="49" y="2" width="14" height="20" rx="3" />
+    </svg>
+  );
+}
+
 export default function ChatBox(props: {
   mode: "staff" | "patient";
   patientId: string;
@@ -693,6 +725,66 @@ function ChatBoxInner(props: {
   const otherAvatar =
     mode === "staff" ? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
 
+  /* ------------------------------ Zoho UI state + actions ------------------------------ */
+  const [zohoConnecting, setZohoConnecting] = useState(false);
+  const [zohoConnected, setZohoConnected] = useState(false);
+  const [zohoError, setZohoError] = useState<string | null>(null);
+  const [zohoModalOpen, setZohoModalOpen] = useState(false);
+  const regionBadge = process.env.NEXT_PUBLIC_ZOHO_REGION || "com";
+
+  // On mount, check connection status from server (HttpOnly cookie)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const s = await getJSON<{ connected: boolean }>("/api/zoho/status");
+        if (!cancelled) setZohoConnected(!!s.connected);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Launch OAuth in popup; await postMessage from /api/zoho/oauth/callback
+  const startZohoAuth = useCallback((service: "crm" | "meeting" = "crm") => {
+    setZohoConnecting(true);
+    setZohoError(null);
+    let popup: Window | null = null;
+    try {
+      popup = openPopup(`/api/zoho/oauth/start?service=${service}`);
+    } catch (e: any) {
+      setZohoConnecting(false);
+      setZohoError(e?.message || "Popup blocked");
+      setZohoModalOpen(true);
+      return;
+    }
+
+    const onMsg = (ev: MessageEvent) => {
+      if (ev.origin !== window.location.origin) return; // why: origin check
+      const data = ev.data || {};
+      if (data?.type === "ZOHO_OAUTH_RESULT") {
+        window.removeEventListener("message", onMsg);
+        setZohoConnecting(false);
+        if (data.ok) {
+          setZohoConnected(true);
+          setZohoError(null);
+        } else {
+          setZohoConnected(false);
+          setZohoError(data.error || "Authorization failed");
+        }
+        setZohoModalOpen(true);
+        try {
+          popup?.close();
+        } catch {}
+      }
+    };
+    window.addEventListener("message", onMsg);
+  }, []);
+
+  /* ----------------------------------- UI ----------------------------------- */
   return (
     <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
       <CardContent className="flex h-full flex-col p-0">
@@ -739,9 +831,7 @@ function ChatBoxInner(props: {
                       }`}
                     />
                     <span
-                      className={
-                        isOnline ? "text-emerald-600" : "text-gray-500"
-                      }
+                      className={isOnline ? "text-emerald-600" : "text-gray-500"}
                     >
                       {isOnline ? "Online" : "Offline"}
                     </span>
@@ -754,6 +844,17 @@ function ChatBoxInner(props: {
           </div>
 
           <div className="ml-auto flex items-center gap-1">
+            {/* Zoho connect button */}
+            <IconButton aria="Connect Zoho" onClick={() => startZohoAuth("crm")}>
+              <ZohoGlyph
+                className={`h-5 w-10 ${
+                  zohoConnected
+                    ? "fill-emerald-600"
+                    : "fill-gray-500 dark:fill-gray-300"
+                }`}
+              />
+            </IconButton>
+
             <IconButton
               aria="Voice call"
               onClick={() =>
@@ -897,6 +998,38 @@ function ChatBoxInner(props: {
           onHangup={hangup}
         />
       )}
+
+      {/* Zoho connection status modal */}
+      <Dialog open={zohoModalOpen} onOpenChange={setZohoModalOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Zoho connection</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 text-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                Region: <span className="font-mono">.{regionBadge}</span>
+              </div>
+              <div
+                className={`rounded-full px-2 py-0.5 text-xs ${
+                  zohoConnected
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-rose-100 text-rose-700"
+                }`}
+              >
+                {zohoConnected ? "Connected" : "Not connected"}
+              </div>
+            </div>
+            {zohoConnecting && <div>Waiting for authorization…</div>}
+            {zohoError && <div className="text-rose-600">{zohoError}</div>}
+            {!zohoConnected && !zohoConnecting && (
+              <div className="text-gray-600">
+                Click the Zoho icon to connect your account.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 
