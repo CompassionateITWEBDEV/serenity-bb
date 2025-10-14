@@ -1,3 +1,4 @@
+// app/dashboard/messages/page.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -28,7 +29,6 @@ import { chatUploadToPath } from "@/lib/chat/storage";
 import IncomingCallBanner from "@/components/call/IncomingCallBanner";
 
 /* --------------------------------- Signaling helpers --------------------------------- */
-/** prevent sending before presence channel is actually subscribed */
 async function ensureSubscribedFor(ch: ReturnType<typeof supabase.channel>) {
   await new Promise<void>((resolve, reject) => {
     const to = setTimeout(() => reject(new Error("subscribe timeout")), 10000);
@@ -45,7 +45,6 @@ async function ensureSubscribedFor(ch: ReturnType<typeof supabase.channel>) {
   });
 }
 
-/** notify peer so they can show IncomingCallBanner immediately */
 async function ringPeer(
   toUserId: string,
   payload: {
@@ -155,7 +154,6 @@ export default function DashboardMessagesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
 
-  // Incoming invite => show banner here too
   const [incoming, setIncoming] = useState<{
     conversationId: string;
     fromId: string;
@@ -203,7 +201,7 @@ export default function DashboardMessagesPage() {
     ch.on("broadcast", { event: "invite" }, (p) => {
       const { conversationId, fromId, fromName, mode } = (p.payload || {}) as any;
       if (!conversationId || !fromId) return;
-      setSelectedId((curr) => curr || conversationId); // jump into that thread if none selected
+      setSelectedId((curr) => curr || conversationId);
       setIncoming({
         conversationId,
         fromId,
@@ -546,7 +544,7 @@ export default function DashboardMessagesPage() {
     setSending(false);
   }
 
-  /* ------------------------------ CALL (navigate to /call) -------------------------------- */
+  /* ------------------------------ CALL (→ Stream /video/[id]) -------------------------------- */
   const selectedConv = useMemo(
     () => convs.find((c) => c.id === selectedId) || null,
     [convs, selectedId]
@@ -580,7 +578,7 @@ export default function DashboardMessagesPage() {
         return;
       }
 
-      // broadcast invite so peer sees IncomingCallBanner immediately
+      // Non-blocking: ring peer so they see your banner immediately.
       try {
         await ringPeer(peerUserId, {
           conversationId: selectedId,
@@ -589,31 +587,44 @@ export default function DashboardMessagesPage() {
           mode,
         });
       } catch (e) {
-        // non-blocking; user still enters call room
         console.warn("[call] ring failed", e);
       }
 
+      // Ensure Stream call exists + token (server). WHY: validates keys & call.
+      try {
+        const res = await fetch("/api/stream/create-call", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ callId: selectedId, userId: me.id, userName: me.name }),
+        });
+        const data = await res.json();
+        if (!res.ok || data?.error) throw new Error(data?.error || "stream create-call failed");
+      } catch (e) {
+        console.warn(e);
+        await Swal.fire("Call error", "Unable to start the call.", "error");
+        return;
+      }
+
+      // Navigate to Stream-powered call page. acct=patient for leave-redirects.
       router.push(
-        `/call/${selectedId}?role=caller&mode=${mode}&peer=${encodeURIComponent(
-          peerUserId
-        )}&peerName=${encodeURIComponent(providerInfo.name || "Contact")}`
+        `/video/${encodeURIComponent(selectedId)}?mode=${mode}&acct=patient&me=${encodeURIComponent(
+          me.name
+        )}&uid=${encodeURIComponent(me.id)}`
       );
     },
-    [selectedId, me?.id, providerInfo.id, providerInfo.name, router]
+    [selectedId, me?.id, me?.name, providerInfo.id, providerInfo.name, router]
   );
 
-  // Accept / Decline (Banner)
+  // Accept / Decline (Banner) → open Stream page too.
   const acceptIncoming = useCallback(() => {
-    if (!incoming) return;
+    if (!incoming || !me) return;
     router.push(
-      `/call/${incoming.conversationId}?role=callee&mode=${
+      `/video/${encodeURIComponent(incoming.conversationId)}?mode=${
         incoming.mode
-      }&peer=${encodeURIComponent(
-        incoming.fromId
-      )}&peerName=${encodeURIComponent(incoming.fromName || "Caller")}`
+      }&acct=patient&me=${encodeURIComponent(me.name)}&uid=${encodeURIComponent(me.id)}`
     );
     setIncoming(null);
-  }, [incoming, router]);
+  }, [incoming, me, router]);
 
   const declineIncoming = useCallback(async () => {
     if (!incoming) return;
@@ -1069,7 +1080,6 @@ export default function DashboardMessagesPage() {
         </div>
       </div>
 
-      {/* Sticky incoming banner if no thread selected */}
       {!selectedId && incoming && (
         <div className="fixed bottom-4 left-1/2 z-40 w-[min(640px,90vw)] -translate-x-1/2">
           <IncomingCallBanner
