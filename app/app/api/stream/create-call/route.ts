@@ -1,19 +1,17 @@
+// app/api/stream/create-call/route.ts
 import { NextResponse } from "next/server";
-import { StreamClient } from "@stream-io/node-sdk"; // ✅ correct export for v0.7.11
+import { StreamClient } from "@stream-io/node-sdk";
 
 export async function POST(req: Request) {
   try {
-    const { callId, createdBy } = await req.json();
+    const { callId, userId } = await req.json();
 
-    if (!callId || !createdBy) {
-      return NextResponse.json(
-        { error: "Missing callId or createdBy" },
-        { status: 400 }
-      );
+    if (!callId || !userId) {
+      return NextResponse.json({ error: "Missing callId or userId" }, { status: 400 });
     }
 
-    const apiKey = process.env.STREAM_API_KEY!;
-    const apiSecret = process.env.STREAM_API_SECRET!;
+    const apiKey = process.env.STREAM_API_KEY;
+    const apiSecret = process.env.STREAM_API_SECRET;
     if (!apiKey || !apiSecret) {
       return NextResponse.json(
         { error: "Missing STREAM_API_KEY/STREAM_API_SECRET" },
@@ -21,27 +19,18 @@ export async function POST(req: Request) {
       );
     }
 
-    // Create the multi-product Stream server client
     const server = new StreamClient({ apiKey, apiSecret });
 
-    // Use the Video product surface
+    // Create or fetch the call
     const call = server.video.call("default", callId);
+    await call.getOrCreate({ created_by_id: userId });
 
-    // Create the call (or fetch if it exists)
-    await call.getOrCreate({
-      created_by_id: createdBy,
-      // settings_override: { recording: { mode: "available" } }, // optional
-    });
-
-    // JWT for the user to join from the browser
-    const token = server.createToken(createdBy);
+    // IMPORTANT: token must be for the SAME userId you’ll use to connect client-side
+    const token = server.createToken(userId);
 
     return NextResponse.json({ apiKey, callId, token });
-  } catch (err: any) {
-    console.error("[create-call] error:", err);
-    return NextResponse.json(
-      { error: err?.message ?? "Failed to create call" },
-      { status: 500 }
-    );
+  } catch (e: any) {
+    console.error("[create-call] ", e);
+    return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
   }
 }
