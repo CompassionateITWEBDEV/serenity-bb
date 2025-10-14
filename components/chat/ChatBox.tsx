@@ -419,11 +419,85 @@ function ChatBoxInner(props: {
     [mode, patientId, providerId]
   );
 
-  // Open /call page (no ring/signaling here)
+  // ---------- Inline signaling helpers (invite/bye) ----------
+  async function ensureSubscribedFor(
+    userChannel: ReturnType<typeof supabase.channel>
+  ) {
+    await new Promise<void>((resolve, reject) => {
+      const to = setTimeout(
+        () => reject(new Error("subscribe timeout")),
+        10000
+      );
+      userChannel.subscribe((s) => {
+        if (s === "SUBSCRIBED") {
+          clearTimeout(to);
+          resolve();
+        }
+        if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+          clearTimeout(to);
+          reject(new Error(String(s)));
+        }
+      });
+    });
+  }
+  async function ringPeer(
+    toUserId: string,
+    args: {
+      conversationId: string;
+      fromId: string;
+      fromName: string;
+      mode: "audio" | "video";
+    }
+  ) {
+    const ch = supabase.channel(`user_${toUserId}`, {
+      config: { broadcast: { ack: true } },
+    });
+    await ensureSubscribedFor(ch);
+    const { status, error } = await ch.send({
+      type: "broadcast",
+      event: "invite",
+      payload: args,
+    });
+    if (status !== "ok") throw error ?? new Error("Failed to send invite");
+  }
+  async function sendBye(
+    toUserId: string,
+    args: { conversationId: string }
+  ) {
+    const ch = supabase.channel(`user_${toUserId}`, {
+      config: { broadcast: { ack: true } },
+    });
+    await ensureSubscribedFor(ch);
+    const { status, error } = await ch.send({
+      type: "broadcast",
+      event: "bye",
+      payload: args,
+    });
+    if (status !== "ok") throw error ?? new Error("Failed to send bye");
+  }
+
+  // Open /call page and RING the peer so they see a banner
   const beginCall = useCallback(
     async (m: "audio" | "video") => {
       const convId = await ensureConversation().catch(() => null);
-      if (!convId || !peerUserId) return;
+      if (!convId || !peerUserId || !me?.id) return;
+
+      try {
+        await ringPeer(peerUserId, {
+          conversationId: convId,
+          fromId: me.id,
+          fromName:
+            me.name ||
+            (mode === "staff"
+              ? providerName || "Staff"
+              : patientName || "Patient"),
+          mode: m,
+        });
+      } catch (e) {
+        // Why: non-blocking ring; still open call
+        console.warn("[call] ring failed", e);
+      }
+
       const url = `/call/${convId}?role=caller&mode=${m}&peer=${encodeURIComponent(
         peerUserId
       )}&peerName=${encodeURIComponent(
@@ -433,16 +507,30 @@ function ChatBoxInner(props: {
       )}`;
       window.open(url, "_blank", "noopener,noreferrer");
       setCallDockVisible(true);
-      setCallStatus("connected"); // purely UI
+      setCallStatus("ringing");
     },
-    [ensureConversation, peerUserId, mode, patientName, providerName]
+    [
+      ensureConversation,
+      peerUserId,
+      mode,
+      patientName,
+      providerName,
+      me?.id,
+      me?.name,
+    ]
   );
 
   const hangup = useCallback(async () => {
-    // purely UI (no signaling)
+    if (conversationId && peerUserId) {
+      try {
+        await sendBye(peerUserId, { conversationId });
+      } catch (e) {
+        console.warn("[call] bye failed", e);
+      }
+    }
     setCallDockVisible(false);
     setCallStatus("ended");
-  }, []);
+  }, [conversationId, peerUserId]);
 
   /* ----------------------------- send ops ----------------------------- */
   async function insertMessage(payload: {
@@ -792,7 +880,7 @@ function ChatBoxInner(props: {
         </div>
       </CardContent>
 
-      {/* Tiny call dock (purely visual now) */}
+      {/* Tiny call dock */}
       {callDockVisible && (
         <CallDock
           minimized={callDockMin}
