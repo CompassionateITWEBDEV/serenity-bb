@@ -76,9 +76,9 @@ type UiSettings = {
 const CHAT_BUCKET =
   process.env.NEXT_PUBLIC_SUPABASE_CHAT_BUCKET?.trim() || "chat";
 
-/* ----------------------------- Zoho helpers (client) ----------------------------- */
+/* ----------------------------- Zoom helpers (client) ----------------------------- */
 /** Why popup: isolates OAuth and keeps tokens server-only via HttpOnly cookies */
-function openPopup(url: string, title = "Zoho OAuth", w = 520, h = 640) {
+function openPopup(url: string, title = "Zoom OAuth", w = 520, h = 640) {
   const y = window.top?.outerHeight ? (window.top.outerHeight - h) / 2 : 100;
   const x = window.top?.outerWidth ? (window.top.outerWidth - w) / 2 : 100;
   const popup = window.open(
@@ -89,21 +89,21 @@ function openPopup(url: string, title = "Zoho OAuth", w = 520, h = 640) {
   if (!popup) throw new Error("Popup blocked");
   return popup;
 }
-/** Why: fetch with credentials to read HttpOnly cookie-driven status */
+/** Why: credentials include cookies carrying session */
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url, { credentials: "include" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as T;
 }
-
-/** Minimal Zoho glyph; fallback-friendly and themable via fill class */
-function ZohoGlyph(props: React.SVGProps<SVGSVGElement>) {
+/** Minimal Zoom glyph (theme via fill class) */
+function ZoomGlyph(props: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 64 24" aria-hidden="true" {...props}>
-      <rect x="1" y="2" width="14" height="20" rx="3" />
-      <rect x="17" y="2" width="14" height="20" rx="3" />
-      <rect x="33" y="2" width="14" height="20" rx="3" />
-      <rect x="49" y="2" width="14" height="20" rx="3" />
+    <svg viewBox="0 0 256 256" aria-hidden="true" {...props}>
+      <rect width="256" height="256" rx="48" />
+      <path
+        d="M58 90c0-8 6-14 14-14h76c18 0 32 14 32 32v40c0 8-6 14-14 14H90c-18 0-32-14-32-32V90zM188 110l44-26c7-4 16 1 16 9v70c0 8-9 13-16 9l-44-26v-36z"
+        fill="white"
+      />
     </svg>
   );
 }
@@ -725,20 +725,19 @@ function ChatBoxInner(props: {
   const otherAvatar =
     mode === "staff" ? patientAvatarUrl ?? null : providerAvatarUrl ?? null;
 
-  /* ------------------------------ Zoho UI state + actions ------------------------------ */
-  const [zohoConnecting, setZohoConnecting] = useState(false);
-  const [zohoConnected, setZohoConnected] = useState(false);
-  const [zohoError, setZohoError] = useState<string | null>(null);
-  const [zohoModalOpen, setZohoModalOpen] = useState(false);
-  const regionBadge = process.env.NEXT_PUBLIC_ZOHO_REGION || "com";
+  /* ------------------------------ Zoom UI state + actions ------------------------------ */
+  const [zoomConnecting, setZoomConnecting] = useState(false);
+  const [zoomConnected, setZoomConnected] = useState(false);
+  const [zoomError, setZoomError] = useState<string | null>(null);
+  const [zoomModalOpen, setZoomModalOpen] = useState(false);
 
   // On mount, check connection status from server (HttpOnly cookie)
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const s = await getJSON<{ connected: boolean }>("/api/zoho/status");
-        if (!cancelled) setZohoConnected(!!s.connected);
+        const s = await getJSON<{ connected: boolean }>("/api/zoom/status");
+        if (!cancelled) setZoomConnected(!!s.connected);
       } catch {
         /* ignore */
       }
@@ -748,34 +747,34 @@ function ChatBoxInner(props: {
     };
   }, []);
 
-  // Launch OAuth in popup; await postMessage from /api/zoho/oauth/callback
-  const startZohoAuth = useCallback((service: "crm" | "meeting" = "crm") => {
-    setZohoConnecting(true);
-    setZohoError(null);
+  // Launch OAuth in popup; await postMessage from /api/zoom/oauth/callback
+  const startZoomAuth = useCallback(() => {
+    setZoomConnecting(true);
+    setZoomError(null);
     let popup: Window | null = null;
     try {
-      popup = openPopup(`/api/zoho/oauth/start?service=${service}`);
+      popup = openPopup(`/api/zoom/oauth/start`);
     } catch (e: any) {
-      setZohoConnecting(false);
-      setZohoError(e?.message || "Popup blocked");
-      setZohoModalOpen(true);
+      setZoomConnecting(false);
+      setZoomError(e?.message || "Popup blocked");
+      setZoomModalOpen(true);
       return;
     }
 
     const onMsg = (ev: MessageEvent) => {
       if (ev.origin !== window.location.origin) return; // why: origin check
       const data = ev.data || {};
-      if (data?.type === "ZOHO_OAUTH_RESULT") {
+      if (data?.type === "ZOOM_OAUTH_RESULT") {
         window.removeEventListener("message", onMsg);
-        setZohoConnecting(false);
+        setZoomConnecting(false);
         if (data.ok) {
-          setZohoConnected(true);
-          setZohoError(null);
+          setZoomConnected(true);
+          setZoomError(null);
         } else {
-          setZohoConnected(false);
-          setZohoError(data.error || "Authorization failed");
+          setZoomConnected(false);
+          setZoomError(data.error || "Authorization failed");
         }
-        setZohoModalOpen(true);
+        setZoomModalOpen(true);
         try {
           popup?.close();
         } catch {}
@@ -844,13 +843,13 @@ function ChatBoxInner(props: {
           </div>
 
           <div className="ml-auto flex items-center gap-1">
-            {/* Zoho connect button */}
-            <IconButton aria="Connect Zoho" onClick={() => startZohoAuth("crm")}>
-              <ZohoGlyph
-                className={`h-5 w-10 ${
-                  zohoConnected
+            {/* Zoom connect button */}
+            <IconButton aria="Connect Zoom" onClick={startZoomAuth}>
+              <ZoomGlyph
+                className={`h-5 w-5 ${
+                  zoomConnected
                     ? "fill-emerald-600"
-                    : "fill-gray-500 dark:fill-gray-300"
+                    : "fill-[#0B5CFF] dark:fill-[#75A2FF]"
                 }`}
               />
             </IconButton>
@@ -999,32 +998,30 @@ function ChatBoxInner(props: {
         />
       )}
 
-      {/* Zoho connection status modal */}
-      <Dialog open={zohoModalOpen} onOpenChange={setZohoModalOpen}>
+      {/* Zoom connection status modal */}
+      <Dialog open={zoomModalOpen} onOpenChange={setZoomModalOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Zoho connection</DialogTitle>
+            <DialogTitle>Zoom connection</DialogTitle>
           </DialogHeader>
           <div className="space-y-2 text-sm">
             <div className="flex items-center justify-between">
-              <div>
-                Region: <span className="font-mono">.{regionBadge}</span>
-              </div>
+              <div>App: <span className="font-mono">OAuth</span></div>
               <div
                 className={`rounded-full px-2 py-0.5 text-xs ${
-                  zohoConnected
+                  zoomConnected
                     ? "bg-emerald-100 text-emerald-700"
                     : "bg-rose-100 text-rose-700"
                 }`}
               >
-                {zohoConnected ? "Connected" : "Not connected"}
+                {zoomConnected ? "Connected" : "Not connected"}
               </div>
             </div>
-            {zohoConnecting && <div>Waiting for authorization…</div>}
-            {zohoError && <div className="text-rose-600">{zohoError}</div>}
-            {!zohoConnected && !zohoConnecting && (
+            {zoomConnecting && <div>Waiting for authorization…</div>}
+            {zoomError && <div className="text-rose-600">{zoomError}</div>}
+            {!zoomConnected && !zoomConnecting && (
               <div className="text-gray-600">
-                Click the Zoho icon to connect your account.
+                Click the Zoom icon to connect your account.
               </div>
             )}
           </div>
