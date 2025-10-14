@@ -64,7 +64,10 @@
     "react-day-picker": "^9.1.4",
      "leaflet": "^1.9.4",
     "react-leaflet": "^5.0.0",
-    "maplibre-gl": "^3.6.2"
+    "maplibre-gl": "^3.6.2",
+     "@stream-io/video-react-sdk": "^latest",
+    "@stream-io/video-client": "^latest",
+    "@stream-io/node-sdk": "^latest"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.9",
