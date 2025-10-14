@@ -4,11 +4,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams, useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { getSafeMedia, type CallMode } from "@/lib/webrtc/media";
-import {
-  Mic, MicOff, Video, VideoOff, PhoneOff, MonitorUp, ScreenShare, Camera, RefreshCw
-} from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, PhoneOff, MonitorUp, ScreenShare, RefreshCw, AlertTriangle } from "lucide-react";
 
-/** Simple helper for unique client id per tab */
+/** Unique id per tab for signaling */
 function makeClientId() {
   return `${Math.random().toString(36).slice(2)}-${Date.now()}`;
 }
@@ -33,7 +31,7 @@ export default function CallPage() {
 
   const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "ended" | "failed">("idle");
   const [notice, setNotice] = useState<string | null>(null);
-  const [timer, setTimer] = useState(0); // seconds since connected
+  const [timer, setTimer] = useState(0);
 
   // controls
   const [muted, setMuted] = useState(false);
@@ -54,241 +52,261 @@ export default function CallPage() {
   const clientIdRef = useRef<string>(makeClientId());
   const connectedAtRef = useRef<number | null>(null);
 
-  // ----- Device enumeration -----
+  // ---------- Device enumeration ----------
   const refreshDevices = useCallback(async () => {
     try {
       const all = await navigator.mediaDevices.enumerateDevices();
-      setMics(all.filter(d => d.kind === "audioinput"));
-      setCams(all.filter(d => d.kind === "videoinput"));
+      setMics(all.filter((d) => d.kind === "audioinput"));
+      setCams(all.filter((d) => d.kind === "videoinput"));
     } catch {
-      // ignore
+      /* ignore */
     }
   }, []);
 
-  // ----- Signaling helpers (Supabase Realtime) -----
+  // ---------- Signaling (Supabase Realtime) ----------
   const publish = useCallback(async (msg: SigMessage) => {
     const ch = chRef.current;
     if (!ch) return;
-    await ch.send({
-      type: "broadcast",
-      event: "signal",
-      payload: { ...msg, ts: Date.now() },
-    });
+    await ch.send({ type: "broadcast", event: "signal", payload: { ...msg, ts: Date.now() } });
   }, []);
 
-  const startSignaling = useCallback((onMsg: (m: SigMessage) => void) => {
-    const channel = supabase.channel(`call_${id}`, {
-      config: { broadcast: { ack: true } },
-    });
+  /** Subscribe and resolve when ready (prevents lost offers). */
+  const startSignaling = useCallback(
+    (onMsg: (m: SigMessage) => void) =>
+      new Promise<void>((resolve) => {
+        const channel = supabase.channel(`call_${id}`, { config: { broadcast: { ack: true } } });
 
-    channel.on("broadcast", { event: "signal" }, (e) => {
-      const payload = (e?.payload ?? {}) as SigMessage & { from?: string };
-      // ignore own messages
-      if (!payload?.from || payload.from === clientIdRef.current) return;
-      onMsg(payload);
-    });
+        channel.on("broadcast", { event: "signal" }, (e) => {
+          const payload = (e?.payload ?? {}) as SigMessage & { from?: string };
+          if (!payload?.from || payload.from === clientIdRef.current) return; // ignore own
+          onMsg(payload);
+        });
 
-    channel.subscribe((st) => {
-      if (st === "SUBSCRIBED") {
-        // noop
-      }
-    });
+        channel.subscribe((st) => {
+          if (st === "SUBSCRIBED") resolve();
+        });
 
-    chRef.current = channel;
-  }, [id]);
+        chRef.current = channel;
+      }),
+    [id]
+  );
 
-  // ------- Create/Replace local media -------
-  const attachLocal = useCallback(async (targetMode: CallMode, opts?: { force?: boolean }) => {
-    // If camera is off by UI, still request audio when possible
-    const wantVideo = targetMode === "video" && !camOff && !sharing;
-    const wantAudio = true;
+  // ---------- Local media attach / replace ----------
+  const checkSecureContext = () => {
+    if (typeof window !== "undefined" && location.protocol !== "https:" && location.hostname !== "localhost") {
+      setNotice("This page is not using HTTPS. Browsers block mic/camera on insecure origins.");
+      return false;
+    }
+    return true;
+  };
 
-    // If specific devices chosen, request with constraints
-    const constraints: MediaStreamConstraints = {
-      audio: wantAudio ? (micId ? { deviceId: { exact: micId } } : true) : false,
-      video: wantVideo ? (camId ? { deviceId: { exact: camId } } : { width: { ideal: 1280 }, height: { ideal: 720 } }) : false,
-    };
-
-    let ms: MediaStream | null = null;
-
-    // First try exact constraints; fallback using getSafeMedia
+  const requestPermissionsHint = async () => {
     try {
-      ms = (await navigator.mediaDevices.getUserMedia(constraints)) as MediaStream;
+      const perms = (navigator as any).permissions;
+      if (!perms?.query) return;
+      const mic = await perms.query({ name: "microphone" as any }).catch(() => null);
+      const cam = await perms.query({ name: "camera" as any }).catch(() => null);
+      if (mic?.state === "denied" || cam?.state === "denied")
+        setNotice("Mic/Camera permission denied. Allow access in your browser/site settings, then click “Enable mic/camera”.");
     } catch {
-      ms = await getSafeMedia(targetMode);
+      /* ignore */
     }
+  };
 
-    if (!ms) {
-      if (!notice) setNotice("No mic/camera available. You joined in listen-only mode.");
-      // clear local preview
+  const attachLocal = useCallback(
+    async (targetMode: CallMode, opts?: { force?: boolean }) => {
+      if (!checkSecureContext()) return null;
+      await requestPermissionsHint();
+
+      const wantVideo = targetMode === "video" && !camOff && !sharing;
+      const wantAudio = true;
+
+      const constraints: MediaStreamConstraints = {
+        audio: wantAudio ? (micId ? { deviceId: { exact: micId } } : true) : false,
+        video: wantVideo ? (camId ? { deviceId: { exact: camId } } : { width: { ideal: 1280 }, height: { ideal: 720 } }) : false,
+      };
+
+      let ms: MediaStream | null = null;
+      try {
+        ms = (await navigator.mediaDevices.getUserMedia(constraints)) as MediaStream;
+      } catch {
+        // last-ditch: prefer audio always; video only when available
+        ms = await getSafeMedia(targetMode);
+      }
+
+      if (!ms) {
+        setNotice("No mic/camera available. You joined in listen-only mode.");
+        if (localRef.current) localRef.current.srcObject = null;
+        return null;
+      }
+
+      // preview
+      localStreamRef.current?.getTracks().forEach((t) => t.stop());
+      localStreamRef.current = ms;
       if (localRef.current) {
-        localRef.current.srcObject = null;
-      }
-      return null;
-    }
-
-    // connect preview
-    localStreamRef.current?.getTracks().forEach(t => t.stop());
-    localStreamRef.current = ms;
-    if (localRef.current) {
-      localRef.current.srcObject = ms;
-      await localRef.current.play().catch(() => {});
-    }
-
-    // replace tracks in sender if pc exists
-    const pc = pcRef.current;
-    if (pc) {
-      const senders = pc.getSenders();
-
-      // audio
-      const a = ms.getAudioTracks()[0];
-      const aSender = senders.find(s => s.track && s.track.kind === "audio");
-      if (a) {
-        if (aSender) await aSender.replaceTrack(a);
-        else pc.addTrack(a, ms);
-      } else if (aSender) {
-        await aSender.replaceTrack(null);
+        localRef.current.srcObject = ms;
+        await localRef.current.play().catch(() => {});
       }
 
-      // video
-      const v = ms.getVideoTracks()[0];
-      const vSender = senders.find(s => s.track && s.track.kind === "video");
-      if (v) {
-        if (vSender) await vSender.replaceTrack(v);
-        else pc.addTrack(v, ms);
-      } else if (vSender) {
-        await vSender.replaceTrack(null);
+      // replace/add tracks
+      const pc = pcRef.current;
+      if (pc) {
+        const senders = pc.getSenders();
+
+        const a = ms.getAudioTracks()[0] || null;
+        const aSender = senders.find((s) => s.track && s.track.kind === "audio");
+        if (a) {
+          if (aSender) await aSender.replaceTrack(a);
+          else pc.addTrack(a, ms);
+        } else if (aSender) {
+          await aSender.replaceTrack(null);
+        }
+
+        const v = ms.getVideoTracks()[0] || null;
+        const vSender = senders.find((s) => s.track && s.track.kind === "video");
+        if (v) {
+          if (vSender) await vSender.replaceTrack(v);
+          else pc.addTrack(v, ms);
+        } else if (vSender) {
+          await vSender.replaceTrack(null);
+        }
       }
-    }
 
-    // apply mute state
-    ms.getAudioTracks().forEach(t => (t.enabled = !muted));
-    ms.getVideoTracks().forEach(t => (t.enabled = !camOff));
+      // honor toggles
+      ms.getAudioTracks().forEach((t) => (t.enabled = !muted));
+      ms.getVideoTracks().forEach((t) => (t.enabled = !camOff));
 
-    return ms;
-  }, [camOff, sharing, micId, camId, notice, muted]);
+      setNotice(null);
+      return ms;
+    },
+    [camOff, sharing, micId, camId, muted]
+  );
 
-  // ----- Build connection and negotiate -----
+  // ---------- Peer connection / negotiation ----------
   const buildPeer = useCallback(async () => {
     setStatus("connecting");
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
     pcRef.current = pc;
 
-    // Remote media
     pc.ontrack = (e) => {
       const stream = e.streams?.[0];
       if (stream && remoteRef.current) {
         remoteRef.current.srcObject = stream;
-        remoteRef.current
-          .play()
-          .catch(() => {});
+        remoteRef.current.play().catch(() => {});
       }
     };
 
-    // ICE
     pc.onicecandidate = async (ev) => {
       if (ev.candidate) {
         await publish({ type: "ice", from: clientIdRef.current, candidate: ev.candidate.toJSON() });
       }
     };
 
-    // Connection state
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState;
       if (s === "connected") {
         setStatus("connected");
         if (!connectedAtRef.current) connectedAtRef.current = Date.now();
       } else if (s === "disconnected" || s === "failed" || s === "closed") {
-        if (status !== "ended") setStatus(s === "failed" ? "failed" : "ended");
+        setStatus(s === "failed" ? "failed" : "ended");
       }
     };
 
-    // Local media (attach whatever is available)
+    // Attach local media before signaling
     await attachLocal(mode);
 
-    // Signaling
-    startSignaling(async (msg) => {
-      if (!pcRef.current) return;
-      const pc = pcRef.current;
+    // Subscribe BEFORE any SDP is sent
+    await startSignaling(async (msg) => {
+      const peer = pcRef.current;
+      if (!peer) return;
 
       if (msg.type === "offer") {
-        await pc.setRemoteDescription({ type: "offer", sdp: msg.sdp });
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
+        await peer.setRemoteDescription({ type: "offer", sdp: msg.sdp });
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
         await publish({ type: "answer", from: clientIdRef.current, sdp: answer.sdp! });
       } else if (msg.type === "answer") {
-        if (!pc.currentRemoteDescription) {
-          await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+        if (!peer.currentRemoteDescription) {
+          await peer.setRemoteDescription({ type: "answer", sdp: msg.sdp });
         }
       } else if (msg.type === "ice") {
         try {
-          await pc.addIceCandidate(msg.candidate);
+          await peer.addIceCandidate(msg.candidate);
         } catch {
-          // ignore bad candidates
+          /* ignore */
         }
       } else if (msg.type === "bye") {
         endCall();
       }
     });
 
-    // Kick off offer if we are caller
     if (role === "caller") {
-      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: mode === "video" });
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: mode === "video",
+      });
       await pc.setLocalDescription(offer);
       await publish({ type: "offer", from: clientIdRef.current, sdp: offer.sdp! });
     }
 
     setStatus("connecting");
-  }, [attachLocal, mode, publish, role, startSignaling, status]);
+  }, [attachLocal, mode, publish, role, startSignaling]);
 
-  // ----- Screen share -----
+  // ---------- Screen share ----------
   const startScreen = useCallback(async () => {
     try {
-      const display = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
+      const display: MediaStream = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
       screenStreamRef.current = display;
       const screenTrack = display.getVideoTracks()[0];
 
       const pc = pcRef.current;
       if (!pc) return;
 
-      const sender = pc.getSenders().find(s => s.track?.kind === "video");
+      const sender = pc.getSenders().find((s) => s.track?.kind === "video");
       if (sender) await sender.replaceTrack(screenTrack);
 
       setSharing(true);
       setCamOff(true);
 
-      // when user stops sharing, revert
       screenTrack.onended = async () => {
         setSharing(false);
         setCamOff(false);
         await attachLocal("video", { force: true });
       };
     } catch {
-      // user cancelled
+      /* user cancelled */
     }
   }, [attachLocal]);
 
-  // ----- End call / cleanup -----
+  // ---------- End call / cleanup ----------
   const endCall = useCallback(async () => {
     try {
       await publish({ type: "bye", from: clientIdRef.current });
     } catch {}
     setStatus("ended");
 
-    try { chRef.current && supabase.removeChannel(chRef.current); } catch {}
+    try {
+      chRef.current && supabase.removeChannel(chRef.current);
+    } catch {}
 
-    screenStreamRef.current?.getTracks().forEach(t => t.stop());
+    screenStreamRef.current?.getTracks().forEach((t) => t.stop());
     screenStreamRef.current = null;
 
-    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
 
-    try { pcRef.current?.getSenders().forEach(s => s.track?.stop()); } catch {}
-    try { pcRef.current?.close(); } catch {}
+    try {
+      pcRef.current?.getSenders().forEach((s) => s.track?.stop());
+    } catch {}
+    try {
+      pcRef.current?.close();
+    } catch {}
     pcRef.current = null;
   }, [publish]);
 
-  // ----- Lifecycle -----
+  // ---------- Lifecycle ----------
   useEffect(() => {
     buildPeer().catch(() => setStatus("failed"));
     refreshDevices().catch(() => {});
@@ -301,7 +319,7 @@ export default function CallPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, mode, role]);
 
-  // call timer
+  // timer
   useEffect(() => {
     let t: any;
     if (status === "connected") {
@@ -314,15 +332,15 @@ export default function CallPage() {
     return () => clearInterval(t);
   }, [status]);
 
-  // mute / cam toggles modify track.enabled
+  // toggles -> track.enabled
   useEffect(() => {
-    localStreamRef.current?.getAudioTracks().forEach(tr => (tr.enabled = !muted));
+    localStreamRef.current?.getAudioTracks().forEach((tr) => (tr.enabled = !muted));
   }, [muted]);
   useEffect(() => {
-    localStreamRef.current?.getVideoTracks().forEach(tr => (tr.enabled = !camOff));
+    localStreamRef.current?.getVideoTracks().forEach((tr) => (tr.enabled = !camOff));
   }, [camOff]);
 
-  // device change
+  // device pick
   const onPickMic = async (id: string) => {
     setMicId(id);
     await attachLocal(mode);
@@ -330,6 +348,12 @@ export default function CallPage() {
   const onPickCam = async (id: string) => {
     setCamId(id);
     await attachLocal("video");
+  };
+
+  // manual retry for permissions
+  const retryEnable = async () => {
+    setNotice(null);
+    await attachLocal(mode, { force: true });
   };
 
   const statusText = useMemo(() => {
@@ -350,27 +374,24 @@ export default function CallPage() {
         >
           ← Back
         </button>
-        <div className="text-lg font-semibold">
-          {mode === "video" ? "Video Call" : "Audio Call"} • {peerName}
-        </div>
+        <div className="text-lg font-semibold">{mode === "video" ? "Video Call" : "Audio Call"} • {peerName}</div>
         <div className="ml-auto text-sm text-gray-500">{statusText}</div>
       </div>
 
       {notice && (
-        <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          {notice}
+        <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="flex-1">{notice}</div>
+          <button onClick={retryEnable} className="ml-2 rounded-md border border-amber-300 bg-white/50 px-2 py-1 text-amber-900 hover:bg-white">
+            Enable mic/camera
+          </button>
         </div>
       )}
 
       {/* media panes */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
-          <video
-            ref={remoteRef}
-            autoPlay
-            playsInline
-            className="h-full w-full object-cover"
-          />
+          <video ref={remoteRef} autoPlay playsInline className="h-full w-full object-cover" />
           {status !== "connected" && (
             <div className="absolute inset-0 grid place-items-center text-sm text-white/70">
               {status === "connecting" ? "Connecting…" : status === "failed" ? "Failed" : "Waiting…"}
@@ -378,17 +399,9 @@ export default function CallPage() {
           )}
         </div>
         <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
-          <video
-            ref={localRef}
-            autoPlay
-            playsInline
-            muted
-            className="h-full w-full object-cover"
-          />
-          {camOff && (
-            <div className="absolute inset-0 grid place-items-center text-sm text-white/70">
-              Camera off
-            </div>
+          <video ref={localRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+          {camOff && mode === "video" && (
+            <div className="absolute inset-0 grid place-items-center text-sm text-white/70">Camera off</div>
           )}
         </div>
       </div>
@@ -436,11 +449,7 @@ export default function CallPage() {
         {/* mic picker */}
         <label className="flex items-center gap-2 text-sm">
           Mic
-          <select
-            className="rounded-md border px-2 py-1"
-            value={micId || ""}
-            onChange={(e) => onPickMic(e.target.value)}
-          >
+          <select className="rounded-md border px-2 py-1" value={micId || ""} onChange={(e) => onPickMic(e.target.value)}>
             <option value="">Default</option>
             {mics.map((d) => (
               <option key={d.deviceId} value={d.deviceId}>
@@ -454,11 +463,7 @@ export default function CallPage() {
         {mode === "video" && (
           <label className="flex items-center gap-2 text-sm">
             Camera
-            <select
-              className="rounded-md border px-2 py-1"
-              value={camId || ""}
-              onChange={(e) => onPickCam(e.target.value)}
-            >
+            <select className="rounded-md border px-2 py-1" value={camId || ""} onChange={(e) => onPickCam(e.target.value)}>
               <option value="">Default</option>
               {cams.map((d) => (
                 <option key={d.deviceId} value={d.deviceId}>
@@ -474,7 +479,7 @@ export default function CallPage() {
           className="ml-auto rounded-md border px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-zinc-800"
           title="Refresh devices"
         >
-          <RefreshCw className="h-4 w-4 inline -mt-0.5" /> Refresh devices
+          <RefreshCw className="inline -mt-0.5 h-4 w-4" /> Refresh devices
         </button>
       </div>
     </div>
