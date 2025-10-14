@@ -1,3 +1,7 @@
+// app/(calls)/[conversationId]/page.tsx
+// Fixes: guaranteed bye delivery (subscribe+ack+retry), thread signaling subscribe guard,
+// ICE watchdog to auto-end, consistent redirect for both parties.
+
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -5,13 +9,6 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 
-/**
- * Optional TURN/STUN via env:
- * NEXT_PUBLIC_ICE_STUN=stun:stun.l.google.com:19302
- * NEXT_PUBLIC_ICE_TURN_URI=turns:YOUR_TURN_HOST:5349
- * NEXT_PUBLIC_ICE_TURN_USER=turn_user
- * NEXT_PUBLIC_ICE_TURN_PASS=turn_pass
- */
 function buildIceServers(): RTCIceServer[] {
   const stun = process.env.NEXT_PUBLIC_ICE_STUN || "stun:stun.l.google.com:19302";
   const turn = process.env.NEXT_PUBLIC_ICE_TURN_URI || "";
@@ -78,8 +75,40 @@ export default function CallRoomPage() {
   const remoteStreamRef = useRef<MediaStream | null>(null);
 
   const threadChanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const iceWatchdogTimer = useRef<number | null>(null);
 
-  // ---------- Auth (avoid unwanted redirect to /login) ----------
+  // ---------- helpers: subscribe+ack and retry ----------
+  async function ensureSubscribed(ch: ReturnType<typeof supabase.channel>) {
+    await new Promise<void>((resolve, reject) => {
+      const to = setTimeout(() => reject(new Error("subscribe timeout")), 10_000);
+      ch.subscribe((s) => {
+        if (s === "SUBSCRIBED") { clearTimeout(to); resolve(); }
+        if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") { clearTimeout(to); reject(new Error(String(s))); }
+      });
+    });
+  }
+
+  async function broadcastWithAck(
+    ch: ReturnType<typeof supabase.channel>,
+    event: string,
+    payload: any,
+    retries = 3
+  ) {
+    await ensureSubscribed(ch);
+    let lastErr: unknown = null;
+    for (let i = 0; i < retries; i++) {
+      try {
+        await ch.send({ type: "broadcast", event, payload }); // ack enabled on channel
+        return;
+      } catch (e) {
+        lastErr = e;
+        await new Promise((r) => setTimeout(r, 300 * (i + 1))); // WHY: backoff for transient network
+      }
+    }
+    throw lastErr;
+  }
+
+  // ---------- Auth ----------
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -101,14 +130,11 @@ export default function CallRoomPage() {
         setMe({ id: refreshed.session.user.id, email: refreshed.session.user.email });
         setAuthChecked(true);
       } else {
-        // Keep next so user returns straight to the call if they log in
         const next = encodeURIComponent(location.pathname + location.search);
         router.replace(`/login?next=${next}`);
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [router]);
 
   // ---------- WebRTC core ----------
@@ -116,16 +142,36 @@ export default function CallRoomPage() {
     if (pcRef.current) return pcRef.current;
     const pc = new RTCPeerConnection({ iceServers: buildIceServers() });
 
-    pc.onicecandidate = (ev) => {
-      if (ev.candidate && me?.id) {
-        sendSignal({ kind: "webrtc-ice", from: me.id, candidate: ev.candidate.toJSON() });
+    pc.onicecandidate = async (ev) => {
+      if (ev.candidate && me?.id && threadChanRef.current) {
+        await broadcastWithAck(threadChanRef.current, "signal", {
+          kind: "webrtc-ice", from: me.id, candidate: ev.candidate.toJSON(),
+        }).catch(() => {/* ignore */});
       }
     };
+
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState;
       if (s === "connected") setStatus("connected");
       if (s === "failed" || s === "disconnected" || s === "closed") setStatus("ended");
     };
+
+    // ICE watchdog: if disconnected > X ms, auto-end (covers tab close / network drop)
+    pc.oniceconnectionstatechange = () => {
+      const st = pc.iceConnectionState;
+      if (st === "disconnected") {
+        if (!iceWatchdogTimer.current) {
+          iceWatchdogTimer.current = window.setTimeout(() => {
+            endCall(true); // WHY: remote vanished, end both sides
+          }, 6_000);
+        }
+      } else if (st === "connected" || st === "completed") {
+        if (iceWatchdogTimer.current) { clearTimeout(iceWatchdogTimer.current); iceWatchdogTimer.current = null; }
+      } else if (st === "failed") {
+        endCall(true);
+      }
+    };
+
     pc.ontrack = (ev) => {
       if (!remoteStreamRef.current) remoteStreamRef.current = new MediaStream();
       remoteStreamRef.current.addTrack(ev.track);
@@ -140,18 +186,19 @@ export default function CallRoomPage() {
     return { audio: true, video: mode === "video" ? { width: 1280, height: 720 } : false };
   }, [mode]);
 
-  // ---------- Signaling on thread_${conversationId} ----------
+  // ---------- thread_${conversationId} signaling ----------
   const threadChannel = useMemo(() => `thread_${conversationId}`, [conversationId]);
 
-  const sendSignal = useCallback((payload: SigPayload) => {
+  const sendSignal = useCallback(async (payload: SigPayload) => {
     if (!threadChanRef.current) return;
-    void threadChanRef.current.send({ type: "broadcast", event: "signal", payload });
+    await broadcastWithAck(threadChanRef.current, "signal", payload).catch(() => {/* ignore */});
   }, []);
 
   useEffect(() => {
     if (!conversationId || !me?.id) return;
 
     const ch = supabase.channel(threadChannel, { config: { broadcast: { ack: true } } });
+    threadChanRef.current = ch;
 
     ch.on("broadcast", { event: "signal" }, async (e) => {
       const msg = (e.payload || {}) as SigPayload;
@@ -162,68 +209,47 @@ export default function CallRoomPage() {
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+        await sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
       } else if (msg.kind === "webrtc-answer") {
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
       } else if (msg.kind === "webrtc-ice") {
-        try {
-          const pc = ensurePC();
-          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-        } catch {
-          /* ignore */
-        }
+        const pc = ensurePC();
+        try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch { /* ignore */ }
       } else if (msg.kind === "bye") {
-        endCall(true);
+        endCall(true); // WHY: peer explicitly ended — auto-end locally (patient or staff)
       }
     });
 
-    ch.subscribe();
-    threadChanRef.current = ch;
+    (async () => { await ensureSubscribed(ch); })();
 
     return () => {
-      try {
-        supabase.removeChannel(ch);
-      } catch {}
+      try { supabase.removeChannel(ch); } catch {}
       threadChanRef.current = null;
     };
   }, [conversationId, ensurePC, me?.id, sendSignal, threadChannel]);
 
-  // ---------- Ring peer (for IncomingCallBanner) on user_${peer} ----------
+  // ---------- user_${peer} banner ring / bye ----------
   async function ringPeer() {
     if (!peerUserId || !conversationId || !me?.id) return;
     const ch = supabase.channel(`user_${peerUserId}`, { config: { broadcast: { ack: true } } });
-    await new Promise<void>((res, rej) => {
-      const to = setTimeout(() => rej(new Error("subscribe timeout")), 8000);
-      ch.subscribe((s) => {
-        if (s === "SUBSCRIBED") {
-          clearTimeout(to);
-          res();
-        }
-        if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
-          clearTimeout(to);
-          rej(new Error(String(s)));
-        }
-      });
-    });
-    await ch.send({
-      type: "broadcast",
-      event: "invite",
-      payload: { conversationId, fromId: me.id, fromName: me.email || "Caller", mode },
-    });
     try {
-      supabase.removeChannel(ch);
-    } catch {}
+      await broadcastWithAck(ch, "invite", {
+        conversationId, fromId: me.id, fromName: me.email || "Caller", mode,
+      });
+    } finally {
+      try { supabase.removeChannel(ch); } catch {}
+    }
   }
 
   async function byePeer() {
     if (!peerUserId || !conversationId) return;
     const ch = supabase.channel(`user_${peerUserId}`, { config: { broadcast: { ack: true } } });
-    await new Promise<void>((res) => ch.subscribe((s) => s === "SUBSCRIBED" && res()));
-    await ch.send({ type: "broadcast", event: "bye", payload: { conversationId } });
     try {
-      supabase.removeChannel(ch);
-    } catch {}
+      await broadcastWithAck(ch, "bye", { conversationId });
+    } finally {
+      try { supabase.removeChannel(ch); } catch {}
+    }
   }
 
   // ---------- Start flow ----------
@@ -232,31 +258,26 @@ export default function CallRoomPage() {
 
     setStatus("connecting");
 
-    // 1) Get local stream early for faster negotiation
     localStreamRef.current = await navigator.mediaDevices.getUserMedia(getConstraints());
     if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
 
-    // 2) Add tracks to PC
     const pc = ensurePC();
     localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
 
-    // 3) If caller, create offer + send + ring
     if (role === "caller") {
       const offer = await pc.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: mode === "video",
       });
       await pc.setLocalDescription(offer);
-      sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
-      await ringPeer(); // show IncomingCallBanner on the peer
+      await sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
+      await ringPeer();
     }
   }, [ensurePC, getConstraints, me?.id, mode, role, sendSignal]);
 
   useEffect(() => {
     if (!authChecked || !me?.id) return;
-    (async () => {
-      await startOrPrep();
-    })();
+    (async () => { await startOrPrep(); })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authChecked, me?.id]);
 
@@ -276,41 +297,40 @@ export default function CallRoomPage() {
   }, []);
 
   const endCall = useCallback(
-    (remote = false) => {
+    async (remote = false) => {
       setStatus("ended");
-      try {
-        pcRef.current?.getSenders().forEach((s) => s.track?.stop());
-      } catch {}
-      try {
-        pcRef.current?.close();
-      } catch {}
-      pcRef.current = null;
-      try {
-        localStreamRef.current?.getTracks().forEach((t) => t.stop());
-      } catch {}
-      localStreamRef.current = null;
 
-      // notify via thread + user channel
+      // send BYE first (WHY: avoid losing it on immediate teardown)
       if (!remote && me?.id) {
-        sendSignal({ kind: "bye", from: me.id });
-        void byePeer();
+        // Try thread channel (P2P signaling) and user channel (banner) with retries
+        await Promise.allSettled([
+          sendSignal({ kind: "bye", from: me.id }),
+          byePeer(),
+        ]);
       }
 
-      // back to messages
+      try { pcRef.current?.getSenders().forEach((s) => s.track?.stop()); } catch {}
+      try { pcRef.current?.close(); } catch {}
+      pcRef.current = null;
+
+      try { localStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+      localStreamRef.current = null;
+
+      if (iceWatchdogTimer.current) { clearTimeout(iceWatchdogTimer.current); iceWatchdogTimer.current = null; }
+
+      // Navigate away for both patient and staff
       router.push("/dashboard/messages");
     },
     [byePeer, me?.id, router, sendSignal]
   );
 
   useEffect(() => {
-    const onUnload = () => endCall(false);
+    const onUnload = () => { void endCall(false); };
     window.addEventListener("beforeunload", onUnload);
     return () => window.removeEventListener("beforeunload", onUnload);
   }, [endCall]);
 
-  if (!authChecked) {
-    return <div className="p-6">Joining the call…</div>;
-  }
+  if (!authChecked) return <div className="p-6">Joining the call…</div>;
 
   return (
     <div className="mx-auto max-w-6xl p-6 space-y-4">
@@ -323,17 +343,11 @@ export default function CallRoomPage() {
           <p className="text-xs text-gray-400 mt-0.5">Status: {status} • Role: {role}</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={toggleMute}>
-            {muted ? "Unmute" : "Mute"}
-          </Button>
+          <Button variant="secondary" onClick={toggleMute}>{muted ? "Unmute" : "Mute"}</Button>
           {mode === "video" && (
-            <Button variant="secondary" onClick={toggleCamera}>
-              {camOff ? "Camera On" : "Camera Off"}
-            </Button>
+            <Button variant="secondary" onClick={toggleCamera}>{camOff ? "Camera On" : "Camera Off"}</Button>
           )}
-          <Button variant="destructive" onClick={() => endCall(false)}>
-            End
-          </Button>
+          <Button variant="destructive" onClick={() => void endCall(false)}>End</Button>
         </div>
       </div>
 
