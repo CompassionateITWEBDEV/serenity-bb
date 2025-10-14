@@ -19,8 +19,12 @@ export default function IncomingCallBanner({
         {mode === "audio" ? "📞" : "📹"} Incoming {mode} call from <b>{callerName}</b>
       </span>
       <div className="ml-auto flex items-center gap-2">
-        <Button size="sm" onClick={onAccept}>Accept</Button>
-        <Button size="sm" variant="outline" onClick={onDecline}>Decline</Button>
+        <Button size="sm" onClick={onAccept}>
+          Accept
+        </Button>
+        <Button size="sm" variant="outline" onClick={onDecline}>
+          Decline
+        </Button>
       </div>
     </div>
   );
