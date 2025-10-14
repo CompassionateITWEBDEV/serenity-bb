@@ -1,33 +1,39 @@
-import { NextRequest, NextResponse } from "next/server";
-import { StreamVideoServerClient } from "@stream-io/video-node";
+import { NextResponse } from "next/server";
+// ✅ use the new server SDK package
+import { StreamVideoServerClient } from "@stream-io/node-sdk";
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const { callId, userId, userName } = await req.json();
+    const { callId, createdBy } = await req.json();
 
-    if (!callId || !userId) {
-      return NextResponse.json({ error: "callId and userId are required" }, { status: 400 });
+    if (!callId || !createdBy) {
+      return NextResponse.json({ error: "Missing callId or createdBy" }, { status: 400 });
     }
 
-    const apiKey = process.env.NEXT_PUBLIC_STREAM_API_KEY;
-    const apiSecret = process.env.STREAM_API_SECRET;
+    const apiKey = process.env.STREAM_API_KEY!;
+    const apiSecret = process.env.STREAM_API_SECRET!;
+
     if (!apiKey || !apiSecret) {
-      return NextResponse.json({ error: "Stream keys not configured" }, { status: 500 });
+      return NextResponse.json({ error: "Missing STREAM_API_KEY/STREAM_API_SECRET" }, { status: 500 });
     }
 
-    const server = new StreamVideoServerClient({ apiKey, apiSecret });
+    // ✅ new server client
+    const serverClient = new StreamVideoServerClient({ apiKey, apiSecret });
 
-    // Create call if missing; attach some metadata if you want
-    await server.call("default", callId).getOrCreate({
-      created_by_id: userId,
-      // example: recording/livestream options could go here
+    // create or fetch the call
+    const call = serverClient.call("default", callId);
+    await call.getOrCreate({
+      created_by_id: createdBy,
+      // optional: set custom settings here
+      // settings_override: { recording: { mode: "available" } }
     });
 
-    // Mint user token (server-only)
-    const token = server.createToken(userId, { name: userName });
+    // generate a user token for the caller to join from the browser
+    const token = serverClient.createToken(createdBy);
 
-    return NextResponse.json({ apiKey, token, callId });
-  } catch (err: any) {
-    return NextResponse.json({ error: err?.message || "Unknown error" }, { status: 500 });
+    return NextResponse.json({ apiKey, callId, token });
+  } catch (e: any) {
+    console.error(e);
+    return NextResponse.json({ error: e?.message ?? "Failed to create call" }, { status: 500 });
   }
 }
