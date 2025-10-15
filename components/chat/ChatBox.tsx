@@ -485,12 +485,12 @@ function ChatBoxInner(props: {
       config: { broadcast: { ack: true } },
     });
     await ensureSubscribedFor(ch);
-    const { status, error } = await ch.send({
+    const response = await ch.send({
       type: "broadcast",
       event: "invite",
       payload: args,
     });
-    if (status !== "ok") throw error ?? new Error("Failed to send invite");
+    if (response !== "ok") throw new Error("Failed to send invite");
   }
   async function sendBye(
     toUserId: string,
@@ -500,12 +500,12 @@ function ChatBoxInner(props: {
       config: { broadcast: { ack: true } },
     });
     await ensureSubscribedFor(ch);
-    const { status, error } = await ch.send({
+    const response = await ch.send({
       type: "broadcast",
       event: "bye",
       payload: args,
     });
-    if (status !== "ok") throw error ?? new Error("Failed to send bye");
+    if (response !== "ok") throw new Error("Failed to send bye");
   }
 
   // Open /call page and RING the peer so they see a banner
