@@ -19,6 +19,12 @@ yarn-error.log*
 # env files
 .env*
 
+# FastAPI backend uploads
+fastapi_backend/uploads/
+
+# Python caches
+**/__pycache__/
+
 # vercel
 .vercel
 
