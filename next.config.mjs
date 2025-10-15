@@ -9,6 +9,10 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // Disable Turbopack to avoid ChunkLoadError
+  experimental: {
+    turbo: false,
+  },
 };
 
 export default nextConfig;

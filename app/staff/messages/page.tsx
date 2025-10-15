@@ -795,16 +795,23 @@ export default function StaffMessagesPage() {
                   const un = unreadMap[c.id] ?? 0;
                   return (
                     <li key={c.id}>
-                      <button
-                        type="button"
+                      <div
                         onClick={() => openConversation(c.id)}
                         className={clsx(
-                          "group relative flex w-full items-center gap-3 rounded-xl border p-3 text-left transition",
+                          "group relative flex w-full items-center gap-3 rounded-xl border p-3 text-left transition cursor-pointer",
                           active
                             ? "border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20"
                             : "hover:bg-gray-50 dark:hover:bg-gray-900"
                         )}
                         aria-current={active ? "true" : "false"}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            openConversation(c.id);
+                          }
+                        }}
                       >
                         <Avatar className="h-10 w-10">
                           <AvatarImage src={c.patient_avatar ?? undefined} />
@@ -889,7 +896,7 @@ export default function StaffMessagesPage() {
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
-                      </button>
+                      </div>
                     </li>
                   );
                 })}
