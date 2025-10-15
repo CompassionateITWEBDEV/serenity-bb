@@ -33,7 +33,7 @@ function Tile({
   label,
   mirrored = false,
 }: {
-  videoRef: React.RefObject<HTMLVideoElement>;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
   label: string;
   mirrored?: boolean;
 }) {
