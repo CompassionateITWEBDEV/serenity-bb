@@ -63,8 +63,8 @@ async function safeSend(
   errMsg: string
 ) {
   await ensureSubscribed(ch, userId);
-  const { status, error } = await ch.send({ type: "broadcast", event, payload });
-  if (status !== "ok") throw error ?? new Error(errMsg);
+  const response = await ch.send({ type: "broadcast", event, payload });
+  if (response !== "ok") throw new Error(errMsg);
 }
 
 // ---- Public send helpers ----
