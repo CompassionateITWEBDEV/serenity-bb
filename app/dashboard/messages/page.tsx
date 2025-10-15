@@ -26,6 +26,7 @@ import Swal from "sweetalert2";
 import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
 import IncomingCallBanner from "@/components/call/IncomingCallBanner";
+import CallHistory from "@/components/call/CallHistory";
 
 /* --------------------------------- Signaling helpers --------------------------------- */
 /** prevent sending before presence channel is actually subscribed */
@@ -59,12 +60,12 @@ async function ringPeer(
     config: { broadcast: { ack: true } },
   });
   await ensureSubscribedFor(ch);
-  const { status, error } = await ch.send({
+  const response = await ch.send({
     type: "broadcast",
     event: "invite",
     payload,
   });
-  if (status !== "ok") throw error ?? new Error("Failed to send invite");
+  if (response !== "ok") throw new Error("Failed to send invite");
 }
 
 /* ------------------------------- Types ---------------------------------- */
@@ -593,11 +594,10 @@ export default function DashboardMessagesPage() {
         console.warn("[call] ring failed", e);
       }
 
-      router.push(
-        `/call/${selectedId}?role=caller&mode=${mode}&peer=${encodeURIComponent(
-          peerUserId
-        )}&peerName=${encodeURIComponent(providerInfo.name || "Contact")}`
-      );
+      // Navigate to call page
+      window.location.href = `/call/${selectedId}?role=caller&mode=${mode}&peer=${encodeURIComponent(
+        peerUserId
+      )}&peerName=${encodeURIComponent(providerInfo.name || "Contact")}`;
     },
     [selectedId, me?.id, providerInfo.id, providerInfo.name, router]
   );
@@ -605,15 +605,13 @@ export default function DashboardMessagesPage() {
   // Accept / Decline (Banner)
   const acceptIncoming = useCallback(() => {
     if (!incoming) return;
-    router.push(
-      `/call/${incoming.conversationId}?role=callee&mode=${
-        incoming.mode
-      }&peer=${encodeURIComponent(
-        incoming.fromId
-      )}&peerName=${encodeURIComponent(incoming.fromName || "Caller")}`
-    );
+    window.location.href = `/call/${incoming.conversationId}?role=callee&mode=${
+      incoming.mode
+    }&peer=${encodeURIComponent(
+      incoming.fromId
+    )}&peerName=${encodeURIComponent(incoming.fromName || "Caller")}`;
     setIncoming(null);
-  }, [incoming, router]);
+  }, [incoming]);
 
   const declineIncoming = useCallback(async () => {
     if (!incoming) return;
@@ -692,7 +690,7 @@ export default function DashboardMessagesPage() {
         </Button>
       </div>
 
-      <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-4">
         {/* Sidebar */}
         <div className="minh-0 flex min-h-0 flex-col rounded-xl border bg-white dark:border-zinc-800 dark:bg-zinc-900">
           <div className="border-b p-4 dark:border-zinc-800">
@@ -824,6 +822,11 @@ export default function DashboardMessagesPage() {
           </div>
         </div>
 
+        {/* Call History */}
+        <div className="hidden lg:block">
+          <CallHistory userId={me?.id || ""} conversationId={selectedId || undefined} limit={5} />
+        </div>
+
         {/* Thread */}
         <div className="lg:col-span-2 flex min-h-0 flex-col rounded-xl border bg-white dark:border-zinc-800 dark:bg-zinc-900">
           {!selectedId ? (
@@ -905,14 +908,12 @@ export default function DashboardMessagesPage() {
 
               {/* Incoming call banner */}
               {incoming && (
-                <div className="mx-4 mt-3">
-                  <IncomingCallBanner
-                    callerName={incoming.fromName}
-                    mode={incoming.mode}
-                    onAccept={acceptIncoming}
-                    onDecline={declineIncoming}
-                  />
-                </div>
+                <IncomingCallBanner
+                  callerName={incoming.fromName}
+                  mode={incoming.mode}
+                  onAccept={acceptIncoming}
+                  onDecline={declineIncoming}
+                />
               )}
 
               <div
