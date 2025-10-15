@@ -1,28 +1,27 @@
 "use client";
 
 import * as React from "react";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogTrigger,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
+  Dialog, DialogTrigger, DialogContent, DialogHeader,
+  DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { CalendarCard } from "@/components/ui/calendar";
 import TimeSlotPicker from "@/components/ui/TimeSlotPicker";
 import type { StaffPatient } from "@/lib/patients";
 
-type Props = { patients: StaffPatient[]; onCreate?: (payload: { patientId: string; scheduledFor: string | null }) => Promise<void> | void; };
+type Props = {
+  patients: StaffPatient[];
+  onCreate?: (payload: { patientId: string; scheduledFor: string | null }) => Promise<void> | void;
+};
 
 export default function RandomDrugTestManager({ patients, onCreate }: Props) {
   const [open, setOpen] = useState(false);
   const [patientId, setPatientId] = useState<string>(patients[0]?.id ?? "");
   const [date, setDate] = useState<Date | undefined>(undefined);
   const [slot, setSlot] = useState<string | undefined>(undefined);
+  const [isPending, startTransition] = useTransition();
 
   function toIsoOrNull(): string | null {
     if (!date) return null;
@@ -34,9 +33,31 @@ export default function RandomDrugTestManager({ patients, onCreate }: Props) {
     return d.toISOString();
   }
 
-  async function handleCreate() {
-    await onCreate?.({ patientId, scheduledFor: toIsoOrNull() });
-    setOpen(false);
+  async function createViaApi(payload: { patientId: string; scheduledFor: string | null }) {
+    // Why: credentials:'include' ensures sb cookies flow to the API.
+    const res = await fetch("/api/random-tests", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: "Request failed" }));
+      throw new Error(error ?? "Request failed");
+    }
+  }
+
+  function handleCreate() {
+    const payload = { patientId, scheduledFor: toIsoOrNull() };
+    startTransition(async () => {
+      try {
+        if (onCreate) await onCreate(payload);
+        else await createViaApi(payload);
+        setOpen(false);
+      } catch (err: any) {
+        alert(`Failed to create test\n${err?.message ?? String(err)}`);
+      }
+    });
   }
 
   return (
@@ -80,7 +101,14 @@ export default function RandomDrugTestManager({ patients, onCreate }: Props) {
 
             <DialogFooter className="mt-6 gap-2 sm:justify-end">
               <Button type="button" variant="outline" className="h-9" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button type="button" className="h-9" onClick={handleCreate} disabled={!patientId || !date}>Create</Button>
+              <Button
+                type="button"
+                className="h-9"
+                onClick={handleCreate}
+                disabled={!patientId || !date || isPending}
+              >
+                {isPending ? "Creating..." : "Create"}
+              </Button>
             </DialogFooter>
           </div>
         </DialogContent>
