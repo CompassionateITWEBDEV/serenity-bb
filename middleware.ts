@@ -1,23 +1,30 @@
 // path: middleware.ts
 import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
 
 type Role = "patient" | "staff" | "admin" | null;
 
-export async function middleware(request: NextRequest) {
-  const { pathname, origin } = request.nextUrl;
+export async function middleware(req: NextRequest) {
+  const { pathname, origin } = req.nextUrl;
 
-  // Skip APIs/assets
-  if (
-    pathname.startsWith("/api") ||
+  // Always create a response we can mutate (so refreshed cookies are set)
+  const res = NextResponse.next();
+
+  // ⚠️ DO NOT skip /api — API needs refreshed auth cookies
+  // Skip only static assets and Next internals
+  const isStatic =
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
-    /\.(png|jpg|jpeg|gif|webp|avif|svg|ico|css|js|map|txt|xml)$/.test(pathname)
-  ) {
-    return NextResponse.next();
-  }
+    /\.(png|jpg|jpeg|gif|webp|avif|svg|ico|css|js|map|txt|xml|woff2?)$/.test(pathname);
 
-  // Public pages (no SSR redirects)
+  if (isStatic) return res;
+
+  // Always touch the session to refresh cookies when needed
+  // (critical for API routes and any SSR/edge paths)
+  const supabase = createMiddlewareClient({ req, res });
+  await supabase.auth.getSession();
+
+  // Public pages (no SSR hard-block; we may redirect if user already authed)
   const PUBLIC = new Set<string>([
     "/",
     "/login",
@@ -27,7 +34,7 @@ export async function middleware(request: NextRequest) {
     "/staff/login",
   ]);
 
-  // Dashboards are client-guarded
+  // Dashboards are client-guarded; let them pass
   if (
     pathname === "/dashboard" ||
     pathname.startsWith("/dashboard/") ||
@@ -36,31 +43,16 @@ export async function middleware(request: NextRequest) {
     pathname === "/staff/dashboard" ||
     pathname.startsWith("/staff/dashboard/")
   ) {
-    return NextResponse.next();
+    return res;
   }
-
-  const response = NextResponse.next();
 
   if (PUBLIC.has(pathname)) {
     try {
-      const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          cookies: {
-            get: (k) => request.cookies.get(k)?.value,
-            set: (k, v, o) => response.cookies.set(k, v, o),
-            remove: (k, o) => response.cookies.set(k, "", { ...o, maxAge: 0 }),
-          },
-        }
-      );
-
       const { data: authData } = await supabase.auth.getUser();
       const user = authData?.user;
+      if (!user) return res;
 
-      if (!user) return response; // unauth: keep user on the chosen login page
-
-      // Try to read role; do not force redirects on failure.
+      // Try to read role; fail-open on any error
       let role: Role = null;
       try {
         const { data: profile } = await supabase
@@ -73,38 +65,31 @@ export async function middleware(request: NextRequest) {
         role = null;
       }
 
-      // Precise redirects (avoid sending unknown-role users away from /staff/login).
       if (pathname === "/login") {
-        if (role === "patient") {
-          return NextResponse.redirect(new URL("/patient/dashboard", origin));
-        }
-        if (role === "staff" || role === "admin") {
+        if (role === "patient") return NextResponse.redirect(new URL("/patient/dashboard", origin));
+        if (role === "staff" || role === "admin")
           return NextResponse.redirect(new URL("/staff/dashboard", origin));
-        }
-        return response; // unknown role stays
+        return res;
       }
 
       if (pathname === "/staff/login") {
-        if (role === "staff" || role === "admin") {
+        if (role === "staff" || role === "admin")
           return NextResponse.redirect(new URL("/staff/dashboard", origin));
-        }
-        if (role === "patient") {
-          return NextResponse.redirect(new URL("/patient/dashboard", origin));
-        }
-        return response; // unknown role stays to sign in as staff
+        if (role === "patient") return NextResponse.redirect(new URL("/patient/dashboard", origin));
+        return res;
       }
     } catch {
       // Fail-open for public pages
-      return response;
+      return res;
     }
-    return response;
   }
 
-  return response;
+  return res;
 }
 
+// Include API so cookies refresh for route handlers
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|_next/data|favicon.ico|assets|images|fonts).*)",
+    "/((?!_next/static|_next/image|favicon.ico|assets|images|fonts).*)",
   ],
 };
