@@ -59,12 +59,12 @@ async function ringPeer(
     config: { broadcast: { ack: true } },
   });
   await ensureSubscribedFor(ch);
-  const { status, error } = await ch.send({
+  const response = await ch.send({
     type: "broadcast",
     event: "invite",
     payload,
   });
-  if (status !== "ok") throw error ?? new Error("Failed to send invite");
+  if (response !== "ok") throw new Error("Failed to send invite");
 }
 
 /* ------------------------------- Types ---------------------------------- */
