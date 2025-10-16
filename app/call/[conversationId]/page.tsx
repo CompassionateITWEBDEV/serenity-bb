@@ -1010,12 +1010,47 @@ export default function CallRoomPage() {
       if (!msg || msg.from === me.id) return;
 
       if (msg.kind === "webrtc-offer") {
-        const pc = ensurePC();
-        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        const answer = await pc.createAnswer();
-        console.log('Created answer with audio:', answer.sdp?.includes('m=audio'));
-        await pc.setLocalDescription(answer);
-        sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+        console.log('📞 Received offer from peer, setting up callee...');
+        setStatus("connecting");
+        
+        try {
+          // Ensure we have a local stream before answering
+          if (!localStreamRef.current) {
+            console.log('🎥 Getting local stream for callee...');
+            localStreamRef.current = await getMediaStream();
+            console.log('✅ Local stream acquired for callee:', {
+              audioTracks: localStreamRef.current.getAudioTracks().length,
+              videoTracks: localStreamRef.current.getVideoTracks().length,
+              streamId: localStreamRef.current.id
+            });
+            
+            // Set the video element source
+            setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+            
+            // Add tracks to peer connection
+            const pc = ensurePC();
+            localStreamRef.current.getTracks().forEach((t) => {
+              console.log(`Adding ${t.kind} track to peer connection:`, t.label);
+              pc.addTrack(t, localStreamRef.current!);
+            });
+          }
+          
+          const pc = ensurePC();
+          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+          const answer = await pc.createAnswer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: mode === "video",
+          });
+          console.log('Created answer with audio:', answer.sdp?.includes('m=audio'));
+          console.log('Created answer with video:', answer.sdp?.includes('m=video'));
+          await pc.setLocalDescription(answer);
+          sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+          console.log('✅ Answer sent to peer');
+        } catch (error) {
+          console.error('❌ Failed to handle offer:', error);
+          setStatus("failed");
+          setMediaError("Failed to establish connection. Please try again.");
+        }
       } else if (msg.kind === "webrtc-answer") {
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
@@ -1200,11 +1235,31 @@ export default function CallRoomPage() {
 
   useEffect(() => {
     if (!authChecked || !me?.id) return;
-    (async () => {
-      await startOrPrep();
-    })();
+    
+    // Only start the call process if we're the caller
+    if (role === "caller") {
+      (async () => {
+        await startOrPrep();
+      })();
+    } else {
+      // For callee, just check devices and wait for offer
+      console.log('📞 Callee ready, waiting for offer...');
+      setStatus("idle");
+      getAvailableDevices();
+      
+      // Set a timeout for callee waiting for offer (60 seconds)
+      const calleeTimeout = setTimeout(() => {
+        if (status === "idle") {
+          console.warn("⚠️ Callee timeout - no offer received");
+          setStatus("failed");
+          setMediaError("No incoming call received. The caller may have cancelled or there may be a connection issue.");
+        }
+      }, 60000);
+      
+      return () => clearTimeout(calleeTimeout);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authChecked, me?.id]);
+  }, [authChecked, me?.id, role]);
 
   // Cleanup connection timeout on unmount
   useEffect(() => {
@@ -1677,6 +1732,18 @@ export default function CallRoomPage() {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
           <p className="text-white text-lg">Connecting...</p>
           <p className="text-gray-400 text-sm mt-2">Setting up camera and microphone</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "idle" && role === "callee") {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-pulse rounded-full h-12 w-12 border-2 border-blue-400 mx-auto mb-4"></div>
+          <p className="text-white text-lg">Waiting for call...</p>
+          <p className="text-gray-400 text-sm mt-2">Ready to receive incoming call from {peerInfo?.name || peerName}</p>
         </div>
       </div>
     );
