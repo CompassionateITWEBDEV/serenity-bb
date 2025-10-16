@@ -627,6 +627,12 @@ export default function CallRoomPage() {
       
       if (iceState === "connected" || iceState === "completed") {
         console.log("✅ ICE connection established");
+        // Immediately set to connected when ICE is ready
+        if (status !== "connected") {
+          setStatus("connected");
+          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+          startAudioLevelMonitoring();
+        }
       } else if (iceState === "failed") {
         console.error("❌ ICE connection failed - trying to restart ICE");
         // Try to restart ICE gathering
@@ -1010,8 +1016,7 @@ export default function CallRoomPage() {
       if (!msg || msg.from === me.id) return;
 
       if (msg.kind === "webrtc-offer") {
-        console.log('📞 Received offer from peer, setting up callee...');
-        setStatus("connecting");
+        console.log('📞 Received offer from peer, answering immediately...');
         
         try {
           // Ensure we have a local stream before answering
@@ -1045,7 +1050,7 @@ export default function CallRoomPage() {
           console.log('Created answer with video:', answer.sdp?.includes('m=video'));
           await pc.setLocalDescription(answer);
           sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
-          console.log('✅ Answer sent to peer');
+          console.log('✅ Answer sent to peer - connection should establish now');
           
           // Clear any callee timeout since we received the offer
           if (connectionTimeout) {
@@ -1275,12 +1280,40 @@ export default function CallRoomPage() {
       const autoAccept = urlParams.get('autoAccept');
       
       if (autoAccept === 'true') {
-        console.log('📞 Auto-accepting incoming call...');
+        console.log('📞 Auto-accepting incoming call - preparing immediately...');
         setStatus("connecting");
-        // The offer handling will take care of the rest
+        
+        // Immediately prepare the call without waiting for offer
+        (async () => {
+          try {
+            // Get local stream immediately
+            localStreamRef.current = await getMediaStream();
+            console.log('✅ Local stream acquired for auto-accept:', {
+              audioTracks: localStreamRef.current.getAudioTracks().length,
+              videoTracks: localStreamRef.current.getVideoTracks().length,
+              streamId: localStreamRef.current.id
+            });
+            
+            // Set the video element source
+            setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+            
+            // Add tracks to peer connection
+            const pc = ensurePC();
+            localStreamRef.current.getTracks().forEach((t) => {
+              console.log(`Adding ${t.kind} track to peer connection:`, t.label);
+              pc.addTrack(t, localStreamRef.current!);
+            });
+            
+            console.log('✅ Callee ready for immediate connection');
+          } catch (error) {
+            console.error('❌ Failed to prepare auto-accept call:', error);
+            setStatus("failed");
+            setMediaError("Failed to prepare call. Please try again.");
+          }
+        })();
       }
     }
-  }, [role, status, authChecked, me?.id]);
+  }, [role, status, authChecked, me?.id, getMediaStream, setupVideoElement, ensurePC]);
 
   // Cleanup connection timeout on unmount
   useEffect(() => {
