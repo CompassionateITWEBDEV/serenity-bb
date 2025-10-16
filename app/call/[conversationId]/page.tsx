@@ -1017,6 +1017,7 @@ export default function CallRoomPage() {
 
       if (msg.kind === "webrtc-offer") {
         console.log('📞 Received offer from peer, answering immediately...');
+        setStatus("connecting");
         
         try {
           // Ensure we have a local stream before answering
@@ -1281,7 +1282,8 @@ export default function CallRoomPage() {
       
       if (autoAccept === 'true') {
         console.log('📞 Auto-accepting incoming call - preparing immediately...');
-        setStatus("connecting");
+        // Don't change status to "connecting" - keep it as "idle" for consistency
+        // The offer handling will change it to "connecting" when needed
         
         // Immediately prepare the call without waiting for offer
         (async () => {
