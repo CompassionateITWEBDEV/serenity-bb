@@ -505,6 +505,27 @@ export default function CallRoomPage() {
     return true;
   }, []);
 
+  // Function to setup video element with retry
+  const setupVideoElementWithRetry = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal: boolean, maxRetries = 5) => {
+    let retries = 0;
+    
+    const trySetup = () => {
+      if (videoRef.current && stream) {
+        return setupVideoElement(videoRef, stream, isLocal);
+      } else if (retries < maxRetries) {
+        retries++;
+        console.log(`🔄 Retrying video setup (${retries}/${maxRetries})...`);
+        setTimeout(trySetup, 100);
+        return false;
+      } else {
+        console.error(`❌ Failed to setup video element after ${maxRetries} retries`);
+        return false;
+      }
+    };
+    
+    return trySetup();
+  }, [setupVideoElement]);
+
   // Ensure video elements are updated when streams change
   useEffect(() => {
     if (localStreamRef.current) {
@@ -665,8 +686,8 @@ export default function CallRoomPage() {
         video: remoteStreamRef.current.getVideoTracks().length
       });
       
-      // Set the video element source for remote stream using setup function
-      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      // Set the video element source for remote stream using setup function with retry
+      setupVideoElementWithRetry(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
     };
 
     pcRef.current = pc;
@@ -1030,8 +1051,8 @@ export default function CallRoomPage() {
               streamId: localStreamRef.current.id
             });
             
-            // Set the video element source
-            setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+            // Set the video element source with retry
+            setupVideoElementWithRetry(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
             
             // Add tracks to peer connection
             const pc = ensurePC();
@@ -1296,8 +1317,8 @@ export default function CallRoomPage() {
               streamId: localStreamRef.current.id
             });
             
-            // Set the video element source
-            setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+            // Set the video element source with retry
+            setupVideoElementWithRetry(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
             
             // Add tracks to peer connection
             const pc = ensurePC();
@@ -1315,7 +1336,7 @@ export default function CallRoomPage() {
         })();
       }
     }
-  }, [role, status, authChecked, me?.id, getMediaStream, setupVideoElement, ensurePC]);
+  }, [role, status, authChecked, me?.id, getMediaStream, setupVideoElementWithRetry, ensurePC]);
 
   // Cleanup connection timeout on unmount
   useEffect(() => {
