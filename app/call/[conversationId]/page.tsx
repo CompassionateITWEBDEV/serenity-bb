@@ -1046,6 +1046,12 @@ export default function CallRoomPage() {
           await pc.setLocalDescription(answer);
           sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
           console.log('✅ Answer sent to peer');
+          
+          // Clear any callee timeout since we received the offer
+          if (connectionTimeout) {
+            clearTimeout(connectionTimeout);
+            setConnectionTimeout(null);
+          }
         } catch (error) {
           console.error('❌ Failed to handle offer:', error);
           setStatus("failed");
@@ -1242,7 +1248,7 @@ export default function CallRoomPage() {
         await startOrPrep();
       })();
     } else {
-      // For callee, just check devices and wait for offer
+      // For callee, check devices and prepare for incoming call
       console.log('📞 Callee ready, waiting for offer...');
       setStatus("idle");
       getAvailableDevices();
@@ -1260,6 +1266,21 @@ export default function CallRoomPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authChecked, me?.id, role]);
+
+  // Auto-accept incoming calls for callees (when coming from notification)
+  useEffect(() => {
+    if (role === "callee" && status === "idle" && authChecked && me?.id) {
+      // Check if this is an incoming call that should be auto-accepted
+      const urlParams = new URLSearchParams(window.location.search);
+      const autoAccept = urlParams.get('autoAccept');
+      
+      if (autoAccept === 'true') {
+        console.log('📞 Auto-accepting incoming call...');
+        setStatus("connecting");
+        // The offer handling will take care of the rest
+      }
+    }
+  }, [role, status, authChecked, me?.id]);
 
   // Cleanup connection timeout on unmount
   useEffect(() => {
