@@ -22,7 +22,18 @@ export function useIncomingCall() {
   const acceptCall = useCallback(() => {
     if (!incomingCall) return;
     
-    const callUrl = `/call/${incomingCall.conversationId}?role=callee&mode=${incomingCall.mode}&peer=${encodeURIComponent(incomingCall.callerId)}&peerName=${encodeURIComponent(incomingCall.callerName)}&autoAccept=true`;
+    // Build the new URL with all parameters
+    const params = new URLSearchParams();
+    params.set("role", "callee");
+    params.set("peer", incomingCall.callerId);
+    params.set("peerName", incomingCall.callerName);
+    params.set("autoAccept", "true");
+
+    // Redirect to the appropriate call type
+    const callUrl = incomingCall.mode === "video" 
+      ? `/call/video/${incomingCall.conversationId}?${params.toString()}`
+      : `/call/audio/${incomingCall.conversationId}?${params.toString()}`;
+    
     router.push(callUrl);
     setIncomingCall(null);
     setIsRinging(false);
