@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 import DeviceStatusIndicator from "@/components/accessibility/DeviceStatusIndicator";
 import AccessibilityHelp from "@/components/accessibility/AccessibilityHelp";
+import AudioCallInterface from "@/components/call/AudioCallInterface";
+import CallModeSelector from "@/components/call/CallModeSelector";
 
 /**
  * Optional TURN/STUN via env:
@@ -334,6 +336,9 @@ export default function CallRoomPage() {
   const [hasVideo, setHasVideo] = useState<boolean | null>(null);
   const [isFallbackStream, setIsFallbackStream] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [showModeSelector, setShowModeSelector] = useState(false);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [isCheckingDevices, setIsCheckingDevices] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -638,8 +643,40 @@ export default function CallRoomPage() {
     };
   }, [mode]);
 
+  // Toggle speaker on/off
+  const toggleSpeaker = useCallback(() => {
+    setIsSpeakerOn(prev => !prev);
+    // Note: In a real implementation, you might want to control actual audio output
+    // This is a UI-only toggle for now
+  }, []);
+
+  // Handle call mode selection
+  const handleModeSelection = useCallback((selectedMode: "audio" | "video") => {
+    setShowModeSelector(false);
+    // Update the URL to reflect the selected mode
+    const newUrl = new URL(window.location.href);
+    newUrl.searchParams.set('mode', selectedMode);
+    window.history.replaceState({}, '', newUrl.toString());
+    // The component will re-render with the new mode
+  }, []);
+
+  // Show mode selector if no mode is specified or if devices are not available
+  useEffect(() => {
+    if (authChecked && me?.id && !showModeSelector) {
+      // If no mode is specified in URL, show mode selector
+      if (!qs.get("mode")) {
+        setShowModeSelector(true);
+      }
+      // If video mode is selected but no camera is available, suggest audio mode
+      else if (mode === "video" && hasVideo === false && hasAudio === true) {
+        setShowModeSelector(true);
+      }
+    }
+  }, [authChecked, me?.id, mode, hasVideo, hasAudio, qs, showModeSelector]);
+
   // Get available media devices
   const getAvailableDevices = useCallback(async () => {
+    setIsCheckingDevices(true);
     try {
       // First, try to get user media to trigger permission request
       // This often helps detect devices that weren't visible before
@@ -669,6 +706,8 @@ export default function CallRoomPage() {
     } catch (error) {
       console.warn("Failed to enumerate devices:", error);
       return [];
+    } finally {
+      setIsCheckingDevices(false);
     }
   }, []);
 
@@ -1795,6 +1834,45 @@ export default function CallRoomPage() {
           </div>
         </div>
       </div>
+    );
+  }
+
+  // Show mode selector if needed
+  if (showModeSelector) {
+    return (
+      <CallModeSelector
+        onSelectMode={handleModeSelection}
+        onCancel={() => {
+          const messagesUrl = me?.role ? getMessagesUrl(me.role) : '/dashboard/messages';
+          router.push(messagesUrl);
+        }}
+        peerName={peerInfo?.name || peerName}
+        hasAudio={hasAudio}
+        hasVideo={hasVideo}
+        isCheckingDevices={isCheckingDevices}
+      />
+    );
+  }
+
+  // Show audio-only interface for audio calls
+  if (mode === "audio") {
+    return (
+      <AudioCallInterface
+        peerName={peerInfo?.name || peerName}
+        peerAvatar={peerInfo?.avatar}
+        status={status}
+        callDuration={callDuration}
+        muted={muted}
+        isMuted={muted}
+        onToggleMute={toggleMute}
+        onEndCall={() => endCall(false)}
+        onToggleSpeaker={toggleSpeaker}
+        isSpeakerOn={isSpeakerOn}
+        audioLevel={audioLevel}
+        hasAudio={hasAudio}
+        isFallbackStream={isFallbackStream}
+        formatDuration={formatDuration}
+      />
     );
   }
 
