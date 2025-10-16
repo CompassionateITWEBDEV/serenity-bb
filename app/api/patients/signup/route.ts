@@ -6,9 +6,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // SERVER-ONLY admin client
+const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+console.log("Environment check:", {
+  supabaseUrl: supabaseUrl ? "SET" : "MISSING",
+  serviceRoleKey: serviceRoleKey ? `SET (${serviceRoleKey.length} chars)` : "MISSING",
+  serviceRoleKeyStart: serviceRoleKey ? serviceRoleKey.substring(0, 20) + "..." : "N/A"
+});
+
 const admin = createClient(
-  process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // must be set in Vercel env (server-only)
+  supabaseUrl,
+  serviceRoleKey,
   { auth: { persistSession: false, autoRefreshToken: false } }
 );
 
@@ -30,6 +39,7 @@ const toISO = (s?: string | null) => {
 export async function POST(req: Request) {
   try {
     const raw = await req.json();
+    console.log("Patient signup request:", JSON.stringify(raw, null, 2));
 
     // accept camelCase or snake_case
     const email = ((raw.email ?? "").trim().toLowerCase()) as string;
@@ -42,6 +52,19 @@ export async function POST(req: Request) {
     const ecPhone   = (raw.emergencyContact?.phone ?? raw.emergency_contact_phone ?? null) as string | null;
     const ecRel     = (raw.emergencyContact?.relationship ?? raw.emergency_contact_relationship ?? null) as string | null;
     const plan      = (raw.treatmentPlan ?? raw.treatment_type ?? raw.treatment_program ?? "Standard Recovery Program") as string;
+
+    console.log("Parsed fields:", {
+      email: email ? "***" : "missing",
+      password: password ? "***" : "missing", 
+      firstName: firstName || "missing",
+      lastName: lastName || "missing",
+      phone: phone || "null",
+      dob: dob || "null",
+      ecName: ecName || "null",
+      ecPhone: ecPhone || "null", 
+      ecRel: ecRel || "null",
+      plan: plan || "missing"
+    });
 
     // basic validation
     if (!email || !password) return problem(400, "Signup failed", "Email and password are required");
@@ -68,6 +91,7 @@ export async function POST(req: Request) {
     });
 
     if (authErr) {
+      console.error("Auth creation error:", authErr);
       const msg = authErr.message || "Auth error";
       const dup = /already|exists|taken|registered|duplicate|unique|23505/i.test(msg);
       return problem(dup ? 409 : 400, "Signup failed", dup ? "Email already registered." : msg);
@@ -93,8 +117,12 @@ export async function POST(req: Request) {
 
     let { error: e1 } = await admin.from("patients").insert({ uid: userId, ...base });
     if (e1) {
+      console.log("First insert failed, trying with user_id:", e1.message);
       const { error: e2 } = await admin.from("patients").insert({ user_id: userId, ...base });
-      if (e2) console.error("patients insert error (non-fatal):", e2.message ?? e2);
+      if (e2) {
+        console.error("Both patient inserts failed:", e2.message ?? e2);
+        // Don't fail the signup for this, just log it
+      }
     }
 
     // success: no email confirmation required

@@ -23,3 +23,4 @@ CREATE INDEX IF NOT EXISTS idx_call_history_callee_id ON call_history(callee_id)
 CREATE INDEX IF NOT EXISTS idx_call_history_started_at ON call_history(started_at);
 CREATE INDEX IF NOT EXISTS idx_call_history_status ON call_history(status);
 
+

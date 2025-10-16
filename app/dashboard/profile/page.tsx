@@ -12,10 +12,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import ProfileEditor from "@/components/profile/ProfileEditor";
 import {
   Calendar, Phone, Mail, MapPin, Activity, Award, Target, TrendingUp,
-  Edit, Save, X, CheckCircle
+  Edit, Save, X, CheckCircle, ArrowLeft
 } from "lucide-react";
+import Link from "next/link";
 
 type PatientInfo = {
   id?: string;
@@ -234,12 +236,25 @@ export default function ProfilePage() {
 
   return (
     <div className="container mx-auto p-6 max-w-6xl">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
-          <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
+      <div className="mb-6">
+        {/* Back Navigation */}
+        <div className="mb-4">
+          <Link 
+            href="/dashboard" 
+            className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Dashboard
+          </Link>
         </div>
-        {/* removed New Patient + Delete buttons */}
+        
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
+            <p className="text-gray-600 mt-2">View and manage your personal information and progress</p>
+          </div>
+          {/* removed New Patient + Delete buttons */}
+        </div>
       </div>
 
       {(status || authExpired) && (
@@ -345,46 +360,86 @@ export default function ProfilePage() {
             </TabsList>
 
             <TabsContent value="overview">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Target className="h-5 w-5" />
-                      Treatment Goals
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between"><span className="text-sm">Complete 90-day program</span><Badge variant="secondary">In Progress</Badge></div>
-                      <div className="flex items-center justify-between"><span className="text-sm">Daily meditation practice</span><Badge variant="secondary">Active</Badge></div>
-                      <div className="flex items-center justify-between"><span className="text-sm">Weekly therapy sessions</span><Badge variant="secondary">On Track</Badge></div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <TrendingUp className="h-5 w-5" />
-                      Progress Summary
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="flex justify-between">
-                        <span className="text-sm">Days in treatment</span>
-                        <span className="font-medium">
-                          {patient.admissionDate
-                            ? `${Math.max(1, Math.ceil((Date.now() - new Date(patient.admissionDate).getTime()) / 86400000))} days`
-                            : "—"}
-                        </span>
+              {isEditing ? (
+                <ProfileEditor
+                  initialData={{
+                    firstName: patient.firstName,
+                    lastName: patient.lastName,
+                    email: patient.email,
+                    phone: patient.phone || "",
+                    dateOfBirth: patient.dateOfBirth || "",
+                    address: patient.address || "",
+                    emergencyContactName: patient.emergencyContact?.name || "",
+                    emergencyContactPhone: patient.emergencyContact?.phone || "",
+                    emergencyContactRelationship: patient.emergencyContact?.relationship || "",
+                    treatmentType: patient.treatmentType || "Outpatient",
+                    bio: patient.bio || "",
+                  }}
+                  isEditing={isEditing}
+                  onEditToggle={() => setIsEditing(false)}
+                  onSave={async (data) => {
+                    // Update local state
+                    setPatient(prev => ({
+                      ...prev,
+                      firstName: data.firstName,
+                      lastName: data.lastName,
+                      email: data.email,
+                      phone: data.phone,
+                      dateOfBirth: data.dateOfBirth,
+                      address: data.address,
+                      emergencyContact: {
+                        name: data.emergencyContactName,
+                        phone: data.emergencyContactPhone,
+                        relationship: data.emergencyContactRelationship,
+                      },
+                      treatmentType: data.treatmentType,
+                      bio: data.bio,
+                    }));
+                    setIsEditing(false);
+                  }}
+                />
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Target className="h-5 w-5" />
+                        Treatment Goals
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between"><span className="text-sm">Complete 90-day program</span><Badge variant="secondary">In Progress</Badge></div>
+                        <div className="flex items-center justify-between"><span className="text-sm">Daily meditation practice</span><Badge variant="secondary">Active</Badge></div>
+                        <div className="flex items-center justify-between"><span className="text-sm">Weekly therapy sessions</span><Badge variant="secondary">On Track</Badge></div>
                       </div>
-                      <div className="flex justify-between"><span className="text-sm">Sessions completed</span><span className="font-medium">—</span></div>
-                      <div className="flex justify-between"><span className="text-sm">Goals achieved</span><span className="font-medium">—</span></div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <TrendingUp className="h-5 w-5" />
+                        Progress Summary
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        <div className="flex justify-between">
+                          <span className="text-sm">Days in treatment</span>
+                          <span className="font-medium">
+                            {patient.admissionDate
+                              ? `${Math.max(1, Math.ceil((Date.now() - new Date(patient.admissionDate).getTime()) / 86400000))} days`
+                              : "—"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between"><span className="text-sm">Sessions completed</span><span className="font-medium">—</span></div>
+                        <div className="flex justify-between"><span className="text-sm">Goals achieved</span><span className="font-medium">—</span></div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
             </TabsContent>
 
             <TabsContent value="medical">

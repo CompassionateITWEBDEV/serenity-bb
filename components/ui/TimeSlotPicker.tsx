@@ -52,17 +52,20 @@ export default function TimeSlotPicker({
   };
 
   return (
-    <div className={cn("rounded-xl border bg-white", className)}>
+    <div className={cn("rounded-xl border bg-white shadow-sm", className)}>
       {/* header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b">
-        <div className="text-xs font-semibold text-slate-600">Time</div>
-        <div className="text-[11px] text-slate-500">
+      <div className="flex items-center justify-between px-4 py-3 border-b bg-gradient-to-r from-slate-50 to-slate-100">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-cyan-500"></div>
+          <div className="text-sm font-semibold text-slate-700">Available Times</div>
+        </div>
+        <div className="text-xs text-slate-500 bg-white px-2 py-1 rounded-full border">
           {intervalMinutes}-min intervals
         </div>
       </div>
 
       {/* grid */}
-      <div className="max-h-64 overflow-auto p-3 grid grid-cols-3 gap-2">
+      <div className="max-h-64 overflow-auto p-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
         {slots.map((slot) => {
           const isActive = value === slot;
           const isDisabled = disabled(slot);
@@ -73,19 +76,29 @@ export default function TimeSlotPicker({
               disabled={isDisabled}
               onClick={() => onChange?.(slot)}
               className={cn(
-                "h-9 rounded-full text-sm border transition",
-                "disabled:opacity-40 disabled:cursor-not-allowed",
+                "h-10 rounded-lg text-sm font-medium border-2 transition-all duration-200",
+                "disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400",
                 isActive
-                  ? "bg-cyan-600 text-white border-cyan-600"
-                  : "bg-white text-slate-700 hover:bg-slate-50 border-slate-200"
+                  ? "bg-gradient-to-r from-cyan-500 to-blue-500 text-white border-cyan-500 shadow-lg scale-105"
+                  : "bg-white text-slate-700 hover:bg-cyan-50 hover:border-cyan-300 border-slate-200 hover:shadow-md"
               )}
-              title={slot}
+              title={isDisabled ? `${slot} (Past time)` : slot}
             >
               {slot}
             </button>
           );
         })}
       </div>
+
+      {/* footer info */}
+      {value && (
+        <div className="px-4 py-2 border-t bg-cyan-50">
+          <div className="flex items-center gap-2 text-xs text-cyan-700">
+            <div className="w-1.5 h-1.5 rounded-full bg-cyan-500"></div>
+            <span>Selected: {value}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

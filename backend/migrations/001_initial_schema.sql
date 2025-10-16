@@ -177,6 +177,25 @@ CREATE TABLE IF NOT EXISTS progress_tracking (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Video submissions table for real-time video system
+CREATE TABLE IF NOT EXISTS video_submissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    patient_id UUID REFERENCES patients(user_id) ON DELETE CASCADE,
+    visitor_id UUID, -- for guest users (nullable)
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    type VARCHAR(50) NOT NULL DEFAULT 'daily-checkin', -- 'daily-checkin', 'medication', 'therapy-session', 'progress-update'
+    status VARCHAR(50) NOT NULL DEFAULT 'uploading', -- 'uploading', 'processing', 'completed', 'failed'
+    video_url TEXT,
+    storage_path TEXT,
+    size_mb DECIMAL(10,2),
+    duration_seconds INTEGER,
+    submitted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    processed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_patients_user_id ON patients(user_id);
@@ -192,6 +211,10 @@ CREATE INDEX IF NOT EXISTS idx_video_recordings_patient_id ON video_recordings(p
 CREATE INDEX IF NOT EXISTS idx_medication_logs_patient_id ON medication_logs(patient_id);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_patient_id ON activity_logs(patient_id);
 CREATE INDEX IF NOT EXISTS idx_progress_tracking_patient_id ON progress_tracking(patient_id);
+CREATE INDEX IF NOT EXISTS idx_video_submissions_patient_id ON video_submissions(patient_id);
+CREATE INDEX IF NOT EXISTS idx_video_submissions_visitor_id ON video_submissions(visitor_id);
+CREATE INDEX IF NOT EXISTS idx_video_submissions_status ON video_submissions(status);
+CREATE INDEX IF NOT EXISTS idx_video_submissions_submitted_at ON video_submissions(submitted_at);
 
 -- Create updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -210,3 +233,4 @@ CREATE TRIGGER update_appointments_updated_at BEFORE UPDATE ON appointments FOR 
 CREATE TRIGGER update_messages_updated_at BEFORE UPDATE ON messages FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_groups_updated_at BEFORE UPDATE ON groups FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_video_recordings_updated_at BEFORE UPDATE ON video_recordings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_video_submissions_updated_at BEFORE UPDATE ON video_submissions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

@@ -45,3 +45,4 @@ CREATE POLICY "Users can update their own call history" ON call_history
         caller_id = auth.uid()::text OR callee_id = auth.uid()::text
     );
 
+

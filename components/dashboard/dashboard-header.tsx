@@ -16,7 +16,7 @@ import { usePatientStatus } from "@/hooks/use-patient-status";
 import { Settings, LogOut, User, Heart, Menu, X } from "lucide-react";
 import type { Patient } from "@/lib/auth";
 import { useProfileAvatar } from "@/hooks/use-profile-avatar";
-import { NotificationsDropdown } from "@/components/notification/NotificationsDropdown";
+import SafeNotificationBell from "@/components/dashboard/SafeNotificationBell";
 
 interface DashboardHeaderProps { patient: Patient; }
 
@@ -94,8 +94,8 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
 
           {/* Right Side */}
           <div className="flex items-center space-x-3">
-            {/* Notifications dropdown (real data) */}
-            <NotificationsDropdown />
+            {/* Safe Notifications */}
+            <SafeNotificationBell />
 
             {/* NEW: Setup pill */}
             {needsSetup && (

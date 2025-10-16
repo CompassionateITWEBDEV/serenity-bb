@@ -63,12 +63,14 @@ export default function SignupPage() {
         lastName: formData.lastName,
         email: formData.email,
         password: formData.password,
-        phone: formData.phoneNumber,
+        phoneNumber: formData.phoneNumber,
         dateOfBirth: formData.dateOfBirth,
-        emergencyName: formData.emergencyContactName,
-        emergencyPhone: formData.emergencyContactPhone,
-        emergencyRelationship: formData.emergencyContactRelationship,
-        treatmentProgram: formData.treatmentPlan,
+        emergencyContact: {
+          name: formData.emergencyContactName,
+          phone: formData.emergencyContactPhone,
+          relationship: formData.emergencyContactRelationship,
+        },
+        treatmentPlan: formData.treatmentPlan,
       };
 
       const res = await fetch("/api/patients/signup", {

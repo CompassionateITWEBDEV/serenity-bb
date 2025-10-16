@@ -9,6 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+// import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Progress } from "@/components/ui/progress";
 import {
   MessageSquare,
   Send,
@@ -20,6 +28,36 @@ import {
   Mic,
   Paperclip,
   Smile,
+  Trash2,
+  MoreVertical,
+  Search,
+  Filter,
+  Star,
+  Archive,
+  Settings,
+  Plus,
+  UserPlus,
+  Bell,
+  BellOff,
+  AlertTriangle,
+  Heart,
+  ThumbsUp,
+  Reply,
+  Forward,
+  Copy,
+  Download,
+  Eye,
+  EyeOff,
+  Pin,
+  Pin as Unpin,
+  Edit,
+  MoreHorizontal,
+  ChevronDown,
+  ChevronUp,
+  Sparkles,
+  Shield,
+  Activity,
+  Zap,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 
@@ -72,6 +110,11 @@ interface Conversation {
   online: boolean;
   typing: boolean;
   messages: Message[];
+  favorite?: boolean;
+  archived?: boolean;
+  priority?: "low" | "normal" | "high" | "urgent";
+  lastSeen?: string;
+  status?: "active" | "away" | "busy" | "offline";
 }
 
 /* ---------- Constants ---------- */
@@ -100,10 +143,124 @@ export function HealthcareMessaging() {
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
   const [newMessage, setNewMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [showDeleteMenu, setShowDeleteMenu] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterRole, setFilterRole] = useState<ProviderRole | "all">("all");
+  const [showFavorites, setShowFavorites] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [connectionStatus, setConnectionStatus] = useState<"connected" | "disconnected" | "connecting">("connecting");
+  const [messageReactions, setMessageReactions] = useState<Record<string, string[]>>({});
+  const [pinnedMessages, setPinnedMessages] = useState<Set<string>>(new Set());
+  const [showSettings, setShowSettings] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [autoRead, setAutoRead] = useState(true);
+  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+  const [messageStatus, setMessageStatus] = useState<Record<string, "sending" | "sent" | "delivered" | "read" | "failed">>({});
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const presenceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const msgSubRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Close delete menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showDeleteMenu && !(event.target as Element).closest('.delete-menu')) {
+        setShowDeleteMenu(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDeleteMenu]);
+
+  // Enhanced filtering and search
+  const filteredConversations = useMemo(() => {
+    let filtered = conversations;
+
+    // Search filter
+    if (searchQuery) {
+      filtered = filtered.filter(conv => 
+        conv.providerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        conv.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    // Role filter
+    if (filterRole !== "all") {
+      filtered = filtered.filter(conv => conv.providerRole === filterRole);
+    }
+
+    // Favorites filter
+    if (showFavorites) {
+      filtered = filtered.filter(conv => conv.favorite);
+    }
+
+    // Archived filter
+    if (showArchived) {
+      filtered = filtered.filter(conv => conv.archived);
+    }
+
+    return filtered.sort((a, b) => {
+      // Sort by unread count first, then by last message time
+      if (a.unreadCount !== b.unreadCount) {
+        return b.unreadCount - a.unreadCount;
+      }
+      return new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime();
+    });
+  }, [conversations, searchQuery, filterRole, showFavorites, showArchived]);
+
+  // Enhanced message actions
+  const addReaction = async (messageId: string, emoji: string) => {
+    try {
+      const currentReactions = messageReactions[messageId] || [];
+      const newReactions = currentReactions.includes(emoji) 
+        ? currentReactions.filter(r => r !== emoji)
+        : [...currentReactions, emoji];
+      
+      setMessageReactions(prev => ({ ...prev, [messageId]: newReactions }));
+      
+      // Update in database
+      const { error } = await supabase
+        .from("messages")
+        .update({ reactions: newReactions })
+        .eq("id", messageId);
+      
+      if (error) {
+        console.error("Error updating reactions:", error);
+      }
+    } catch (error) {
+      console.error("Error adding reaction:", error);
+    }
+  };
+
+  const togglePinMessage = (messageId: string) => {
+    const newPinned = new Set(pinnedMessages);
+    if (newPinned.has(messageId)) {
+      newPinned.delete(messageId);
+    } else {
+      newPinned.add(messageId);
+    }
+    setPinnedMessages(newPinned);
+  };
+
+  const copyMessage = (content: string) => {
+    navigator.clipboard.writeText(content);
+  };
+
+  const forwardMessage = (message: Message) => {
+    // Implementation for forwarding messages
+    console.log("Forwarding message:", message);
+  };
+
+  const replyToMessage = (message: Message) => {
+    setNewMessage(`@${message.senderName} `);
+    inputRef.current?.focus();
+  };
 
   // Load conversations list once
   useEffect(() => {
@@ -230,7 +387,7 @@ export function HealthcareMessaging() {
             );
             // auto-mark read for provider → patient view
             if (mapped.senderRole !== "patient") {
-              supabase.from("messages").update({ read: true }).eq("id", m.id).catch(() => {});
+              supabase.from("messages").update({ read: true }).eq("id", m.id);
             }
           } else if (payload.eventType === "UPDATE") {
             const m = payload.new as DBMessage;
@@ -299,7 +456,7 @@ export function HealthcareMessaging() {
     typingTimeoutRef.current = setTimeout(() => setIsTyping(false), 1000);
 
     const ch = presenceChannelRef.current;
-    if (ch) ch.send({ type: "broadcast", event: "typing", payload: { who: PATIENT_ID } }).catch(() => {});
+    if (ch) ch.send({ type: "broadcast", event: "typing", payload: { who: PATIENT_ID } });
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
@@ -411,218 +568,560 @@ export function HealthcareMessaging() {
       .from("messages")
       .update({ read: true })
       .eq("conversation_id", conversationId)
-      .neq("sender_role", "patient")
-      .catch(() => {});
+      .neq("sender_role", "patient");
+  }
+
+  async function deleteMessage(messageId: string, conversationId: string) {
+    // Show confirmation dialog
+    const confirmed = window.confirm("Are you sure you want to delete this message? This action cannot be undone.");
+    if (!confirmed) {
+      setShowDeleteMenu(null);
+      return;
+    }
+
+    try {
+      // Delete from database
+      const { error } = await supabase
+        .from("messages")
+        .delete()
+        .eq("id", messageId);
+
+      if (error) {
+        console.error("Error deleting message:", error);
+        alert("Failed to delete message. Please try again.");
+        return;
+      }
+
+      // Update local state
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === conversationId
+            ? { ...c, messages: c.messages.filter((m) => m.id !== messageId) }
+            : c
+        )
+      );
+
+      // Close delete menu
+      setShowDeleteMenu(null);
+    } catch (error) {
+      console.error("Error deleting message:", error);
+      alert("Failed to delete message. Please try again.");
+    }
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[600px]">
-      {/* Conversations List */}
-      <Card className="lg:col-span-1">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <MessageSquare className="h-5 w-5" />
-            Healthcare Team
-          </CardTitle>
-          <CardDescription>Real-time messages from your care providers</CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          <ScrollArea className="h-[500px]">
-            {conversations.map((conversation, index) => (
-              <div key={conversation.id}>
-                <div
-                  className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors ${
-                    selectedConversation === conversation.id ? "bg-blue-50 border-r-2 border-blue-500" : ""
-                  }`}
-                  onClick={() => {
-                    setSelectedConversation(conversation.id);
-                    markAsRead(conversation.id);
-                  }}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[700px]">
+        {/* Enhanced Conversations List */}
+        <Card className="lg:col-span-1 border-0 shadow-lg">
+          <CardHeader className="pb-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-gradient-to-br from-blue-500 to-purple-600 p-2 rounded-xl shadow-lg">
+                  <MessageSquare className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                  <CardTitle className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+                    Healthcare Team
+                  </CardTitle>
+                  <CardDescription className="text-sm">Real-time messages from your care providers</CardDescription>
+                </div>
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setShowSettings(true)}>
+                    <Settings className="h-4 w-4 mr-2" />
+                    Settings
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setShowFavorites(!showFavorites)}>
+                    <Star className="h-4 w-4 mr-2" />
+                    {showFavorites ? "Hide Favorites" : "Show Favorites"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setShowArchived(!showArchived)}>
+                    <Archive className="h-4 w-4 mr-2" />
+                    {showArchived ? "Hide Archived" : "Show Archived"}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            
+            {/* Enhanced Search and Filters */}
+            <div className="space-y-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search conversations..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10 pr-4 h-9"
+                />
+              </div>
+              
+              <div className="flex gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="flex-1">
+                      <Filter className="h-4 w-4 mr-2" />
+                      {filterRole === "all" ? "All Roles" : filterRole}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    <DropdownMenuItem onClick={() => setFilterRole("all")}>All Roles</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setFilterRole("doctor")}>Doctors</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setFilterRole("nurse")}>Nurses</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setFilterRole("counselor")}>Counselors</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                
+                <Button
+                  variant={showFavorites ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setShowFavorites(!showFavorites)}
                 >
-                  <div className="flex items-start gap-3">
+                  <Star className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          
+          <CardContent className="p-0">
+            <ScrollArea className="h-[500px]">
+              {isLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                </div>
+              ) : filteredConversations.length === 0 ? (
+                <div className="text-center py-8">
+                  <MessageSquare className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500 mb-2">No conversations found</p>
+                  <p className="text-sm text-gray-400">
+                    {searchQuery ? "Try adjusting your search" : "Start a conversation with your care team"}
+                  </p>
+                </div>
+              ) : (
+                filteredConversations.map((conversation, index) => (
+                  <div key={conversation.id}>
+                    <div
+                      className={`p-4 cursor-pointer hover:bg-gray-50 transition-all duration-200 group ${
+                        selectedConversation === conversation.id 
+                          ? "bg-gradient-to-r from-blue-50 to-purple-50 border-r-4 border-blue-500 shadow-sm" 
+                          : ""
+                      }`}
+                      onClick={() => {
+                        setSelectedConversation(conversation.id);
+                        markAsRead(conversation.id);
+                      }}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="relative">
+                          <Avatar className="h-12 w-12 ring-2 ring-white shadow-md">
+                            <AvatarImage src={conversation.providerAvatar || "/placeholder.svg"} />
+                            <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white font-semibold">
+                              {conversation.providerName
+                                .split(" ")
+                                .map((n) => n[0])
+                                .join("")}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${
+                            conversation.online ? "bg-green-500" : "bg-gray-400"
+                          }`} />
+                        </div>
+                        
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-semibold text-sm truncate">{conversation.providerName}</h4>
+                              {conversation.favorite && (
+                                <Star className="h-3 w-3 text-yellow-500 fill-current" />
+                              )}
+                              {conversation.priority === "urgent" && (
+                                <AlertTriangle className="h-3 w-3 text-red-500" />
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">
+                                {conversation.lastMessageTime ? formatTime(conversation.lastMessageTime) : "—"}
+                              </span>
+                              {conversation.unreadCount > 0 && (
+                                <Badge className="bg-red-500 text-white text-xs min-w-[20px] h-5 flex items-center justify-center animate-pulse">
+                                  {conversation.unreadCount}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge className={`${roleBadge(conversation.providerRole)} text-xs`} variant="secondary">
+                              {conversation.providerRole}
+                            </Badge>
+                            {conversation.online && (
+                              <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                                <div className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1" />
+                                Online
+                              </Badge>
+                            )}
+                            {conversation.status && conversation.status !== "offline" && (
+                              <Badge variant="outline" className="text-xs">
+                                {conversation.status}
+                              </Badge>
+                            )}
+                          </div>
+                          
+                          {conversation.typing ? (
+                            <p className="text-sm text-blue-600 italic flex items-center gap-1">
+                              <Circle className="h-2 w-2 animate-pulse" />
+                              typing...
+                            </p>
+                          ) : (
+                            <p className="text-sm text-gray-600 truncate">{conversation.lastMessage}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {index < filteredConversations.length - 1 && <Separator className="mx-4" />}
+                  </div>
+                ))
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        {/* Enhanced Chat Interface */}
+        <Card className="lg:col-span-3 border-0 shadow-lg">
+          {selectedConv ? (
+            <>
+              {/* Enhanced Chat Header */}
+              <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-purple-50">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
                     <div className="relative">
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={conversation.providerAvatar || "/placeholder.svg"} />
-                        <AvatarFallback>
-                          {conversation.providerName
+                      <Avatar className="h-14 w-14 ring-4 ring-white shadow-lg">
+                        <AvatarImage src={selectedConv.providerAvatar || "/placeholder.svg"} />
+                        <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white font-bold text-lg">
+                          {selectedConv.providerName
                             .split(" ")
                             .map((n) => n[0])
                             .join("")}
                         </AvatarFallback>
                       </Avatar>
-                      {conversation.online && (
-                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
-                      )}
+                      <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${
+                        selectedConv.online ? "bg-green-500" : "bg-gray-400"
+                      }`} />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <h4 className="font-medium text-sm truncate">{conversation.providerName}</h4>
-                        <span className="text-xs text-gray-500">
-                          {conversation.lastMessageTime ? formatTime(conversation.lastMessageTime) : "—"}
-                        </span>
+                    <div>
+                      <div className="flex items-center gap-3 mb-1">
+                        <h3 className="text-xl font-bold text-gray-900">{selectedConv.providerName}</h3>
+                        {selectedConv.favorite && (
+                          <Star className="h-5 w-5 text-yellow-500 fill-current" />
+                        )}
+                        {selectedConv.priority === "urgent" && (
+                          <AlertTriangle className="h-5 w-5 text-red-500" />
+                        )}
                       </div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <Badge className={roleBadge(conversation.providerRole)} variant="secondary">
-                          {conversation.providerRole}
+                      <div className="flex items-center gap-3">
+                        <Badge className={`${roleBadge(selectedConv.providerRole)} text-sm font-medium`} variant="secondary">
+                          {selectedConv.providerRole}
                         </Badge>
-                        {conversation.online && (
-                          <Badge variant="outline" className="text-xs">
-                            <div className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1" />
+                        {selectedConv.typing ? (
+                          <span className="text-sm text-blue-600 flex items-center gap-1 font-medium">
+                            <Circle className="w-2 h-2 animate-pulse" />
+                            typing...
+                          </span>
+                        ) : selectedConv.online ? (
+                          <span className="text-sm text-green-600 flex items-center gap-1 font-medium">
+                            <div className="w-2 h-2 bg-green-500 rounded-full" />
                             Online
-                          </Badge>
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-500">Last seen {formatTime(selectedConv.lastSeen || selectedConv.lastMessageTime)}</span>
                         )}
                       </div>
-                      {conversation.typing ? (
-                        <p className="text-sm text-blue-600 italic flex items-center gap-1">
-                          <Circle className="h-2 w-2 animate-pulse" />
-                          typing...
-                        </p>
-                      ) : (
-                        <p className="text-sm text-gray-600 truncate">{conversation.lastMessage}</p>
-                      )}
-                    </div>
-                    {conversation.unreadCount > 0 && (
-                      <Badge className="bg-red-500 text-white text-xs min-w-[20px] h-5 flex items-center justify-center animate-pulse">
-                        {conversation.unreadCount}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                {index < conversations.length - 1 && <Separator />}
-              </div>
-            ))}
-          </ScrollArea>
-        </CardContent>
-      </Card>
-
-      {/* Chat Interface */}
-      <Card className="lg:col-span-2">
-        {selectedConv ? (
-          <>
-            <CardHeader className="border-b">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-10 w-10">
-                    <AvatarImage src={selectedConv.providerAvatar || "/placeholder.svg"} />
-                    <AvatarFallback>
-                      {selectedConv.providerName
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <h3 className="font-medium">{selectedConv.providerName}</h3>
-                    <div className="flex items-center gap-2">
-                      <Badge className={roleBadge(selectedConv.providerRole)} variant="secondary">
-                        {selectedConv.providerRole}
-                      </Badge>
-                      {selectedConv.typing ? (
-                        <span className="text-sm text-blue-600 flex items-center gap-1">
-                          <Circle className="w-2 h-2 animate-pulse" />
-                          typing...
-                        </span>
-                      ) : selectedConv.online ? (
-                        <span className="text-sm text-green-600 flex items-center gap-1">
-                          <div className="w-2 h-2 bg-green-500 rounded-full" />
-                          Online
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-500">Offline</span>
-                      )}
                     </div>
                   </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" disabled={!selectedConv.online} className="h-9 w-9 p-0" title="Voice Call">
+                      <Phone className="h-4 w-4" />
+                    </Button>
+                    
+                    <Button size="sm" variant="outline" disabled={!selectedConv.online} className="h-9 w-9 p-0" title="Video Call">
+                      <Video className="h-4 w-4" />
+                    </Button>
+                    
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm" variant="outline" className="h-9 w-9 p-0">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setShowSettings(true)}>
+                          <Settings className="h-4 w-4 mr-2" />
+                          Settings
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>
+                          <Archive className="h-4 w-4 mr-2" />
+                          Archive Chat
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-red-600">
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete Chat
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" disabled={!selectedConv.online}>
-                    <Phone className="h-4 w-4" />
-                  </Button>
-                  <Button size="sm" variant="outline" disabled={!selectedConv.online}>
-                    <Video className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <ScrollArea className="h-[350px] p-4">
-                <div className="space-y-4">
-                  {selectedConv.messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`flex ${message.senderRole === "patient" ? "justify-end" : "justify-start"}`}
-                    >
+              </CardHeader>
+              {/* Enhanced Messages Area */}
+              <CardContent className="p-0">
+                <ScrollArea className="h-[450px] p-6">
+                  <div className="space-y-6">
+                    {selectedConv.messages.map((message) => (
                       <div
-                        className={`max-w-[70%] rounded-lg p-3 ${
-                          message.senderRole === "patient" ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-900"
-                        } ${!message.read && message.senderRole !== "patient" ? "ring-2 ring-blue-200" : ""}`}
+                        key={message.id}
+                        className={`flex ${message.senderRole === "patient" ? "justify-end" : "justify-start"} group`}
                       >
-                        {message.senderRole !== "patient" && (
-                          <div className="text-xs font-medium mb-1 opacity-70">{message.senderName}</div>
-                        )}
-                        <p className="text-sm">{message.content}</p>
-                        <div className="flex items-center justify-between mt-2">
-                          <span className="text-xs opacity-70">{formatTime(message.timestamp)}</span>
-                          {message.senderRole === "patient" && (
-                            <div className="ml-2">
-                              {message.read ? <CheckCircle2 className="h-3 w-3 opacity-70" /> : <Clock className="h-3 w-3 opacity-70" />}
+                        <div className={`max-w-[75%] relative`}>
+                          {/* Pinned message indicator */}
+                          {pinnedMessages.has(message.id) && (
+                            <div className="flex items-center gap-1 mb-2 text-xs text-gray-500">
+                              <Pin className="h-3 w-3" />
+                              <span>Pinned message</span>
                             </div>
                           )}
+                          
+                          <div
+                            className={`rounded-2xl p-4 shadow-sm relative ${
+                              message.senderRole === "patient" 
+                                ? "bg-gradient-to-br from-blue-500 to-blue-600 text-white" 
+                                : "bg-white border border-gray-200 text-gray-900"
+                            } ${!message.read && message.senderRole !== "patient" ? "ring-2 ring-blue-200" : ""}`}
+                          >
+                            {message.senderRole !== "patient" && (
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className="text-xs font-semibold opacity-80">{message.senderName}</span>
+                                {message.urgent && (
+                                  <Badge className="bg-red-100 text-red-700 text-xs">URGENT</Badge>
+                                )}
+                              </div>
+                            )}
+                            
+                            <p className="text-sm leading-relaxed">{message.content}</p>
+                            
+                            {/* Message reactions */}
+                            {messageReactions[message.id] && messageReactions[message.id].length > 0 && (
+                              <div className="flex items-center gap-1 mt-2">
+                                {messageReactions[message.id].map((reaction, idx) => (
+                                  <Button
+                                    key={idx}
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-xs bg-white/20 hover:bg-white/30"
+                                    onClick={() => addReaction(message.id, reaction)}
+                                  >
+                                    {reaction}
+                                  </Button>
+                                ))}
+                              </div>
+                            )}
+                            
+                            <div className="flex items-center justify-between mt-3">
+                              <span className="text-xs opacity-70">{formatTime(message.timestamp)}</span>
+                              <div className="flex items-center gap-2">
+                                {message.senderRole === "patient" && (
+                                  <div className="flex items-center gap-1">
+                                    {messageStatus[message.id] === "sending" && <Clock className="h-3 w-3 opacity-70" />}
+                                    {messageStatus[message.id] === "sent" && <CheckCircle2 className="h-3 w-3 opacity-70" />}
+                                    {messageStatus[message.id] === "delivered" && <CheckCircle2 className="h-3 w-3 opacity-70" />}
+                                    {messageStatus[message.id] === "read" && <CheckCircle2 className="h-3 w-3 text-blue-300" />}
+                                    {messageStatus[message.id] === "failed" && <AlertTriangle className="h-3 w-3 text-red-300" />}
+                                  </div>
+                                )}
+                                
+                                {/* Enhanced message actions */}
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0 hover:bg-white/20"
+                                    onClick={() => addReaction(message.id, "👍")}
+                                    title="React"
+                                  >
+                                    <ThumbsUp className="h-3 w-3" />
+                                  </Button>
+                                  
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0 hover:bg-white/20"
+                                    onClick={() => replyToMessage(message)}
+                                    title="Reply"
+                                  >
+                                    <Reply className="h-3 w-3" />
+                                  </Button>
+                                  
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0 hover:bg-white/20"
+                                    onClick={() => copyMessage(message.content)}
+                                    title="Copy"
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                  </Button>
+                                  
+                                  {message.senderRole === "patient" && (
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-6 w-6 p-0 hover:bg-white/20"
+                                        >
+                                          <MoreVertical className="h-3 w-3" />
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={() => togglePinMessage(message.id)}>
+                                          {pinnedMessages.has(message.id) ? <Unpin className="h-4 w-4 mr-2" /> : <Pin className="h-4 w-4 mr-2" />}
+                                          {pinnedMessages.has(message.id) ? "Unpin" : "Pin"} Message
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => forwardMessage(message)}>
+                                          <Forward className="h-4 w-4 mr-2" />
+                                          Forward
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem 
+                                          className="text-red-600"
+                                          onClick={() => deleteMessage(message.id, selectedConv.id)}
+                                        >
+                                          <Trash2 className="h-4 w-4 mr-2" />
+                                          Delete
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
                         </div>
+                      </div>
+                    ))}
+                    
+                    {/* Enhanced typing indicator */}
+                    {selectedConv.typing && (
+                      <div className="flex justify-start">
+                        <div className="bg-white border border-gray-200 rounded-2xl p-4 max-w-[75%] shadow-sm">
+                          <div className="flex items-center gap-2">
+                            <div className="flex gap-1">
+                              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+                              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.1s" }} />
+                              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }} />
+                            </div>
+                            <span className="text-sm text-gray-500 italic">
+                              {selectedConv.providerName} is typing...
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div ref={messagesEndRef} />
+                  </div>
+                </ScrollArea>
+                
+                {/* Enhanced Input Area */}
+                <div className="border-t bg-gray-50 p-4">
+                  <div className="flex items-end gap-3">
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="outline" className="h-9 w-9 p-0" title="Attach File">
+                        <Paperclip className="h-4 w-4" />
+                      </Button>
+                      
+                      <Button size="sm" variant="outline" className="h-9 w-9 p-0" title="Voice Message">
+                        <Mic className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    
+                    <div className="flex-1 relative">
+                      <Textarea
+                        ref={inputRef}
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        placeholder={selectedConv.online ? "Type your message..." : "Provider is offline"}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            sendMessage();
+                          }
+                        }}
+                        className="min-h-[40px] max-h-[120px] resize-none pr-12"
+                        disabled={!selectedConv.online}
+                        rows={1}
+                      />
+                      
+                      <div className="absolute right-2 bottom-2 flex items-center gap-1">
+                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0" title="Emoji">
+                          <Smile className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
-                  ))}
-                  {selectedConv.typing && (
-                    <div className="flex justify-start">
-                      <div className="bg-gray-100 rounded-lg p-3 max-w-[70%]">
-                        <div className="flex items-center gap-1">
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.1s" }} />
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }} />
-                        </div>
-                      </div>
+                    
+                    <Button 
+                      onClick={sendMessage} 
+                      disabled={!newMessage.trim() || !selectedConv.online}
+                      className="h-9 px-4 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
+                    >
+                      <Send className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  
+                  {isTyping && (
+                    <div className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                      <Circle className="w-2 h-2 animate-pulse" />
+                      You are typing...
                     </div>
                   )}
-                  <div ref={messagesEndRef} />
+                  
+                  {!selectedConv.online && (
+                    <div className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      Provider is offline. Messages will be delivered when they come online.
+                    </div>
+                  )}
                 </div>
-              </ScrollArea>
-              <div className="border-t p-4">
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" className="px-2 bg-transparent">
-                    <Paperclip className="h-4 w-4" />
-                  </Button>
-                  <Button size="sm" variant="outline" className="px-2 bg-transparent">
-                    <Mic className="h-4 w-4" />
-                  </Button>
-                  <Input
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder={selectedConv.online ? "Type your message..." : "Provider is offline"}
-                    onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-                    className="flex-1"
-                    disabled={!selectedConv.online}
-                  />
-                  <Button size="sm" variant="outline" className="px-2 bg-transparent">
-                    <Smile className="h-4 w-4" />
-                  </Button>
-                  <Button onClick={sendMessage} disabled={!newMessage.trim() || !selectedConv.online}>
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
-                {isTyping && (
-                  <div className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                    <Circle className="w-2 h-2 animate-pulse" />
-                    You are typing...
-                  </div>
-                )}
-              </div>
-            </CardContent>
+              </CardContent>
           </>
         ) : (
-          <CardContent className="flex items-center justify-center h-full">
-            <div className="text-center text-gray-500">
-              <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>Select a conversation to start messaging</p>
-              <p className="text-sm mt-2">Real-time chat with your healthcare team</p>
+          <CardContent className="flex items-center justify-center h-full bg-gradient-to-br from-gray-50 to-blue-50">
+            <div className="text-center">
+              <div className="bg-gradient-to-br from-blue-500 to-purple-600 p-6 rounded-full w-24 h-24 mx-auto mb-6 flex items-center justify-center shadow-lg">
+                <MessageSquare className="h-12 w-12 text-white" />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Select a conversation to start messaging</h3>
+              <p className="text-gray-600 mb-6">Real-time chat with your healthcare team</p>
+              <div className="flex items-center justify-center gap-4 text-sm text-gray-500">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span>Secure & Private</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                  <span>Real-time</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                  <span>Encrypted</span>
+                </div>
+              </div>
             </div>
           </CardContent>
         )}

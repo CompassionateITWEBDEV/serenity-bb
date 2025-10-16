@@ -40,7 +40,7 @@ export async function POST(req: Request) {
 
   try {
     // 2) Try cookie-bound client
-    const jar = cookies();
+    const jar = await cookies();
     const supaCookie = createServerClient(url, anon, {
       cookies: {
         get: (n) => jar.get(n)?.value,
@@ -50,14 +50,13 @@ export async function POST(req: Request) {
     });
 
     const { data: cookieAuth, error: cookieErr } = await supaCookie.auth.getUser();
-    if (cookieErr) {
-      return json({ error: cookieErr.message }, 500, { "x-debug": "cookie-getUser-error" });
-    }
-
+    
     // 3) Fallback: Authorization: Bearer <jwt>
     const authz = req.headers.get("authorization") ?? req.headers.get("Authorization");
     let headerAuth: typeof cookieAuth | null = null;
-    if (!cookieAuth?.user && authz?.toLowerCase().startsWith("bearer ")) {
+    
+    // Try Bearer token if no cookie auth or cookie auth failed
+    if ((!cookieAuth?.user || cookieErr) && authz?.toLowerCase().startsWith("bearer ")) {
       const supaHeader = createSbClient(url, anon, {
         global: { headers: { Authorization: authz } },
         auth: { persistSession: false, autoRefreshToken: false },

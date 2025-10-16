@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,8 +11,10 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Video as VideoIcon,
+  Video,
   Upload,
   Clock,
   CheckCircle,
@@ -25,6 +28,14 @@ import {
   Copy,
   Info,
   RotateCcw,
+  Settings,
+  Camera,
+  Mic,
+  MicOff,
+  CameraOff,
+  Download,
+  Share,
+  Calendar,
 } from "lucide-react";
 
 /* ---------- Build tag so you can verify the new bundle ---------- */
@@ -98,13 +109,14 @@ function InlineBanner({ kind, title, desc }: { kind: "success" | "error"; title:
 
 export default function RealTimeVideoSystem() {
   const { toasts, pushToast, dismiss } = useLocalToast();
+  const { patient, isAuthenticated, loading: authLoading } = useAuth();
 
   const [banner, setBanner] = useState<{ kind: "success" | "error" | null; title?: string; desc?: React.ReactNode; anchorId?: string | null }>({ kind: null, title: "", desc: "", anchorId: null });
 
-  // identity (guest)
-  const guestId = getGuestId();
-  const ownerCol = "visitor_id";
-  const ownerVal = guestId;
+  // Get patient ID from authentication
+  const patientId = patient?.user_id || patient?.id;
+  const ownerCol = "patient_id";
+  const ownerVal = patientId;
 
   // list + realtime
   const [rows, setRows] = useState<Row[]>([]);
@@ -113,6 +125,8 @@ export default function RealTimeVideoSystem() {
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!isAuthenticated || !patientId || authLoading) return;
+    
     const load = async () => {
       const { data, error } = await supabase.from("video_submissions").select("*").eq(ownerCol, ownerVal).order("submitted_at", { ascending: false });
       if (error) setErr(error.message); else setRows(data as Row[]);
@@ -123,7 +137,7 @@ export default function RealTimeVideoSystem() {
       .on("postgres_changes", { event: "*", schema: "public", table: "video_submissions", filter: `${ownerCol}=eq.${ownerVal}` }, load)
       .subscribe();
     return () => ch.unsubscribe();
-  }, [ownerVal]);
+  }, [ownerVal, isAuthenticated, patientId, authLoading]);
 
   useEffect(() => {
     if (!lastSubmittedId) return;
@@ -263,6 +277,10 @@ export default function RealTimeVideoSystem() {
 
   // create/replace
   async function createOrReplaceVideo(args: { fileBlob: Blob; filenameHint: string; meta: { title: string; description?: string | null; type: VideoType }; rowToReplaceId?: string; }) {
+    if (!isAuthenticated || !patientId) {
+      throw new Error("User must be authenticated to upload videos");
+    }
+
     const { fileBlob, filenameHint, meta, rowToReplaceId } = args;
     const duration = await getBlobDuration(fileBlob).catch(() => 0);
     const sizeMb = +(fileBlob.size / (1024 * 1024)).toFixed(2);
@@ -271,7 +289,7 @@ export default function RealTimeVideoSystem() {
     let row: Row;
     if (!rowToReplaceId) {
       const { data, error } = await supabase.from("video_submissions").insert({
-        patient_id: null, visitor_id: ownerVal, title: meta.title?.trim() || "Untitled Recording",
+        patient_id: patientId, visitor_id: null, title: meta.title?.trim() || "Untitled Recording",
         description: meta.description ?? null, type: meta.type, status: "uploading",
         size_mb: sizeMb, duration_seconds: duration, submitted_at: new Date().toISOString(),
       }).select("*").single();
@@ -362,64 +380,151 @@ export default function RealTimeVideoSystem() {
     return Object.entries(g).sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime());
   }, [rows]);
 
+  // Show loading state while checking authentication
+  if (authLoading) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardContent className="p-8 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading video system...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Show authentication required message
+  if (!isAuthenticated || !patientId) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardContent className="p-8 text-center">
+            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Authentication Required</h3>
+            <p className="text-gray-600">Please sign in to access the video recording system.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <ToastHost items={toasts} onClose={dismiss} />
 
-      {/* Header (shows BUILD_TAG) */}
+      {/* Enhanced Header */}
       <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">
-          Mode: guest · <code className="bg-gray-100 px-1 rounded">{ownerVal}</code> · <span className="font-mono">build:{BUILD_TAG}</span>
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-muted-foreground">
+            <span className="font-medium">Recording Mode:</span> patient · <code className="bg-gray-100 px-2 py-1 rounded text-xs">{patient?.first_name || 'User'}</code>
+          </div>
+          <div className="text-xs text-gray-500 font-mono">
+            build: {BUILD_TAG}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <input ref={uploadInputRef} type="file" accept="video/*" className="hidden" onChange={onUploadFileChange} />
-          <Button variant="outline" size="sm" onClick={openUploadPicker}><PlusCircle className="w-4 h-4 mr-1" /> Upload File</Button>
+          <Button variant="outline" size="sm" onClick={openUploadPicker}>
+            <PlusCircle className="w-4 h-4 mr-2" /> 
+            Upload File
+          </Button>
+          <Button variant="outline" size="sm">
+            <Settings className="w-4 h-4 mr-2" />
+            Settings
+          </Button>
         </div>
       </div>
 
       {banner.kind && <InlineBanner kind={banner.kind} title={banner.title || ""} desc={banner.desc} />}
 
-      {/* Recorder */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><VideoIcon className="h-5 w-5 text-red-600" /> Real-time Video Submission</CardTitle>
-          <CardDescription>Record, preview instantly, then upload</CardDescription>
+      {/* Enhanced Recorder */}
+      <Card className="shadow-lg">
+        <CardHeader className="bg-gradient-to-r from-red-50 to-pink-50 border-b">
+          <CardTitle className="flex items-center gap-3">
+            <div className="bg-red-100 p-2 rounded-lg">
+              <VideoIcon className="h-6 w-6 text-red-600" />
+            </div>
+            <div>
+              <div className="text-xl font-bold text-gray-900">Real-time Video Submission</div>
+              <div className="text-sm text-gray-600 font-normal">Record, preview instantly, then upload</div>
+            </div>
+          </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {err && <div className="text-sm text-red-600">{err}</div>}
+        <CardContent className="p-6 space-y-6">
+          {err && (
+            <Alert className="border-red-200 bg-red-50">
+              <AlertCircle className="h-4 w-4 text-red-600" />
+              <AlertDescription className="text-red-800">{err}</AlertDescription>
+            </Alert>
+          )}
 
-          <div className="relative bg-gray-900 rounded-lg overflow-hidden aspect-video">
+          {/* Enhanced Video Container */}
+          <div className="relative bg-gray-900 rounded-xl overflow-hidden aspect-video shadow-2xl">
             <video ref={videoRef} autoPlay muted className="w-full h-full object-cover" />
+            
+            {/* Placeholder when not recording */}
             {!isRecording && !recordedPreviewUrl && (
-              <div className="absolute inset-0 grid place-items-center text-white/80">
-                <div className="text-center">
-                  <VideoIcon className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">Click start to begin recording</p>
+              <div className="absolute inset-0 grid place-items-center text-white/90">
+                <div className="text-center space-y-4">
+                  <div className="bg-white/10 backdrop-blur-sm rounded-full p-6">
+                    <VideoIcon className="h-16 w-16 mx-auto opacity-80" />
+                  </div>
+                  <div>
+                    <p className="text-lg font-medium">Ready to Record</p>
+                    <p className="text-sm opacity-80">Click start to begin your video recording</p>
+                  </div>
                 </div>
               </div>
             )}
+
+            {/* Recording indicator */}
             {isRecording && (
-              <div className="absolute top-4 left-4 bg-red-600 text-white px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2">
-                <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
-                REC {formatClock(recSecs)}
+              <div className="absolute top-4 left-4 bg-red-600 text-white px-4 py-2 rounded-full text-sm font-medium flex items-center gap-3 shadow-lg">
+                <div className="w-3 h-3 bg-white rounded-full animate-pulse" />
+                <span className="font-mono">REC {formatClock(recSecs)}</span>
               </div>
             )}
+
+            {/* Recording controls overlay */}
+            {isRecording && (
+              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
+                <div className="bg-black/50 backdrop-blur-sm rounded-full px-6 py-3 flex items-center gap-4">
+                  <div className="flex items-center gap-2 text-white">
+                    <Camera className="h-4 w-4" />
+                    <span className="text-sm">Recording</span>
+                  </div>
+                  <div className="w-px h-4 bg-white/30" />
+                  <div className="flex items-center gap-2 text-white">
+                    <Mic className="h-4 w-4" />
+                    <span className="text-sm">Audio</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Preview overlay */}
             {recordedPreviewUrl && !isRecording && showPreviewOverlay && (
-              <div className="absolute inset-0 grid place-items-start p-3">
-                <div className="rounded-md bg-green-600 text-white px-3 py-1 text-xs shadow">Preview ready</div>
-                <div className="absolute inset-0 grid place-items-center bg-black/45">
-                  <div className="bg-white rounded-xl p-4 shadow-md w-[92%] max-w-md text-center space-y-3">
-                    <div className="text-sm font-medium">Your recording is ready.</div>
-                    <div className="text-xs text-muted-foreground">Play to review, retake, or open details to upload.</div>
-                    <div className="flex flex-wrap gap-2 justify-center">
+              <div className="absolute inset-0 grid place-items-start p-4">
+                <div className="rounded-lg bg-green-600 text-white px-4 py-2 text-sm font-medium shadow-lg flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4" />
+                  Preview Ready
+                </div>
+                <div className="absolute inset-0 grid place-items-center bg-black/60 backdrop-blur-sm">
+                  <div className="bg-white rounded-2xl p-6 shadow-2xl w-[95%] max-w-lg text-center space-y-4">
+                    <div className="space-y-2">
+                      <div className="text-lg font-semibold text-gray-900">Recording Complete!</div>
+                      <div className="text-sm text-gray-600">Your video is ready for review and upload</div>
+                    </div>
+                    <div className="flex flex-wrap gap-3 justify-center">
                       <Button size="sm" onClick={() => { videoRef.current?.play().catch(() => {}); setShowPreviewOverlay(false); }}>
-                        <Play className="h-3 w-3 mr-1" /> Play
+                        <Play className="h-4 w-4 mr-2" /> Play Preview
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => { if (recordedPreviewUrl) URL.revokeObjectURL(recordedPreviewUrl); setRecordedPreviewUrl(null); setRecordedBlob(null); setShowPreviewOverlay(false); }}>
-                        <RotateCcw className="h-3 w-3 mr-1" /> Retake
+                        <RotateCcw className="h-4 w-4 mr-2" /> Retake
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => { setShowPreviewOverlay(false); document.getElementById("preview-card-anchor")?.scrollIntoView({ behavior: "smooth" }); }}>
-                        Open details
+                        <Settings className="h-4 w-4 mr-2" /> Configure & Upload
                       </Button>
                     </div>
                   </div>
@@ -428,117 +533,284 @@ export default function RealTimeVideoSystem() {
             )}
           </div>
 
+          {/* Enhanced Controls */}
           <div className="flex justify-center gap-4">
             {!isRecording ? (
-              <Button onClick={startRecording} className="bg-red-600 hover:bg-red-700"><VideoIcon className="h-4 w-4 mr-2" /> Start Recording</Button>
+              <Button 
+                onClick={startRecording} 
+                size="lg"
+                className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
+              >
+                <VideoIcon className="h-5 w-5 mr-3" /> 
+                Start Recording
+              </Button>
             ) : (
-              <Button onClick={stopRecording} variant="outline"><VideoIcon className="h-4 w-4 mr-2" /> Stop Recording</Button>
+              <Button 
+                onClick={stopRecording} 
+                size="lg"
+                variant="outline" 
+                className="border-red-300 text-red-600 hover:bg-red-50 px-8 py-3 rounded-xl"
+              >
+                <VideoIcon className="h-5 w-5 mr-3" /> 
+                Stop Recording
+              </Button>
             )}
           </div>
 
-          {/* Recorded preview card */}
+          {/* Enhanced Recorded preview card */}
           {recordedPreviewUrl && !isRecording && (
-            <div id="preview-card-anchor" className="space-y-4 p-4 border rounded-lg bg-gray-50">
-              <h4 className="font-medium">Preview & Submit</h4>
-              <video key={recordedPreviewUrl} controls src={recordedPreviewUrl} className="w-full rounded-md" />
-              <Meta form={form} setForm={setForm} />
-              <div className="flex gap-2">
-                <Button className="flex-1" onClick={submitRecorded}><Upload className="h-4 w-4 mr-2" /> Upload Recording</Button>
-                <Button className="flex-1" variant="outline" onClick={() => { if (recordedPreviewUrl) URL.revokeObjectURL(recordedPreviewUrl); setRecordedPreviewUrl(null); setRecordedBlob(null); setShowPreviewOverlay(false); }}>
+            <div id="preview-card-anchor" className="space-y-6 p-6 border-2 border-blue-200 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-100 p-2 rounded-lg">
+                  <Play className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-900">Preview & Submit</h4>
+                  <p className="text-sm text-gray-600">Review your recording and add details before uploading</p>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <video key={recordedPreviewUrl} controls src={recordedPreviewUrl} className="w-full rounded-lg shadow-sm" />
+              </div>
+              
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <Meta form={form} setForm={setForm} />
+              </div>
+              
+              <div className="flex gap-3">
+                <Button 
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200" 
+                  onClick={submitRecorded}
+                >
+                  <Upload className="h-5 w-5 mr-2" /> 
+                  Upload Recording
+                </Button>
+                <Button 
+                  className="flex-1 border-gray-300 text-gray-700 hover:bg-gray-50 py-3 rounded-lg" 
+                  variant="outline" 
+                  onClick={() => { if (recordedPreviewUrl) URL.revokeObjectURL(recordedPreviewUrl); setRecordedPreviewUrl(null); setRecordedBlob(null); setShowPreviewOverlay(false); }}
+                >
+                  <X className="h-5 w-5 mr-2" />
                   Cancel
                 </Button>
               </div>
             </div>
           )}
 
-          {/* Picked file preview card */}
+          {/* Enhanced Picked file preview card */}
           {pendingFile && pendingPreviewUrl && (
-            <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
-              <h4 className="font-medium">File Preview & Submit</h4>
-              <video key={pendingPreviewUrl} controls src={pendingPreviewUrl} className="w-full rounded-md" />
-              <Meta form={form} setForm={setForm} />
-              <div className="flex gap-2">
-                <Button className="flex-1" onClick={submitPendingFile}><Upload className="h-4 w-4 mr-2" /> Upload File</Button>
-                <Button className="flex-1" variant="outline" onClick={clearPendingFile}>Cancel</Button>
+            <div className="space-y-6 p-6 border-2 border-green-200 rounded-xl bg-gradient-to-br from-green-50 to-emerald-50">
+              <div className="flex items-center gap-3">
+                <div className="bg-green-100 p-2 rounded-lg">
+                  <Upload className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-900">File Preview & Submit</h4>
+                  <p className="text-sm text-gray-600">Review your uploaded file and add details before submitting</p>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <video key={pendingPreviewUrl} controls src={pendingPreviewUrl} className="w-full rounded-lg shadow-sm" />
+              </div>
+              
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <Meta form={form} setForm={setForm} />
+              </div>
+              
+              <div className="flex gap-3">
+                <Button 
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg shadow-lg hover:shadow-xl transition-all duration-200" 
+                  onClick={submitPendingFile}
+                >
+                  <Upload className="h-5 w-5 mr-2" /> 
+                  Upload File
+                </Button>
+                <Button 
+                  className="flex-1 border-gray-300 text-gray-700 hover:bg-gray-50 py-3 rounded-lg" 
+                  variant="outline" 
+                  onClick={clearPendingFile}
+                >
+                  <X className="h-5 w-5 mr-2" />
+                  Cancel
+                </Button>
               </div>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* History */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5 text-blue-600" /> Submission Status</CardTitle>
-          <CardDescription>Uploaded videos are playable below</CardDescription>
+      {/* Enhanced History */}
+      <Card className="shadow-lg">
+        <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b">
+          <CardTitle className="flex items-center gap-3">
+            <div className="bg-blue-100 p-2 rounded-lg">
+              <Upload className="h-6 w-6 text-blue-600" />
+            </div>
+            <div>
+              <div className="text-xl font-bold text-gray-900">Submission Status</div>
+              <div className="text-sm text-gray-600 font-normal">Uploaded videos are playable below</div>
+            </div>
+          </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
+        <CardContent className="p-6">
+          <div className="space-y-6">
             {rows.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">No video submissions yet.</p>
+              <div className="text-center py-12">
+                <div className="bg-gray-100 rounded-full p-6 w-24 h-24 mx-auto mb-4 flex items-center justify-center">
+                  <Video className="h-12 w-12 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Video Submissions Yet</h3>
+                <p className="text-gray-600 mb-6">Start recording or upload videos to see them here</p>
+                <div className="flex gap-3 justify-center">
+                  <Button onClick={startRecording}>
+                    <Video className="h-4 w-4 mr-2" />
+                    Start Recording
+                  </Button>
+                  <Button variant="outline" onClick={openUploadPicker}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload File
+                  </Button>
+                </div>
+              </div>
             ) : (
               groupedByDate(rows).map(([date, items]) => (
-                <div key={date} className="space-y-3">
-                  <div className="text-xs font-medium text-muted-foreground">{date}</div>
-                  {items.map((s) => {
-                    const p = s.status === "completed" ? 100 : s.status === "failed" ? 0 : prog[s.id] ?? (s.status === "processing" ? 90 : 10);
-                    const highlight = highlightId === s.id;
-                    return (
-                      <div id={`row-${s.id}`} key={s.id} className={`border rounded-lg p-4 space-y-3 transition ${highlight ? "ring-2 ring-green-500 animate-pulse" : ""}`}>
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-medium">{s.title}</h4>
-                              {s.status === "completed" ? <CheckCircle className="h-4 w-4 text-green-500" /> : s.status === "failed" ? <AlertCircle className="h-4 w-4 text-red-500" /> : <Clock className="h-4 w-4 text-yellow-500 animate-spin" />}
-                            </div>
-                            <p className="text-sm text-muted-foreground mb-2">{s.description}</p>
-                            {s.video_url && <video controls src={s.video_url} className="w-full max-w-2xl rounded-md mb-2" />}
-                            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                              <span>{formatClock(s.duration_seconds ?? 0)}</span>
-                              <span>{s.size_mb ? `${s.size_mb} MB` : "-"}</span>
-                              <span>{new Date(s.submitted_at).toLocaleString()}</span>
-                            </div>
-                            <div className="mt-2 text-xs">
-                              {s.storage_path && (
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium">path:</span>
-                                  <code className="rounded bg-gray-100 px-1">{truncate(s.storage_path, 64)}</code>
-                                  <IconCopy text={s.storage_path} onCopy={() => pushToast({ title: "Path copied" })} />
-                                </div>
+                <div key={date} className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-1 h-6 bg-blue-500 rounded-full" />
+                    <h3 className="text-lg font-semibold text-gray-900">{date}</h3>
+                    <Badge variant="outline" className="text-xs">{items.length} video{items.length !== 1 ? 's' : ''}</Badge>
+                  </div>
+                  <div className="grid gap-4">
+                    {items.map((s) => {
+                      const p = s.status === "completed" ? 100 : s.status === "failed" ? 0 : prog[s.id] ?? (s.status === "processing" ? 90 : 10);
+                      const highlight = highlightId === s.id;
+                      return (
+                        <div 
+                          id={`row-${s.id}`} 
+                          key={s.id} 
+                          className={`border-2 rounded-xl p-6 space-y-4 transition-all duration-200 ${
+                            highlight 
+                              ? "ring-2 ring-green-500 bg-green-50 border-green-200 shadow-lg" 
+                              : "bg-white hover:shadow-md border-gray-200"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1 space-y-3">
+                              <div className="flex items-center gap-3">
+                                <h4 className="text-lg font-semibold text-gray-900">{s.title}</h4>
+                                {s.status === "completed" ? (
+                                  <CheckCircle className="h-5 w-5 text-green-500" />
+                                ) : s.status === "failed" ? (
+                                  <AlertCircle className="h-5 w-5 text-red-500" />
+                                ) : (
+                                  <Clock className="h-5 w-5 text-yellow-500 animate-spin" />
+                                )}
+                              </div>
+                              
+                              {s.description && (
+                                <p className="text-gray-600">{s.description}</p>
                               )}
+                              
                               {s.video_url && (
+                                <div className="bg-gray-900 rounded-lg overflow-hidden">
+                                  <video controls src={s.video_url} className="w-full max-w-2xl" />
+                                </div>
+                              )}
+                              
+                              <div className="flex items-center gap-6 text-sm text-gray-500">
                                 <div className="flex items-center gap-2">
-                                  <span className="font-medium">url:</span>
-                                  <code className="rounded bg-gray-100 px-1">{truncate(s.video_url, 64)}</code>
-                                  <IconCopy text={s.video_url} onCopy={() => pushToast({ title: "URL copied" })} />
+                                  <Clock className="h-4 w-4" />
+                                  <span>{formatClock(s.duration_seconds ?? 0)}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Upload className="h-4 w-4" />
+                                  <span>{s.size_mb ? `${s.size_mb} MB` : "-"}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Calendar className="h-4 w-4" />
+                                  <span>{new Date(s.submitted_at).toLocaleString()}</span>
+                                </div>
+                              </div>
+                              
+                              {(s.storage_path || s.video_url) && (
+                                <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                                  {s.storage_path && (
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-medium text-gray-600">Storage Path:</span>
+                                      <code className="text-xs bg-white px-2 py-1 rounded border">{truncate(s.storage_path, 64)}</code>
+                                      <IconCopy text={s.storage_path} onCopy={() => pushToast({ title: "Path copied" })} />
+                                    </div>
+                                  )}
+                                  {s.video_url && (
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-medium text-gray-600">Video URL:</span>
+                                      <code className="text-xs bg-white px-2 py-1 rounded border">{truncate(s.video_url, 64)}</code>
+                                      <IconCopy text={s.video_url} onCopy={() => pushToast({ title: "URL copied" })} />
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
+                            
+                            <div className="flex flex-col items-end gap-2">
+                              <div className="flex items-center gap-2">
+                                <Badge className={typeBadge(s.type)}>{s.type.replace("-", " ")}</Badge>
+                                <Badge className={statusBadge(s.status)}>{s.status}</Badge>
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Badge className={typeBadge(s.type)}>{s.type.replace("-", " ")}</Badge>
-                            <Badge className={statusBadge(s.status)}>{s.status}</Badge>
-                          </div>
-                        </div>
-                        {(s.status === "uploading" || s.status === "processing") && (
-                          <div className="space-y-2">
-                            <div className="flex justify-between text-sm"><span className="capitalize">{s.status}...</span><span>{p}%</span></div>
-                            <Progress value={p} className="h-2" />
-                          </div>
-                        )}
-                        <div className="flex justify-end gap-2">
-                          <Button size="sm" variant="outline" onClick={() => openEditInline(s, setForm)}><Edit2 className="h-3 w-3 mr-1" /> Edit Meta</Button>
-                          {s.video_url && (
-                            <>
-                              <a href={s.video_url} target="_blank" rel="noreferrer"><Button size="sm" variant="outline"><Play className="h-3 w-3 mr-1" /> Open</Button></a>
-                              <a href={s.video_url} download><Button size="sm" variant="outline"><Eye className="h-3 w-3 mr-1" /> Download</Button></a>
-                            </>
+                          
+                          {(s.status === "uploading" || s.status === "processing") && (
+                            <div className="space-y-3">
+                              <div className="flex justify-between text-sm font-medium">
+                                <span className="capitalize text-gray-700">{s.status}...</span>
+                                <span className="text-gray-600">{p}%</span>
+                              </div>
+                              <Progress value={p} className="h-3" />
+                            </div>
                           )}
-                          <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700 bg-transparent" onClick={() => handleDelete(s.id)}><Trash2 className="h-3 w-3" /></Button>
+                          
+                          <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
+                            <Button size="sm" variant="outline" onClick={() => openEditInline(s, setForm)}>
+                              <Edit2 className="h-4 w-4 mr-2" /> 
+                              Edit Details
+                            </Button>
+                            {s.video_url && (
+                              <>
+                                <a href={s.video_url} target="_blank" rel="noreferrer">
+                                  <Button size="sm" variant="outline">
+                                    <Play className="h-4 w-4 mr-2" /> 
+                                    Open
+                                  </Button>
+                                </a>
+                                <a href={s.video_url} download>
+                                  <Button size="sm" variant="outline">
+                                    <Download className="h-4 w-4 mr-2" /> 
+                                    Download
+                                  </Button>
+                                </a>
+                                <Button size="sm" variant="outline">
+                                  <Share className="h-4 w-4 mr-2" /> 
+                                  Share
+                                </Button>
+                              </>
+                            )}
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200" 
+                              onClick={() => handleDelete(s.id)}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               ))
             )}
