@@ -13,6 +13,7 @@ import RandomDrugTestManager from "@/components/staff/RandomDrugTestManager";
 import IntakeQueue from "@/components/staff/IntakeQueue";
 import MobileDock from "@/components/staff/MobileDock";
 import ProfileSettings from "@/components/ProfileSettings";
+import IncomingCallNotification from "@/components/call/IncomingCallNotification";
 
 import {
   ShieldCheck,
@@ -356,6 +357,7 @@ export default function StaffDashboardPage() {
       </main>
 
       <MobileDock />
+      <IncomingCallNotification />
     </div>
   );
 

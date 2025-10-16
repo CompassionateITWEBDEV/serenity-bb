@@ -966,28 +966,74 @@ export default function CallRoomPage() {
   // ---------- Ring peer (for IncomingCallBanner) on user_${peer} ----------
   async function ringPeer() {
     if (!peerUserId || !conversationId || !me?.id) return;
+    
+    // Get caller info for better notification
+    const callerName = me.name || me.email || "Caller";
+    const callerAvatar = null; // Avatar not available in current user object
+    
+    // Send to both old format (for compatibility) and new staff-specific format
     const ch = supabase.channel(`user_${peerUserId}`, { config: { broadcast: { ack: true } } });
-    await new Promise<void>((res, rej) => {
-      const to = setTimeout(() => rej(new Error("subscribe timeout")), 8000);
-      ch.subscribe((s) => {
-        if (s === "SUBSCRIBED") {
-          clearTimeout(to);
-          res();
-        }
-        if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
-          clearTimeout(to);
-          rej(new Error(String(s)));
-        }
-      });
-    });
-    await ch.send({
-      type: "broadcast",
-      event: "invite",
-      payload: { conversationId, fromId: me.id, fromName: me.email || "Caller", mode },
-    });
+    const staffCh = supabase.channel(`staff-calls-${peerUserId}`, { config: { broadcast: { ack: true } } });
+    
     try {
-      supabase.removeChannel(ch);
-    } catch {}
+      // Subscribe to both channels
+      await Promise.all([
+        new Promise<void>((res, rej) => {
+          const to = setTimeout(() => rej(new Error("subscribe timeout")), 8000);
+          ch.subscribe((s) => {
+            if (s === "SUBSCRIBED") {
+              clearTimeout(to);
+              res();
+            }
+            if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+              clearTimeout(to);
+              rej(new Error(String(s)));
+            }
+          });
+        }),
+        new Promise<void>((res, rej) => {
+          const to = setTimeout(() => rej(new Error("staff subscribe timeout")), 8000);
+          staffCh.subscribe((s) => {
+            if (s === "SUBSCRIBED") {
+              clearTimeout(to);
+              res();
+            }
+            if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+              clearTimeout(to);
+              rej(new Error(String(s)));
+            }
+          });
+        })
+      ]);
+
+      // Send old format for compatibility
+      await ch.send({
+        type: "broadcast",
+        event: "invite",
+        payload: { conversationId, fromId: me.id, fromName: callerName, mode },
+      });
+
+      // Send new staff-specific format
+      await staffCh.send({
+        type: "broadcast",
+        event: "incoming-call",
+        payload: {
+          conversationId,
+          callerId: me.id,
+          callerName,
+          callerAvatar,
+          mode,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      console.error("Failed to send ring notification:", error);
+    } finally {
+      try {
+        supabase.removeChannel(ch);
+        supabase.removeChannel(staffCh);
+      } catch {}
+    }
   }
 
   async function byePeer() {
