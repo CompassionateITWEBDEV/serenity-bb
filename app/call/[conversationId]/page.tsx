@@ -26,6 +26,8 @@ import {
   MoreVertical,
   ArrowLeft,
 } from "lucide-react";
+import DeviceStatusIndicator from "@/components/accessibility/DeviceStatusIndicator";
+import AccessibilityHelp from "@/components/accessibility/AccessibilityHelp";
 
 /**
  * Optional TURN/STUN via env:
@@ -2078,6 +2080,20 @@ export default function CallRoomPage() {
         </div>
       </div>
 
+      {/* Accessibility Status Indicator */}
+      {status === "connected" && (
+        <DeviceStatusIndicator
+          hasMicrophone={hasAudio === true}
+          hasCamera={hasVideo === true}
+          mode={mode}
+          isFallbackMode={isFallbackStream}
+          onSwitchToChat={() => {
+            const messagesUrl = me?.role ? getMessagesUrl(me.role) : '/dashboard/messages';
+            router.push(messagesUrl);
+          }}
+        />
+      )}
+
       {/* Main Content */}
       <div className="flex-1 p-6">
         {isMinimized ? (
@@ -2150,6 +2166,9 @@ export default function CallRoomPage() {
             audioLevel={audioLevel}
           />
       )}
+
+      {/* Accessibility Help */}
+      <AccessibilityHelp />
     </div>
   );
 }
