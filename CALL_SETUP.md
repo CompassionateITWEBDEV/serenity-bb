@@ -138,3 +138,4 @@ No additional environment variables are required. The system uses your existing 
 - No call data is stored on servers
 - Call history only stores metadata (no recordings)
 - RLS policies ensure users only see their own call history
+
