@@ -21,7 +21,6 @@ import {
   Maximize2,
   Minimize2,
   Users,
-  Volume2,
   VolumeX,
   MoreVertical,
   ArrowLeft,
@@ -340,6 +339,7 @@ export default function CallRoomPage() {
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [isCheckingDevices, setIsCheckingDevices] = useState(false);
   const [connectionTimeout, setConnectionTimeout] = useState<NodeJS.Timeout | null>(null);
+  const supabaseChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -1023,14 +1023,23 @@ export default function CallRoomPage() {
   const threadChannel = useMemo(() => `thread_${conversationId}`, [conversationId]);
 
   const sendSignal = useCallback((payload: SigPayload) => {
-    if (!threadChanRef.current) return;
-    void threadChanRef.current.send({ type: "broadcast", event: "signal", payload });
+    if (!supabaseChannelRef.current) {
+      console.warn("Cannot send signal: supabaseChannelRef.current is null");
+      return;
+    }
+    try {
+      supabaseChannelRef.current.send({ type: "broadcast", event: "signal", payload });
+      console.log(`✅ Sent signal: ${payload.kind}`);
+    } catch (error) {
+      console.error("Failed to send signal:", error);
+    }
   }, []);
 
   useEffect(() => {
     if (!conversationId || !me?.id) return;
 
     const ch = supabase.channel(threadChannel, { config: { broadcast: { ack: true } } });
+    supabaseChannelRef.current = ch; // Store the channel instance
 
     ch.on("broadcast", { event: "signal" }, async (e) => {
       const msg = (e.payload || {}) as SigPayload;
@@ -1107,11 +1116,14 @@ export default function CallRoomPage() {
 
     return () => {
       try {
-        supabase.removeChannel(ch);
+        if (supabaseChannelRef.current) {
+          supabase.removeChannel(supabaseChannelRef.current);
+          supabaseChannelRef.current = null;
+        }
       } catch {}
       threadChanRef.current = null;
     };
-  }, [conversationId, ensurePC, me?.id, sendSignal, threadChannel]);
+  }, [conversationId, ensurePC, me?.id, threadChannel]);
 
   // ---------- Ring peer (for IncomingCallBanner) on user_${peer} ----------
   async function ringPeer() {
