@@ -11,7 +11,9 @@ const nextConfig = {
   },
   // Disable Turbopack to avoid ChunkLoadError
   experimental: {
-    turbo: false,
+    turbo: {
+      rules: {}
+    },
   },
 };
 
