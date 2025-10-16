@@ -339,6 +339,7 @@ export default function CallRoomPage() {
   const [showModeSelector, setShowModeSelector] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [isCheckingDevices, setIsCheckingDevices] = useState(false);
+  const [connectionTimeout, setConnectionTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -592,18 +593,50 @@ export default function CallRoomPage() {
     };
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState;
+      console.log(`🔗 PeerConnection state changed: ${s}`);
+      
       if (s === "connected") {
         setStatus("connected");
         callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
         // Start audio level monitoring when connected
         startAudioLevelMonitoring();
-      }
-      if (s === "failed" || s === "disconnected" || s === "closed") {
+        // Clear connection timeout
+        if (connectionTimeout) {
+          clearTimeout(connectionTimeout);
+          setConnectionTimeout(null);
+        }
+      } else if (s === "connecting") {
+        setStatus("connecting");
+      } else if (s === "failed" || s === "disconnected" || s === "closed") {
         setStatus("ended");
         callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
         // Stop audio level monitoring when disconnected
         stopAudioLevelMonitoring();
+        // Clear connection timeout
+        if (connectionTimeout) {
+          clearTimeout(connectionTimeout);
+          setConnectionTimeout(null);
+        }
       }
+    };
+
+    // Add ICE connection state monitoring
+    pc.oniceconnectionstatechange = () => {
+      const iceState = pc.iceConnectionState;
+      console.log(`🧊 ICE connection state: ${iceState}`);
+      
+      if (iceState === "connected" || iceState === "completed") {
+        console.log("✅ ICE connection established");
+      } else if (iceState === "failed") {
+        console.error("❌ ICE connection failed - trying to restart ICE");
+        // Try to restart ICE gathering
+        pc.restartIce();
+      }
+    };
+
+    // Add ICE gathering state monitoring
+    pc.onicegatheringstatechange = () => {
+      console.log(`🧊 ICE gathering state: ${pc.iceGatheringState}`);
     };
     pc.ontrack = (ev) => {
       console.log(`📡 Received remote ${ev.track.kind} track:`, ev.track.label);
@@ -612,6 +645,13 @@ export default function CallRoomPage() {
         remoteStreamRef.current = new MediaStream();
         console.log('🆕 Created new remote stream');
       }
+      
+      // Remove existing tracks of the same kind to avoid duplicates
+      const existingTracks = remoteStreamRef.current.getTracks().filter(t => t.kind === ev.track.kind);
+      existingTracks.forEach(track => {
+        remoteStreamRef.current!.removeTrack(track);
+        track.stop();
+      });
       
       remoteStreamRef.current.addTrack(ev.track);
       console.log(`✅ Added ${ev.track.kind} track to remote stream. Total tracks:`, {
@@ -982,9 +1022,12 @@ export default function CallRoomPage() {
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
+          console.log(`🧊 Adding ICE candidate:`, msg.candidate);
           await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-        } catch {
-          /* ignore */
+          console.log(`✅ ICE candidate added successfully`);
+        } catch (error) {
+          console.warn(`⚠️ Failed to add ICE candidate:`, error);
+          // Don't ignore - this might be important for connection
         }
       } else if (msg.kind === "bye") {
         endCall(true);
@@ -1116,27 +1159,38 @@ export default function CallRoomPage() {
       // Set the video element source using the setup function
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
 
-    // 2) Add tracks to PC
-    const pc = ensurePC();
-    localStreamRef.current.getTracks().forEach((t) => {
-      console.log(`Adding ${t.kind} track to peer connection:`, t.label);
-      pc.addTrack(t, localStreamRef.current!);
-    });
+      // 2) Add tracks to PC
+      const pc = ensurePC();
+      localStreamRef.current.getTracks().forEach((t) => {
+        console.log(`Adding ${t.kind} track to peer connection:`, t.label);
+        pc.addTrack(t, localStreamRef.current!);
+      });
 
-    // 3) If caller, create offer + send + ring
-    if (role === "caller") {
+      // 3) If caller, create offer + send + ring
+      if (role === "caller") {
         setStatus("ringing");
         callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
         
-      const offer = await pc.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: mode === "video",
-      });
-      console.log('Created offer with audio:', offer.sdp?.includes('m=audio'));
-      await pc.setLocalDescription(offer);
-      sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
-      await ringPeer(); // show IncomingCallBanner on the peer
-    }
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: mode === "video",
+        });
+        console.log('Created offer with audio:', offer.sdp?.includes('m=audio'));
+        console.log('Created offer with video:', offer.sdp?.includes('m=video'));
+        await pc.setLocalDescription(offer);
+        sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
+        await ringPeer(); // show IncomingCallBanner on the peer
+        
+        // Set connection timeout (30 seconds)
+        const timeout = setTimeout(() => {
+          if (status !== "connected") {
+            console.warn("⚠️ Connection timeout - no response from peer");
+            setStatus("failed");
+            setMediaError("Connection timeout. The other person may not be available or there may be a network issue.");
+          }
+        }, 30000);
+        setConnectionTimeout(timeout);
+      }
     } catch (error) {
       console.error("Failed to start call:", error);
       setStatus("failed");
@@ -1151,6 +1205,15 @@ export default function CallRoomPage() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authChecked, me?.id]);
+
+  // Cleanup connection timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (connectionTimeout) {
+        clearTimeout(connectionTimeout);
+      }
+    };
+  }, [connectionTimeout]);
 
   // ---------- Controls ----------
   const toggleMute = useCallback(() => {
