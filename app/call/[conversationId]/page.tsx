@@ -46,6 +46,7 @@ export default function CallPage() {
   const role = qs.get("role") || "caller";
   const peerUserId = qs.get("peer") || "";
   const peerName = qs.get("peerName") || "Unknown";
+  const autoAccept = qs.get("autoAccept") === "true";
 
   // State
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
@@ -485,6 +486,28 @@ export default function CallPage() {
     }
   }, [me?.id, peerUserId, status, startCall]);
 
+  // Auto-accept call for callees (staff receiving calls)
+  useEffect(() => {
+    if (autoAccept && role === "callee" && me?.id && peerUserId && status === "idle") {
+      console.log('🎯 Auto-accepting incoming call...');
+      // Small delay to ensure everything is ready
+      setTimeout(() => {
+        console.log('🎯 Executing auto-accept...');
+        startCall();
+      }, 1000);
+      
+      // Fallback: force start call after 3 seconds if still idle
+      const fallbackTimeout = setTimeout(() => {
+        if (status === "idle") {
+          console.log('🎯 Fallback auto-accept triggered...');
+          startCall();
+        }
+      }, 3000);
+      
+      return () => clearTimeout(fallbackTimeout);
+    }
+  }, [autoAccept, role, me?.id, peerUserId, status, startCall]);
+
   // Handle incoming signals
   useEffect(() => {
     if (!conversationId || !me?.id) return;
@@ -692,6 +715,28 @@ export default function CallPage() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4"></div>
           <p className="text-white">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show waiting screen for callees
+  if (status === "idle" && role === "callee") {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4"></div>
+          <p className="text-white text-lg mb-2">
+            {autoAccept ? "Auto-accepting call..." : "Waiting for call..."}
+          </p>
+          <p className="text-gray-400 text-sm">
+            Ready to receive incoming call from {peerName}
+          </p>
+          {autoAccept && (
+            <p className="text-cyan-400 text-xs mt-2">
+              Call will be accepted automatically
+            </p>
+          )}
         </div>
       </div>
     );
