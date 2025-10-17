@@ -11,19 +11,9 @@ export default function IncomingCallNotification() {
   const [isVisible, setIsVisible] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
 
-  // Debug logging
-  useEffect(() => {
-    console.log('🔔 IncomingCallNotification state:', {
-      incomingCall,
-      isRinging,
-      isVisible
-    });
-  }, [incomingCall, isRinging, isVisible]);
-
   // Show notification when there's an incoming call
   useEffect(() => {
     if (incomingCall && isRinging) {
-      console.log('🔔 Showing incoming call notification:', incomingCall);
       setIsVisible(true);
       
       // Play notification sound if enabled
@@ -31,7 +21,6 @@ export default function IncomingCallNotification() {
         playNotificationSound();
       }
     } else {
-      console.log('🔔 Hiding incoming call notification');
       setIsVisible(false);
     }
   }, [incomingCall, isRinging, soundEnabled]);

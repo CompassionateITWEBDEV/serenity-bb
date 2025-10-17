@@ -22,20 +22,7 @@ export function useIncomingCall() {
   const acceptCall = useCallback(() => {
     if (!incomingCall) return;
     
-    console.log('📞 Accepting incoming call:', incomingCall);
-    
-    // Build the new URL with all parameters
-    const params = new URLSearchParams();
-    params.set("role", "callee");
-    params.set("peer", incomingCall.callerId);
-    params.set("peerName", incomingCall.callerName);
-    params.set("mode", incomingCall.mode);
-    params.set("autoAccept", "true");
-
-    // Redirect to the call page (unified for both audio and video)
-    const callUrl = `/call/${incomingCall.conversationId}?${params.toString()}`;
-    
-    console.log('📞 Redirecting to call URL:', callUrl);
+    const callUrl = `/call/${incomingCall.conversationId}?role=callee&mode=${incomingCall.mode}&peer=${encodeURIComponent(incomingCall.callerId)}&peerName=${encodeURIComponent(incomingCall.callerName)}&autoAccept=true`;
     router.push(callUrl);
     setIncomingCall(null);
     setIsRinging(false);
@@ -70,113 +57,56 @@ export function useIncomingCall() {
     let mounted = true;
 
     const setupIncomingCallListener = async () => {
-      try {
-        console.log('🎧 Setting up incoming call listener...');
-        
-        // Get current user
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user || !mounted) {
-          console.log('❌ No user or component unmounted');
-          return;
-        }
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !mounted) return;
 
-        console.log('👤 Current user:', user.id);
+      // Check if user is staff
+      const { data: staffData } = await supabase
+        .from("staff")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .single();
 
-        // Check if user is staff - with more robust detection
-        let isStaff = false;
-        
-        try {
-          const { data: staffData, error: staffError } = await supabase
-            .from("staff")
-            .select("user_id")
-            .eq("user_id", user.id)
-            .single();
+      if (!staffData || !mounted) return;
 
-          if (staffError) {
-            console.warn('⚠️ Staff check failed, trying alternative detection:', staffError);
-            
-            // Alternative: Check if user is on staff messages page
-            const currentPath = window.location.pathname;
-            if (currentPath.includes('/staff/')) {
-              console.log('✅ User detected as staff via URL path');
-              isStaff = true;
-            } else {
-              console.log('❌ User not detected as staff');
-              return;
+      // Listen for incoming calls via real-time
+      const channel = supabase.channel(`staff-calls-${user.id}`, {
+        config: { broadcast: { ack: true } }
+      });
+
+      channel
+        .on("broadcast", { event: "incoming-call" }, (payload) => {
+          if (!mounted) return;
+          
+          const callData = payload.payload as IncomingCall;
+          console.log("Incoming call received:", callData);
+          
+          setIncomingCall(callData);
+          setIsRinging(true);
+          
+          // Auto-decline after 30 seconds if not answered
+          setTimeout(() => {
+            if (mounted && isRinging) {
+              declineCall();
             }
-          } else if (staffData) {
-            console.log('✅ User confirmed as staff via database');
-            isStaff = true;
+          }, 30000);
+        })
+        .on("broadcast", { event: "call-cancelled" }, (payload) => {
+          if (!mounted) return;
+          
+          const { conversationId } = payload.payload as { conversationId: string };
+          if (incomingCall?.conversationId === conversationId) {
+            setIncomingCall(null);
+            setIsRinging(false);
           }
-        } catch (error) {
-          console.warn('⚠️ Staff detection error, trying URL-based detection:', error);
-          const currentPath = window.location.pathname;
-          if (currentPath.includes('/staff/')) {
-            console.log('✅ User detected as staff via URL path (fallback)');
-            isStaff = true;
-          } else {
-            console.log('❌ User not detected as staff');
-            return;
-          }
-        }
+        })
+        .subscribe();
 
-        if (!isStaff || !mounted) {
-          console.log('❌ User is not staff or component unmounted');
-          return;
-        }
-
-        // Listen for incoming calls via real-time
-        const channel = supabase.channel(`staff-calls-${user.id}`, {
-          config: { broadcast: { ack: true } }
-        });
-
-        console.log('📡 Subscribing to channel:', `staff-calls-${user.id}`);
-
-        channel
-          .on("broadcast", { event: "incoming-call" }, (payload) => {
-            if (!mounted) return;
-            
-            const callData = payload.payload as IncomingCall;
-            console.log("📞 Incoming call received:", callData);
-            
-            setIncomingCall(callData);
-            setIsRinging(true);
-            
-            // Auto-decline after 30 seconds if not answered
-            setTimeout(() => {
-              if (mounted && isRinging) {
-                console.log('⏰ Auto-declining call after timeout');
-                declineCall();
-              }
-            }, 30000);
-          })
-          .on("broadcast", { event: "call-cancelled" }, (payload) => {
-            if (!mounted) return;
-            
-            const { conversationId } = payload.payload as { conversationId: string };
-            if (incomingCall?.conversationId === conversationId) {
-              console.log('📞 Call cancelled:', conversationId);
-              setIncomingCall(null);
-              setIsRinging(false);
-            }
-          })
-          .subscribe((status) => {
-            console.log('📡 Channel subscription status:', status);
-            if (status === 'SUBSCRIBED') {
-              console.log('✅ Successfully subscribed to incoming call channel');
-            } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-              console.error('❌ Channel subscription failed:', status);
-            }
-          });
-
-        return () => {
-          mounted = false;
-          console.log('🧹 Cleaning up incoming call listener');
-          supabase.removeChannel(channel);
-        };
-      } catch (error) {
-        console.error('❌ Failed to setup incoming call listener:', error);
-      }
+      return () => {
+        mounted = false;
+        supabase.removeChannel(channel);
+      };
     };
 
     setupIncomingCallListener();
