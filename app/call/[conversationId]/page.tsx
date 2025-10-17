@@ -186,6 +186,14 @@ export default function CallPage() {
         
         // Force video to load
         video.load();
+        
+        // Force play immediately after setting srcObject
+        setTimeout(() => {
+          if (video.paused) {
+            console.log(`🔄 Force playing ${isLocal ? 'local' : 'remote'} video immediately...`);
+            video.play().catch(console.warn);
+          }
+        }, 100);
       } catch (videoError) {
         console.warn('⚠️ Error setting video properties:', videoError);
       }
@@ -195,16 +203,7 @@ export default function CallPage() {
       try {
         console.log(`🎬 Attempting to play ${isLocal ? 'local' : 'remote'} video...`);
         
-        // Wait a bit for the video to be ready
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Check if video is ready to play
-        if (video.readyState < 2) {
-          console.log(`⏳ Video not ready yet, waiting...`);
-          return;
-        }
-        
-        // Try to play the video
+        // Force play immediately - don't wait for readyState
         const playPromise = video.play();
         
         // Handle play promise
@@ -228,14 +227,24 @@ export default function CallPage() {
           }, 500);
         }
         
-        // Verify video is actually playing
+        // Verify video is actually playing and force play if needed
         setTimeout(() => {
           if (video.readyState >= 2 && video.videoWidth > 0) {
             console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video verified: ${video.videoWidth}x${video.videoHeight}`);
           } else {
             console.warn(`⚠️ ${isLocal ? 'Local' : 'Remote'} video not ready: readyState=${video.readyState}, dimensions=${video.videoWidth}x${video.videoHeight}`);
+            // Force play again
+            video.play().catch(console.warn);
           }
         }, 1000);
+        
+        // Additional fallback - force play after 2 seconds regardless of readyState
+        setTimeout(() => {
+          if (video.paused) {
+            console.log(`🔄 Force playing ${isLocal ? 'local' : 'remote'} video after timeout...`);
+            video.play().catch(console.warn);
+          }
+        }, 2000);
         
       } catch (err) {
         console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
