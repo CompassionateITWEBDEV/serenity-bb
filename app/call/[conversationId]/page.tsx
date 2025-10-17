@@ -423,7 +423,7 @@ export default function CallPage() {
     }
   }, [conversationId, threadChannel]);
 
-  // Start call
+  // Start call - simplified for both caller and callee
   const startCall = useCallback(async () => {
     if (!me?.id || !peerUserId) return;
 
@@ -432,203 +432,49 @@ export default function CallPage() {
       setStatus("connecting");
       setConnectionError(null);
 
-      // Get local media first
-      console.log('🎥 Getting local media...');
+      // Get local media
       localStreamRef.current = await getMediaStream();
       setDebugInfo(prev => ({ ...prev, localStream: true }));
-      console.log('✅ Local media acquired');
       
-      // Setup video element immediately
-      console.log('🎥 Setting up local video element...');
-      const videoSetupSuccess = setupVideoElement(localVideoRef, localStreamRef.current, true);
-      if (videoSetupSuccess) {
-        console.log('✅ Local video element setup successful');
-        // Force connection to connected state after video is set up
-        setTimeout(() => {
-          setStatus("connected");
-          console.log('✅ Call status set to connected');
-        }, 1000);
-      } else {
-        console.warn('⚠️ Failed to setup local video element');
-      }
-
+      // Setup video element
+      setupVideoElement(localVideoRef, localStreamRef.current, true);
+      
       // Setup peer connection
       const pc = ensurePC();
-      console.log('🔗 Adding tracks to peer connection...');
       localStreamRef.current.getTracks().forEach((track) => {
-        console.log(`➕ Adding ${track.kind} track:`, track.label, track.enabled);
         pc.addTrack(track, localStreamRef.current!);
       });
-      
-      // Verify tracks were added
-      const senders = pc.getSenders();
-      console.log('📤 Peer connection senders:', senders.length);
-      senders.forEach((sender, index) => {
-        console.log(`Sender ${index}:`, {
-          track: sender.track?.kind,
-          label: sender.track?.label,
-          enabled: sender.track?.enabled
-        });
-      });
 
-      // Create offer
-      const offer = await pc.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: mode === "video",
-      });
-      await pc.setLocalDescription(offer);
+      // If caller, create and send offer
+      if (role === "caller") {
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: mode === "video",
+        });
+        await pc.setLocalDescription(offer);
+        await sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
+        console.log('✅ Offer sent');
+      }
       
-      // Send offer with retry mechanism
-      const sendOffer = async (retryCount = 0) => {
-        try {
-          console.log(`📤 Sending offer (attempt ${retryCount + 1})...`);
-          await sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
-          console.log('✅ Offer sent successfully');
-        } catch (error) {
-          console.warn(`⚠️ Failed to send offer (attempt ${retryCount + 1}):`, error);
-          if (retryCount < 3) {
-            setTimeout(() => sendOffer(retryCount + 1), 1000 * (retryCount + 1));
-          }
-        }
-      };
+      // Set to connected state
+      setStatus("connected");
+      console.log('✅ Call connected');
       
-      // Send offer immediately
-      sendOffer();
-      
-      // Also send offer after a delay to ensure callee is ready
-      setTimeout(() => {
-        console.log('📤 Sending delayed offer...');
-        sendOffer(1);
-      }, 2000);
-      
-      // Set connection timeout
-      connectionTimeoutRef.current = setTimeout(() => {
-        console.log('⏰ Connection timeout, forcing connection...');
-        setStatus("connected");
-        // Force video elements to play
-        if (localVideoRef.current && localStreamRef.current) {
-          localVideoRef.current.play().catch(console.warn);
-        }
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          remoteVideoRef.current.play().catch(console.warn);
-        }
-      }, 5000); // Reduced to 5 seconds
-      
-      console.log('✅ Call initiated successfully');
     } catch (error) {
       console.error("Failed to start call:", error);
       setConnectionError(error instanceof Error ? error.message : "Failed to start call");
       setStatus("ended");
     }
-  }, [me?.id, peerUserId, getMediaStream, setupVideoElement, ensurePC, sendSignal, mode]);
+  }, [me?.id, peerUserId, getMediaStream, setupVideoElement, ensurePC, sendSignal, mode, role]);
 
-  // Auto-start call when component mounts
+  // Simple call start - works for both caller and callee
   useEffect(() => {
     if (me?.id && peerUserId && status === "idle") {
-      console.log('🚀 Auto-starting call...');
-      // Small delay to ensure everything is ready
-      setTimeout(() => {
-        startCall();
-      }, 500);
+      console.log('🚀 Starting call immediately...');
+      // Start call right away - no delays
+      startCall();
     }
   }, [me?.id, peerUserId, status, startCall]);
-
-  // Prepare for incoming call (callees only)
-  const prepareForCall = useCallback(async () => {
-    if (!me?.id || !peerUserId) return;
-
-    try {
-      console.log('🎯 Preparing for incoming call...');
-      setStatus("connecting");
-      setConnectionError(null);
-
-      // Get local media first
-      console.log('🎥 Getting local media for callee...');
-      localStreamRef.current = await getMediaStream();
-      setDebugInfo(prev => ({ ...prev, localStream: true }));
-      console.log('✅ Callee local media acquired');
-      
-      // Setup video element immediately
-      console.log('🎥 Setting up callee local video element...');
-      const videoSetupSuccess = setupVideoElement(localVideoRef, localStreamRef.current, true);
-      if (videoSetupSuccess) {
-        console.log('✅ Callee local video element setup successful');
-        // Set status to connected after video is set up
-        setTimeout(() => {
-          setStatus("connected");
-          console.log('✅ Callee status set to connected');
-        }, 1000);
-      } else {
-        console.warn('⚠️ Failed to setup callee local video element');
-      }
-
-      // Setup peer connection
-      const pc = ensurePC();
-      console.log('🔗 Callee adding tracks to peer connection...');
-      localStreamRef.current.getTracks().forEach((track) => {
-        console.log(`➕ Callee adding ${track.kind} track:`, track.label, track.enabled);
-        pc.addTrack(track, localStreamRef.current!);
-      });
-      
-      // Verify tracks were added
-      const senders = pc.getSenders();
-      console.log('📤 Callee peer connection senders:', senders.length);
-      senders.forEach((sender, index) => {
-        console.log(`Callee Sender ${index}:`, {
-          track: sender.track?.kind,
-          label: sender.track?.label,
-          enabled: sender.track?.enabled
-        });
-      });
-      
-      console.log('✅ Callee prepared for incoming call');
-    } catch (error) {
-      console.error("Failed to prepare for call:", error);
-      setConnectionError(error instanceof Error ? error.message : "Failed to prepare for call");
-      setStatus("ended");
-    }
-  }, [me?.id, peerUserId, getMediaStream, setupVideoElement, ensurePC]);
-
-  // Auto-accept call for callees (staff receiving calls)
-  useEffect(() => {
-    if (autoAccept && role === "callee" && me?.id && peerUserId) {
-      console.log('🎯 Auto-accepting incoming call...');
-      
-      // Prepare for call immediately
-      prepareForCall();
-      
-      // Also try after a short delay to ensure everything is ready
-      const delayedPrepare = setTimeout(() => {
-        console.log('🎯 Delayed prepare triggered...');
-        prepareForCall();
-      }, 1000);
-      
-      // Fallback: prepare after 3 seconds
-      const fallbackTimeout = setTimeout(() => {
-        console.log('🎯 Fallback prepare triggered...');
-        prepareForCall();
-      }, 3000);
-      
-      // Force connection after 5 seconds if still waiting
-      const forceConnectionTimeout = setTimeout(() => {
-        console.log('🎯 Force connection timeout - forcing to connected state...');
-        setStatus("connected");
-        // Try to get media and setup video
-        if (!localStreamRef.current) {
-          getMediaStream().then(stream => {
-            localStreamRef.current = stream;
-            setupVideoElement(localVideoRef, stream, true);
-          }).catch(console.error);
-        }
-      }, 5000);
-      
-      return () => {
-        clearTimeout(delayedPrepare);
-        clearTimeout(fallbackTimeout);
-        clearTimeout(forceConnectionTimeout);
-      };
-    }
-  }, [autoAccept, role, me?.id, peerUserId, prepareForCall, getMediaStream, setupVideoElement]);
 
   // Handle incoming signals
   useEffect(() => {
@@ -651,62 +497,28 @@ export default function CallPage() {
 
       try {
         if (msg.kind === "webrtc-offer") {
-          console.log('📞 Received offer from peer, answering...');
-          setStatus("connecting");
-
+          console.log('📞 Received offer, answering...');
+          
           // Get local media if not already available
           if (!localStreamRef.current) {
-            console.log('🎥 Callee getting local media...');
             localStreamRef.current = await getMediaStream();
             setDebugInfo(prev => ({ ...prev, localStream: true }));
             setupVideoElement(localVideoRef, localStreamRef.current, true);
             
-            console.log('🔗 Callee adding tracks to peer connection...');
             localStreamRef.current.getTracks().forEach((track) => {
-              console.log(`➕ Callee adding ${track.kind} track:`, track.label, track.enabled);
               pc.addTrack(track, localStreamRef.current!);
-            });
-            
-            // Verify tracks were added
-            const senders = pc.getSenders();
-            console.log('📤 Callee peer connection senders:', senders.length);
-            senders.forEach((sender, index) => {
-              console.log(`Callee Sender ${index}:`, {
-                track: sender.track?.kind,
-                label: sender.track?.label,
-                enabled: sender.track?.enabled
-              });
             });
           }
 
-          // Set remote description and create answer
+          // Handle offer
           await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-          console.log('✅ Callee set remote description');
-          
           const answer = await pc.createAnswer({
             offerToReceiveAudio: true,
             offerToReceiveVideo: mode === "video",
           });
-          console.log('✅ Callee created answer');
-          
           await pc.setLocalDescription(answer);
-          console.log('✅ Callee set local description');
-          
-          // Send answer with retry mechanism
-          const sendAnswer = async (retryCount = 0) => {
-            try {
-              console.log(`📤 Sending answer (attempt ${retryCount + 1})...`);
-              await sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
-              console.log('✅ Answer sent successfully');
-            } catch (error) {
-              console.warn(`⚠️ Failed to send answer (attempt ${retryCount + 1}):`, error);
-              if (retryCount < 3) {
-                setTimeout(() => sendAnswer(retryCount + 1), 1000 * (retryCount + 1));
-              }
-            }
-          };
-          
-          sendAnswer();
+          await sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+          console.log('✅ Answer sent');
         } else if (msg.kind === "webrtc-answer") {
           console.log('📞 Received answer from peer');
           // Check if we can set remote description
@@ -736,11 +548,6 @@ export default function CallPage() {
 
     ch.subscribe();
     
-    // Send a ping to test signaling
-    setTimeout(() => {
-      console.log('📡 Sending ping to test signaling...');
-      sendSignal({ kind: "bye", from: me.id }); // Using bye as ping for now
-    }, 2000);
     
     return () => {
       try {
@@ -887,92 +694,14 @@ export default function CallPage() {
     );
   }
 
-  // Show waiting screen for callees
-  if (status === "idle" && role === "callee") {
-    // Force auto-accept if enabled
-    if (autoAccept && me?.id && peerUserId) {
-      console.log('🎯 Force auto-accept from waiting screen...');
-      setTimeout(() => {
-        prepareForCall();
-      }, 100);
-      
-      // Force connection after 3 seconds if still idle
-      setTimeout(() => {
-        if (status === "idle") {
-          console.log('🎯 Force connection from waiting screen...');
-          setStatus("connecting");
-          prepareForCall();
-        }
-      }, 3000);
-      
-      // Ultimate fallback - force to connected state
-      setTimeout(() => {
-        if (status === "idle" || status === "connecting") {
-          console.log('🎯 Ultimate fallback - forcing connected state...');
-          setStatus("connected");
-          // Get media and setup video
-          getMediaStream().then(stream => {
-            localStreamRef.current = stream;
-            setupVideoElement(localVideoRef, stream, true);
-            setDebugInfo(prev => ({ ...prev, localStream: true }));
-          }).catch(console.error);
-        }
-      }, 6000);
-    }
-    
+  // Show simple loading screen while call starts
+  if (status === "idle") {
     return (
-      <div 
-        className="min-h-screen bg-gray-900 flex items-center justify-center cursor-pointer"
-        onClick={() => {
-          console.log('👆 User clicked - enabling video playback');
-          // This click will enable video playback for the rest of the session
-        }}
-      >
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4"></div>
-          <p className="text-white text-lg mb-2">
-            {autoAccept ? "Auto-accepting call..." : "Waiting for call..."}
-          </p>
-          <p className="text-gray-400 text-sm">
-            Ready to receive incoming call from {peerName}
-          </p>
-          {autoAccept && (
-            <p className="text-cyan-400 text-xs mt-2">
-              Call will be accepted automatically
-            </p>
-          )}
-          <p className="text-yellow-400 text-xs mt-2">
-            Click anywhere to enable video playback
-          </p>
-          {autoAccept && (
-            <div className="mt-4 space-y-2">
-              <Button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  console.log('🎯 Manual auto-accept triggered...');
-                  prepareForCall();
-                }}
-                className="bg-cyan-600 hover:bg-cyan-700 mr-2"
-              >
-                Accept Call Now
-              </Button>
-              <Button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  console.log('🎯 Force connection triggered...');
-                  setStatus("connected");
-                  getMediaStream().then(stream => {
-                    localStreamRef.current = stream;
-                    setupVideoElement(localVideoRef, stream, true);
-                    setDebugInfo(prev => ({ ...prev, localStream: true }));
-                  }).catch(console.error);
-                }}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                Force Connect
-              </Button>
-            </div>
-          )}
+          <p className="text-white text-lg mb-2">Starting call...</p>
+          <p className="text-gray-400 text-sm">Connecting to {peerName}</p>
         </div>
       </div>
     );
@@ -1207,14 +936,11 @@ export default function CallPage() {
 
       {/* Controls */}
       <div className="flex items-center justify-center gap-4 p-6 bg-gray-800 border-t border-gray-700">
-        {status === "idle" ? (
-          <Button
-            onClick={startCall}
-            className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-full text-lg font-semibold"
-          >
-            <Phone className="h-6 w-6 mr-2" />
-            Start Call
-          </Button>
+        {status === "connecting" ? (
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
+            <p className="text-white text-sm">Connecting...</p>
+          </div>
         ) : (
           <div className="flex items-center gap-4">
             {/* Mute/Unmute Button */}
