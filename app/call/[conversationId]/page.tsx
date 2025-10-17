@@ -488,18 +488,41 @@ export default function CallRoomPage() {
       videoElement: !!video
     });
 
+    // Clear existing source to prevent conflicts
+    video.srcObject = null;
+    video.load();
+    
+    // Set new source
     video.srcObject = stream;
     video.muted = isLocal; // Local muted, remote unmuted
     video.autoplay = true;
     video.playsInline = true;
     video.controls = false;
 
-    // Force play
-    video.play().then(() => {
-      console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing`);
-    }).catch(err => {
-      console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
-    });
+    // Safe play with proper error handling
+    const playVideo = async () => {
+      try {
+        // Wait for video to be ready
+        if (video.readyState < 2) {
+          await new Promise((resolve) => {
+            video.addEventListener('loadedmetadata', resolve, { once: true });
+            setTimeout(resolve, 1000); // Fallback timeout
+          });
+        }
+        
+        // Only play if not already playing
+        if (video.paused) {
+          await video.play();
+          console.log(`✅ Video started playing for ${isLocal ? 'local' : 'remote'}`);
+        }
+      } catch (err) {
+        console.warn(`Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
+        // Don't throw - just log the warning
+      }
+    };
+
+    // Use setTimeout to avoid AbortError
+    setTimeout(playVideo, 100);
 
     return true;
   }, []);
@@ -568,17 +591,10 @@ export default function CallRoomPage() {
       console.log('🎯 Setting up local video for both caller and callee...');
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
       
-      // Additional attempts to ensure video displays - same as patient code
+      // Single retry attempt to avoid AbortError
       setTimeout(() => {
         if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force local video (500ms)');
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-      }, 500);
-      
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force local video (1000ms)');
+          console.log('🔄 Single retry for local video (1000ms)');
           setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
         }
       }, 1000);
@@ -724,42 +740,13 @@ export default function CallRoomPage() {
       // Also try with retry mechanism
       setupVideoElementWithRetry(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
       
-      // Force multiple attempts to ensure video displays
+      // Single retry attempt to avoid AbortError
       setTimeout(() => {
         if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force setting remote video (500ms)');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 500);
-      
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force setting remote video (1000ms)');
+          console.log('🔄 Single retry for remote video (1000ms)');
           setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
         }
       }, 1000);
-      
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force setting remote video (2000ms)');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 2000);
-      
-      // Additional aggressive attempts for staff side
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force setting remote video (3000ms)');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 3000);
-      
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force setting remote video (5000ms)');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 5000);
     };
 
     pcRef.current = pc;
@@ -1333,31 +1320,9 @@ export default function CallRoomPage() {
         pc.addTrack(t, localStreamRef.current!);
       });
 
-      // Force local video display for both caller and callee - immediate setup
-      console.log('🎯 Force setting up local video for both caller and callee...');
+      // Set up local video - single call to avoid AbortError
+      console.log('🎯 Setting up local video for both caller and callee...');
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-      
-      // Additional attempts to ensure video displays - same for both roles
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force local video (500ms)');
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-      }, 500);
-      
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force local video (1000ms)');
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-      }, 1000);
-      
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force local video (2000ms)');
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-      }, 2000);
 
       // 3) Simple call flow like Messenger/Zoom
     if (role === "caller") {
