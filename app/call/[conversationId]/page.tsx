@@ -316,7 +316,6 @@ export default function CallRoomPage() {
   const [hasVideo, setHasVideo] = useState<boolean | null>(null);
   const [isFallbackStream, setIsFallbackStream] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
-  const [autoAccept, setAutoAccept] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -451,10 +450,6 @@ export default function CallRoomPage() {
     setPeerInfo({ name: peerName });
   }, [peerName]);
 
-  // Set autoAccept based on role - callees should auto-accept incoming calls
-  useEffect(() => {
-    setAutoAccept(role === "callee");
-  }, [role]);
 
   // Function to ensure video elements are properly set up
   const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal: boolean) => {
@@ -522,13 +517,6 @@ export default function CallRoomPage() {
       
       getAvailableDevices();
       
-      // Auto-start call if autoAccept is true (for incoming calls)
-      if (autoAccept) {
-        console.log('🚀 Auto-accepting call - starting immediately');
-        setTimeout(() => {
-          startOrPrep();
-        }, 500);
-      }
     }
   }, [authChecked, me?.id, mode]);
 
@@ -731,12 +719,40 @@ export default function CallRoomPage() {
       if (!msg || msg.from === me.id) return;
 
       if (msg.kind === "webrtc-offer") {
-        const pc = ensurePC();
-        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        const answer = await pc.createAnswer();
-        console.log('Created answer with audio:', answer.sdp?.includes('m=audio'));
-        await pc.setLocalDescription(answer);
-        sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+        console.log('📞 Received offer, starting callee flow...');
+        setStatus("connecting");
+        
+        try {
+          // Get local media stream first
+          localStreamRef.current = await getMediaStream();
+          console.log('✅ Callee got local stream:', {
+            audioTracks: localStreamRef.current.getAudioTracks().length,
+            videoTracks: localStreamRef.current.getVideoTracks().length,
+            streamId: localStreamRef.current.id
+          });
+          
+          // Set up video element
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+          
+          // Add tracks to peer connection
+          const pc = ensurePC();
+          localStreamRef.current.getTracks().forEach((t) => {
+            console.log(`Adding ${t.kind} track to peer connection:`, t.label);
+            pc.addTrack(t, localStreamRef.current!);
+          });
+          
+          // Set remote description and create answer
+          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+          const answer = await pc.createAnswer();
+          console.log('Created answer with audio:', answer.sdp?.includes('m=audio'));
+          await pc.setLocalDescription(answer);
+          sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+          
+          setStatus("connected");
+        } catch (error) {
+          console.error("Callee failed to start call:", error);
+          setStatus("failed");
+        }
       } else if (msg.kind === "webrtc-answer") {
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
@@ -854,7 +870,7 @@ export default function CallRoomPage() {
     } else if (role === "callee") {
       // For callees, just prepare and wait for caller's offer
       console.log('📞 Callee ready - waiting for caller\'s offer');
-      setStatus("connected");
+      setStatus("ringing");
     }
     } catch (error) {
       console.error("Failed to start call:", error);
@@ -863,16 +879,16 @@ export default function CallRoomPage() {
     }
   }, [ensurePC, getMediaStream, me?.id, mode, role, sendSignal, conversationId, peerUserId, peerInfo?.name, peerName]);
 
-  // Only auto-start if not autoAccept (for outgoing calls)
+  // Auto-start for callers (outgoing calls), callees wait for offer
   useEffect(() => {
     if (!authChecked || !me?.id) return;
-    if (!autoAccept) {
+    if (role === "caller") {
       (async () => {
         await startOrPrep();
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authChecked, me?.id, autoAccept]);
+  }, [authChecked, me?.id, role]);
 
   // ---------- Controls ----------
   const toggleMute = useCallback(() => {
