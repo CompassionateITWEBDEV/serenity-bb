@@ -647,11 +647,13 @@ export default function CallRoomPage() {
       console.log(`🔗 PeerConnection state changed: ${s}`);
       
       // Only handle disconnection - connection is handled by signaling
+      // Don't change status to connecting or other states that confuse users
       if (s === "failed" || s === "disconnected" || s === "closed") {
         setStatus("ended");
         callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
         stopAudioLevelMonitoring();
       }
+      // Don't handle "connecting" state - let signaling handle connection status
     };
 
     // Add ICE connection state monitoring
@@ -1112,23 +1114,23 @@ export default function CallRoomPage() {
         
         try {
           // Both participants are already ready with streams, just handle the offer
-        const pc = ensurePC();
+          const pc = ensurePC();
           
-        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
           const answer = await pc.createAnswer({
             offerToReceiveAudio: true,
             offerToReceiveVideo: mode === "video",
           });
           
-        await pc.setLocalDescription(answer);
-        sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+          await pc.setLocalDescription(answer);
+          sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
           
-          // Immediately show connected - like Messenger/Zoom
+          // Immediately show connected - both participants connected
           setStatus("connected");
           callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
           startAudioLevelMonitoring();
           
-          console.log('✅ Answer sent - call connected!');
+          console.log('✅ Answer sent - call connected immediately!');
         } catch (error) {
           console.error('❌ Failed to handle offer:', error);
           setStatus("failed");
@@ -1139,12 +1141,12 @@ export default function CallRoomPage() {
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
         
-        // Immediately show connected - like Messenger/Zoom
+        // Immediately show connected - both participants connected
         setStatus("connected");
         callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
         startAudioLevelMonitoring();
         
-        console.log('✅ Call connected!');
+        console.log('✅ Call connected immediately!');
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
@@ -1349,8 +1351,8 @@ export default function CallRoomPage() {
         
         console.log('✅ Caller sent offer, waiting for answer...');
       } else {
-        // Callee shows ringing and waits for offer
-        setStatus("ringing");
+        // Callee shows connecting and waits for offer
+        setStatus("connecting");
         console.log('📞 Callee ready and waiting for offer...');
     }
     } catch (error) {
