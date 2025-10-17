@@ -1305,13 +1305,23 @@ export default function CallRoomPage() {
         pc.addTrack(t, localStreamRef.current!);
       });
       
-      // Force local video display for callers
+      // Force local video display for callers - immediate and multiple attempts
+      console.log('🎯 Immediately setting up local video for caller...');
+      setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+      
       setTimeout(() => {
         if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force setting local video for caller...');
+          console.log('🔄 Force setting local video for caller (100ms)...');
           setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
         }
       }, 100);
+      
+      setTimeout(() => {
+        if (localVideoRef.current && localStreamRef.current) {
+          console.log('🔄 Force setting local video for caller (300ms)...');
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+      }, 300);
       
       setTimeout(() => {
         if (localVideoRef.current && localStreamRef.current) {
@@ -1319,6 +1329,13 @@ export default function CallRoomPage() {
           setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
         }
       }, 500);
+      
+      setTimeout(() => {
+        if (localVideoRef.current && localStreamRef.current) {
+          console.log('🔄 Force setting local video for caller (1000ms)...');
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+      }, 1000);
 
       // 3) Simple call flow like Messenger/Zoom
       if (role === "caller") {
