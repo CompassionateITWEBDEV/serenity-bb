@@ -80,24 +80,48 @@ export function useIncomingCall() {
 
         console.log('👤 Current user:', user.id);
 
-        // Check if user is staff
-        const { data: staffData, error: staffError } = await supabase
-          .from("staff")
-          .select("user_id")
-          .eq("user_id", user.id)
-          .single();
+        // Check if user is staff - with more robust detection
+        let isStaff = false;
+        
+        try {
+          const { data: staffData, error: staffError } = await supabase
+            .from("staff")
+            .select("user_id")
+            .eq("user_id", user.id)
+            .single();
 
-        if (staffError) {
-          console.error('❌ Staff check failed:', staffError);
-          return;
+          if (staffError) {
+            console.warn('⚠️ Staff check failed, trying alternative detection:', staffError);
+            
+            // Alternative: Check if user is on staff messages page
+            const currentPath = window.location.pathname;
+            if (currentPath.includes('/staff/')) {
+              console.log('✅ User detected as staff via URL path');
+              isStaff = true;
+            } else {
+              console.log('❌ User not detected as staff');
+              return;
+            }
+          } else if (staffData) {
+            console.log('✅ User confirmed as staff via database');
+            isStaff = true;
+          }
+        } catch (error) {
+          console.warn('⚠️ Staff detection error, trying URL-based detection:', error);
+          const currentPath = window.location.pathname;
+          if (currentPath.includes('/staff/')) {
+            console.log('✅ User detected as staff via URL path (fallback)');
+            isStaff = true;
+          } else {
+            console.log('❌ User not detected as staff');
+            return;
+          }
         }
 
-        if (!staffData || !mounted) {
+        if (!isStaff || !mounted) {
           console.log('❌ User is not staff or component unmounted');
           return;
         }
-
-        console.log('✅ User confirmed as staff');
 
         // Listen for incoming calls via real-time
         const channel = supabase.channel(`staff-calls-${user.id}`, {
