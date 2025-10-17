@@ -3,8 +3,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { determineUserRole, getMessagesUrl } from "@/lib/user-role";
 import { Button } from "@/components/ui/button";
+import { callTracker, type CallStatus as CallTrackingStatus } from "@/lib/call-tracking";
+import { determineUserRole, getMessagesUrl, type UserRole } from "@/lib/user-role";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -14,12 +15,24 @@ import {
   VideoOff,
   Mic,
   MicOff,
+  Monitor,
+  MonitorOff,
+  Settings,
+  Maximize2,
+  Minimize2,
+  Users,
+  Volume2,
+  VolumeX,
+  MoreVertical,
   ArrowLeft,
-  RefreshCw,
 } from "lucide-react";
 
 /**
- * ICE Servers configuration
+ * Optional TURN/STUN via env:
+ * NEXT_PUBLIC_ICE_STUN=stun:stun.l.google.com:19302
+ * NEXT_PUBLIC_ICE_TURN_URI=turns:YOUR_TURN_HOST:5349
+ * NEXT_PUBLIC_ICE_TURN_USER=turn_user
+ * NEXT_PUBLIC_ICE_TURN_PASS=turn_pass
  */
 function buildIceServers(): RTCIceServer[] {
   const stun = process.env.NEXT_PUBLIC_ICE_STUN || "stun:stun.l.google.com:19302";
@@ -37,1238 +50,1895 @@ type SigPayload =
   | { kind: "webrtc-ice"; from: string; candidate: RTCIceCandidateInit }
   | { kind: "bye"; from: string };
 
-export default function CallPage() {
-  const router = useRouter();
-  const { conversationId } = useParams<{ conversationId: string }>();
-  const qs = useSearchParams();
+function VideoTile({
+  videoRef,
+  label,
+  mirrored = false,
+  isLocal = false,
+  isConnected = false,
+  avatarUrl,
+  name,
+}: {
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  label: string;
+  mirrored?: boolean;
+  isLocal?: boolean;
+  isConnected?: boolean;
+  avatarUrl?: string;
+  name?: string;
+}) {
+  const [showVideo, setShowVideo] = useState(false);
+  const [hasVideoStream, setHasVideoStream] = useState(false);
 
-  const mode = qs.get("mode") || "audio";
-  const role = qs.get("role") || "caller";
-  const peerUserId = qs.get("peer") || "";
-  const peerName = qs.get("peerName") || "Unknown";
-  const autoAccept = qs.get("autoAccept") === "true";
-
-  // State
-  const [me, setMe] = useState<{ id: string; name: string } | null>(null);
-  const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "ended">("idle");
-  const [muted, setMuted] = useState(false);
-  const [camOff, setCamOff] = useState(false);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [deviceStatus, setDeviceStatus] = useState<{
-    camera: boolean;
-    microphone: boolean;
-  }>({ camera: true, microphone: true });
-  const [userInteracted, setUserInteracted] = useState(false);
-  const [videoPlaybackBlocked, setVideoPlaybackBlocked] = useState(false);
-  const [debugInfo, setDebugInfo] = useState({
-    localStream: false,
-    remoteStream: false,
-    peerConnection: false,
-    connectionState: 'new'
-  });
-
-  // Refs
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteStreamRef = useRef<MediaStream | null>(null);
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const supabaseChannelRef = useRef<any>(null);
-  const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const threadChannel = `thread_${conversationId}`;
-
-  // Get user info
   useEffect(() => {
-    (async () => {
-      const { data: au } = await supabase.auth.getUser();
-      const uid = au.user?.id;
-      if (!uid) {
-        router.push("/login");
-        return;
-      }
-      setMe({ id: uid, name: au.user?.email || "Me" });
-    })();
-  }, [router]);
-
-  // Get media stream with device fallbacks
-  const getMediaStream = useCallback(async (): Promise<MediaStream> => {
-    try {
-      console.log('🎥 Requesting media stream for mode:', mode);
-      
-      // Check if mediaDevices is available
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Media devices not supported in this browser');
-      }
-      
-      // Try full constraints first
-      const fullConstraints: MediaStreamConstraints = {
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: mode === "video" ? {
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 },
-          frameRate: { ideal: 30, max: 60 }
-        } : false,
-      };
-
-      console.log('🎥 Trying full media constraints:', fullConstraints);
-      
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia(fullConstraints);
-        console.log('✅ Full media stream acquired successfully');
-        setDeviceStatus({ camera: true, microphone: true });
-        return stream;
-      } catch (fullError) {
-        console.warn('⚠️ Full constraints failed, trying fallbacks...', fullError);
-        
-        // Try audio only
-        try {
-          const audioStream = await navigator.mediaDevices.getUserMedia({ 
-            audio: true, 
-            video: false 
-          });
-          console.log('✅ Audio-only stream acquired');
-          setDeviceStatus({ camera: false, microphone: true });
-          return audioStream;
-        } catch (audioError) {
-          console.warn('⚠️ Audio-only failed, trying no media...', audioError);
-          
-          // Try no media (connection only)
-          try {
-            const noMediaStream = await navigator.mediaDevices.getUserMedia({ 
-              audio: false, 
-              video: false 
-            });
-            console.log('✅ No-media stream acquired (connection only)');
-            setDeviceStatus({ camera: false, microphone: false });
-            return noMediaStream;
-          } catch (noMediaError) {
-            console.error('❌ All media attempts failed');
-            setDeviceStatus({ camera: false, microphone: false });
-            throw new Error('No camera/microphone available. You are connected (audio/video disabled).');
-          }
-        }
-      }
-    } catch (error) {
-      console.error('❌ Failed to get media stream:', error);
-      setDeviceStatus({ camera: false, microphone: false });
-      
-      // Provide more specific error messages
-      if (error instanceof Error) {
-        if (error.name === 'NotAllowedError') {
-          throw new Error('Camera/microphone access denied. Please allow access and try again.');
-        } else if (error.name === 'NotFoundError') {
-          throw new Error('No camera/microphone found. Please check your devices.');
-        } else if (error.name === 'NotReadableError') {
-          throw new Error('Camera/microphone is being used by another application.');
-        }
-      }
-      
-      throw error;
-    }
-  }, [mode]);
-
-  // Enhanced video element setup
-  const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal = true) => {
-    try {
-      if (!videoRef.current || !stream) {
-        console.warn(`⚠️ Cannot setup video element: videoRef=${!!videoRef.current}, stream=${!!stream}`);
-        return false;
-      }
-
-      const video = videoRef.current;
-      console.log(`🎥 Setting up ${isLocal ? 'local' : 'remote'} video:`, {
-        audioTracks: stream.getAudioTracks().length,
-        videoTracks: stream.getVideoTracks().length,
-        streamId: stream.id,
-        videoElement: !!video,
-        videoElementReady: video.readyState
-      });
-
-      // Stop any existing tracks
-      if (video.srcObject) {
-        const oldStream = video.srcObject as MediaStream;
-        oldStream.getTracks().forEach(track => track.stop());
-      }
-
-      // Clear and set new stream
-      video.srcObject = null;
-      video.srcObject = stream;
-      
-      // Set video properties safely
-      try {
-        video.muted = isLocal; // Mute local video, unmute remote
-        video.autoplay = true;
-        video.playsInline = true;
-        video.controls = false;
-        video.loop = false;
-        
-        // Force video to load
-        video.load();
-        
-        // Force play immediately after setting srcObject
-        setTimeout(() => {
-          if (video.paused) {
-            console.log(`🔄 Force playing ${isLocal ? 'local' : 'remote'} video immediately...`);
-            video.play().catch(console.warn);
-          }
-        }, 100);
-      } catch (videoError) {
-        console.warn('⚠️ Error setting video properties:', videoError);
-      }
-      
-      // Create a more robust play function
-    const playVideo = async () => {
-      try {
-        console.log(`🎬 Attempting to play ${isLocal ? 'local' : 'remote'} video...`);
-        
-        // Check if user has interacted with the page
-        if (!userInteracted) {
-          console.log(`⏳ Waiting for user interaction before playing ${isLocal ? 'local' : 'remote'} video...`);
-          setVideoPlaybackBlocked(true);
-          return;
-        }
-        
-        // Force play immediately - don't wait for readyState
-        const playPromise = video.play();
-        
-        // Handle play promise
-        if (playPromise !== undefined) {
-          await playPromise;
-        }
-        
-        console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing successfully`);
-        setVideoPlaybackBlocked(false);
-        
-        // Update debug info
-        setDebugInfo(prev => ({ 
-          ...prev, 
-          [isLocal ? 'localStream' : 'remoteStream']: true 
-        }));
-        
-        // Force status to connected if local video is working
-        if (isLocal) {
-          setTimeout(() => {
-            setStatus("connected");
-            console.log('✅ Status set to connected due to local video working');
-          }, 500);
-        }
-        
-        // Verify video is actually playing and force play if needed
-        setTimeout(() => {
-          if (video.readyState >= 2 && video.videoWidth > 0) {
-            console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video verified: ${video.videoWidth}x${video.videoHeight}`);
-          } else {
-            console.warn(`⚠️ ${isLocal ? 'Local' : 'Remote'} video not ready: readyState=${video.readyState}, dimensions=${video.videoWidth}x${video.videoHeight}`);
-            // Force play again
-            video.play().catch(console.warn);
-          }
-        }, 1000);
-        
-      } catch (err) {
-        console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
-        
-        // Handle autoplay policy error
-        if (err instanceof Error && err.name === 'NotAllowedError') {
-          console.log(`ℹ️ Video play blocked by browser autoplay policy - user interaction required`);
-          setVideoPlaybackBlocked(true);
-          return;
-        }
-        
-        // Retry after a short delay for other errors
-        setTimeout(async () => {
-          try {
-            if (videoRef.current && videoRef.current.srcObject === stream) {
-              await videoRef.current.play();
-              console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing on retry`);
-              setVideoPlaybackBlocked(false);
-              
-              if (isLocal) {
-                setStatus("connected");
-              }
-            }
-          } catch (retryErr) {
-            console.warn(`⚠️ Retry failed:`, retryErr);
-            if (retryErr instanceof Error && retryErr.name === 'NotAllowedError') {
-              setVideoPlaybackBlocked(true);
-            }
-          }
-        }, 1000);
-      }
-    };
-
-    // Try to play immediately
-    playVideo();
-
-    // Also try when video events fire
+    if (!videoRef.current) return;
+    
+    const video = videoRef.current;
+    console.log(`Setting up video listeners for ${label}`);
+    
     const handleLoadedMetadata = () => {
-      console.log(`📺 ${isLocal ? 'Local' : 'Remote'} video metadata loaded`);
-      playVideo();
+      console.log(`✅ Video loaded for ${label}:`, {
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        srcObject: !!video.srcObject,
+        readyState: video.readyState
+      });
+      setShowVideo(true);
+      setHasVideoStream(true);
+    };
+    
+    const handleError = (e: any) => {
+      console.error(`❌ Video error for ${label}:`, e);
+      setShowVideo(false);
+      setHasVideoStream(false);
     };
     
     const handleCanPlay = () => {
-      console.log(`▶️ ${isLocal ? 'Local' : 'Remote'} video can play`);
-      playVideo();
+      console.log(`▶️ Video can play for ${label}`);
+      setShowVideo(true);
+      setHasVideoStream(true);
     };
     
     const handlePlay = () => {
-      console.log(`🎬 ${isLocal ? 'Local' : 'Remote'} video is playing`);
-    };
-
-      video.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
-      video.addEventListener('canplay', handleCanPlay, { once: true });
-      video.addEventListener('play', handlePlay, { once: true });
-
-      return true;
-    } catch (error) {
-      console.error('❌ Error in setupVideoElement:', error);
-      return false;
-    }
-  }, []);
-
-  // Ensure video elements are set up when streams are available
-  useEffect(() => {
-    if (localStreamRef.current && localVideoRef.current) {
-      console.log('🔄 Re-setting up local video element...');
-      setupVideoElement(localVideoRef, localStreamRef.current, true);
-    }
-  }, [localStreamRef.current, setupVideoElement]);
-
-  useEffect(() => {
-    if (remoteStreamRef.current && remoteVideoRef.current) {
-      console.log('🔄 Re-setting up remote video element...');
-      setupVideoElement(remoteVideoRef, remoteStreamRef.current, false);
-    }
-  }, [remoteStreamRef.current, setupVideoElement]);
-
-
-  // Force video setup on component mount
-  useEffect(() => {
-    const forceVideoSetup = () => {
-      console.log('🔧 Force video setup on mount...');
-      
-      // Check if we have streams and video elements
-      if (localStreamRef.current && localVideoRef.current) {
-        console.log('🎥 Setting up local video on mount...');
-        setupVideoElement(localVideoRef, localStreamRef.current, true);
-      }
-      
-      if (remoteStreamRef.current && remoteVideoRef.current) {
-        console.log('🎥 Setting up remote video on mount...');
-        setupVideoElement(remoteVideoRef, remoteStreamRef.current, false);
-      }
-    };
-
-    // Run immediately
-    forceVideoSetup();
-    
-    // Also run after a short delay
-    const timeout = setTimeout(forceVideoSetup, 1000);
-    
-    return () => clearTimeout(timeout);
-  }, [setupVideoElement]);
-
-  // Ensure peer connection
-  const ensurePC = useCallback((): RTCPeerConnection => {
-    if (pcRef.current) return pcRef.current;
-
-    const pc = new RTCPeerConnection({
-      iceServers: buildIceServers(),
-    });
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate && me?.id) {
-        sendSignal({ kind: "webrtc-ice", from: me.id, candidate: event.candidate });
-      }
-    };
-
-    pc.ontrack = (event) => {
-      console.log('📺 Received remote track:', event.track.kind, event.track.label);
-      if (event.streams[0]) {
-        remoteStreamRef.current = event.streams[0];
-        console.log('📺 Remote stream received:', {
-          audioTracks: event.streams[0].getAudioTracks().length,
-          videoTracks: event.streams[0].getVideoTracks().length,
-          streamId: event.streams[0].id
-        });
-        
-        // Use the improved setupVideoElement function
-        const setupRemoteVideo = () => {
-          if (remoteVideoRef.current && event.streams[0]) {
-            const success = setupVideoElement(remoteVideoRef, event.streams[0], false);
-            if (success) {
-              setDebugInfo(prev => ({ ...prev, remoteStream: true }));
-            } else {
-              // Retry if setup failed
-              setTimeout(setupRemoteVideo, 100);
-            }
-          } else {
-            // Retry if video element not ready
-            setTimeout(setupRemoteVideo, 100);
-          }
-        };
-        
-        setupRemoteVideo();
-      }
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log('🔗 Connection state changed:', pc.connectionState);
-      setDebugInfo(prev => ({ ...prev, connectionState: pc.connectionState }));
-      
-      if (pc.connectionState === "connected") {
-        console.log('✅ Peer connection established!');
-        setStatus("connected");
-        setConnectionError(null);
-        
-        // Force video elements to play
-        if (localVideoRef.current && localStreamRef.current) {
-          localVideoRef.current.play().catch(console.warn);
-        }
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          remoteVideoRef.current.play().catch(console.warn);
-        }
-      } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-        console.log('❌ Peer connection failed or disconnected');
-        setStatus("ended");
-        setConnectionError("Connection failed");
-      } else if (pc.connectionState === "connecting") {
-        console.log('🔄 Peer connection connecting...');
-        setStatus("connecting");
-      }
+      console.log(`🎬 Video started playing for ${label}`);
+      setShowVideo(true);
+      setHasVideoStream(true);
     };
     
-    // Monitor ICE connection state
-    pc.oniceconnectionstatechange = () => {
-      console.log('🧊 ICE connection state:', pc.iceConnectionState);
-      if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
-        console.log('✅ ICE connection established!');
-      } else if (pc.iceConnectionState === "failed") {
-        console.log('❌ ICE connection failed');
-      }
+    const handleLoadStart = () => {
+      console.log(`🔄 Video load started for ${label}`);
     };
     
-    // Monitor ICE gathering state
-    pc.onicegatheringstatechange = () => {
-      console.log('🧊 ICE gathering state:', pc.iceGatheringState);
-    };
-
-    pcRef.current = pc;
-    return pc;
-  }, [me?.id, setupVideoElement]);
-
-  // Send signal
-  const sendSignal = useCallback(async (payload: SigPayload) => {
-    if (!conversationId) return;
+    // Add all event listeners
+    video.addEventListener('loadstart', handleLoadStart);
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('canplay', handleCanPlay);
+    video.addEventListener('play', handlePlay);
+    video.addEventListener('error', handleError);
     
-    const ch = supabase.channel(threadChannel, { config: { broadcast: { ack: true } } });
-    const response = await ch.send({
-      type: "broadcast",
-      event: "signal",
-      payload,
-    });
-    
-    if (response !== "ok") {
-      throw new Error("Failed to send signal");
+    // Check if video already has a source
+    if (video.srcObject) {
+      console.log(`Video ${label} already has srcObject, triggering load`);
+      video.load(); // Force reload
     }
-  }, [conversationId, threadChannel]);
-
-  // Start call - simplified for both caller and callee
-  const startCall = useCallback(async () => {
-    if (!me?.id || !peerUserId) return;
-
-    try {
-      console.log('🚀 Starting call...');
-      setStatus("connecting");
-      setConnectionError(null);
-
-      // Get local media with error handling
-      try {
-        localStreamRef.current = await getMediaStream();
-        setDebugInfo(prev => ({ ...prev, localStream: true }));
-        console.log('✅ Local media acquired');
-      } catch (mediaError) {
-        console.error('❌ Failed to get media:', mediaError);
-        setConnectionError(mediaError instanceof Error ? mediaError.message : "Failed to access camera/microphone");
-        setStatus("ended");
-        return;
-      }
-      
-      // Setup video element with error handling
-      try {
-        const videoSetupSuccess = setupVideoElement(localVideoRef, localStreamRef.current, true);
-        if (!videoSetupSuccess) {
-          console.warn('⚠️ Video setup failed, but continuing...');
-        }
-      } catch (videoError) {
-        console.error('❌ Video setup error:', videoError);
-        // Continue anyway - audio might still work
-      }
-      
-      // Setup peer connection
-      try {
-        const pc = ensurePC();
-        localStreamRef.current.getTracks().forEach((track) => {
-          pc.addTrack(track, localStreamRef.current!);
-        });
-        console.log('✅ Peer connection setup complete');
-      } catch (pcError) {
-        console.error('❌ Peer connection error:', pcError);
-        setConnectionError("Failed to setup connection");
-        setStatus("ended");
-        return;
-      }
-
-      // If caller, create and send offer
-      if (role === "caller") {
-        try {
-          const pc = ensurePC();
-          const offer = await pc.createOffer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: mode === "video",
-          });
-          await pc.setLocalDescription(offer);
-          await sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
-          console.log('✅ Offer sent');
-        } catch (offerError) {
-          console.error('❌ Failed to create/send offer:', offerError);
-          setConnectionError("Failed to initiate call");
-          setStatus("ended");
-          return;
-        }
-      }
-      
-      // Set to connected state
-      setStatus("connected");
-      console.log('✅ Call connected');
-      
-    } catch (error) {
-      console.error("Failed to start call:", error);
-      setConnectionError(error instanceof Error ? error.message : "Failed to start call");
-      setStatus("ended");
-    }
-  }, [me?.id, peerUserId, getMediaStream, setupVideoElement, ensurePC, sendSignal, mode, role]);
-
-  // User interaction handler for video playback
-  useEffect(() => {
-    const handleUserInteraction = () => {
-      if (!userInteracted) {
-        console.log('👆 User interaction detected - enabling video playback');
-        setUserInteracted(true);
-        setVideoPlaybackBlocked(false);
-        
-        // Try to play videos after user interaction
-        setTimeout(() => {
-          if (localVideoRef.current && localVideoRef.current.paused) {
-            localVideoRef.current.play().catch(console.warn);
-          }
-          if (remoteVideoRef.current && remoteVideoRef.current.paused) {
-            remoteVideoRef.current.play().catch(console.warn);
-          }
-        }, 100);
-      }
-    };
-
-    // Add event listeners for user interaction
-    document.addEventListener('click', handleUserInteraction, { once: true });
-    document.addEventListener('keydown', handleUserInteraction, { once: true });
-    document.addEventListener('touchstart', handleUserInteraction, { once: true });
-
-    return () => {
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('keydown', handleUserInteraction);
-      document.removeEventListener('touchstart', handleUserInteraction);
-    };
-  }, [userInteracted]);
-
-  // Retry video playback when user interaction is detected
-  useEffect(() => {
-    if (userInteracted && videoPlaybackBlocked) {
-      console.log('🔄 Retrying video playback after user interaction...');
-      setVideoPlaybackBlocked(false);
-      
-      // Try to play videos
-      setTimeout(() => {
-        if (localVideoRef.current && localVideoRef.current.paused) {
-          localVideoRef.current.play().catch(console.warn);
-        }
-        if (remoteVideoRef.current && remoteVideoRef.current.paused) {
-          remoteVideoRef.current.play().catch(console.warn);
-        }
-      }, 200);
-    }
-  }, [userInteracted, videoPlaybackBlocked]);
-
-  // Simple call start - works for both caller and callee
-  useEffect(() => {
-    if (me?.id && peerUserId && status === "idle") {
-      console.log('🚀 Starting call immediately...');
-      // Start call right away - no delays
-      startCall();
-    }
-  }, [me?.id, peerUserId, status, startCall]);
-
-  // Handle incoming signals
-  useEffect(() => {
-    if (!conversationId || !me?.id) return;
-
-    console.log('🔗 Setting up signaling channel:', threadChannel);
-    const ch = supabase.channel(threadChannel, { config: { broadcast: { ack: true } } });
-    supabaseChannelRef.current = ch;
-
-    ch.on("broadcast", { event: "signal" }, async (e) => {
-      console.log('📡 Received signal:', e.payload);
-      const msg = (e.payload || {}) as SigPayload;
-      if (!msg || msg.from === me.id) {
-        console.log('📡 Ignoring signal from self or invalid message');
-        return;
-      }
-
-      console.log('📡 Processing signal from:', msg.from, 'kind:', msg.kind);
-      const pc = ensurePC();
-
-      try {
-        if (msg.kind === "webrtc-offer") {
-          console.log('📞 Received offer, answering...');
-          
-          // Get local media if not already available
-          if (!localStreamRef.current) {
-            localStreamRef.current = await getMediaStream();
-            setDebugInfo(prev => ({ ...prev, localStream: true }));
-            setupVideoElement(localVideoRef, localStreamRef.current, true);
-            
-            localStreamRef.current.getTracks().forEach((track) => {
-              pc.addTrack(track, localStreamRef.current!);
-            });
-          }
-
-          // Handle offer
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-          const answer = await pc.createAnswer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: mode === "video",
-          });
-          await pc.setLocalDescription(answer);
-          await sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
-          console.log('✅ Answer sent');
-        } else if (msg.kind === "webrtc-answer") {
-          console.log('📞 Received answer from peer');
-          // Check if we can set remote description
-          if (pc.signalingState === "have-local-offer") {
-            await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-            console.log('✅ Set remote description (answer)');
-          } else {
-            console.warn('⚠️ Cannot set remote description - wrong signaling state:', pc.signalingState);
-          }
-        } else if (msg.kind === "webrtc-ice") {
-          console.log('🧊 Received ICE candidate from peer');
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-            console.log('✅ Added ICE candidate');
-          } catch (iceError) {
-            console.warn('⚠️ Failed to add ICE candidate:', iceError);
-          }
-        } else if (msg.kind === "bye") {
-          console.log('📞 Received end call signal from peer');
-          // Show notification that other participant ended the call
-          alert("The other participant ended the call.");
-          // End call for this participant too
-          endCall();
-        }
-      } catch (error) {
-        console.error("Error handling signal:", error);
-        setConnectionError(error instanceof Error ? error.message : "Connection error");
-      }
-    });
-
-    ch.subscribe();
-    
     
     return () => {
-      try {
-        supabase.removeChannel(ch);
-      } catch {}
+      video.removeEventListener('loadstart', handleLoadStart);
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('canplay', handleCanPlay);
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('error', handleError);
     };
-  }, [conversationId, me?.id, ensurePC, getMediaStream, setupVideoElement, sendSignal, mode]);
+  }, [videoRef, label]);
 
-  // Toggle mute
-  const toggleMute = useCallback(() => {
-    if (localStreamRef.current) {
-      const newMutedState = !muted;
-      localStreamRef.current.getAudioTracks().forEach((track) => {
-        track.enabled = !newMutedState; // enabled = !muted
-      });
-      setMuted(newMutedState);
-      console.log(`🔊 Audio ${newMutedState ? 'muted' : 'unmuted'}`);
-    }
-  }, [muted]);
-
-  // Toggle camera
-  const toggleCamera = useCallback(() => {
-    if (localStreamRef.current) {
-      const newCamOffState = !camOff;
-      localStreamRef.current.getVideoTracks().forEach((track) => {
-        track.enabled = !newCamOffState; // enabled = !camOff
-      });
-      setCamOff(newCamOffState);
-      console.log(`📹 Camera ${newCamOffState ? 'turned off' : 'turned on'}`);
-    }
-  }, [camOff]);
-
-  // Force connection (for debugging)
-  const forceConnection = useCallback(() => {
-    console.log('🔧 Force connecting...');
-    setStatus("connected");
-    
-    // Force video elements to play
-    if (localVideoRef.current && localStreamRef.current) {
-      localVideoRef.current.play().catch(console.warn);
-    }
-    if (remoteVideoRef.current && remoteStreamRef.current) {
-      remoteVideoRef.current.play().catch(console.warn);
-    }
-  }, []);
-
-  // Force video setup (for debugging)
-  const forceVideoSetup = useCallback(() => {
-    console.log('🔧 Force video setup...');
-    
-    if (localStreamRef.current && localVideoRef.current) {
-      setupVideoElement(localVideoRef, localStreamRef.current, true);
-    }
-    if (remoteStreamRef.current && remoteVideoRef.current) {
-      setupVideoElement(remoteVideoRef, remoteStreamRef.current, false);
-    }
-  }, [setupVideoElement]);
-
-  // Refresh camera
-  const refreshCamera = useCallback(async () => {
-    console.log('🔄 Refreshing camera...');
-    try {
-      // Stop existing stream
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
-      }
-      
-      // Get new stream
-      localStreamRef.current = await getMediaStream();
-      setDebugInfo(prev => ({ ...prev, localStream: true }));
-      
-      // Setup video element
-      setupVideoElement(localVideoRef, localStreamRef.current, true);
-      
-      // Add tracks to peer connection if connected
-      if (pcRef.current && localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((track) => {
-          pcRef.current!.addTrack(track, localStreamRef.current!);
-        });
-      }
-      
-      console.log('✅ Camera refreshed successfully');
-    } catch (error) {
-      console.error('❌ Failed to refresh camera:', error);
-      setConnectionError('Failed to refresh camera. Please check permissions.');
-    }
-  }, [getMediaStream, setupVideoElement]);
-
-  const endCall = useCallback(async () => {
-    console.log('📞 Ending call...');
-    
-    // Clear timeout
-    if (connectionTimeoutRef.current) {
-      clearTimeout(connectionTimeoutRef.current);
-      connectionTimeoutRef.current = null;
-    }
-    
-    // Broadcast end call to both participants
-    if (me?.id) {
-      try {
-        await sendSignal({ 
-          kind: "bye", 
-          from: me.id
-        });
-        console.log('📤 End call broadcast sent to both participants');
-      } catch (error) {
-        console.warn('⚠️ Failed to broadcast end call:', error);
-      }
-    }
-    
-    // Stop all media tracks
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
-        track.stop();
-        console.log(`🛑 Stopped ${track.kind} track:`, track.label);
-      });
-    }
-    
-    if (remoteStreamRef.current) {
-      remoteStreamRef.current.getTracks().forEach((track) => {
-        track.stop();
-        console.log(`🛑 Stopped remote ${track.kind} track:`, track.label);
-      });
-    }
-    
-    // Close peer connection
-    if (pcRef.current) {
-      pcRef.current.close();
-      console.log('🔌 Peer connection closed');
-    }
-    
-    // Update status and clear state
-    setStatus("ended");
-    setConnectionError(null);
-    setMuted(false);
-    setCamOff(false);
-    setDebugInfo({
-      localStream: false,
-      remoteStream: false,
-      peerConnection: false,
-      connectionState: 'new'
-    });
-    
-    // Determine user role and redirect appropriately
-    if (me?.id) {
-      try {
-        const userRole = await determineUserRole(me.id);
-        const messagesUrl = getMessagesUrl(userRole);
-        console.log(`🔄 Redirecting to ${messagesUrl} for ${userRole} user`);
-        router.push(messagesUrl);
-      } catch (error) {
-        console.error('❌ Error determining user role:', error);
-        // Fallback to patient messages page
-        router.push('/dashboard/messages');
-      }
-    } else {
-      // Fallback if no user ID
-      router.push('/dashboard/messages');
-    }
-  }, [me?.id, sendSignal, router]);
-
-  if (!me) {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4"></div>
-          <p className="text-white">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show simple loading screen while call starts
-  if (status === "idle") {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4"></div>
-          <p className="text-white text-lg mb-2">Opening video screen...</p>
-          <p className="text-gray-400 text-sm">Connecting to {peerName}</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show device fallback UI
-  const DeviceFallback = ({ isLocal, name }: { isLocal: boolean; name: string }) => {
-    const hasCamera = isLocal ? deviceStatus.camera : true; // Assume remote has camera for now
-    const hasMic = isLocal ? deviceStatus.microphone : true; // Assume remote has mic for now
-    
-    if (hasCamera && hasMic) return null;
-    
-    return (
-      <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-24 h-24 bg-gray-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-2xl font-bold text-white">
-              {name.charAt(0).toUpperCase()}
-            </span>
-          </div>
-          <p className="text-white text-lg mb-2">{name}</p>
-          <p className="text-gray-400 text-sm">
-            {!hasCamera && !hasMic && "No camera/microphone detected"}
-            {!hasCamera && hasMic && "No camera detected"}
-            {hasCamera && !hasMic && "No microphone detected"}
-          </p>
-          {isLocal && (
-            <p className="text-yellow-400 text-xs mt-2">
-              You are still connected. Enable devices to stream.
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  // Show video playback blocked UI
-  const VideoPlaybackBlocked = ({ isLocal, name }: { isLocal: boolean; name: string }) => {
-    if (!videoPlaybackBlocked || !isLocal) return null;
-    
-    return (
-      <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-24 h-24 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-2xl">▶️</span>
-          </div>
-          <p className="text-white text-lg mb-2">{name}</p>
-          <p className="text-gray-400 text-sm mb-4">
-            Click anywhere to enable video playback
-          </p>
-          <div className="bg-yellow-600 text-white px-4 py-2 rounded-lg text-sm">
-            Browser requires user interaction to play video
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // Simple video component with better error handling
-  const VideoComponent = ({ 
-    videoRef, 
-    stream, 
-    isLocal, 
-    name, 
-    showFallback = true 
-  }: { 
-    videoRef: React.RefObject<HTMLVideoElement | null>;
-    stream: MediaStream | null;
-    isLocal: boolean;
-    name: string;
-    showFallback?: boolean;
-  }) => {
-    const [hasError, setHasError] = useState(false);
-    const [isPlaying, setIsPlaying] = useState(false);
-
-    useEffect(() => {
-      if (videoRef.current && stream) {
-        console.log(`🎥 Setting up ${isLocal ? 'local' : 'remote'} video:`, {
-          streamId: stream.id,
-          audioTracks: stream.getAudioTracks().length,
-          videoTracks: stream.getVideoTracks().length,
-          active: stream.active
-        });
-
-        videoRef.current.srcObject = stream;
-        videoRef.current.muted = isLocal;
-        videoRef.current.autoplay = true;
-        videoRef.current.playsInline = true;
-
-        const playVideo = async () => {
-          try {
-            if (videoRef.current && !videoRef.current.paused) return;
-            
-            if (userInteracted || isLocal) {
-              await videoRef.current?.play();
-              setIsPlaying(true);
-              setHasError(false);
-              console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video playing`);
-            } else {
-              console.log(`⏳ ${isLocal ? 'Local' : 'Remote'} video waiting for user interaction`);
-            }
-          } catch (error) {
-            console.warn(`⚠️ ${isLocal ? 'Local' : 'Remote'} video play failed:`, error);
-            setHasError(true);
-          }
-        };
-
-        playVideo();
-      }
-    }, [stream, isLocal, userInteracted]);
-
-    if (!stream && showFallback) {
-      return (
-        <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
-          <div className="text-center text-white">
-            <div className="animate-pulse text-lg mb-2">
-              {isLocal ? 'Getting camera...' : 'Waiting for video...'}
-            </div>
-            <div className="text-sm text-gray-400">Status: {status}</div>
-          </div>
-        </div>
-      );
-    }
-
-    if (hasError && showFallback) {
-      return (
-        <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
-          <div className="text-center text-white">
-            <div className="text-lg mb-2">Video Error</div>
-            <div className="text-sm text-gray-400">Click to retry</div>
-          </div>
-        </div>
-      );
-    }
-
-    return (
+  return (
+    <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-gray-900 shadow-2xl">
+      {showVideo && hasVideoStream ? (
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted={isLocal}
-        className="w-full h-full object-cover"
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
-        onError={() => setHasError(true)}
-        onClick={() => {
-          if (!userInteracted) {
-            setUserInteracted(true);
-            videoRef.current?.play().catch(console.warn);
-          }
+        controls={false}
+        className={`h-full w-full object-cover ${mirrored ? "scale-x-[-1]" : ""}`}
+        style={{ 
+          backgroundColor: '#000',
+          transform: mirrored ? 'scaleX(-1)' : 'none'
         }}
       />
-    );
-  };
-
-  if (status === "ended") {
-  return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-      <div className="text-center">
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold text-white mb-2">Call Ended</h1>
-            {connectionError && (
-              <p className="text-red-400 mb-4">{connectionError}</p>
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
+          <div className="text-center">
+            <Avatar className="mx-auto h-20 w-20 mb-4">
+              <AvatarImage src={avatarUrl} />
+              <AvatarFallback className="text-2xl">
+                {name ? name.charAt(0).toUpperCase() : "?"}
+              </AvatarFallback>
+            </Avatar>
+            <p className="text-white text-sm font-medium">{name || label}</p>
+            {!isConnected && (
+              <p className="text-gray-400 text-xs mt-1">Connecting...</p>
+            )}
+            {isConnected && !hasVideoStream && (
+              <p className="text-yellow-400 text-xs mt-1">Waiting for video...</p>
+            )}
+            {isConnected && hasVideoStream && !showVideo && (
+              <p className="text-orange-400 text-xs mt-1">Video loading...</p>
             )}
           </div>
-          <Button onClick={async () => {
-            if (me?.id) {
-              try {
-                const userRole = await determineUserRole(me.id);
-                const messagesUrl = getMessagesUrl(userRole);
-                router.push(messagesUrl);
-              } catch (error) {
-                router.push('/dashboard/messages');
-              }
-            } else {
-              router.push('/dashboard/messages');
-            }
-          }} className="bg-blue-600 hover:bg-blue-700">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Messages
+        </div>
+      )}
+      
+      <div className="absolute bottom-3 left-3 flex items-center gap-2">
+        <div className="rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur">
+          {name || label}
+        </div>
+        {isLocal && (
+          <div className="rounded-full bg-black/60 px-2 py-1 text-xs text-white backdrop-blur">
+            You
+          </div>
+        )}
+      </div>
+      
+      {isLocal && (
+        <div className="absolute top-3 right-3">
+          <div className="rounded-full bg-black/60 p-2 backdrop-blur">
+            <Video className="h-4 w-4 text-white" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CallControls({
+  status,
+  muted,
+  camOff,
+  onToggleMute,
+  onToggleCamera,
+  onEndCall,
+  onShareScreen,
+  isSharingScreen,
+  mode,
+  hasAudio,
+  hasVideo,
+  isFallbackStream,
+  audioLevel,
+}: {
+  status: string;
+  muted: boolean;
+  camOff: boolean;
+  onToggleMute: () => void;
+  onToggleCamera: () => void;
+  onEndCall: () => void;
+  onShareScreen: () => void;
+  isSharingScreen: boolean;
+  mode: "audio" | "video";
+  hasAudio?: boolean | null;
+  hasVideo?: boolean | null;
+  isFallbackStream?: boolean;
+  audioLevel?: number;
+}) {
+  return (
+    <div className="flex items-center justify-center gap-4 p-6">
+      <div className="flex items-center gap-3">
+        {/* Mute/Unmute with audio level indicator */}
+        <div className="relative">
+          <Button
+            size="lg"
+            variant={muted ? "destructive" : "secondary"}
+            className="h-14 w-14 rounded-full"
+            onClick={onToggleMute}
+            disabled={hasAudio === false || isFallbackStream}
+            title={isFallbackStream ? "No devices available" : hasAudio === false ? "No microphone available" : muted ? "Unmute" : "Mute"}
+          >
+            {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
           </Button>
+          {/* Audio level indicator */}
+          {!muted && hasAudio && audioLevel && audioLevel > 0 && (
+            <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-green-500 animate-pulse">
+              <div 
+                className="w-full h-full rounded-full bg-green-400"
+                style={{ 
+                  transform: `scale(${Math.min(audioLevel / 50, 1)})`,
+                  opacity: Math.min(audioLevel / 30, 1)
+                }}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Camera On/Off (only for video calls) */}
+        {mode === "video" && (
+          <Button
+            size="lg"
+            variant={camOff ? "destructive" : "secondary"}
+            className="h-14 w-14 rounded-full"
+            onClick={onToggleCamera}
+            disabled={hasVideo === false || isFallbackStream}
+            title={isFallbackStream ? "No devices available" : hasVideo === false ? "No camera available" : camOff ? "Turn on camera" : "Turn off camera"}
+          >
+            {camOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
+          </Button>
+        )}
+
+        {/* Screen Share (only for video calls) */}
+        {mode === "video" && (
+          <Button
+            size="lg"
+            variant={isSharingScreen ? "default" : "secondary"}
+            className="h-14 w-14 rounded-full"
+            onClick={onShareScreen}
+          >
+            {isSharingScreen ? <MonitorOff className="h-6 w-6" /> : <Monitor className="h-6 w-6" />}
+          </Button>
+        )}
+
+        {/* End Call */}
+        <Button
+          size="lg"
+          variant="destructive"
+          className="h-16 w-16 rounded-full"
+          onClick={onEndCall}
+        >
+          <PhoneOff className="h-7 w-7" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export default function CallRoomPage() {
+  const router = useRouter();
+  const { conversationId } = useParams<{ conversationId: string }>();
+  const qs = useSearchParams();
+
+  const role = (qs.get("role") as "caller" | "callee") || "caller";
+  const mode = (qs.get("mode") as "audio" | "video") || "audio";
+  const peerUserId = qs.get("peer") || "";
+  const peerName = decodeURIComponent(qs.get("peerName") || "Peer");
+
+  const [authChecked, setAuthChecked] = useState(false);
+  const [me, setMe] = useState<{ id: string; email?: string | null; name?: string; role?: UserRole } | null>(null);
+  const [peerInfo, setPeerInfo] = useState<{ name: string; avatar?: string } | null>(null);
+
+  type CallUIStatus = "idle" | "ringing" | "connecting" | "connected" | "ended" | "failed";
+  const [status, setStatus] = useState<CallUIStatus>("idle");
+  const [muted, setMuted] = useState(false);
+  const [camOff, setCamOff] = useState(mode === "audio");
+  const [isSharingScreen, setIsSharingScreen] = useState(false);
+  const [callDuration, setCallDuration] = useState(0);
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [availableDevices, setAvailableDevices] = useState<MediaDeviceInfo[]>([]);
+  const [hasAudio, setHasAudio] = useState<boolean | null>(null);
+  const [hasVideo, setHasVideo] = useState<boolean | null>(null);
+  const [isFallbackStream, setIsFallbackStream] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
+
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+
+  const threadChanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const callTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Audio level monitoring
+  const startAudioLevelMonitoring = useCallback(() => {
+    if (!localStreamRef.current) return;
+    
+    const audioTracks = localStreamRef.current.getAudioTracks();
+    if (audioTracks.length === 0) {
+      console.log("No audio tracks available for level monitoring");
+      return;
+    }
+    
+    console.log("Starting audio level monitoring with", audioTracks.length, "audio tracks");
+    
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const analyser = audioContext.createAnalyser();
+      const source = audioContext.createMediaStreamSource(localStreamRef.current);
+      
+      source.connect(analyser);
+      analyser.fftSize = 256;
+      
+      audioContextRef.current = audioContext;
+      analyserRef.current = analyser;
+      
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      
+      const updateAudioLevel = () => {
+        if (!analyserRef.current) return;
+        
+        analyserRef.current.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+        setAudioLevel(average);
+        
+        // Log when audio is detected
+        if (average > 10) {
+          console.log(`Audio level: ${average.toFixed(1)} (speaking detected)`);
+        }
+        
+        animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
+      };
+      
+      updateAudioLevel();
+    } catch (error) {
+      console.warn('Failed to start audio level monitoring:', error);
+    }
+  }, []);
+
+  const stopAudioLevelMonitoring = useCallback(() => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    
+    analyserRef.current = null;
+    setAudioLevel(0);
+  }, []);
+
+  // ---------- Auth and user info ----------
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data: session } = await supabase.auth.getSession();
+      if (!alive) return;
+      if (session.session?.user) {
+        const user = session.session.user;
+        const userRole = await determineUserRole(user.id);
+        setMe({ 
+          id: user.id, 
+          email: user.email,
+          name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+          role: userRole
+        });
+        setAuthChecked(true);
+        return;
+      }
+      const { data: user } = await supabase.auth.getUser();
+      if (user.user) {
+        const userRole = await determineUserRole(user.user.id);
+        setMe({ 
+          id: user.user.id, 
+          email: user.user.email,
+          name: user.user.user_metadata?.name || user.user.email?.split('@')[0] || 'User',
+          role: userRole
+        });
+        setAuthChecked(true);
+        return;
+      }
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      if (refreshed.session?.user) {
+        const user = refreshed.session.user;
+        const userRole = await determineUserRole(user.id);
+        setMe({ 
+          id: user.id, 
+          email: user.email,
+          name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+          role: userRole
+        });
+        setAuthChecked(true);
+      } else {
+        // Keep next so user returns straight to the call if they log in
+        const next = encodeURIComponent(location.pathname + location.search);
+        router.replace(`/login?next=${next}`);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [router]);
+
+
+  // Set peer info
+  useEffect(() => {
+    setPeerInfo({ name: peerName });
+  }, [peerName]);
+
+  // Function to ensure video elements are properly set up
+  const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal: boolean) => {
+    if (!videoRef.current || !stream) {
+      console.warn(`⚠️ Cannot setup video element: videoRef=${!!videoRef.current}, stream=${!!stream}`);
+      return false;
+    }
+
+    const video = videoRef.current;
+    console.log(`🎥 Setting up ${isLocal ? 'local' : 'remote'} video element:`, {
+      audioTracks: stream.getAudioTracks().length,
+      videoTracks: stream.getVideoTracks().length,
+      streamId: stream.id,
+      videoElement: !!video
+    });
+
+    video.srcObject = stream;
+    video.muted = isLocal; // Local muted, remote unmuted
+    video.autoplay = true;
+    video.playsInline = true;
+    video.controls = false;
+
+    // Force play
+    video.play().then(() => {
+      console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing`);
+    }).catch(err => {
+      console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
+    });
+
+    return true;
+  }, []);
+
+  // Ensure video elements are updated when streams change
+  useEffect(() => {
+    if (localStreamRef.current) {
+      setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+    }
+  }, [localStreamRef.current, setupVideoElement]);
+
+  useEffect(() => {
+    if (remoteStreamRef.current) {
+      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+    }
+  }, [remoteStreamRef.current, setupVideoElement]);
+
+  // Initialize video elements and check permissions
+  useEffect(() => {
+    if (authChecked && me?.id) {
+      console.log('🚀 Initializing call component...');
+      
+      // Initialize video elements
+      if (localVideoRef.current) {
+        console.log('✅ Local video element found');
+        localVideoRef.current.muted = true;
+      } else {
+        console.warn('⚠️ Local video element not found');
+      }
+      
+      if (remoteVideoRef.current) {
+        console.log('✅ Remote video element found');
+        remoteVideoRef.current.muted = false;
+      } else {
+        console.warn('⚠️ Remote video element not found');
+      }
+      
+      getAvailableDevices();
+      
+      // Auto-start call if autoAccept is true (for incoming calls)
+      if (autoAccept) {
+        console.log('🚀 Auto-accepting call - starting immediately');
+        setTimeout(() => {
+          startOrPrep();
+        }, 500);
+      }
+    }
+  }, [authChecked, me?.id, mode]);
+
+  // Call duration timer
+  useEffect(() => {
+    if (status === "connected") {
+      callTimerRef.current = setInterval(() => {
+        setCallDuration(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (callTimerRef.current) {
+        clearInterval(callTimerRef.current);
+        callTimerRef.current = null;
+      }
+    }
+    return () => {
+      if (callTimerRef.current) {
+        clearInterval(callTimerRef.current);
+        callTimerRef.current = null;
+      }
+    };
+  }, [status]);
+
+  // ---------- WebRTC core ----------
+  const ensurePC = useCallback(() => {
+    if (pcRef.current) return pcRef.current;
+    const pc = new RTCPeerConnection({ iceServers: buildIceServers() });
+
+    pc.onicecandidate = (ev) => {
+      if (ev.candidate && me?.id) {
+        sendSignal({ kind: "webrtc-ice", from: me.id, candidate: ev.candidate.toJSON() });
+      }
+    };
+    pc.onconnectionstatechange = () => {
+      const s = pc.connectionState;
+      if (s === "connected") {
+        setStatus("connected");
+        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+        // Start audio level monitoring when connected
+        startAudioLevelMonitoring();
+      }
+      if (s === "failed" || s === "disconnected" || s === "closed") {
+        setStatus("ended");
+        callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
+        // Stop audio level monitoring when disconnected
+        stopAudioLevelMonitoring();
+      }
+    };
+    pc.ontrack = (ev) => {
+      console.log(`📡 Received remote ${ev.track.kind} track:`, ev.track.label);
+      
+      if (!remoteStreamRef.current) {
+        remoteStreamRef.current = new MediaStream();
+        console.log('🆕 Created new remote stream');
+      }
+      
+      remoteStreamRef.current.addTrack(ev.track);
+      console.log(`✅ Added ${ev.track.kind} track to remote stream. Total tracks:`, {
+        audio: remoteStreamRef.current.getAudioTracks().length,
+        video: remoteStreamRef.current.getVideoTracks().length
+      });
+      
+      // Set the video element source for remote stream using setup function
+      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+    };
+
+    pcRef.current = pc;
+    return pc;
+  }, [me?.id]);
+
+  const getConstraints = useCallback((): MediaStreamConstraints => {
+    return { 
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 44100
+      }, 
+      video: mode === "video" ? { 
+        width: { ideal: 1280, max: 1920 },
+        height: { ideal: 720, max: 1080 },
+        frameRate: { ideal: 30, max: 60 }
+      } : false 
+    };
+  }, [mode]);
+
+  // Get available media devices
+  const getAvailableDevices = useCallback(async () => {
+    try {
+      // First, try to get user media to trigger permission request
+      // This often helps detect devices that weren't visible before
+      try {
+        const testStream = await navigator.mediaDevices.getUserMedia({ 
+          audio: true, 
+          video: false 
+        });
+        testStream.getTracks().forEach(track => track.stop());
+      } catch (error) {
+        console.log("Test stream failed (this is normal):", error);
+      }
+      
+      // Now enumerate devices
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      console.log("All detected devices:", devices);
+      
+      // Filter and log audio devices specifically
+      const audioDevices = devices.filter(device => device.kind === 'audioinput');
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      
+      console.log("Audio input devices:", audioDevices);
+      console.log("Video input devices:", videoDevices);
+      
+      setAvailableDevices(devices);
+      return devices;
+    } catch (error) {
+      console.warn("Failed to enumerate devices:", error);
+      return [];
+    }
+  }, []);
+
+  // Enhanced media stream acquisition with flexible device handling
+  const getMediaStream = useCallback(async (): Promise<MediaStream> => {
+    try {
+      setMediaError(null);
+      
+      console.log('=== GETTING MEDIA STREAM (SIMPLIFIED) ===');
+      console.log('Mode:', mode);
+      
+      // Very simple approach - just try basic getUserMedia
+      const constraints: MediaStreamConstraints = {
+        audio: true,
+        video: mode === "video"
+      };
+      
+      console.log('🎯 Trying basic getUserMedia with constraints:', constraints);
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      console.log('✅ Media stream acquired successfully:', {
+        audioTracks: stream.getAudioTracks().length,
+        videoTracks: stream.getVideoTracks().length,
+        streamId: stream.id,
+        active: stream.active
+      });
+      
+      // Update device availability state
+      setHasAudio(stream.getAudioTracks().length > 0);
+      setHasVideo(stream.getVideoTracks().length > 0);
+      
+      // Ensure all tracks are enabled
+      stream.getAudioTracks().forEach(track => {
+        track.enabled = true;
+        console.log(`🔊 Audio track enabled: ${track.label}`);
+      });
+      stream.getVideoTracks().forEach(track => {
+        track.enabled = true;
+        console.log(`📹 Video track enabled: ${track.label}`);
+      });
+      
+      return stream;
+      
+    } catch (error: any) {
+      console.error("❌ Media access error:", error);
+      
+      let errorMessage = "Unable to access camera or microphone.";
+      
+      if (error.name === "NotAllowedError" || error.message?.includes("Permission denied")) {
+        errorMessage = "Camera and microphone access denied. Please look for the camera/microphone icon in your browser's address bar, click it, and select 'Allow' for both camera and microphone, then refresh the page.";
+      } else if (error.name === "NotFoundError") {
+        errorMessage = "No camera or microphone found. Please connect your devices and try again.";
+      } else if (error.name === "NotReadableError") {
+        errorMessage = "Camera or microphone is being used by another application. Please close other apps and try again.";
+      } else if (error.name === "OverconstrainedError") {
+        errorMessage = "Camera or microphone doesn't support the required settings.";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setMediaError(errorMessage);
+      setStatus("failed");
+      throw error;
+    }
+  }, [mode]);
+
+  // ---------- Signaling on thread_${conversationId} ----------
+  const threadChannel = useMemo(() => `thread_${conversationId}`, [conversationId]);
+
+  const sendSignal = useCallback((payload: SigPayload) => {
+    if (!threadChanRef.current) return;
+    void threadChanRef.current.send({ type: "broadcast", event: "signal", payload });
+  }, []);
+
+  useEffect(() => {
+    if (!conversationId || !me?.id) return;
+
+    const ch = supabase.channel(threadChannel, { config: { broadcast: { ack: true } } });
+
+    ch.on("broadcast", { event: "signal" }, async (e) => {
+      const msg = (e.payload || {}) as SigPayload;
+      if (!msg || msg.from === me.id) return;
+
+      if (msg.kind === "webrtc-offer") {
+        const pc = ensurePC();
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        const answer = await pc.createAnswer();
+        console.log('Created answer with audio:', answer.sdp?.includes('m=audio'));
+        await pc.setLocalDescription(answer);
+        sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+      } else if (msg.kind === "webrtc-answer") {
+        const pc = ensurePC();
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+      } else if (msg.kind === "webrtc-ice") {
+        try {
+          const pc = ensurePC();
+          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+        } catch {
+          /* ignore */
+        }
+      } else if (msg.kind === "bye") {
+        endCall(true);
+      }
+    });
+
+    ch.subscribe();
+    threadChanRef.current = ch;
+
+    return () => {
+      try {
+        supabase.removeChannel(ch);
+      } catch {}
+      threadChanRef.current = null;
+    };
+  }, [conversationId, ensurePC, me?.id, sendSignal, threadChannel]);
+
+  // ---------- Ring peer (for IncomingCallBanner) on user_${peer} ----------
+  async function ringPeer() {
+    if (!peerUserId || !conversationId || !me?.id) return;
+    const ch = supabase.channel(`user_${peerUserId}`, { config: { broadcast: { ack: true } } });
+    await new Promise<void>((res, rej) => {
+      const to = setTimeout(() => rej(new Error("subscribe timeout")), 8000);
+      ch.subscribe((s) => {
+        if (s === "SUBSCRIBED") {
+          clearTimeout(to);
+          res();
+        }
+        if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+          clearTimeout(to);
+          rej(new Error(String(s)));
+        }
+      });
+    });
+    await ch.send({
+      type: "broadcast",
+      event: "invite",
+      payload: { conversationId, fromId: me.id, fromName: me.email || "Caller", mode },
+    });
+    try {
+      supabase.removeChannel(ch);
+    } catch {}
+  }
+
+  async function byePeer() {
+    if (!peerUserId || !conversationId) return;
+    const ch = supabase.channel(`user_${peerUserId}`, { config: { broadcast: { ack: true } } });
+    await new Promise<void>((res) => ch.subscribe((s) => s === "SUBSCRIBED" && res()));
+    await ch.send({ type: "broadcast", event: "bye", payload: { conversationId } });
+    try {
+      supabase.removeChannel(ch);
+    } catch {}
+  }
+
+  // ---------- Start flow ----------
+  const startOrPrep = useCallback(async () => {
+    if (!me?.id) return;
+
+    setStatus("connecting");
+    setMediaError(null);
+
+    // Log call initiation (non-blocking)
+    callTracker.logCallEvent({
+      conversationId: conversationId!,
+      callerId: me.id,
+      calleeId: peerUserId,
+      callerName: me.name || me.email || "Caller",
+      calleeName: peerInfo?.name || peerName,
+      callType: mode,
+      status: "initiated",
+      startedAt: new Date().toISOString(),
+    }).catch(console.warn);
+
+    try {
+      // 1) Get local stream with enhanced error handling
+      localStreamRef.current = await getMediaStream();
+      console.log('Local stream acquired:', {
+        audioTracks: localStreamRef.current.getAudioTracks().length,
+        videoTracks: localStreamRef.current.getVideoTracks().length,
+        streamId: localStreamRef.current.id
+      });
+      
+      // Set the video element source using the setup function
+      setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+
+    // 2) Add tracks to PC
+    const pc = ensurePC();
+    localStreamRef.current.getTracks().forEach((t) => {
+      console.log(`Adding ${t.kind} track to peer connection:`, t.label);
+      pc.addTrack(t, localStreamRef.current!);
+    });
+
+    // 3) If caller, create offer + send + ring
+    if (role === "caller") {
+      setStatus("ringing");
+      callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
+      
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: mode === "video",
+      });
+      console.log('Created offer with audio:', offer.sdp?.includes('m=audio'));
+      await pc.setLocalDescription(offer);
+      sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
+      await ringPeer(); // show IncomingCallBanner on the peer
+    } else if (role === "callee") {
+      // For callees, just prepare and wait for caller's offer
+      console.log('📞 Callee ready - waiting for caller\'s offer');
+      setStatus("connected");
+    }
+    } catch (error) {
+      console.error("Failed to start call:", error);
+      setStatus("failed");
+      // Don't throw - let the UI handle the error state
+    }
+  }, [ensurePC, getMediaStream, me?.id, mode, role, sendSignal, conversationId, peerUserId, peerInfo?.name, peerName]);
+
+  // Only auto-start if not autoAccept (for outgoing calls)
+  useEffect(() => {
+    if (!authChecked || !me?.id) return;
+    if (!autoAccept) {
+      (async () => {
+        await startOrPrep();
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authChecked, me?.id, autoAccept]);
+
+  // ---------- Controls ----------
+  const toggleMute = useCallback(() => {
+    const s = localStreamRef.current;
+    if (!s) {
+      console.warn("No local stream available for mute toggle");
+      return;
+    }
+    
+    const audioTracks = s.getAudioTracks();
+    console.log(`Toggling mute for ${audioTracks.length} audio tracks`);
+    
+    if (audioTracks.length === 0) {
+      console.warn("No audio tracks found in local stream");
+      return;
+    }
+    
+    const newMutedState = !muted;
+    audioTracks.forEach((t) => {
+      t.enabled = !newMutedState;
+      console.log(`Audio track ${t.label} enabled: ${t.enabled}`);
+    });
+    
+    setMuted(newMutedState);
+    console.log(`Mute state changed to: ${newMutedState}`);
+  }, [muted]);
+
+  const toggleCamera = useCallback(() => {
+    const s = localStreamRef.current;
+    if (!s) {
+      console.warn("No local stream available for camera toggle");
+      return;
+    }
+    
+    const videoTracks = s.getVideoTracks();
+    console.log(`Toggling camera for ${videoTracks.length} video tracks`);
+    
+    if (videoTracks.length === 0) {
+      console.warn("No video tracks found in local stream");
+      return;
+    }
+    
+    const newCamOffState = !camOff;
+    videoTracks.forEach((t) => {
+      t.enabled = !newCamOffState;
+      console.log(`Video track ${t.label} enabled: ${t.enabled}`);
+    });
+    
+    setCamOff(newCamOffState);
+    console.log(`Camera state changed to: ${newCamOffState ? 'off' : 'on'}`);
+  }, [camOff]);
+
+  const shareScreen = useCallback(async () => {
+    if (isSharingScreen) {
+      // Stop screen sharing
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach(track => track.stop());
+        screenStreamRef.current = null;
+      }
+      setIsSharingScreen(false);
+      
+      // Switch back to camera
+      const pc = pcRef.current;
+      if (pc && localStreamRef.current) {
+        const videoTrack = localStreamRef.current.getVideoTracks()[0];
+        if (videoTrack) {
+          const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+          if (sender) {
+            await sender.replaceTrack(videoTrack);
+          }
+        }
+      }
+    } else {
+      // Start screen sharing
+      try {
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true
+        });
+        
+        screenStreamRef.current = screenStream;
+        setIsSharingScreen(true);
+        
+        // Replace video track with screen share
+        const pc = pcRef.current;
+        if (pc) {
+          const videoTrack = screenStream.getVideoTracks()[0];
+          if (videoTrack) {
+            const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (sender) {
+              await sender.replaceTrack(videoTrack);
+            }
+          }
+        }
+        
+        // Handle screen share end
+        screenStream.getVideoTracks()[0].addEventListener('ended', () => {
+          setIsSharingScreen(false);
+          if (screenStreamRef.current) {
+            screenStreamRef.current.getTracks().forEach(track => track.stop());
+            screenStreamRef.current = null;
+          }
+          
+          // Switch back to camera
+          const pc = pcRef.current;
+          if (pc && localStreamRef.current) {
+            const videoTrack = localStreamRef.current.getVideoTracks()[0];
+            if (videoTrack) {
+              const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+              if (sender) {
+                sender.replaceTrack(videoTrack);
+              }
+            }
+          }
+        });
+      } catch (error) {
+        console.error('Screen sharing failed:', error);
+      }
+    }
+  }, [isSharingScreen]);
+
+  const endCall = useCallback(
+    (remote = false) => {
+      setStatus("ended");
+      
+      // Track call ending (non-blocking)
+      callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
+      
+      // Stop audio level monitoring
+      stopAudioLevelMonitoring();
+      
+      // Clear call timer
+      if (callTimerRef.current) {
+        clearInterval(callTimerRef.current);
+        callTimerRef.current = null;
+      }
+      
+      try {
+        pcRef.current?.getSenders().forEach((s) => s.track?.stop());
+      } catch {}
+      try {
+        pcRef.current?.close();
+      } catch {}
+      pcRef.current = null;
+      
+      try {
+        localStreamRef.current?.getTracks().forEach((t) => t.stop());
+      } catch {}
+      localStreamRef.current = null;
+      
+      try {
+        screenStreamRef.current?.getTracks().forEach((t) => t.stop());
+      } catch {}
+      screenStreamRef.current = null;
+
+      // notify via thread + user channel
+      if (!remote && me?.id) {
+        sendSignal({ kind: "bye", from: me.id });
+        void byePeer();
+      }
+
+      // back to messages - redirect based on user role
+      const messagesUrl = me?.role ? getMessagesUrl(me.role) : '/dashboard/messages';
+      router.push(messagesUrl);
+    },
+    [byePeer, me?.id, router, sendSignal, conversationId]
+  );
+
+  useEffect(() => {
+    const onUnload = () => endCall(false);
+    window.addEventListener("beforeunload", onUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onUnload);
+      stopAudioLevelMonitoring();
+    };
+  }, [endCall, stopAudioLevelMonitoring]);
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Retry function for media access
+  const retryMediaAccess = useCallback(async () => {
+    setMediaError(null);
+    setStatus("connecting");
+    try {
+      await startOrPrep();
+    } catch (error) {
+      console.error("Retry failed:", error);
+    }
+  }, [startOrPrep]);
+
+  // Request permissions explicitly
+  const requestPermissions = useCallback(async () => {
+    try {
+      setMediaError(null);
+      setStatus("connecting");
+      
+      // Request permissions explicitly
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: true, 
+        video: mode === "video" 
+      });
+      
+      // Stop the test stream
+      stream.getTracks().forEach(track => track.stop());
+      
+      // Refresh device list after getting permissions
+      await getAvailableDevices();
+      
+      // Now try the actual call
+      await startOrPrep();
+    } catch (error) {
+      console.error("Permission request failed:", error);
+      setStatus("failed");
+      setMediaError("Permission denied. Please allow camera and microphone access and try again.");
+    }
+  }, [mode, startOrPrep, getAvailableDevices]);
+
+  // Refresh devices function
+  const refreshDevices = useCallback(async () => {
+    try {
+      setMediaError(null);
+      setStatus("connecting");
+      
+      // Force refresh device list
+      await getAvailableDevices();
+      
+      // Try to start the call again
+      await startOrPrep();
+    } catch (error) {
+      console.error("Device refresh failed:", error);
+      setStatus("failed");
+      setMediaError("Failed to refresh devices. Please check your connections and try again.");
+    }
+  }, [getAvailableDevices, startOrPrep]);
+
+  // Test audio function
+  const testAudio = useCallback(async () => {
+    try {
+      console.log('🎤 Starting audio test...');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('✅ Audio test successful:', {
+        audioTracks: stream.getAudioTracks().length,
+        trackLabels: stream.getAudioTracks().map(t => t.label),
+        streamId: stream.id,
+        active: stream.active
+      });
+      
+      // Test if we can assign to local video element
+      if (localVideoRef.current) {
+        console.log('🎥 Testing audio assignment to local video element');
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.muted = false;
+        
+        try {
+          await localVideoRef.current.play();
+          console.log('✅ Audio playing through video element');
+          alert('✅ Audio test successful! You should hear yourself. Check the video element for 3 seconds.');
+          
+          setTimeout(() => {
+            stream.getTracks().forEach(track => track.stop());
+            if (localStreamRef.current) {
+              localVideoRef.current!.srcObject = localStreamRef.current;
+            }
+            console.log('🔄 Restored original stream');
+          }, 3000);
+        } catch (playError) {
+          console.error('❌ Audio playback failed:', playError);
+          alert('❌ Audio test failed to play: ' + playError);
+          stream.getTracks().forEach(track => track.stop());
+        }
+      } else {
+        console.error('❌ localVideoRef.current is null');
+        alert('❌ Video element not found');
+        stream.getTracks().forEach(track => track.stop());
+      }
+    } catch (error) {
+      console.error('❌ Audio test failed:', error);
+      alert('❌ Audio test failed. Please check your microphone permissions and try again.');
+    }
+  }, []);
+
+  // Test video function
+  const testVideo = useCallback(async () => {
+    try {
+      console.log('Starting video test...');
+      
+      // First check if getUserMedia is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('getUserMedia is not supported in this browser');
+      }
+      
+      // Test with basic constraints first
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: true,
+        audio: false 
+      });
+      
+      console.log('Video test successful:', {
+        videoTracks: stream.getVideoTracks().length,
+        trackLabels: stream.getVideoTracks().map(t => t.label),
+        streamId: stream.id,
+        active: stream.active
+      });
+      
+      // Test setting the video element
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.muted = true;
+        console.log('🎥 Video element updated with test stream');
+        
+        // Force play
+        localVideoRef.current.play().catch(err => {
+          console.warn('Failed to auto-play test video:', err);
+        });
+        
+        // Wait a moment to see if video loads
+        setTimeout(() => {
+          if (localVideoRef.current) {
+            console.log('📊 Video element state:', {
+              videoWidth: localVideoRef.current.videoWidth,
+              videoHeight: localVideoRef.current.videoHeight,
+              readyState: localVideoRef.current.readyState,
+              srcObject: !!localVideoRef.current.srcObject,
+              paused: localVideoRef.current.paused,
+              muted: localVideoRef.current.muted
+            });
+          }
+        }, 1000);
+        
+        // Stop the test stream after 5 seconds
+        setTimeout(() => {
+          stream.getTracks().forEach(track => track.stop());
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = localStreamRef.current;
+          }
+        }, 5000);
+        
+        alert('Video test successful! Your camera is working. Check the video preview for 5 seconds.');
+      } else {
+        console.error('localVideoRef.current is null');
+        alert('Video test failed: Video element not found');
+      }
+    } catch (error: any) {
+      console.error('Video test failed:', error);
+      let errorMsg = 'Video test failed: ';
+      
+      if (error.name === 'NotAllowedError') {
+        errorMsg += 'Permission denied. Please allow camera access and try again.';
+      } else if (error.name === 'NotFoundError') {
+        errorMsg += 'No camera found. Please connect a camera and try again.';
+      } else if (error.name === 'NotReadableError') {
+        errorMsg += 'Camera is being used by another application. Please close other apps and try again.';
+      } else {
+        errorMsg += error.message || 'Unknown error occurred.';
+      }
+      
+      alert(errorMsg);
+    }
+  }, []);
+
+  // Comprehensive media test function
+  const testAllMedia = useCallback(async () => {
+    console.log('=== COMPREHENSIVE MEDIA TEST ===');
+    
+    try {
+      // Test 1: Check if getUserMedia is available
+      console.log('Test 1: Checking getUserMedia support...');
+      if (!navigator.mediaDevices) {
+        throw new Error('navigator.mediaDevices is not available');
+      }
+      if (!navigator.mediaDevices.getUserMedia) {
+        throw new Error('getUserMedia is not available');
+      }
+      console.log('✅ getUserMedia is supported');
+      
+      // Test 2: Check available devices
+      console.log('Test 2: Checking available devices...');
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioDevices = devices.filter(d => d.kind === 'audioinput');
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+      
+      console.log('Audio devices:', audioDevices);
+      console.log('Video devices:', videoDevices);
+      
+      if (audioDevices.length === 0) {
+        console.warn('⚠️ No audio input devices found');
+      }
+      if (videoDevices.length === 0) {
+        console.warn('⚠️ No video input devices found');
+      }
+      
+      // Test 3: Test audio only
+      console.log('Test 3: Testing audio only...');
+      try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        console.log('✅ Audio test successful:', {
+          audioTracks: audioStream.getAudioTracks().length,
+          trackLabels: audioStream.getAudioTracks().map(t => t.label)
+        });
+        audioStream.getTracks().forEach(track => track.stop());
+      } catch (error) {
+        console.error('❌ Audio test failed:', error);
+      }
+      
+      // Test 4: Test video only
+      console.log('Test 4: Testing video only...');
+      try {
+        const videoStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+        console.log('✅ Video test successful:', {
+          videoTracks: videoStream.getVideoTracks().length,
+          trackLabels: videoStream.getVideoTracks().map(t => t.label)
+        });
+        videoStream.getTracks().forEach(track => track.stop());
+      } catch (error) {
+        console.error('❌ Video test failed:', error);
+      }
+      
+      // Test 5: Test both together
+      console.log('Test 5: Testing audio + video together...');
+      try {
+        const fullStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        console.log('✅ Full media test successful:', {
+          audioTracks: fullStream.getAudioTracks().length,
+          videoTracks: fullStream.getVideoTracks().length,
+          streamId: fullStream.id,
+          active: fullStream.active
+        });
+        fullStream.getTracks().forEach(track => track.stop());
+      } catch (error) {
+        console.error('❌ Full media test failed:', error);
+      }
+      
+      console.log('=== MEDIA TEST COMPLETE ===');
+      alert('Media test complete! Check the browser console for detailed results.');
+      
+    } catch (error) {
+      console.error('❌ Media test failed:', error);
+      alert('Media test failed: ' + (error as Error).message);
+    }
+  }, []);
+
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <p className="text-white text-lg">Joining the call...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "connecting") {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <p className="text-white text-lg">Connecting...</p>
+          <p className="text-gray-400 text-sm mt-2">Setting up camera and microphone</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "failed") {
+  return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto p-6">
+          <div className="bg-red-500 rounded-full h-16 w-16 flex items-center justify-center mx-auto mb-4">
+            <PhoneOff className="h-8 w-8 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-2">Call Failed</h2>
+          <p className="text-gray-300 mb-6">
+            {mediaError || "Unable to establish connection. Please try again."}
+          </p>
+          
+          {/* Helpful message for device issues */}
+          {mediaError?.includes("microphone") && mode === "video" && !mediaError?.includes("Permission denied") && (
+            <div className="mb-4 p-3 bg-blue-900/30 rounded-lg border border-blue-500/30">
+              <p className="text-blue-200 text-sm">
+                💡 <strong>Tip:</strong> You can still make video calls without a microphone. 
+                The other person will be able to see you and hear you through their speakers, 
+                but you won't be able to speak back.
+              </p>
+            </div>
+          )}
+          
+          {/* Helpful message for no devices */}
+          {mediaError?.includes("No camera or microphone found") && mode === "video" && (
+            <div className="mb-4 p-3 bg-green-900/30 rounded-lg border border-green-500/30">
+              <p className="text-green-200 text-sm">
+                ✅ <strong>Good news:</strong> You can still make video calls without any devices! 
+                The system will create a placeholder video stream so the call can continue.
+                The other person will see a "No Camera" placeholder instead of your video.
+              </p>
+            </div>
+          )}
+          
+          {/* Helpful message for headset detection issues */}
+          {availableDevices.filter(d => d.kind === 'audioinput').length === 0 && (
+            <div className="mb-4 p-3 bg-yellow-900/30 rounded-lg border border-yellow-500/30">
+              <p className="text-yellow-200 text-sm">
+                🎧 <strong>Headset Not Detected:</strong> Your headset might not be detected by the browser. Try:
+              </p>
+              <ul className="text-yellow-200 text-xs mt-2 ml-4 list-disc">
+                <li>Unplug and reconnect your headset</li>
+                <li>Check if your headset is set as the default audio device</li>
+                <li>Try the "Refresh Devices" button below</li>
+                <li>Check Windows/Mac sound settings</li>
+                <li>Try a different USB port or audio jack</li>
+              </ul>
+            </div>
+          )}
+          
+          {/* Helpful message for audio calls without microphone */}
+          {mediaError?.includes("No microphone found") && mode === "audio" && (
+            <div className="mb-4 p-3 bg-green-900/30 rounded-lg border border-green-500/30">
+              <p className="text-green-200 text-sm">
+                ✅ <strong>Good news:</strong> You can still make audio calls without a microphone! 
+                The system will create a silent audio stream so the call can continue.
+                You'll be able to hear the other person, but they won't hear you speak.
+              </p>
+            </div>
+          )}
+          
+          {/* Helpful message for permission denied */}
+          {mediaError?.includes("Permission denied") && (
+            <div className="mb-4 p-4 bg-red-900/30 rounded-lg border border-red-500/30">
+              <div className="flex items-start gap-3">
+                <div className="text-2xl">🔒</div>
+                <div className="flex-1">
+                  <p className="text-red-200 text-sm font-semibold mb-2">
+                    Permission Required: Camera and Microphone Access Denied
+                  </p>
+                  <p className="text-red-200 text-sm mb-3">
+                    Your browser blocked camera and microphone access. To fix this:
+                  </p>
+                  <div className="bg-red-800/50 rounded p-3 mb-3">
+                    <p className="text-red-100 text-sm font-medium mb-2">Quick Fix:</p>
+                    <ol className="text-red-200 text-xs space-y-1 ml-4 list-decimal">
+                      <li>Look for the camera/microphone icon in your browser's address bar (right side) 
+                          <span className="text-yellow-300"> 📷🎤 or 🚫</span>
+                      </li>
+                      <li>Click the icon and select "Allow" for both camera and microphone</li>
+                      <li>Refresh this page (F5 or Ctrl+R)</li>
+                      <li>Try the call again</li>
+                    </ol>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button 
+                      onClick={() => window.location.reload()} 
+                      size="sm"
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                    >
+                      🔄 Refresh Page
+                    </Button>
+                    <Button 
+                      onClick={requestPermissions} 
+                      size="sm"
+                      variant="outline"
+                      className="border-red-400 text-red-200 hover:bg-red-800"
+                    >
+                      🎥 Request Permissions
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Device status */}
+          <div className="mb-6 p-4 bg-gray-800 rounded-lg text-left">
+            <h3 className="text-white font-semibold mb-2">Device Status:</h3>
+            <div className="space-y-1 text-sm text-gray-300">
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${availableDevices.some(d => d.kind === 'audioinput') ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                Audio: {availableDevices.filter(d => d.kind === 'audioinput').length} device(s)
+                {availableDevices.filter(d => d.kind === 'audioinput').length === 0 && (
+                  <span className="text-yellow-400 text-xs">(Try refreshing devices below)</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${availableDevices.some(d => d.kind === 'videoinput') ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                Video: {availableDevices.filter(d => d.kind === 'videoinput').length} device(s)
+                {availableDevices.filter(d => d.kind === 'videoinput').length === 0 && mode === "video" && (
+                  <span className="text-yellow-400 text-xs">(Will use placeholder)</span>
+                )}
+              </div>
+            </div>
+            
+            {/* Device details */}
+            {availableDevices.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-700">
+                <h4 className="text-white text-xs font-medium mb-2">Detected Devices:</h4>
+                <div className="space-y-1 text-xs text-gray-400">
+                  {availableDevices.map((device, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <span className="w-1 h-1 bg-gray-500 rounded-full"></span>
+                      {device.label || `Unknown ${device.kind}`} ({device.kind})
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <div className="space-y-3">
+            {mediaError?.includes("Permission denied") ? (
+              <Button onClick={requestPermissions} className="w-full">
+                Request Permissions
+              </Button>
+            ) : (
+              <Button onClick={retryMediaAccess} className="w-full">
+                Try Again
+              </Button>
+            )}
+            
+            {/* Test audio button */}
+            <Button 
+              variant="outline" 
+              onClick={testAudio}
+              className="w-full"
+            >
+              🎤 Test Audio
+            </Button>
+            
+            {/* Test video button */}
+            <Button 
+              variant="outline" 
+              onClick={testVideo}
+              className="w-full"
+            >
+              📹 Test Video
+            </Button>
+            
+            {/* Comprehensive test button */}
+            <Button 
+              variant="outline" 
+              onClick={testAllMedia}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              🔍 Full Media Test
+            </Button>
+            
+            {/* Refresh devices button - always show */}
+            <Button 
+              variant="outline" 
+              onClick={refreshDevices}
+              className="w-full"
+            >
+              🔄 Refresh Devices
+            </Button>
+            
+            {mode === "video" && (
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  // Switch to audio mode
+                  const audioUrl = window.location.href.replace('mode=video', 'mode=audio');
+                  window.location.href = audioUrl;
+                }} 
+                className="w-full"
+              >
+                Switch to Audio Call
+              </Button>
+            )}
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                const messagesUrl = me?.role ? getMessagesUrl(me.role) : '/dashboard/messages';
+                router.push(messagesUrl);
+              }} 
+              className="w-full"
+            >
+              Back to Messages
+            </Button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
+    <div className="min-h-screen bg-gray-900 text-white">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-700">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={async () => {
-              if (me?.id) {
-                try {
-                  const userRole = await determineUserRole(me.id);
-                  const messagesUrl = getMessagesUrl(userRole);
-                  router.push(messagesUrl);
-                } catch (error) {
-                  router.push('/dashboard/messages');
-                }
-              } else {
-                router.push('/dashboard/messages');
-              }
-            }}
-            className="text-white hover:bg-gray-800"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h1 className="text-xl font-bold text-white">
-              {mode === "video" ? "Video" : "Audio"} Call
-            </h1>
-            <p className="text-sm text-gray-400">with {peerName}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant={status === "connected" ? "default" : "secondary"}>
-            {status === "connecting" ? "Connecting..." : status === "connected" ? "Connected" : "Idle"}
-          </Badge>
-          {process.env.NODE_ENV === 'development' && (
-            <div className="flex items-center gap-2">
-              <div className="text-xs text-gray-400">
-                Local: {debugInfo.localStream ? '✅' : '❌'} | 
-                Remote: {debugInfo.remoteStream ? '✅' : '❌'} | 
-                PC: {debugInfo.connectionState}
+      <div className="bg-black/20 backdrop-blur-sm border-b border-gray-700 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                const messagesUrl = me?.role ? getMessagesUrl(me.role) : '/dashboard/messages';
+                router.push(messagesUrl);
+              }}
+              className="text-white hover:bg-white/10"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div>
+              <h1 className="text-xl font-semibold">
+                {mode === "video" ? "Video Call" : "Voice Call"}
+              </h1>
+              <div className="flex items-center gap-2 text-sm text-gray-300">
+                <span>{peerInfo?.name || peerName}</span>
+                {status === "connected" && (
+                  <>
+                    <span>•</span>
+                    <span>{formatDuration(callDuration)}</span>
+                  </>
+                )}
+                {status === "ringing" && role === "caller" && (
+                  <Badge variant="secondary" className="bg-yellow-500 text-yellow-900">
+                    Ringing...
+                  </Badge>
+                )}
+                {(status as CallUIStatus) === "connecting" && (
+                  <Badge variant="secondary" className="bg-blue-500 text-blue-900">
+                    Connecting...
+                  </Badge>
+                )}
               </div>
-              {status === "connecting" && (
-                <div className="flex gap-2">
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={forceConnection}
-                    className="text-xs"
-                  >
-                    Force Connect
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={forceVideoSetup}
-                    className="text-xs"
-                  >
-                    Force Video
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={refreshCamera}
-                    className="text-xs"
-                  >
-                    <RefreshCw className="h-3 w-3 mr-1" />
-                    Refresh Camera
-                  </Button>
+              
+              {/* Device status indicators */}
+              {status === "connected" && (
+                <div className="flex items-center gap-2 text-xs text-gray-400 mt-1">
+                  {isFallbackStream && (
+                    <span className="flex items-center gap-1 text-yellow-400">
+                      <VideoOff className="h-3 w-3" />
+                      No devices - using fallback
+                    </span>
+                  )}
+                  {!isFallbackStream && hasAudio === false && (
+                    <span className="flex items-center gap-1 text-orange-400">
+                      <MicOff className="h-3 w-3" />
+                      No mic
+                    </span>
+                  )}
+                  {!isFallbackStream && hasVideo === false && mode === "video" && (
+                    <span className="flex items-center gap-1 text-orange-400">
+                      <VideoOff className="h-3 w-3" />
+                      No camera
+                    </span>
+                  )}
+                  {hasAudio && !muted && (
+                    <span className="flex items-center gap-1 text-green-400">
+                      <Mic className="h-3 w-3" />
+                      Audio active
+                    </span>
+                  )}
+                  {hasAudio && muted && (
+                    <span className="flex items-center gap-1 text-red-400">
+                      <MicOff className="h-3 w-3" />
+                      Muted
+                    </span>
+                  )}
                 </div>
               )}
             </div>
-          )}
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {/* Test audio button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={testAudio}
+              className="text-white hover:bg-white/10"
+              title="Test Audio"
+            >
+              🎤 Test
+            </Button>
+            
+            {/* Test video button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={testVideo}
+              className="text-white hover:bg-white/10"
+              title="Test Video"
+            >
+              📹 Test
+            </Button>
+            
+            {/* Simple test button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={async () => {
+                console.log('🔍 SIMPLE TEST STARTING...');
+                console.log('Browser support check:');
+                console.log('- navigator.mediaDevices:', !!navigator.mediaDevices);
+                console.log('- getUserMedia:', !!navigator.mediaDevices?.getUserMedia);
+                console.log('- HTTPS:', location.protocol === 'https:');
+                console.log('- Localhost:', location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+                
+                try {
+                  // Test 1: Check if we can enumerate devices
+                  console.log('📱 Testing device enumeration...');
+                  const devices = await navigator.mediaDevices.enumerateDevices();
+                  const audioDevices = devices.filter(d => d.kind === 'audioinput');
+                  const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                  
+                  console.log('Available devices:', {
+                    audio: audioDevices.length,
+                    video: videoDevices.length,
+                    total: devices.length
+                  });
+                  
+                  if (audioDevices.length === 0 && videoDevices.length === 0) {
+                    alert('❌ No audio or video devices found! Please connect a camera and microphone.');
+                    return;
+                  }
+                  
+                  // Test 2: Try basic getUserMedia
+                  console.log('🎤 Testing basic getUserMedia...');
+                  const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: videoDevices.length > 0,
+                    audio: audioDevices.length > 0
+                  });
+                  
+                  console.log('✅ getUserMedia successful!', {
+                    audioTracks: stream.getAudioTracks().length,
+                    videoTracks: stream.getVideoTracks().length,
+                    streamId: stream.id,
+                    active: stream.active
+                  });
+                  
+                  // Test 3: Try to display in video element
+                  if (localVideoRef.current) {
+                    console.log('🎥 Testing video element assignment...');
+                    localVideoRef.current.srcObject = stream;
+                    localVideoRef.current.muted = true;
+                    
+                    try {
+                      await localVideoRef.current.play();
+                      console.log('✅ Video element playing successfully!');
+                      alert('✅ SUCCESS! You should see yourself in the video. Check the video preview!');
+                    } catch (playError) {
+                      console.error('❌ Video play failed:', playError);
+                      alert('❌ Video element failed to play: ' + playError);
+                    }
+                  } else {
+                    console.error('❌ localVideoRef.current is null!');
+                    alert('❌ Video element not found!');
+                  }
+                  
+                  // Clean up after 5 seconds
+                  setTimeout(() => {
+                    console.log('🔄 Cleaning up test stream...');
+                    stream.getTracks().forEach(track => {
+                      track.stop();
+                      console.log(`Stopped ${track.kind} track:`, track.label);
+                    });
+                  }, 5000);
+                  
+                } catch (error: any) {
+                  console.error('❌ SIMPLE TEST FAILED:', error);
+                  console.error('Error details:', {
+                    name: error.name,
+                    message: error.message,
+                    constraint: error.constraint
+                  });
+                  
+                  let errorMsg = 'Unknown error';
+                  if (error.name === 'NotAllowedError') {
+                    errorMsg = 'Permission denied! Click the camera/mic icon in your browser address bar and allow access.';
+                  } else if (error.name === 'NotFoundError') {
+                    errorMsg = 'No camera or microphone found! Please connect your devices.';
+                  } else if (error.name === 'NotReadableError') {
+                    errorMsg = 'Camera or microphone is being used by another app! Close other apps and try again.';
+                  } else {
+                    errorMsg = error.message || 'Unknown error occurred';
+                  }
+                  
+                  alert('❌ SIMPLE TEST FAILED: ' + errorMsg);
+                }
+              }}
+              className="text-white hover:bg-white/10"
+              title="Simple Test"
+            >
+              🔍 Simple Test
+            </Button>
+            
+            {/* HTML test button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={async () => {
+                try {
+                  console.log('🧪 HTML TEST STARTING...');
+                  
+                  // Create a new video element directly
+                  const testVideo = document.createElement('video');
+                  testVideo.style.width = '300px';
+                  testVideo.style.height = '200px';
+                  testVideo.style.border = '2px solid red';
+                  testVideo.style.position = 'fixed';
+                  testVideo.style.top = '50px';
+                  testVideo.style.right = '50px';
+                  testVideo.style.zIndex = '9999';
+                  testVideo.muted = true;
+                  testVideo.autoplay = true;
+                  testVideo.playsInline = true;
+                  
+                  // Add to page
+                  document.body.appendChild(testVideo);
+                  
+                  // Get media stream
+                  const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: true, 
+                    audio: true 
+                  });
+                  
+                  console.log('✅ HTML test stream acquired:', {
+                    audioTracks: stream.getAudioTracks().length,
+                    videoTracks: stream.getVideoTracks().length
+                  });
+                  
+                  // Assign to test video
+                  testVideo.srcObject = stream;
+                  
+                  // Play
+                  await testVideo.play();
+                  console.log('✅ HTML test video playing');
+                  
+                  alert('✅ HTML TEST SUCCESS! You should see a red-bordered video in the top-right corner. Check if you can see yourself!');
+                  
+                  // Clean up after 5 seconds
+                  setTimeout(() => {
+                    stream.getTracks().forEach(track => track.stop());
+                    document.body.removeChild(testVideo);
+                    console.log('🔄 HTML test cleaned up');
+                  }, 5000);
+                  
+                } catch (error: any) {
+                  console.error('❌ HTML TEST FAILED:', error);
+                  alert('❌ HTML TEST FAILED: ' + (error.message || 'Unknown error'));
+                }
+              }}
+              className="text-white hover:bg-white/10"
+              title="HTML Test"
+            >
+              🧪 HTML Test
+            </Button>
+            
+            {/* Debug info button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                console.log('🔍 DEBUG INFO:');
+                console.log('Local stream:', localStreamRef.current ? {
+                  audioTracks: localStreamRef.current.getAudioTracks().length,
+                  videoTracks: localStreamRef.current.getVideoTracks().length,
+                  active: localStreamRef.current.active
+                } : 'null');
+                console.log('Remote stream:', remoteStreamRef.current ? {
+                  audioTracks: remoteStreamRef.current.getAudioTracks().length,
+                  videoTracks: remoteStreamRef.current.getVideoTracks().length,
+                  active: remoteStreamRef.current.active
+                } : 'null');
+                console.log('Local video element:', localVideoRef.current ? {
+                  srcObject: !!localVideoRef.current.srcObject,
+                  videoWidth: localVideoRef.current.videoWidth,
+                  videoHeight: localVideoRef.current.videoHeight,
+                  readyState: localVideoRef.current.readyState,
+                  paused: localVideoRef.current.paused
+                } : 'null');
+                console.log('Remote video element:', remoteVideoRef.current ? {
+                  srcObject: !!remoteVideoRef.current.srcObject,
+                  videoWidth: remoteVideoRef.current.videoWidth,
+                  videoHeight: remoteVideoRef.current.videoHeight,
+                  readyState: remoteVideoRef.current.readyState,
+                  paused: remoteVideoRef.current.paused
+                } : 'null');
+                alert('Debug info logged to console. Check browser console (F12) for details.');
+              }}
+              className="text-white hover:bg-white/10"
+              title="Debug Info"
+            >
+              🔍 Debug
+            </Button>
+            
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsMinimized(!isMinimized)}
+              className="text-white hover:bg-white/10"
+            >
+              {isMinimized ? <Maximize2 className="h-5 w-5" /> : <Minimize2 className="h-5 w-5" />}
+          </Button>
+          </div>
         </div>
       </div>
 
-      {/* Device Status Banner */}
-      {(!deviceStatus.camera || !deviceStatus.microphone) && (
-        <div className="bg-yellow-600 text-white px-4 py-2 text-center text-sm">
-          <div className="flex items-center justify-center gap-2">
-            <span>⚠️</span>
-            <span>
-              {!deviceStatus.camera && !deviceStatus.microphone && "No camera/microphone detected — you are still connected (audio/video disabled)."}
-              {!deviceStatus.camera && deviceStatus.microphone && "No camera detected — video disabled but audio enabled."}
-              {deviceStatus.camera && !deviceStatus.microphone && "No microphone detected — audio disabled but video enabled."}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Video Area */}
-      <div 
-        className="flex-1 relative cursor-pointer"
-        onClick={() => {
-          if (!userInteracted) {
-            console.log('👆 Video area clicked - enabling video playback');
-            setUserInteracted(true);
-            setVideoPlaybackBlocked(false);
-            
-            // Try to play videos
-            if (localVideoRef.current && localVideoRef.current.paused) {
-              localVideoRef.current.play().catch(console.warn);
-            }
-            if (remoteVideoRef.current && remoteVideoRef.current.paused) {
-              remoteVideoRef.current.play().catch(console.warn);
-            }
-          }
-        }}
-      >
-        {mode === "video" ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 h-[calc(100vh-200px)]">
-            {/* Remote Video */}
-            <div className="relative bg-gray-800">
-              <VideoComponent
-                videoRef={remoteVideoRef}
-                stream={remoteStreamRef.current}
-                isLocal={false}
-                name={peerName}
-              />
-              <div className="absolute top-4 left-4">
-                <div className="flex items-center gap-2 bg-black/50 px-3 py-2 rounded-lg">
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback>{peerName[0]}</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium">{peerName}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Local Video */}
-            <div className="relative bg-gray-800">
-              <VideoComponent
-                videoRef={localVideoRef}
-                stream={localStreamRef.current}
-                isLocal={true}
-                name={me.name}
-              />
-              <div className="absolute top-4 left-4">
-                <div className="flex items-center gap-2 bg-black/50 px-3 py-2 rounded-lg">
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback>{me.name[0]}</AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium">You</span>
-                </div>
-              </div>
-              <DeviceFallback isLocal={true} name={me.name} />
-              <VideoPlaybackBlocked isLocal={true} name={me.name} />
+      {/* Main Content */}
+      <div className="flex-1 p-6">
+        {isMinimized ? (
+          // Minimized view
+          <div className="max-w-md mx-auto">
+            <div className="bg-gray-800 rounded-2xl p-6 text-center">
+              <Avatar className="mx-auto h-20 w-20 mb-4">
+                <AvatarImage src={peerInfo?.avatar} />
+                <AvatarFallback className="text-2xl">
+                  {peerInfo?.name?.charAt(0).toUpperCase() || "?"}
+                </AvatarFallback>
+              </Avatar>
+              <h3 className="text-lg font-semibold mb-2">{peerInfo?.name || peerName}</h3>
+              <p className="text-gray-400 text-sm mb-4">
+                {status === "connected" ? formatDuration(callDuration) : "Call in progress"}
+              </p>
+              <Button
+                variant="destructive"
+                onClick={() => endCall(false)}
+                className="w-full"
+              >
+                <PhoneOff className="h-4 w-4 mr-2" />
+                End Call
+              </Button>
             </div>
           </div>
         ) : (
-          /* Audio Call Interface */
-          <div className="flex items-center justify-center h-[calc(100vh-200px)]">
-            <div className="text-center">
-              <div className="w-32 h-32 bg-gray-700 rounded-full flex items-center justify-center mb-8 mx-auto">
-                <Avatar className="w-20 h-20">
-                  <AvatarFallback className="text-2xl">{peerName[0]}</AvatarFallback>
-                </Avatar>
-              </div>
-              <h2 className="text-2xl font-bold text-white mb-2">{peerName}</h2>
-              <p className="text-gray-400 mb-8">Audio Call</p>
+          // Full view
+          <div className="max-w-6xl mx-auto">
+            <div className="grid gap-6 lg:grid-cols-2">
+              {/* Remote video */}
+              <VideoTile
+                videoRef={remoteVideoRef}
+                label="Remote"
+                isConnected={status === "connected"}
+                avatarUrl={peerInfo?.avatar}
+                name={peerInfo?.name || peerName}
+              />
+              
+              {/* Local video */}
+              <VideoTile
+                videoRef={localVideoRef}
+                label="You"
+                mirrored
+                isLocal
+                isConnected={status === "connected"}
+                avatarUrl={me?.name ? undefined : undefined}
+                name={me?.name || "You"}
+              />
             </div>
           </div>
         )}
       </div>
 
       {/* Controls */}
-      <div className="flex items-center justify-center gap-4 p-6 bg-gray-800 border-t border-gray-700">
-        {status === "connecting" ? (
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
-            <p className="text-white text-sm">Connecting...</p>
-          </div>
-        ) : (
-          <div className="flex items-center gap-4">
-            {/* Mute/Unmute Button */}
-            <Button
-              onClick={toggleMute}
-              variant={muted ? "destructive" : "outline"}
-              className={`text-white px-4 py-3 rounded-full ${muted ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-600 hover:bg-gray-700'}`}
-              title={muted ? "Unmute" : "Mute"}
-            >
-              {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
-              <span className="ml-2 text-sm font-medium">
-                {muted ? "Unmute" : "Mute"}
-              </span>
-            </Button>
-            
-            {/* Camera On/Off Button (Video Mode Only) */}
-            {mode === "video" && (
-              <Button
-                onClick={toggleCamera}
-                variant={camOff ? "destructive" : "outline"}
-                className={`text-white px-4 py-3 rounded-full ${camOff ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-600 hover:bg-gray-700'}`}
-                title={camOff ? "Turn Camera On" : "Turn Camera Off"}
-              >
-                {camOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
-                <span className="ml-2 text-sm font-medium">
-                  {camOff ? "Camera On" : "Camera Off"}
-                </span>
-              </Button>
-            )}
-            
-            {/* End Call Button */}
-            <Button
-              onClick={endCall}
-              variant="destructive"
-              className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-full text-lg font-semibold"
-              title="End Call"
-            >
-              <PhoneOff className="h-6 w-6 mr-2" />
-              End Call
-            </Button>
-          </div>
-        )}
-      </div>
+      {!isMinimized && (
+          <CallControls
+            status={status}
+            muted={muted}
+            camOff={camOff}
+            onToggleMute={toggleMute}
+            onToggleCamera={toggleCamera}
+            onEndCall={() => endCall(false)}
+            onShareScreen={shareScreen}
+            isSharingScreen={isSharingScreen}
+            mode={mode}
+            hasAudio={hasAudio}
+            hasVideo={hasVideo}
+            isFallbackStream={isFallbackStream}
+            audioLevel={audioLevel}
+          />
+      )}
     </div>
   );
 }
