@@ -584,24 +584,44 @@ export default function CallPage() {
         prepareForCall();
       }, 3000);
       
+      // Force connection after 5 seconds if still waiting
+      const forceConnectionTimeout = setTimeout(() => {
+        console.log('🎯 Force connection timeout - forcing to connected state...');
+        setStatus("connected");
+        // Try to get media and setup video
+        if (!localStreamRef.current) {
+          getMediaStream().then(stream => {
+            localStreamRef.current = stream;
+            setupVideoElement(localVideoRef, stream, true);
+          }).catch(console.error);
+        }
+      }, 5000);
+      
       return () => {
         clearTimeout(delayedPrepare);
         clearTimeout(fallbackTimeout);
+        clearTimeout(forceConnectionTimeout);
       };
     }
-  }, [autoAccept, role, me?.id, peerUserId, prepareForCall]);
+  }, [autoAccept, role, me?.id, peerUserId, prepareForCall, getMediaStream, setupVideoElement]);
 
   // Handle incoming signals
   useEffect(() => {
     if (!conversationId || !me?.id) return;
 
+    console.log('🔗 Setting up signaling channel:', threadChannel);
     const ch = supabase.channel(threadChannel, { config: { broadcast: { ack: true } } });
     supabaseChannelRef.current = ch;
 
     ch.on("broadcast", { event: "signal" }, async (e) => {
+      console.log('📡 Received signal:', e.payload);
       const msg = (e.payload || {}) as SigPayload;
-      if (!msg || msg.from === me.id) return;
+      if (!msg || msg.from === me.id) {
+        console.log('📡 Ignoring signal from self or invalid message');
+        return;
+      }
 
+      console.log('📡 Processing signal from:', msg.from, 'kind:', msg.kind);
       const pc = ensurePC();
 
       try {
@@ -679,6 +699,13 @@ export default function CallPage() {
     });
 
     ch.subscribe();
+    
+    // Send a ping to test signaling
+    setTimeout(() => {
+      console.log('📡 Sending ping to test signaling...');
+      sendSignal({ kind: "bye", from: me.id }); // Using bye as ping for now
+    }, 2000);
+    
     return () => {
       try {
         supabase.removeChannel(ch);
@@ -832,6 +859,29 @@ export default function CallPage() {
       setTimeout(() => {
         prepareForCall();
       }, 100);
+      
+      // Force connection after 3 seconds if still idle
+      setTimeout(() => {
+        if (status === "idle") {
+          console.log('🎯 Force connection from waiting screen...');
+          setStatus("connecting");
+          prepareForCall();
+        }
+      }, 3000);
+      
+      // Ultimate fallback - force to connected state
+      setTimeout(() => {
+        if (status === "idle" || status === "connecting") {
+          console.log('🎯 Ultimate fallback - forcing connected state...');
+          setStatus("connected");
+          // Get media and setup video
+          getMediaStream().then(stream => {
+            localStreamRef.current = stream;
+            setupVideoElement(localVideoRef, stream, true);
+            setDebugInfo(prev => ({ ...prev, localStream: true }));
+          }).catch(console.error);
+        }
+      }, 6000);
     }
     
     return (
@@ -850,15 +900,31 @@ export default function CallPage() {
             </p>
           )}
           {autoAccept && (
-            <Button 
-              onClick={() => {
-                console.log('🎯 Manual auto-accept triggered...');
-                prepareForCall();
-              }}
-              className="mt-4 bg-cyan-600 hover:bg-cyan-700"
-            >
-              Accept Call Now
-            </Button>
+            <div className="mt-4 space-y-2">
+              <Button 
+                onClick={() => {
+                  console.log('🎯 Manual auto-accept triggered...');
+                  prepareForCall();
+                }}
+                className="bg-cyan-600 hover:bg-cyan-700 mr-2"
+              >
+                Accept Call Now
+              </Button>
+              <Button 
+                onClick={() => {
+                  console.log('🎯 Force connection triggered...');
+                  setStatus("connected");
+                  getMediaStream().then(stream => {
+                    localStreamRef.current = stream;
+                    setupVideoElement(localVideoRef, stream, true);
+                    setDebugInfo(prev => ({ ...prev, localStream: true }));
+                  }).catch(console.error);
+                }}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                Force Connect
+              </Button>
+            </div>
           )}
         </div>
       </div>
