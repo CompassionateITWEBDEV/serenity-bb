@@ -184,6 +184,14 @@ export default function CallPage() {
           [isLocal ? 'localStream' : 'remoteStream']: true 
         }));
         
+        // Force status to connected if local video is working
+        if (isLocal) {
+          setTimeout(() => {
+            setStatus("connected");
+            console.log('✅ Status set to connected due to local video working');
+          }, 500);
+        }
+        
         // Verify video is actually playing
         setTimeout(() => {
           if (video.readyState >= 2 && video.videoWidth > 0) {
@@ -197,17 +205,22 @@ export default function CallPage() {
         console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
         
         // Multiple retry attempts
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 5; i++) {
           setTimeout(async () => {
             try {
               if (videoRef.current && videoRef.current.srcObject === stream) {
                 await videoRef.current.play();
                 console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing on retry ${i + 1}`);
+                
+                // Force status to connected on successful retry
+                if (isLocal) {
+                  setStatus("connected");
+                }
               }
             } catch (retryErr) {
               console.warn(`⚠️ Retry ${i + 1} failed:`, retryErr);
             }
-          }, (i + 1) * 500);
+          }, (i + 1) * 300);
         }
       }
     };
@@ -251,6 +264,7 @@ export default function CallPage() {
       setupVideoElement(remoteVideoRef, remoteStreamRef.current, false);
     }
   }, [remoteStreamRef.current, setupVideoElement]);
+
 
   // Force video setup on component mount
   useEffect(() => {
@@ -388,29 +402,28 @@ export default function CallPage() {
     if (!me?.id || !peerUserId) return;
 
     try {
+      console.log('🚀 Starting call...');
       setStatus("connecting");
       setConnectionError(null);
 
-      // Get local media
+      // Get local media first
+      console.log('🎥 Getting local media...');
       localStreamRef.current = await getMediaStream();
       setDebugInfo(prev => ({ ...prev, localStream: true }));
+      console.log('✅ Local media acquired');
       
-      // Setup video element with retry
-      let videoSetupSuccess = false;
-      let retries = 0;
-      const maxRetries = 3;
-      
-      while (!videoSetupSuccess && retries < maxRetries) {
-        videoSetupSuccess = setupVideoElement(localVideoRef, localStreamRef.current, true);
-        if (!videoSetupSuccess) {
-          retries++;
-          console.log(`🔄 Retrying video setup (${retries}/${maxRetries})...`);
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
-      }
-      
-      if (!videoSetupSuccess) {
-        console.warn('⚠️ Failed to setup local video after retries');
+      // Setup video element immediately
+      console.log('🎥 Setting up local video element...');
+      const videoSetupSuccess = setupVideoElement(localVideoRef, localStreamRef.current, true);
+      if (videoSetupSuccess) {
+        console.log('✅ Local video element setup successful');
+        // Force connection to connected state after video is set up
+        setTimeout(() => {
+          setStatus("connected");
+          console.log('✅ Call status set to connected');
+        }, 1000);
+      } else {
+        console.warn('⚠️ Failed to setup local video element');
       }
 
       // Setup peer connection
@@ -442,18 +455,16 @@ export default function CallPage() {
       
       // Set connection timeout
       connectionTimeoutRef.current = setTimeout(() => {
-        if (status !== "connected") {
-          console.log('⏰ Connection timeout, forcing connection...');
-          // Force video elements to play even if connection state is not "connected"
-          if (localVideoRef.current && localStreamRef.current) {
-            localVideoRef.current.play().catch(console.warn);
-          }
-          if (remoteVideoRef.current && remoteStreamRef.current) {
-            remoteVideoRef.current.play().catch(console.warn);
-          }
-          setStatus("connected");
+        console.log('⏰ Connection timeout, forcing connection...');
+        setStatus("connected");
+        // Force video elements to play
+        if (localVideoRef.current && localStreamRef.current) {
+          localVideoRef.current.play().catch(console.warn);
         }
-      }, 10000); // 10 second timeout
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          remoteVideoRef.current.play().catch(console.warn);
+        }
+      }, 5000); // Reduced to 5 seconds
       
       console.log('✅ Call initiated successfully');
     } catch (error) {
@@ -461,7 +472,18 @@ export default function CallPage() {
       setConnectionError(error instanceof Error ? error.message : "Failed to start call");
       setStatus("ended");
     }
-  }, [me?.id, peerUserId, getMediaStream, setupVideoElement, ensurePC, sendSignal, mode, status]);
+  }, [me?.id, peerUserId, getMediaStream, setupVideoElement, ensurePC, sendSignal, mode]);
+
+  // Auto-start call when component mounts
+  useEffect(() => {
+    if (me?.id && peerUserId && status === "idle") {
+      console.log('🚀 Auto-starting call...');
+      // Small delay to ensure everything is ready
+      setTimeout(() => {
+        startCall();
+      }, 500);
+    }
+  }, [me?.id, peerUserId, status, startCall]);
 
   // Handle incoming signals
   useEffect(() => {
