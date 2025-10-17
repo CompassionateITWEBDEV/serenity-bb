@@ -58,6 +58,8 @@ export default function CallPage() {
     camera: boolean;
     microphone: boolean;
   }>({ camera: true, microphone: true });
+  const [userInteracted, setUserInteracted] = useState(false);
+  const [videoPlaybackBlocked, setVideoPlaybackBlocked] = useState(false);
   const [debugInfo, setDebugInfo] = useState({
     localStream: false,
     remoteStream: false,
@@ -224,6 +226,13 @@ export default function CallPage() {
       try {
         console.log(`🎬 Attempting to play ${isLocal ? 'local' : 'remote'} video...`);
         
+        // Check if user has interacted with the page
+        if (!userInteracted) {
+          console.log(`⏳ Waiting for user interaction before playing ${isLocal ? 'local' : 'remote'} video...`);
+          setVideoPlaybackBlocked(true);
+          return;
+        }
+        
         // Force play immediately - don't wait for readyState
         const playPromise = video.play();
         
@@ -233,6 +242,7 @@ export default function CallPage() {
         }
         
         console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing successfully`);
+        setVideoPlaybackBlocked(false);
         
         // Update debug info
         setDebugInfo(prev => ({ 
@@ -259,47 +269,35 @@ export default function CallPage() {
           }
         }, 1000);
         
-        // Additional fallback - force play after 2 seconds regardless of readyState
-        setTimeout(() => {
-          if (video.paused) {
-            console.log(`🔄 Force playing ${isLocal ? 'local' : 'remote'} video after timeout...`);
-            video.play().catch(console.warn);
-          }
-        }, 2000);
-        
       } catch (err) {
         console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
         
-        // Don't retry if it's a user interaction error
+        // Handle autoplay policy error
         if (err instanceof Error && err.name === 'NotAllowedError') {
-          console.log(`ℹ️ Video play blocked by browser - user interaction required`);
-          // Set up click handler to play video
-          const playOnClick = () => {
-            video.play().catch(console.warn);
-            document.removeEventListener('click', playOnClick);
-          };
-          document.addEventListener('click', playOnClick);
+          console.log(`ℹ️ Video play blocked by browser autoplay policy - user interaction required`);
+          setVideoPlaybackBlocked(true);
           return;
         }
         
-        // Multiple retry attempts for other errors
-        for (let i = 0; i < 3; i++) {
-          setTimeout(async () => {
-            try {
-              if (videoRef.current && videoRef.current.srcObject === stream) {
-                await videoRef.current.play();
-                console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing on retry ${i + 1}`);
-                
-                // Force status to connected on successful retry
-                if (isLocal) {
-                  setStatus("connected");
-                }
+        // Retry after a short delay for other errors
+        setTimeout(async () => {
+          try {
+            if (videoRef.current && videoRef.current.srcObject === stream) {
+              await videoRef.current.play();
+              console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing on retry`);
+              setVideoPlaybackBlocked(false);
+              
+              if (isLocal) {
+                setStatus("connected");
               }
-            } catch (retryErr) {
-              console.warn(`⚠️ Retry ${i + 1} failed:`, retryErr);
             }
-          }, (i + 1) * 1000);
-        }
+          } catch (retryErr) {
+            console.warn(`⚠️ Retry failed:`, retryErr);
+            if (retryErr instanceof Error && retryErr.name === 'NotAllowedError') {
+              setVideoPlaybackBlocked(true);
+            }
+          }
+        }, 1000);
       }
     };
 
@@ -554,6 +552,56 @@ export default function CallPage() {
       setStatus("ended");
     }
   }, [me?.id, peerUserId, getMediaStream, setupVideoElement, ensurePC, sendSignal, mode, role]);
+
+  // User interaction handler for video playback
+  useEffect(() => {
+    const handleUserInteraction = () => {
+      if (!userInteracted) {
+        console.log('👆 User interaction detected - enabling video playback');
+        setUserInteracted(true);
+        setVideoPlaybackBlocked(false);
+        
+        // Try to play videos after user interaction
+        setTimeout(() => {
+          if (localVideoRef.current && localVideoRef.current.paused) {
+            localVideoRef.current.play().catch(console.warn);
+          }
+          if (remoteVideoRef.current && remoteVideoRef.current.paused) {
+            remoteVideoRef.current.play().catch(console.warn);
+          }
+        }, 100);
+      }
+    };
+
+    // Add event listeners for user interaction
+    document.addEventListener('click', handleUserInteraction, { once: true });
+    document.addEventListener('keydown', handleUserInteraction, { once: true });
+    document.addEventListener('touchstart', handleUserInteraction, { once: true });
+
+    return () => {
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('keydown', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+    };
+  }, [userInteracted]);
+
+  // Retry video playback when user interaction is detected
+  useEffect(() => {
+    if (userInteracted && videoPlaybackBlocked) {
+      console.log('🔄 Retrying video playback after user interaction...');
+      setVideoPlaybackBlocked(false);
+      
+      // Try to play videos
+      setTimeout(() => {
+        if (localVideoRef.current && localVideoRef.current.paused) {
+          localVideoRef.current.play().catch(console.warn);
+        }
+        if (remoteVideoRef.current && remoteVideoRef.current.paused) {
+          remoteVideoRef.current.play().catch(console.warn);
+        }
+      }, 200);
+    }
+  }, [userInteracted, videoPlaybackBlocked]);
 
   // Simple call start - works for both caller and callee
   useEffect(() => {
@@ -855,6 +903,28 @@ export default function CallPage() {
     );
   };
 
+  // Show video playback blocked UI
+  const VideoPlaybackBlocked = ({ isLocal, name }: { isLocal: boolean; name: string }) => {
+    if (!videoPlaybackBlocked || !isLocal) return null;
+    
+    return (
+      <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-24 h-24 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl">▶️</span>
+          </div>
+          <p className="text-white text-lg mb-2">{name}</p>
+          <p className="text-gray-400 text-sm mb-4">
+            Click anywhere to enable video playback
+          </p>
+          <div className="bg-yellow-600 text-white px-4 py-2 rounded-lg text-sm">
+            Browser requires user interaction to play video
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (status === "ended") {
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center">
@@ -978,7 +1048,24 @@ export default function CallPage() {
       )}
 
       {/* Video Area */}
-      <div className="flex-1 relative">
+      <div 
+        className="flex-1 relative cursor-pointer"
+        onClick={() => {
+          if (!userInteracted) {
+            console.log('👆 Video area clicked - enabling video playback');
+            setUserInteracted(true);
+            setVideoPlaybackBlocked(false);
+            
+            // Try to play videos
+            if (localVideoRef.current && localVideoRef.current.paused) {
+              localVideoRef.current.play().catch(console.warn);
+            }
+            if (remoteVideoRef.current && remoteVideoRef.current.paused) {
+              remoteVideoRef.current.play().catch(console.warn);
+            }
+          }
+        }}
+      >
         {mode === "video" ? (
           <div className="grid grid-cols-1 lg:grid-cols-2 h-[calc(100vh-200px)]">
             {/* Remote Video */}
@@ -1071,6 +1158,7 @@ export default function CallPage() {
                 </div>
               </div>
               <DeviceFallback isLocal={true} name={me.name} />
+              <VideoPlaybackBlocked isLocal={true} name={me.name} />
             </div>
           </div>
         ) : (
