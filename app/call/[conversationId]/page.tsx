@@ -1264,7 +1264,7 @@ export default function CallRoomPage() {
         pc.addTrack(t, localStreamRef.current!);
       });
 
-      // 3) If caller, create offer + send + ring
+      // 3) Handle caller and callee flows
       if (role === "caller") {
         setStatus("ringing");
         callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
@@ -1297,6 +1297,20 @@ export default function CallRoomPage() {
           }
         }, 30000);
         setConnectionTimeout(timeout);
+      } else {
+        // Callee is ready and waiting for offer
+        setStatus("connecting");
+        console.log('📞 Callee ready and waiting for offer...');
+        
+        // Set connection timeout (60 seconds) for callee
+        const timeout = setTimeout(() => {
+          if (status !== "connected") {
+            console.warn("⚠️ Callee timeout - no offer received");
+            setStatus("failed");
+            setMediaError("No incoming call received. The caller may have cancelled or there may be a connection issue.");
+          }
+        }, 60000);
+        setConnectionTimeout(timeout);
       }
     } catch (error) {
       console.error("Failed to start call:", error);
@@ -1314,21 +1328,22 @@ export default function CallRoomPage() {
         await startOrPrep();
       })();
     } else {
-      // For callee, check devices and prepare for incoming call
-      console.log('📞 Callee ready, waiting for offer...');
-      setStatus("idle");
-      getAvailableDevices();
+      // For callee, get ready immediately and wait for offer
+      console.log('📞 Callee getting ready for incoming call...');
+      setStatus("connecting");
       
-      // Set a timeout for callee waiting for offer (60 seconds)
-      const calleeTimeout = setTimeout(() => {
-        if (status === "idle") {
-          console.warn("⚠️ Callee timeout - no offer received");
+      // Get media stream and prepare for incoming call
+      (async () => {
+        try {
+          await startOrPrep();
+          console.log('✅ Callee ready and waiting for offer...');
+        } catch (error) {
+          console.error('❌ Callee failed to prepare:', error);
           setStatus("failed");
-          setMediaError("No incoming call received. The caller may have cancelled or there may be a connection issue.");
         }
-      }, 60000);
+      })();
       
-      return () => clearTimeout(calleeTimeout);
+      return () => {};
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authChecked, me?.id, role]);
@@ -1853,13 +1868,13 @@ export default function CallRoomPage() {
     );
   }
 
-  if (status === "idle" && role === "callee") {
+  if (status === "idle") {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-pulse rounded-full h-12 w-12 border-2 border-blue-400 mx-auto mb-4"></div>
-          <p className="text-white text-lg">Waiting for call...</p>
-          <p className="text-gray-400 text-sm mt-2">Ready to receive incoming call from {peerInfo?.name || peerName}</p>
+          <p className="text-white text-lg">Preparing call...</p>
+          <p className="text-gray-400 text-sm mt-2">Getting ready for {role === "caller" ? "outgoing" : "incoming"} call</p>
         </div>
       </div>
     );
