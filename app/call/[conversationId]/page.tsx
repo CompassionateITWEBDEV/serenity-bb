@@ -51,6 +51,7 @@ type SigPayload =
   | { kind: "webrtc-offer"; from: string; sdp: RTCSessionDescriptionInit }
   | { kind: "webrtc-answer"; from: string; sdp: RTCSessionDescriptionInit }
   | { kind: "webrtc-ice"; from: string; candidate: RTCIceCandidateInit }
+  | { kind: "call-connected"; from: string }
   | { kind: "bye"; from: string };
 
 function VideoTile({
@@ -1114,25 +1115,32 @@ export default function CallRoomPage() {
 
       if (msg.kind === "webrtc-offer") {
         console.log('📞 Received offer from peer, answering immediately...');
-        setStatus("connecting"); // Show connecting briefly
         
         try {
           // Both participants are already ready with streams, just handle the offer
-          const pc = ensurePC();
+        const pc = ensurePC();
           
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
           const answer = await pc.createAnswer({
             offerToReceiveAudio: true,
             offerToReceiveVideo: mode === "video",
           });
           
-          await pc.setLocalDescription(answer);
-          sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+        await pc.setLocalDescription(answer);
+        sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
           
           // FORCE CONNECTED STATUS - IMMEDIATE
           setStatus("connected");
           callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
           startAudioLevelMonitoring();
+          
+          // Notify caller that call is connected
+          sendSignal({ kind: "call-connected", from: me.id });
+          
+          // Force UI update
+          setTimeout(() => {
+            setStatus("connected");
+          }, 100);
           
           console.log('✅ Answer sent - call connected immediately!');
         } catch (error) {
@@ -1150,12 +1158,22 @@ export default function CallRoomPage() {
         callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
         startAudioLevelMonitoring();
         
+        // Notify callee that call is connected
+        sendSignal({ kind: "call-connected", from: me.id });
+        
         // Force UI update
         setTimeout(() => {
           setStatus("connected");
         }, 100);
         
         console.log('✅ Call connected immediately!');
+      } else if (msg.kind === "call-connected") {
+        console.log('📞 Received call-connected signal from peer');
+        // Both participants should show connected
+        setStatus("connected");
+        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+        startAudioLevelMonitoring();
+        console.log('✅ Call status synchronized - both connected!');
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
@@ -1309,12 +1327,12 @@ export default function CallRoomPage() {
       // Set the video element source using the setup function
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
 
-      // 2) Add tracks to PC
-      const pc = ensurePC();
-      localStreamRef.current.getTracks().forEach((t) => {
-        console.log(`Adding ${t.kind} track to peer connection:`, t.label);
-        pc.addTrack(t, localStreamRef.current!);
-      });
+    // 2) Add tracks to PC
+    const pc = ensurePC();
+    localStreamRef.current.getTracks().forEach((t) => {
+      console.log(`Adding ${t.kind} track to peer connection:`, t.label);
+      pc.addTrack(t, localStreamRef.current!);
+    });
 
       // Set up local video - single call to avoid AbortError
       console.log('🎯 Setting up local video for both caller and callee...');
@@ -1338,7 +1356,8 @@ export default function CallRoomPage() {
         
         console.log('✅ Caller sent offer, waiting for answer...');
       } else {
-        // Callee shows ringing and waits for offer (status already set to ringing)
+        // Callee shows connecting and waits for offer
+        setStatus("connecting");
         console.log('📞 Callee ready and waiting for offer...');
     }
     } catch (error) {
@@ -1359,7 +1378,6 @@ export default function CallRoomPage() {
     } else {
       // For callee, get ready immediately and wait for offer
       console.log('📞 Callee getting ready for incoming call...');
-      setStatus("ringing"); // Show ringing initially
       
       // Get media stream and prepare for incoming call
       (async () => {
