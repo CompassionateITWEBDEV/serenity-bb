@@ -54,6 +54,10 @@ export default function CallPage() {
   const [muted, setMuted] = useState(false);
   const [camOff, setCamOff] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [deviceStatus, setDeviceStatus] = useState<{
+    camera: boolean;
+    microphone: boolean;
+  }>({ camera: true, microphone: true });
   const [debugInfo, setDebugInfo] = useState({
     localStream: false,
     remoteStream: false,
@@ -85,7 +89,7 @@ export default function CallPage() {
     })();
   }, [router]);
 
-  // Get media stream with enhanced error handling
+  // Get media stream with device fallbacks
   const getMediaStream = useCallback(async (): Promise<MediaStream> => {
     try {
       console.log('🎥 Requesting media stream for mode:', mode);
@@ -95,7 +99,8 @@ export default function CallPage() {
         throw new Error('Media devices not supported in this browser');
       }
       
-      const constraints: MediaStreamConstraints = {
+      // Try full constraints first
+      const fullConstraints: MediaStreamConstraints = {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -108,31 +113,47 @@ export default function CallPage() {
         } : false,
       };
 
-      console.log('🎥 Media constraints:', constraints);
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('🎥 Trying full media constraints:', fullConstraints);
       
-      console.log('✅ Media stream acquired successfully:', {
-        audioTracks: stream.getAudioTracks().length,
-        videoTracks: stream.getVideoTracks().length,
-        streamId: stream.id,
-        audioTrackLabels: stream.getAudioTracks().map(t => t.label),
-        videoTrackLabels: stream.getVideoTracks().map(t => t.label)
-      });
-      
-      // Ensure tracks are enabled
-      stream.getAudioTracks().forEach(track => {
-        track.enabled = true;
-        console.log('🔊 Audio track enabled:', track.label, track.enabled);
-      });
-      
-      stream.getVideoTracks().forEach(track => {
-        track.enabled = true;
-        console.log('📹 Video track enabled:', track.label, track.enabled);
-      });
-      
-      return stream;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(fullConstraints);
+        console.log('✅ Full media stream acquired successfully');
+        setDeviceStatus({ camera: true, microphone: true });
+        return stream;
+      } catch (fullError) {
+        console.warn('⚠️ Full constraints failed, trying fallbacks...', fullError);
+        
+        // Try audio only
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: true, 
+            video: false 
+          });
+          console.log('✅ Audio-only stream acquired');
+          setDeviceStatus({ camera: false, microphone: true });
+          return audioStream;
+        } catch (audioError) {
+          console.warn('⚠️ Audio-only failed, trying no media...', audioError);
+          
+          // Try no media (connection only)
+          try {
+            const noMediaStream = await navigator.mediaDevices.getUserMedia({ 
+              audio: false, 
+              video: false 
+            });
+            console.log('✅ No-media stream acquired (connection only)');
+            setDeviceStatus({ camera: false, microphone: false });
+            return noMediaStream;
+          } catch (noMediaError) {
+            console.error('❌ All media attempts failed');
+            setDeviceStatus({ camera: false, microphone: false });
+            throw new Error('No camera/microphone available. You are connected (audio/video disabled).');
+          }
+        }
+      }
     } catch (error) {
       console.error('❌ Failed to get media stream:', error);
+      setDeviceStatus({ camera: false, microphone: false });
       
       // Provide more specific error messages
       if (error instanceof Error) {
@@ -145,7 +166,7 @@ export default function CallPage() {
         }
       }
       
-      throw new Error('Failed to access camera/microphone. Please check permissions and try again.');
+      throw error;
     }
   }, [mode]);
 
@@ -604,8 +625,11 @@ export default function CallPage() {
             console.warn('⚠️ Failed to add ICE candidate:', iceError);
           }
         } else if (msg.kind === "bye") {
-          console.log('📞 Received bye from peer');
-          setStatus("ended");
+          console.log('📞 Received end call signal from peer');
+          // Show notification that other participant ended the call
+          alert("The other participant ended the call.");
+          // End call for this participant too
+          endCall();
         }
       } catch (error) {
         console.error("Error handling signal:", error);
@@ -712,15 +736,41 @@ export default function CallPage() {
       connectionTimeoutRef.current = null;
     }
     
+    // Broadcast end call to both participants
     if (me?.id) {
-      sendSignal({ kind: "bye", from: me.id });
+      try {
+        await sendSignal({ 
+          kind: "bye", 
+          from: me.id
+        });
+        console.log('📤 End call broadcast sent to both participants');
+      } catch (error) {
+        console.warn('⚠️ Failed to broadcast end call:', error);
+      }
     }
+    
+    // Stop all media tracks
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => track.stop());
+      localStreamRef.current.getTracks().forEach((track) => {
+        track.stop();
+        console.log(`🛑 Stopped ${track.kind} track:`, track.label);
+      });
     }
+    
+    if (remoteStreamRef.current) {
+      remoteStreamRef.current.getTracks().forEach((track) => {
+        track.stop();
+        console.log(`🛑 Stopped remote ${track.kind} track:`, track.label);
+      });
+    }
+    
+    // Close peer connection
     if (pcRef.current) {
       pcRef.current.close();
+      console.log('🔌 Peer connection closed');
     }
+    
+    // Update status and clear state
     setStatus("ended");
     setConnectionError(null);
     setMuted(false);
@@ -767,12 +817,43 @@ export default function CallPage() {
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4"></div>
-          <p className="text-white text-lg mb-2">Starting call...</p>
+          <p className="text-white text-lg mb-2">Opening video screen...</p>
           <p className="text-gray-400 text-sm">Connecting to {peerName}</p>
         </div>
       </div>
     );
   }
+
+  // Show device fallback UI
+  const DeviceFallback = ({ isLocal, name }: { isLocal: boolean; name: string }) => {
+    const hasCamera = isLocal ? deviceStatus.camera : true; // Assume remote has camera for now
+    const hasMic = isLocal ? deviceStatus.microphone : true; // Assume remote has mic for now
+    
+    if (hasCamera && hasMic) return null;
+    
+    return (
+      <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-24 h-24 bg-gray-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl font-bold text-white">
+              {name.charAt(0).toUpperCase()}
+            </span>
+          </div>
+          <p className="text-white text-lg mb-2">{name}</p>
+          <p className="text-gray-400 text-sm">
+            {!hasCamera && !hasMic && "No camera/microphone detected"}
+            {!hasCamera && hasMic && "No camera detected"}
+            {hasCamera && !hasMic && "No microphone detected"}
+          </p>
+          {isLocal && (
+            <p className="text-yellow-400 text-xs mt-2">
+              You are still connected. Enable devices to stream.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   if (status === "ended") {
   return (
@@ -882,6 +963,20 @@ export default function CallPage() {
         </div>
       </div>
 
+      {/* Device Status Banner */}
+      {(!deviceStatus.camera || !deviceStatus.microphone) && (
+        <div className="bg-yellow-600 text-white px-4 py-2 text-center text-sm">
+          <div className="flex items-center justify-center gap-2">
+            <span>⚠️</span>
+            <span>
+              {!deviceStatus.camera && !deviceStatus.microphone && "No camera/microphone detected — you are still connected (audio/video disabled)."}
+              {!deviceStatus.camera && deviceStatus.microphone && "No camera detected — video disabled but audio enabled."}
+              {deviceStatus.camera && !deviceStatus.microphone && "No microphone detected — audio disabled but video enabled."}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Video Area */}
       <div className="flex-1 relative">
         {mode === "video" ? (
@@ -975,14 +1070,7 @@ export default function CallPage() {
                   <span className="text-sm font-medium">You</span>
                 </div>
               </div>
-              {!localStreamRef.current && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
-                  <div className="text-center text-white">
-                    <div className="animate-pulse text-lg mb-2">Getting camera...</div>
-                    <div className="text-sm text-gray-400">Please allow camera access</div>
-                  </div>
-                </div>
-              )}
+              <DeviceFallback isLocal={true} name={me.name} />
             </div>
           </div>
         ) : (
