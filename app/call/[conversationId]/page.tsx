@@ -1114,6 +1114,7 @@ export default function CallRoomPage() {
 
       if (msg.kind === "webrtc-offer") {
         console.log('📞 Received offer from peer, answering immediately...');
+        setStatus("connecting"); // Show connecting briefly
         
         try {
           // Both participants are already ready with streams, just handle the offer
@@ -1132,11 +1133,6 @@ export default function CallRoomPage() {
           setStatus("connected");
           callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
           startAudioLevelMonitoring();
-          
-          // Force UI update
-          setTimeout(() => {
-            setStatus("connected");
-          }, 100);
           
           console.log('✅ Answer sent - call connected immediately!');
         } catch (error) {
@@ -1342,8 +1338,7 @@ export default function CallRoomPage() {
         
         console.log('✅ Caller sent offer, waiting for answer...');
       } else {
-        // Callee shows connecting and waits for offer
-        setStatus("connecting");
+        // Callee shows ringing and waits for offer (status already set to ringing)
         console.log('📞 Callee ready and waiting for offer...');
     }
     } catch (error) {
@@ -1364,6 +1359,7 @@ export default function CallRoomPage() {
     } else {
       // For callee, get ready immediately and wait for offer
       console.log('📞 Callee getting ready for incoming call...');
+      setStatus("ringing"); // Show ringing initially
       
       // Get media stream and prepare for incoming call
       (async () => {
