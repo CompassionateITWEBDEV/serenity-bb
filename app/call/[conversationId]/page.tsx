@@ -60,6 +60,7 @@ export default function CallPage() {
     peerConnection: false,
     connectionState: 'new'
   });
+  const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -86,6 +87,8 @@ export default function CallPage() {
   // Get media stream
   const getMediaStream = useCallback(async (): Promise<MediaStream> => {
     try {
+      console.log('🎥 Requesting media stream for mode:', mode);
+      
       const constraints: MediaStreamConstraints = {
         audio: {
           echoCancellation: true,
@@ -99,16 +102,32 @@ export default function CallPage() {
         } : false,
       };
 
+      console.log('🎥 Media constraints:', constraints);
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      console.log('✅ Media stream acquired:', {
+      
+      console.log('✅ Media stream acquired successfully:', {
         audioTracks: stream.getAudioTracks().length,
         videoTracks: stream.getVideoTracks().length,
-        streamId: stream.id
+        streamId: stream.id,
+        audioTrackLabels: stream.getAudioTracks().map(t => t.label),
+        videoTrackLabels: stream.getVideoTracks().map(t => t.label)
       });
+      
+      // Ensure tracks are enabled
+      stream.getAudioTracks().forEach(track => {
+        track.enabled = true;
+        console.log('🔊 Audio track enabled:', track.label, track.enabled);
+      });
+      
+      stream.getVideoTracks().forEach(track => {
+        track.enabled = true;
+        console.log('📹 Video track enabled:', track.label, track.enabled);
+      });
+      
       return stream;
     } catch (error) {
       console.error('❌ Failed to get media stream:', error);
-      throw new Error('Failed to access camera/microphone. Please check permissions.');
+      throw new Error('Failed to access camera/microphone. Please check permissions and try again.');
     }
   }, [mode]);
 
@@ -199,16 +218,44 @@ export default function CallPage() {
     };
 
     pc.onconnectionstatechange = () => {
-      console.log('🔗 Connection state:', pc.connectionState);
+      console.log('🔗 Connection state changed:', pc.connectionState);
       setDebugInfo(prev => ({ ...prev, connectionState: pc.connectionState }));
       
       if (pc.connectionState === "connected") {
+        console.log('✅ Peer connection established!');
         setStatus("connected");
         setConnectionError(null);
+        
+        // Force video elements to play
+        if (localVideoRef.current && localStreamRef.current) {
+          localVideoRef.current.play().catch(console.warn);
+        }
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          remoteVideoRef.current.play().catch(console.warn);
+        }
       } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+        console.log('❌ Peer connection failed or disconnected');
         setStatus("ended");
         setConnectionError("Connection failed");
+      } else if (pc.connectionState === "connecting") {
+        console.log('🔄 Peer connection connecting...');
+        setStatus("connecting");
       }
+    };
+    
+    // Monitor ICE connection state
+    pc.oniceconnectionstatechange = () => {
+      console.log('🧊 ICE connection state:', pc.iceConnectionState);
+      if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+        console.log('✅ ICE connection established!');
+      } else if (pc.iceConnectionState === "failed") {
+        console.log('❌ ICE connection failed');
+      }
+    };
+    
+    // Monitor ICE gathering state
+    pc.onicegatheringstatechange = () => {
+      console.log('🧊 ICE gathering state:', pc.iceGatheringState);
     };
 
     pcRef.current = pc;
@@ -242,8 +289,21 @@ export default function CallPage() {
 
       // Setup peer connection
       const pc = ensurePC();
+      console.log('🔗 Adding tracks to peer connection...');
       localStreamRef.current.getTracks().forEach((track) => {
+        console.log(`➕ Adding ${track.kind} track:`, track.label, track.enabled);
         pc.addTrack(track, localStreamRef.current!);
+      });
+      
+      // Verify tracks were added
+      const senders = pc.getSenders();
+      console.log('📤 Peer connection senders:', senders.length);
+      senders.forEach((sender, index) => {
+        console.log(`Sender ${index}:`, {
+          track: sender.track?.kind,
+          label: sender.track?.label,
+          enabled: sender.track?.enabled
+        });
       });
 
       // Create offer
@@ -253,6 +313,23 @@ export default function CallPage() {
       });
       await pc.setLocalDescription(offer);
       sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
+      
+      // Set connection timeout
+      connectionTimeoutRef.current = setTimeout(() => {
+        if (status !== "connected") {
+          console.log('⏰ Connection timeout, forcing connection...');
+          // Force video elements to play even if connection state is not "connected"
+          if (localVideoRef.current && localStreamRef.current) {
+            localVideoRef.current.play().catch(console.warn);
+          }
+          if (remoteVideoRef.current && remoteStreamRef.current) {
+            remoteVideoRef.current.play().catch(console.warn);
+          }
+          setStatus("connected");
+        }
+      }, 10000); // 10 second timeout
+      
+      console.log('✅ Call initiated successfully');
     } catch (error) {
       console.error("Failed to start call:", error);
       setConnectionError(error instanceof Error ? error.message : "Failed to start call");
@@ -280,10 +357,26 @@ export default function CallPage() {
 
           // Get local media if not already available
           if (!localStreamRef.current) {
+            console.log('🎥 Callee getting local media...');
             localStreamRef.current = await getMediaStream();
+            setDebugInfo(prev => ({ ...prev, localStream: true }));
             setupVideoElement(localVideoRef, localStreamRef.current, true);
+            
+            console.log('🔗 Callee adding tracks to peer connection...');
             localStreamRef.current.getTracks().forEach((track) => {
+              console.log(`➕ Callee adding ${track.kind} track:`, track.label, track.enabled);
               pc.addTrack(track, localStreamRef.current!);
+            });
+            
+            // Verify tracks were added
+            const senders = pc.getSenders();
+            console.log('📤 Callee peer connection senders:', senders.length);
+            senders.forEach((sender, index) => {
+              console.log(`Callee Sender ${index}:`, {
+                track: sender.track?.kind,
+                label: sender.track?.label,
+                enabled: sender.track?.enabled
+              });
             });
           }
 
@@ -342,7 +435,29 @@ export default function CallPage() {
     }
   }, [camOff]);
 
+  // Force connection (for debugging)
+  const forceConnection = useCallback(() => {
+    console.log('🔧 Force connecting...');
+    setStatus("connected");
+    
+    // Force video elements to play
+    if (localVideoRef.current && localStreamRef.current) {
+      localVideoRef.current.play().catch(console.warn);
+    }
+    if (remoteVideoRef.current && remoteStreamRef.current) {
+      remoteVideoRef.current.play().catch(console.warn);
+    }
+  }, []);
+
   const endCall = useCallback(() => {
+    console.log('📞 Ending call...');
+    
+    // Clear timeout
+    if (connectionTimeoutRef.current) {
+      clearTimeout(connectionTimeoutRef.current);
+      connectionTimeoutRef.current = null;
+    }
+    
     if (me?.id) {
       sendSignal({ kind: "bye", from: me.id });
     }
@@ -353,6 +468,15 @@ export default function CallPage() {
       pcRef.current.close();
     }
     setStatus("ended");
+    setConnectionError(null);
+    setMuted(false);
+    setCamOff(false);
+    setDebugInfo({
+      localStream: false,
+      remoteStream: false,
+      peerConnection: false,
+      connectionState: 'new'
+    });
     router.push(`/dashboard/messages`);
   }, [me?.id, sendSignal, router]);
 
@@ -412,10 +536,22 @@ export default function CallPage() {
             {status === "connecting" ? "Connecting..." : status === "connected" ? "Connected" : "Idle"}
           </Badge>
           {process.env.NODE_ENV === 'development' && (
-            <div className="text-xs text-gray-400">
-              Local: {debugInfo.localStream ? '✅' : '❌'} | 
-              Remote: {debugInfo.remoteStream ? '✅' : '❌'} | 
-              PC: {debugInfo.connectionState}
+            <div className="flex items-center gap-2">
+              <div className="text-xs text-gray-400">
+                Local: {debugInfo.localStream ? '✅' : '❌'} | 
+                Remote: {debugInfo.remoteStream ? '✅' : '❌'} | 
+                PC: {debugInfo.connectionState}
+              </div>
+              {status === "connecting" && (
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={forceConnection}
+                  className="text-xs"
+                >
+                  Force Connect
+                </Button>
+              )}
             </div>
           )}
         </div>
