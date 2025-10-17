@@ -134,21 +134,39 @@ export default function CallPage() {
 
   // Setup video element
   const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal = true) => {
-    if (videoRef.current && stream) {
-      console.log(`🎥 Setting up ${isLocal ? 'local' : 'remote'} video:`, {
-        audioTracks: stream.getAudioTracks().length,
-        videoTracks: stream.getVideoTracks().length,
-        streamId: stream.id
-      });
-      
-      videoRef.current.srcObject = stream;
-      videoRef.current.muted = isLocal; // Mute local video, unmute remote
-      videoRef.current.autoplay = true;
-      videoRef.current.playsInline = true;
-      videoRef.current.controls = false;
-      
-      videoRef.current.play().then(() => {
+    if (!videoRef.current || !stream) {
+      console.warn(`⚠️ Cannot setup video element: videoRef=${!!videoRef.current}, stream=${!!stream}`);
+      return false;
+    }
+
+    const video = videoRef.current;
+    console.log(`🎥 Setting up ${isLocal ? 'local' : 'remote'} video:`, {
+      audioTracks: stream.getAudioTracks().length,
+      videoTracks: stream.getVideoTracks().length,
+      streamId: stream.id,
+      videoElement: !!video
+    });
+
+    // Clear any existing stream
+    video.srcObject = null;
+    
+    // Set the new stream
+    video.srcObject = stream;
+    video.muted = isLocal; // Mute local video, unmute remote
+    video.autoplay = true;
+    video.playsInline = true;
+    video.controls = false;
+    
+    // Force load and play
+    video.load();
+    
+    const playVideo = () => {
+      video.play().then(() => {
         console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing`);
+        setDebugInfo(prev => ({ 
+          ...prev, 
+          [isLocal ? 'localStream' : 'remoteStream']: true 
+        }));
       }).catch(err => {
         console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
         // Retry after a short delay
@@ -158,8 +176,32 @@ export default function CallPage() {
           }
         }, 500);
       });
-    }
+    };
+
+    // Try to play immediately
+    playVideo();
+
+    // Also try when video is ready
+    video.addEventListener('loadedmetadata', playVideo, { once: true });
+    video.addEventListener('canplay', playVideo, { once: true });
+
+    return true;
   }, []);
+
+  // Ensure video elements are set up when streams are available
+  useEffect(() => {
+    if (localStreamRef.current && localVideoRef.current) {
+      console.log('🔄 Re-setting up local video element...');
+      setupVideoElement(localVideoRef, localStreamRef.current, true);
+    }
+  }, [localStreamRef.current, setupVideoElement]);
+
+  useEffect(() => {
+    if (remoteStreamRef.current && remoteVideoRef.current) {
+      console.log('🔄 Re-setting up remote video element...');
+      setupVideoElement(remoteVideoRef, remoteStreamRef.current, false);
+    }
+  }, [remoteStreamRef.current, setupVideoElement]);
 
   // Ensure peer connection
   const ensurePC = useCallback((): RTCPeerConnection => {
@@ -185,30 +227,17 @@ export default function CallPage() {
           streamId: event.streams[0].id
         });
         
-        // Setup video element with retry mechanism
+        // Use the improved setupVideoElement function
         const setupRemoteVideo = () => {
           if (remoteVideoRef.current && event.streams[0]) {
-            remoteVideoRef.current.srcObject = event.streams[0];
-            remoteVideoRef.current.muted = false; // Don't mute remote video
-            remoteVideoRef.current.autoplay = true;
-            remoteVideoRef.current.playsInline = true;
-            remoteVideoRef.current.controls = false;
-            
-            // Update debug info
-            setDebugInfo(prev => ({ ...prev, remoteStream: true }));
-            
-            remoteVideoRef.current.play().then(() => {
-              console.log('✅ Remote video started playing');
-            }).catch(err => {
-              console.warn('⚠️ Failed to auto-play remote video:', err);
-              // Retry after a short delay
-              setTimeout(() => {
-                if (remoteVideoRef.current) {
-                  remoteVideoRef.current.play().catch(console.warn);
-                }
-              }, 500);
-            });
-    } else {
+            const success = setupVideoElement(remoteVideoRef, event.streams[0], false);
+            if (success) {
+              setDebugInfo(prev => ({ ...prev, remoteStream: true }));
+            } else {
+              // Retry if setup failed
+              setTimeout(setupRemoteVideo, 100);
+            }
+          } else {
             // Retry if video element not ready
             setTimeout(setupRemoteVideo, 100);
           }
@@ -286,7 +315,24 @@ export default function CallPage() {
       // Get local media
       localStreamRef.current = await getMediaStream();
       setDebugInfo(prev => ({ ...prev, localStream: true }));
-      setupVideoElement(localVideoRef, localStreamRef.current, true);
+      
+      // Setup video element with retry
+      let videoSetupSuccess = false;
+      let retries = 0;
+      const maxRetries = 3;
+      
+      while (!videoSetupSuccess && retries < maxRetries) {
+        videoSetupSuccess = setupVideoElement(localVideoRef, localStreamRef.current, true);
+        if (!videoSetupSuccess) {
+          retries++;
+          console.log(`🔄 Retrying video setup (${retries}/${maxRetries})...`);
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+      
+      if (!videoSetupSuccess) {
+        console.warn('⚠️ Failed to setup local video after retries');
+      }
 
       // Setup peer connection
       const pc = ensurePC();
@@ -450,6 +496,18 @@ export default function CallPage() {
     }
   }, []);
 
+  // Force video setup (for debugging)
+  const forceVideoSetup = useCallback(() => {
+    console.log('🔧 Force video setup...');
+    
+    if (localStreamRef.current && localVideoRef.current) {
+      setupVideoElement(localVideoRef, localStreamRef.current, true);
+    }
+    if (remoteStreamRef.current && remoteVideoRef.current) {
+      setupVideoElement(remoteVideoRef, remoteStreamRef.current, false);
+    }
+  }, [setupVideoElement]);
+
   const endCall = useCallback(async () => {
     console.log('📞 Ending call...');
     
@@ -584,14 +642,24 @@ export default function CallPage() {
                 PC: {debugInfo.connectionState}
               </div>
               {status === "connecting" && (
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={forceConnection}
-                  className="text-xs"
-                >
-                  Force Connect
-                </Button>
+                <div className="flex gap-2">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={forceConnection}
+                    className="text-xs"
+                  >
+                    Force Connect
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={forceVideoSetup}
+                    className="text-xs"
+                  >
+                    Force Video
+                  </Button>
+                </div>
               )}
             </div>
           )}
