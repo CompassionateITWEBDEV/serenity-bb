@@ -538,6 +538,35 @@ export default function CallRoomPage() {
     }
   }, [remoteStreamRef.current, setupVideoElement]);
 
+  // Force remote video display when connected
+  useEffect(() => {
+    if (status === "connected" && remoteStreamRef.current && remoteVideoRef.current) {
+      console.log('🎯 Connection established - forcing remote video display...');
+      
+      // Multiple attempts to ensure video displays
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force displaying remote video (1s after connection)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 1000);
+      
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force displaying remote video (3s after connection)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 3000);
+      
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force displaying remote video (5s after connection)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 5000);
+    }
+  }, [status, setupVideoElement]);
+
   // Initialize video elements and check permissions
   useEffect(() => {
     if (authChecked && me?.id) {
@@ -685,8 +714,49 @@ export default function CallRoomPage() {
         video: remoteStreamRef.current.getVideoTracks().length
       });
       
-      // Set the video element source for remote stream using setup function with retry
+      // Set the video element source for remote stream immediately
+      console.log('🎥 Setting up remote video element immediately...');
+      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      
+      // Also try with retry mechanism
       setupVideoElementWithRetry(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      
+      // Force multiple attempts to ensure video displays
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force setting remote video (500ms)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 500);
+      
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force setting remote video (1000ms)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 1000);
+      
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force setting remote video (2000ms)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 2000);
+      
+      // Additional aggressive attempts for staff side
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force setting remote video (3000ms)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 3000);
+      
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force setting remote video (5000ms)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 5000);
     };
 
     pcRef.current = pc;
