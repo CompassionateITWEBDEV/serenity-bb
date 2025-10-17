@@ -452,7 +452,29 @@ export default function CallPage() {
         offerToReceiveVideo: mode === "video",
       });
       await pc.setLocalDescription(offer);
-      sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
+      
+      // Send offer with retry mechanism
+      const sendOffer = async (retryCount = 0) => {
+        try {
+          console.log(`📤 Sending offer (attempt ${retryCount + 1})...`);
+          await sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
+          console.log('✅ Offer sent successfully');
+        } catch (error) {
+          console.warn(`⚠️ Failed to send offer (attempt ${retryCount + 1}):`, error);
+          if (retryCount < 3) {
+            setTimeout(() => sendOffer(retryCount + 1), 1000 * (retryCount + 1));
+          }
+        }
+      };
+      
+      // Send offer immediately
+      sendOffer();
+      
+      // Also send offer after a delay to ensure callee is ready
+      setTimeout(() => {
+        console.log('📤 Sending delayed offer...');
+        sendOffer(1);
+      }, 2000);
       
       // Set connection timeout
       connectionTimeoutRef.current = setTimeout(() => {
@@ -488,25 +510,47 @@ export default function CallPage() {
 
   // Auto-accept call for callees (staff receiving calls)
   useEffect(() => {
-    if (autoAccept && role === "callee" && me?.id && peerUserId && status === "idle") {
+    if (autoAccept && role === "callee" && me?.id && peerUserId) {
       console.log('🎯 Auto-accepting incoming call...');
-      // Small delay to ensure everything is ready
-      setTimeout(() => {
-        console.log('🎯 Executing auto-accept...');
+      
+      // Force start call immediately for auto-accept
+      const immediateStart = () => {
+        console.log('🎯 Executing immediate auto-accept...');
+        setStatus("connecting");
+        startCall();
+      };
+      
+      // Start immediately
+      immediateStart();
+      
+      // Also try after a short delay to ensure everything is ready
+      const delayedStart = setTimeout(() => {
+        console.log('🎯 Delayed auto-accept triggered...');
+        setStatus("connecting");
         startCall();
       }, 1000);
       
-      // Fallback: force start call after 3 seconds if still idle
+      // Fallback: force start call after 3 seconds regardless of status
       const fallbackTimeout = setTimeout(() => {
-        if (status === "idle") {
-          console.log('🎯 Fallback auto-accept triggered...');
-          startCall();
-        }
+        console.log('🎯 Fallback auto-accept triggered...');
+        setStatus("connecting");
+        startCall();
       }, 3000);
       
-      return () => clearTimeout(fallbackTimeout);
+      // Final fallback: force start call after 5 seconds
+      const finalTimeout = setTimeout(() => {
+        console.log('🎯 Final fallback auto-accept triggered...');
+        setStatus("connecting");
+        startCall();
+      }, 5000);
+      
+      return () => {
+        clearTimeout(delayedStart);
+        clearTimeout(fallbackTimeout);
+        clearTimeout(finalTimeout);
+      };
     }
-  }, [autoAccept, role, me?.id, peerUserId, status, startCall]);
+  }, [autoAccept, role, me?.id, peerUserId, startCall]);
 
   // Handle incoming signals
   useEffect(() => {
@@ -722,6 +766,15 @@ export default function CallPage() {
 
   // Show waiting screen for callees
   if (status === "idle" && role === "callee") {
+    // Force auto-accept if enabled
+    if (autoAccept && me?.id && peerUserId) {
+      console.log('🎯 Force auto-accept from waiting screen...');
+      setTimeout(() => {
+        setStatus("connecting");
+        startCall();
+      }, 100);
+    }
+    
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
@@ -736,6 +789,18 @@ export default function CallPage() {
             <p className="text-cyan-400 text-xs mt-2">
               Call will be accepted automatically
             </p>
+          )}
+          {autoAccept && (
+            <Button 
+              onClick={() => {
+                console.log('🎯 Manual auto-accept triggered...');
+                setStatus("connecting");
+                startCall();
+              }}
+              className="mt-4 bg-cyan-600 hover:bg-cyan-700"
+            >
+              Accept Call Now
+            </Button>
           )}
         </div>
       </div>
