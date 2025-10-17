@@ -546,6 +546,11 @@ export default function CallRoomPage() {
     }
   }, [status, setupVideoElement]);
 
+  // Debug status changes
+  useEffect(() => {
+    console.log('📞 Status changed to:', status);
+  }, [status]);
+
   // Ensure local video is displayed for both caller and callee (like patient code)
   useEffect(() => {
     if (localStreamRef.current && localVideoRef.current) {
@@ -1111,6 +1116,7 @@ export default function CallRoomPage() {
 
       if (msg.kind === "webrtc-offer") {
         console.log('📞 Received offer from peer, answering immediately...');
+        console.log('📞 Current status before answering:', status);
         
         try {
           // Both participants are already ready with streams, just handle the offer
@@ -1126,11 +1132,12 @@ export default function CallRoomPage() {
           sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
           
           // Immediately show connected - both participants connected
+          console.log('📞 Setting status to connected...');
           setStatus("connected");
           callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
           startAudioLevelMonitoring();
           
-          console.log('✅ Answer sent - call connected immediately!');
+          console.log('✅ Answer sent - call connected immediately! Status:', status);
         } catch (error) {
           console.error('❌ Failed to handle offer:', error);
           setStatus("failed");
@@ -1138,15 +1145,17 @@ export default function CallRoomPage() {
         }
       } else if (msg.kind === "webrtc-answer") {
         console.log('📞 Received answer from peer');
+        console.log('📞 Current status before answering:', status);
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
         
         // Immediately show connected - both participants connected
+        console.log('📞 Setting status to connected...');
         setStatus("connected");
         callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
         startAudioLevelMonitoring();
         
-        console.log('✅ Call connected immediately!');
+        console.log('✅ Call connected immediately! Status:', status);
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
