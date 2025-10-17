@@ -46,3 +46,5 @@ CREATE POLICY "Users can update their own call history" ON call_history
     );
 
 
+
+

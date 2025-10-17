@@ -1,5 +1,7 @@
 "use client";
 
+import { ultraSafeSetLocalDescription, ultraSafeSetRemoteDescription, ultraSafeCreateOffer, ultraSafeCreateAnswer } from "@/lib/webrtc/robust-fix";
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
@@ -866,14 +868,14 @@ export default function VideoCallPage() {
           }
           
           const pc = ensurePC();
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-          const answer = await pc.createAnswer({
+          await ultraSafeSetRemoteDescription(pc, new RTCSessionDescription(msg.sdp));
+          const answer = await ultraSafeCreateAnswer(pc, {
             offerToReceiveAudio: true,
             offerToReceiveVideo: true,
           });
           console.log('Created answer with audio:', answer.sdp?.includes('m=audio'));
           console.log('Created answer with video:', answer.sdp?.includes('m=video'));
-          await pc.setLocalDescription(answer);
+          await ultraSafeSetLocalDescription(pc, answer);
           sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
           console.log('✅ Answer sent to peer - connection should establish now');
           
@@ -1033,13 +1035,13 @@ export default function VideoCallPage() {
         setStatus("ringing");
         callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
         
-        const offer = await pc.createOffer({
+        const offer = await ultraSafeCreateOffer(pc, {
           offerToReceiveAudio: true,
           offerToReceiveVideo: true,
         });
         console.log('Created offer with audio:', offer.sdp?.includes('m=audio'));
         console.log('Created offer with video:', offer.sdp?.includes('m=video'));
-        await pc.setLocalDescription(offer);
+        await ultraSafeSetLocalDescription(pc, offer);
         sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
         await ringPeer();
         

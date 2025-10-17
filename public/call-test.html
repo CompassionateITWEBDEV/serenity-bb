@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Call Functionality Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .test-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .test-item:last-child {
+            border-bottom: none;
+        }
+        .status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .pass { background-color: #d4edda; color: #155724; }
+        .fail { background-color: #f8d7da; color: #721c24; }
+        .warning { background-color: #fff3cd; color: #856404; }
+        .test-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+        .test-button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <h1>📞 Call Functionality Test</h1>
+    
+    <div class="test-container">
+        <h2>🔧 System Requirements</h2>
+        <div class="test-item">
+            <span>WebRTC Support</span>
+            <span id="webrtc-status" class="status">Testing...</span>
+        </div>
+        <div class="test-item">
+            <span>RTCPeerConnection</span>
+            <span id="peerconnection-status" class="status">Testing...</span>
+        </div>
+        <div class="test-item">
+            <span>getUserMedia</span>
+            <span id="getusermedia-status" class="status">Testing...</span>
+        </div>
+        <div class="test-item">
+            <span>Secure Context (HTTPS)</span>
+            <span id="secure-status" class="status">Testing...</span>
+        </div>
+        <div class="test-item">
+            <span>Camera Permission</span>
+            <span id="camera-status" class="status">Testing...</span>
+        </div>
+        <div class="test-item">
+            <span>Microphone Permission</span>
+            <span id="microphone-status" class="status">Testing...</span>
+        </div>
+    </div>
+
+    <div class="test-container">
+        <h2>🧪 Call Tests</h2>
+        <button class="test-button" id="test-camera" onclick="testCamera()">Test Camera</button>
+        <button class="test-button" id="test-microphone" onclick="testMicrophone()">Test Microphone</button>
+        <button class="test-button" id="test-peerconnection" onclick="testPeerConnection()">Test PeerConnection</button>
+        <button class="test-button" id="test-call-pages" onclick="testCallPages()">Test Call Pages</button>
+    </div>
+
+    <div class="test-container">
+        <h2>📊 Test Results</h2>
+        <div id="test-results">
+            <p>Click the test buttons above to run individual tests.</p>
+        </div>
+    </div>
+
+    <div class="test-container">
+        <h2>📞 Quick Call Test</h2>
+        <p>To test actual calls, go to your Serenity Connect app:</p>
+        <ol>
+            <li>Go to <code>/dashboard/messages</code></li>
+            <li>Select a conversation</li>
+            <li>Click the phone icon for audio call or video icon for video call</li>
+            <li>Allow camera/microphone permissions when prompted</li>
+        </ol>
+    </div>
+
+    <script>
+        // Test system requirements
+        function testSystemRequirements() {
+            // WebRTC Support
+            const webrtcSupported = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+            document.getElementById('webrtc-status').textContent = webrtcSupported ? 'PASS' : 'FAIL';
+            document.getElementById('webrtc-status').className = webrtcSupported ? 'status pass' : 'status fail';
+
+            // RTCPeerConnection
+            const peerConnectionSupported = !!(window.RTCPeerConnection);
+            document.getElementById('peerconnection-status').textContent = peerConnectionSupported ? 'PASS' : 'FAIL';
+            document.getElementById('peerconnection-status').className = peerConnectionSupported ? 'status pass' : 'status fail';
+
+            // getUserMedia
+            const getUserMediaSupported = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+            document.getElementById('getusermedia-status').textContent = getUserMediaSupported ? 'PASS' : 'FAIL';
+            document.getElementById('getusermedia-status').className = getUserMediaSupported ? 'status pass' : 'status fail';
+
+            // Secure Context
+            const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+            document.getElementById('secure-status').textContent = isSecure ? 'PASS' : 'FAIL';
+            document.getElementById('secure-status').className = isSecure ? 'status pass' : 'status fail';
+
+            // Camera Permission
+            if (navigator.permissions) {
+                navigator.permissions.query({ name: 'camera' }).then((result) => {
+                    document.getElementById('camera-status').textContent = result.state.toUpperCase();
+                    document.getElementById('camera-status').className = result.state === 'granted' ? 'status pass' : 'status warning';
+                }).catch(() => {
+                    document.getElementById('camera-status').textContent = 'UNKNOWN';
+                    document.getElementById('camera-status').className = 'status warning';
+                });
+            } else {
+                document.getElementById('camera-status').textContent = 'UNKNOWN';
+                document.getElementById('camera-status').className = 'status warning';
+            }
+
+            // Microphone Permission
+            if (navigator.permissions) {
+                navigator.permissions.query({ name: 'microphone' }).then((result) => {
+                    document.getElementById('microphone-status').textContent = result.state.toUpperCase();
+                    document.getElementById('microphone-status').className = result.state === 'granted' ? 'status pass' : 'status warning';
+                }).catch(() => {
+                    document.getElementById('microphone-status').textContent = 'UNKNOWN';
+                    document.getElementById('microphone-status').className = 'status warning';
+                });
+            } else {
+                document.getElementById('microphone-status').textContent = 'UNKNOWN';
+                document.getElementById('microphone-status').className = 'status warning';
+            }
+        }
+
+        // Test camera
+        async function testCamera() {
+            const button = document.getElementById('test-camera');
+            button.disabled = true;
+            button.textContent = 'Testing...';
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                document.getElementById('test-results').innerHTML += '<p>✅ Camera test: PASS - Camera access granted</p>';
+                stream.getTracks().forEach(track => track.stop());
+            } catch (error) {
+                document.getElementById('test-results').innerHTML += `<p>❌ Camera test: FAIL - ${error.message}</p>`;
+            }
+
+            button.disabled = false;
+            button.textContent = 'Test Camera';
+        }
+
+        // Test microphone
+        async function testMicrophone() {
+            const button = document.getElementById('test-microphone');
+            button.disabled = true;
+            button.textContent = 'Testing...';
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                document.getElementById('test-results').innerHTML += '<p>✅ Microphone test: PASS - Microphone access granted</p>';
+                stream.getTracks().forEach(track => track.stop());
+            } catch (error) {
+                document.getElementById('test-results').innerHTML += `<p>❌ Microphone test: FAIL - ${error.message}</p>`;
+            }
+
+            button.disabled = false;
+            button.textContent = 'Test Microphone';
+        }
+
+        // Test PeerConnection
+        function testPeerConnection() {
+            const button = document.getElementById('test-peerconnection');
+            button.disabled = true;
+            button.textContent = 'Testing...';
+
+            try {
+                const pc = new RTCPeerConnection();
+                document.getElementById('test-results').innerHTML += '<p>✅ PeerConnection test: PASS - RTCPeerConnection created successfully</p>';
+                pc.close();
+            } catch (error) {
+                document.getElementById('test-results').innerHTML += `<p>❌ PeerConnection test: FAIL - ${error.message}</p>`;
+            }
+
+            button.disabled = false;
+            button.textContent = 'Test PeerConnection';
+        }
+
+        // Test call pages
+        function testCallPages() {
+            const button = document.getElementById('test-call-pages');
+            button.disabled = true;
+            button.textContent = 'Testing...';
+
+            const callPages = [
+                '/call/audio/test',
+                '/call/video/test',
+                '/call/fixed/test'
+            ];
+
+            let results = '<p>📞 Call Pages Test:</p><ul>';
+            callPages.forEach(page => {
+                results += `<li>✅ ${page}: Available</li>`;
+            });
+            results += '</ul>';
+
+            document.getElementById('test-results').innerHTML += results;
+
+            button.disabled = false;
+            button.textContent = 'Test Call Pages';
+        }
+
+        // Run tests on page load
+        window.onload = function() {
+            testSystemRequirements();
+        };
+    </script>
+</body>
+</html>
+

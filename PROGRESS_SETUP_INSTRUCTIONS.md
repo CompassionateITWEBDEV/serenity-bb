@@ -68,3 +68,5 @@ After running the SQL script:
 
 The system will gracefully handle missing tables and show appropriate error messages until the database is properly set up.
 
+
+

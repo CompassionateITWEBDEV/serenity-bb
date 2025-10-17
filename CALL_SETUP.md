@@ -137,6 +137,10 @@ No additional environment variables are required. The system uses your existing 
 - All calls are peer-to-peer (WebRTC)
 - No call data is stored on servers
 - Call history only stores metadata (no recordings)
-- RLS policies ensure users only see their own call history
+- RLS policies ensure users only see the
+
+ir own call history
+
+
 
 

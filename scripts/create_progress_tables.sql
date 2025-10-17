@@ -307,3 +307,5 @@ SELECT
 WHERE auth.uid() IS NOT NULL
 ON CONFLICT (patient_id, date) DO NOTHING;
 
+
+
