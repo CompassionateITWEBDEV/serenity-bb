@@ -31,16 +31,22 @@ import CallHistory from "@/components/call/CallHistory";
 /* --------------------------------- Signaling helpers --------------------------------- */
 /** prevent sending before presence channel is actually subscribed */
 async function ensureSubscribedFor(ch: ReturnType<typeof supabase.channel>) {
-  await new Promise<void>((resolve, reject) => {
-    const to = setTimeout(() => reject(new Error("subscribe timeout")), 10000);
-    ch.subscribe((s) => {
-      if (s === "SUBSCRIBED") {
-        clearTimeout(to);
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      console.warn('⚠️ Channel subscription timeout, proceeding anyway');
+      resolve(); // Don't reject, just proceed
+    }, 5000); // Reduced timeout for localhost
+    
+    ch.subscribe((status) => {
+      console.log('📡 Channel subscription status:', status);
+      
+      if (status === "SUBSCRIBED") {
+        clearTimeout(timeout);
         resolve();
-      }
-      if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
-        clearTimeout(to);
-        reject(new Error(String(s)));
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        clearTimeout(timeout);
+        console.warn('⚠️ Channel subscription failed:', status);
+        resolve(); // Don't reject, just proceed
       }
     });
   });
@@ -56,39 +62,70 @@ async function ringPeer(
     mode: "audio" | "video";
   }
 ) {
-  // Send to both user channel and staff-specific channel
-  const userChannel = supabase.channel(`user_${toUserId}`, {
-    config: { broadcast: { ack: true } },
-  });
-  const staffChannel = supabase.channel(`staff-calls-${toUserId}`, {
-    config: { broadcast: { ack: true } },
-  });
+  console.log('📞 Ringing peer:', toUserId, payload);
   
-  await ensureSubscribedFor(userChannel);
-  await ensureSubscribedFor(staffChannel);
-  
-  // Send to user channel (for general notifications)
-  const userResponse = await userChannel.send({
-    type: "broadcast",
-    event: "invite",
-    payload,
-  });
-  
-  // Send to staff channel (for incoming call banner)
-  const staffResponse = await staffChannel.send({
-    type: "broadcast",
-    event: "incoming-call",
-    payload: {
-      conversationId: payload.conversationId,
-      callerId: payload.fromId,
-      callerName: payload.fromName,
-      mode: payload.mode,
-      timestamp: new Date().toISOString(),
-    },
-  });
-  
-  if (userResponse !== "ok" && staffResponse !== "ok") {
-    throw new Error("Failed to send invite");
+  try {
+    // Send to both user channel and staff-specific channel
+    const userChannel = supabase.channel(`user_${toUserId}`, {
+      config: { broadcast: { ack: true } },
+    });
+    const staffChannel = supabase.channel(`staff-calls-${toUserId}`, {
+      config: { broadcast: { ack: true } },
+    });
+    
+    console.log('📡 Setting up channels for:', toUserId);
+    
+    // Subscribe to channels with timeout handling
+    try {
+      await ensureSubscribedFor(userChannel);
+      console.log('✅ User channel subscribed');
+    } catch (error) {
+      console.warn('⚠️ User channel subscription failed:', error);
+    }
+    
+    try {
+      await ensureSubscribedFor(staffChannel);
+      console.log('✅ Staff channel subscribed');
+    } catch (error) {
+      console.warn('⚠️ Staff channel subscription failed:', error);
+    }
+    
+    // Send to user channel (for general notifications)
+    console.log('📤 Sending to user channel...');
+    const userResponse = await userChannel.send({
+      type: "broadcast",
+      event: "invite",
+      payload,
+    });
+    console.log('📤 User channel response:', userResponse);
+    
+    // Send to staff channel (for incoming call banner)
+    console.log('📤 Sending to staff channel...');
+    const staffResponse = await staffChannel.send({
+      type: "broadcast",
+      event: "incoming-call",
+      payload: {
+        conversationId: payload.conversationId,
+        callerId: payload.fromId,
+        callerName: payload.fromName,
+        mode: payload.mode,
+        timestamp: new Date().toISOString(),
+      },
+    });
+    console.log('📤 Staff channel response:', staffResponse);
+    
+    // Clean up channels
+    supabase.removeChannel(userChannel);
+    supabase.removeChannel(staffChannel);
+    
+    if (userResponse !== "ok" && staffResponse !== "ok") {
+      throw new Error(`Failed to send invite - User: ${userResponse}, Staff: ${staffResponse}`);
+    }
+    
+    console.log('✅ Ring peer completed successfully');
+  } catch (error) {
+    console.error('❌ Ring peer failed:', error);
+    throw error;
   }
 }
 

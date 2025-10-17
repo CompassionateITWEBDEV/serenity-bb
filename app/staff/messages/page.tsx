@@ -982,6 +982,50 @@ export default function StaffMessagesPage() {
         </div>
       )}
       <IncomingCallNotification />
+      
+      {/* Debug Panel for localhost */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="fixed bottom-4 right-4 z-50">
+          <div className="bg-gray-800 text-white p-4 rounded-lg shadow-lg">
+            <h3 className="text-sm font-bold mb-2">Debug Panel</h3>
+            <button
+              onClick={async () => {
+                try {
+                  const { data: { user } } = await supabase.auth.getUser();
+                  if (!user) return;
+                  
+                  // Test incoming call
+                  const channel = supabase.channel(`staff-calls-${user.id}`, {
+                    config: { broadcast: { ack: true } }
+                  });
+                  
+                  await channel.subscribe();
+                  
+                  const response = await channel.send({
+                    type: "broadcast",
+                    event: "incoming-call",
+                    payload: {
+                      conversationId: "test-conversation",
+                      callerId: "test-caller",
+                      callerName: "Test Patient",
+                      mode: "video",
+                      timestamp: new Date().toISOString(),
+                    }
+                  });
+                  
+                  console.log('Test call sent:', response);
+                  supabase.removeChannel(channel);
+                } catch (error) {
+                  console.error('Test call failed:', error);
+                }
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs"
+            >
+              Test Incoming Call
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
