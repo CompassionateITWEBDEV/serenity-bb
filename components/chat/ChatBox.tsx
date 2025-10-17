@@ -481,16 +481,40 @@ function ChatBoxInner(props: {
       mode: "audio" | "video";
     }
   ) {
-    const ch = supabase.channel(`user_${toUserId}`, {
+    // Send to both user channel and staff-specific channel
+    const userChannel = supabase.channel(`user_${toUserId}`, {
       config: { broadcast: { ack: true } },
     });
-    await ensureSubscribedFor(ch);
-    const response = await ch.send({
+    const staffChannel = supabase.channel(`staff-calls-${toUserId}`, {
+      config: { broadcast: { ack: true } },
+    });
+    
+    await ensureSubscribedFor(userChannel);
+    await ensureSubscribedFor(staffChannel);
+    
+    // Send to user channel (for general notifications)
+    const userResponse = await userChannel.send({
       type: "broadcast",
       event: "invite",
       payload: args,
     });
-    if (response !== "ok") throw new Error("Failed to send invite");
+    
+    // Send to staff channel (for incoming call banner)
+    const staffResponse = await staffChannel.send({
+      type: "broadcast",
+      event: "incoming-call",
+      payload: {
+        conversationId: args.conversationId,
+        callerId: args.fromId,
+        callerName: args.fromName,
+        mode: args.mode,
+        timestamp: new Date().toISOString(),
+      },
+    });
+    
+    if (userResponse !== "ok" && staffResponse !== "ok") {
+      throw new Error("Failed to send invite");
+    }
   }
   async function sendBye(
     toUserId: string,
