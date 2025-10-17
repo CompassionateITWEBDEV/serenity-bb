@@ -79,6 +79,27 @@ function VideoTile({
     const video = videoRef.current;
     console.log(`Setting up video listeners for ${label}`);
     
+    const checkVideoState = () => {
+      const hasVideo = video.videoWidth > 0 && video.videoHeight > 0;
+      const hasSrc = !!video.srcObject;
+      const isPlaying = !video.paused && !video.ended && video.readyState > 2;
+      
+      console.log(`🔍 Video state check for ${label}:`, {
+        hasVideo,
+        hasSrc,
+        isPlaying,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        readyState: video.readyState,
+        paused: video.paused
+      });
+      
+      if (hasVideo && hasSrc) {
+        setShowVideo(true);
+        setHasVideoStream(true);
+      }
+    };
+    
     const handleLoadedMetadata = () => {
       console.log(`✅ Video loaded for ${label}:`, {
         videoWidth: video.videoWidth,
@@ -86,8 +107,7 @@ function VideoTile({
         srcObject: !!video.srcObject,
         readyState: video.readyState
       });
-      setShowVideo(true);
-      setHasVideoStream(true);
+      checkVideoState();
     };
     
     const handleError = (e: any) => {
@@ -98,18 +118,20 @@ function VideoTile({
     
     const handleCanPlay = () => {
       console.log(`▶️ Video can play for ${label}`);
-      setShowVideo(true);
-      setHasVideoStream(true);
+      checkVideoState();
     };
     
     const handlePlay = () => {
       console.log(`🎬 Video started playing for ${label}`);
-      setShowVideo(true);
-      setHasVideoStream(true);
+      checkVideoState();
     };
     
     const handleLoadStart = () => {
       console.log(`🔄 Video load started for ${label}`);
+    };
+    
+    const handleTimeUpdate = () => {
+      checkVideoState();
     };
     
     // Add all event listeners
@@ -117,6 +139,7 @@ function VideoTile({
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('play', handlePlay);
+    video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('error', handleError);
     
     // Check if video already has a source
@@ -125,12 +148,17 @@ function VideoTile({
       video.load(); // Force reload
     }
     
+    // Check video state periodically
+    const interval = setInterval(checkVideoState, 1000);
+    
     return () => {
       video.removeEventListener('loadstart', handleLoadStart);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('play', handlePlay);
+      video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('error', handleError);
+      clearInterval(interval);
     };
   }, [videoRef, label]);
 
@@ -488,17 +516,27 @@ export default function CallRoomPage() {
       videoElement: !!video
     });
 
+    // Clear any existing source first
+    video.srcObject = null;
+    
+    // Set the new stream
     video.srcObject = stream;
     video.muted = isLocal; // Local muted, remote unmuted
     video.autoplay = true;
     video.playsInline = true;
     video.controls = false;
 
-    // Force play
+    // Force load and play
+    video.load();
+    
     video.play().then(() => {
       console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing`);
     }).catch(err => {
       console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
+      // Try again after a short delay
+      setTimeout(() => {
+        video.play().catch(console.warn);
+      }, 100);
     });
 
     return true;
@@ -528,13 +566,31 @@ export default function CallRoomPage() {
   // Ensure video elements are updated when streams change
   useEffect(() => {
     if (localStreamRef.current) {
+      console.log('🔄 Setting up local video element with stream:', localStreamRef.current.id);
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+      
+      // Force refresh after a short delay
+      setTimeout(() => {
+        if (localVideoRef.current && localStreamRef.current) {
+          console.log('🔄 Force refreshing local video element');
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+      }, 500);
     }
   }, [localStreamRef.current, setupVideoElement]);
 
   useEffect(() => {
     if (remoteStreamRef.current) {
+      console.log('🔄 Setting up remote video element with stream:', remoteStreamRef.current.id);
       setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      
+      // Force refresh after a short delay
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force refreshing remote video element');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 500);
     }
   }, [remoteStreamRef.current, setupVideoElement]);
 
@@ -2359,6 +2415,26 @@ export default function CallRoomPage() {
               🧪 HTML Test
             </Button>
             
+            {/* Refresh video button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                console.log('🔄 Manually refreshing video streams...');
+                if (localStreamRef.current && localVideoRef.current) {
+                  setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+                }
+                if (remoteStreamRef.current && remoteVideoRef.current) {
+                  setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+                }
+                alert('Video streams refreshed! Check if video is now visible.');
+              }}
+              className="text-white hover:bg-white/10"
+              title="Refresh Video"
+            >
+              🔄 Refresh Video
+            </Button>
+            
             {/* Debug info button */}
             <Button
               variant="ghost"
@@ -2462,6 +2538,7 @@ export default function CallRoomPage() {
             <div className="grid gap-6 lg:grid-cols-2">
               {/* Remote video */}
               <VideoTile
+                key={`remote-${remoteStreamRef.current?.id || 'no-stream'}`}
                 videoRef={remoteVideoRef}
                 label="Remote"
                 isConnected={status === "connected"}
@@ -2471,6 +2548,7 @@ export default function CallRoomPage() {
               
               {/* Local video */}
               <VideoTile
+                key={`local-${localStreamRef.current?.id || 'no-stream'}`}
                 videoRef={localVideoRef}
                 label="You"
                 mirrored
