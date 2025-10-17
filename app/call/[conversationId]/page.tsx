@@ -925,6 +925,103 @@ export default function CallPage() {
     );
   };
 
+  // Simple video component with better error handling
+  const VideoComponent = ({ 
+    videoRef, 
+    stream, 
+    isLocal, 
+    name, 
+    showFallback = true 
+  }: { 
+    videoRef: React.RefObject<HTMLVideoElement | null>;
+    stream: MediaStream | null;
+    isLocal: boolean;
+    name: string;
+    showFallback?: boolean;
+  }) => {
+    const [hasError, setHasError] = useState(false);
+    const [isPlaying, setIsPlaying] = useState(false);
+
+    useEffect(() => {
+      if (videoRef.current && stream) {
+        console.log(`🎥 Setting up ${isLocal ? 'local' : 'remote'} video:`, {
+          streamId: stream.id,
+          audioTracks: stream.getAudioTracks().length,
+          videoTracks: stream.getVideoTracks().length,
+          active: stream.active
+        });
+
+        videoRef.current.srcObject = stream;
+        videoRef.current.muted = isLocal;
+        videoRef.current.autoplay = true;
+        videoRef.current.playsInline = true;
+
+        const playVideo = async () => {
+          try {
+            if (videoRef.current && !videoRef.current.paused) return;
+            
+            if (userInteracted || isLocal) {
+              await videoRef.current?.play();
+              setIsPlaying(true);
+              setHasError(false);
+              console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video playing`);
+            } else {
+              console.log(`⏳ ${isLocal ? 'Local' : 'Remote'} video waiting for user interaction`);
+            }
+          } catch (error) {
+            console.warn(`⚠️ ${isLocal ? 'Local' : 'Remote'} video play failed:`, error);
+            setHasError(true);
+          }
+        };
+
+        playVideo();
+      }
+    }, [stream, isLocal, userInteracted]);
+
+    if (!stream && showFallback) {
+      return (
+        <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
+          <div className="text-center text-white">
+            <div className="animate-pulse text-lg mb-2">
+              {isLocal ? 'Getting camera...' : 'Waiting for video...'}
+            </div>
+            <div className="text-sm text-gray-400">Status: {status}</div>
+          </div>
+        </div>
+      );
+    }
+
+    if (hasError && showFallback) {
+      return (
+        <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
+          <div className="text-center text-white">
+            <div className="text-lg mb-2">Video Error</div>
+            <div className="text-sm text-gray-400">Click to retry</div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={isLocal}
+        className="w-full h-full object-cover"
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onError={() => setHasError(true)}
+        onClick={() => {
+          if (!userInteracted) {
+            setUserInteracted(true);
+            videoRef.current?.play().catch(console.warn);
+          }
+        }}
+      />
+    );
+  };
+
   if (status === "ended") {
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center">
@@ -1070,34 +1167,11 @@ export default function CallPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 h-[calc(100vh-200px)]">
             {/* Remote Video */}
             <div className="relative bg-gray-800">
-              <video
-                ref={(ref) => {
-                  remoteVideoRef.current = ref;
-                  // Directly assign stream if available
-                  if (ref && remoteStreamRef.current) {
-                    console.log('🔗 Directly assigning remote stream to video element');
-                    ref.srcObject = remoteStreamRef.current;
-                    ref.muted = false;
-                    ref.autoplay = true;
-                    ref.playsInline = true;
-                    ref.play().catch(console.warn);
-                  }
-                }}
-                autoPlay
-                playsInline
-                className="w-full h-full object-cover"
-                onLoadedMetadata={() => {
-                  console.log('✅ Remote video metadata loaded');
-                }}
-                onCanPlay={() => {
-                  console.log('✅ Remote video can play');
-                }}
-                onPlay={() => {
-                  console.log('✅ Remote video is playing');
-                }}
-                onError={(e) => {
-                  console.error('❌ Remote video error:', e);
-                }}
+              <VideoComponent
+                videoRef={remoteVideoRef}
+                stream={remoteStreamRef.current}
+                isLocal={false}
+                name={peerName}
               />
               <div className="absolute top-4 left-4">
                 <div className="flex items-center gap-2 bg-black/50 px-3 py-2 rounded-lg">
@@ -1107,47 +1181,15 @@ export default function CallPage() {
                   <span className="text-sm font-medium">{peerName}</span>
                 </div>
               </div>
-              {!remoteStreamRef.current && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
-                  <div className="text-center text-white">
-                    <div className="animate-pulse text-lg mb-2">Waiting for video...</div>
-                    <div className="text-sm text-gray-400">Status: {status}</div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Local Video */}
             <div className="relative bg-gray-800">
-              <video
-                ref={(ref) => {
-                  localVideoRef.current = ref;
-                  // Directly assign stream if available
-                  if (ref && localStreamRef.current) {
-                    console.log('🔗 Directly assigning local stream to video element');
-                    ref.srcObject = localStreamRef.current;
-                    ref.muted = true;
-                    ref.autoplay = true;
-                    ref.playsInline = true;
-                    ref.play().catch(console.warn);
-                  }
-                }}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-                onLoadedMetadata={() => {
-                  console.log('✅ Local video metadata loaded');
-                }}
-                onCanPlay={() => {
-                  console.log('✅ Local video can play');
-                }}
-                onPlay={() => {
-                  console.log('✅ Local video is playing');
-                }}
-                onError={(e) => {
-                  console.error('❌ Local video error:', e);
-                }}
+              <VideoComponent
+                videoRef={localVideoRef}
+                stream={localStreamRef.current}
+                isLocal={true}
+                name={me.name}
               />
               <div className="absolute top-4 left-4">
                 <div className="flex items-center gap-2 bg-black/50 px-3 py-2 rounded-lg">
