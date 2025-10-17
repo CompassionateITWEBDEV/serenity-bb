@@ -552,13 +552,19 @@ export default function CallRoomPage() {
     };
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState;
+      console.log('🔗 WebRTC connection state changed:', s);
+      
       if (s === "connected") {
+        console.log('✅ WebRTC connected!');
         setStatus("connected");
         callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
         // Start audio level monitoring when connected
         startAudioLevelMonitoring();
-      }
-      if (s === "failed" || s === "disconnected" || s === "closed") {
+      } else if (s === "connecting") {
+        console.log('🔄 WebRTC connecting...');
+        setStatus("connecting");
+      } else if (s === "failed" || s === "disconnected" || s === "closed") {
+        console.log('❌ WebRTC connection lost:', s);
         setStatus("ended");
         callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
         // Stop audio level monitoring when disconnected
@@ -581,6 +587,14 @@ export default function CallRoomPage() {
       
       // Set the video element source for remote stream using setup function
       setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      
+      // Force connection status update when we receive tracks
+      if (pc.connectionState === "connected" && status !== "connected") {
+        console.log('🎯 Setting status to connected due to track reception');
+        setStatus("connected");
+        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+        startAudioLevelMonitoring();
+      }
     };
 
     pcRef.current = pc;
@@ -719,27 +733,12 @@ export default function CallRoomPage() {
       if (!msg || msg.from === me.id) return;
 
       if (msg.kind === "webrtc-offer") {
-        console.log('📞 Received offer, starting callee flow...');
+        console.log('📞 Received offer, callee responding...');
         setStatus("connecting");
         
         try {
-          // Get local media stream first
-          localStreamRef.current = await getMediaStream();
-          console.log('✅ Callee got local stream:', {
-            audioTracks: localStreamRef.current.getAudioTracks().length,
-            videoTracks: localStreamRef.current.getVideoTracks().length,
-            streamId: localStreamRef.current.id
-          });
-          
-          // Set up video element
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-          
-          // Add tracks to peer connection
+          // Callee already has stream ready, just handle the offer
           const pc = ensurePC();
-          localStreamRef.current.getTracks().forEach((t) => {
-            console.log(`Adding ${t.kind} track to peer connection:`, t.label);
-            pc.addTrack(t, localStreamRef.current!);
-          });
           
           // Set remote description and create answer
           await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
@@ -748,14 +747,25 @@ export default function CallRoomPage() {
           await pc.setLocalDescription(answer);
           sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
           
-          setStatus("connected");
+          console.log('✅ Callee sent answer, waiting for connection...');
         } catch (error) {
-          console.error("Callee failed to start call:", error);
+          console.error("Callee failed to handle offer:", error);
           setStatus("failed");
         }
       } else if (msg.kind === "webrtc-answer") {
+        console.log('📞 Received answer, setting remote description...');
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        
+        // Set a timeout to force connection status if WebRTC state doesn't fire
+        setTimeout(() => {
+          if (pc.connectionState === "connected" && status !== "connected") {
+            console.log('⏰ Timeout: Forcing connection status update');
+            setStatus("connected");
+            callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+            startAudioLevelMonitoring();
+          }
+        }, 2000);
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
@@ -867,10 +877,45 @@ export default function CallRoomPage() {
       await pc.setLocalDescription(offer);
       sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
       await ringPeer(); // show IncomingCallBanner on the peer
+      
+      // Set a timeout to force connection status if WebRTC state doesn't fire
+      setTimeout(() => {
+        if (pc.connectionState === "connected" && status !== "connected") {
+          console.log('⏰ Timeout: Forcing connection status update for caller');
+          setStatus("connected");
+          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+          startAudioLevelMonitoring();
+        }
+      }, 3000);
     } else if (role === "callee") {
-      // For callees, just prepare and wait for caller's offer
-      console.log('📞 Callee ready - waiting for caller\'s offer');
+      // For callees, get media stream and prepare for incoming offer
+      console.log('📞 Callee getting ready - preparing media stream');
       setStatus("ringing");
+      
+      // Get media stream for callee too, so they're ready when offer arrives
+      try {
+        localStreamRef.current = await getMediaStream();
+        console.log('✅ Callee got local stream:', {
+          audioTracks: localStreamRef.current.getAudioTracks().length,
+          videoTracks: localStreamRef.current.getVideoTracks().length,
+          streamId: localStreamRef.current.id
+        });
+        
+        // Set up video element
+        setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        
+        // Add tracks to peer connection
+        const pc = ensurePC();
+        localStreamRef.current.getTracks().forEach((t) => {
+          console.log(`Adding ${t.kind} track to peer connection:`, t.label);
+          pc.addTrack(t, localStreamRef.current!);
+        });
+        
+        console.log('✅ Callee ready and waiting for offer');
+      } catch (error) {
+        console.error("Callee failed to prepare:", error);
+        setStatus("failed");
+      }
     }
     } catch (error) {
       console.error("Failed to start call:", error);
