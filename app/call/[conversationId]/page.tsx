@@ -184,8 +184,8 @@ function VideoTile({
             {isConnected && hasVideoStream && !showVideo && (
               <p className="text-orange-400 text-xs mt-1">Video loading...</p>
             )}
-          </div>
-        )}
+        </div>
+      )}
       </div>
       
       <div className="absolute bottom-3 left-3 flex items-center gap-2">
@@ -546,28 +546,13 @@ export default function CallRoomPage() {
     }
   }, [status, setupVideoElement]);
 
-  // Force local video display for callers
+  // Ensure local video is displayed for callers
   useEffect(() => {
     if (role === "caller" && localStreamRef.current && localVideoRef.current) {
-      console.log('🎯 Caller - forcing local video display...');
+      console.log('🎯 Caller - setting up local video...');
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-      
-      // Multiple attempts to ensure video displays
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force local video (1s)');
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-      }, 1000);
-      
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force local video (2s)');
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-      }, 2000);
     }
-  }, [role, setupVideoElement]);
+  }, [role, localStreamRef.current, setupVideoElement]);
 
   // Initialize video elements and check permissions
   useEffect(() => {
@@ -992,25 +977,25 @@ export default function CallRoomPage() {
         console.log('🎯 Trying main constraints:', constraints);
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         console.log('✅ Media stream acquired with main constraints:', {
-          audioTracks: stream.getAudioTracks().length,
-          videoTracks: stream.getVideoTracks().length,
+        audioTracks: stream.getAudioTracks().length,
+        videoTracks: stream.getVideoTracks().length,
           audioTrackLabels: stream.getAudioTracks().map(t => t.label),
           videoTrackLabels: stream.getVideoTracks().map(t => t.label),
-          streamId: stream.id,
-          active: stream.active
-        });
-        
-        // Ensure all tracks are enabled
-        stream.getAudioTracks().forEach(track => {
-          track.enabled = true;
-          console.log(`🔊 Audio track enabled: ${track.label}`);
-        });
-        stream.getVideoTracks().forEach(track => {
-          track.enabled = true;
-          console.log(`📹 Video track enabled: ${track.label}`);
-        });
-        
-        return stream;
+        streamId: stream.id,
+        active: stream.active
+      });
+      
+      // Ensure all tracks are enabled
+      stream.getAudioTracks().forEach(track => {
+        track.enabled = true;
+        console.log(`🔊 Audio track enabled: ${track.label}`);
+      });
+      stream.getVideoTracks().forEach(track => {
+        track.enabled = true;
+        console.log(`📹 Video track enabled: ${track.label}`);
+      });
+      
+      return stream;
       } catch (error: any) {
         console.warn("❌ Main constraints failed, trying basic constraints:", error);
         
@@ -1112,16 +1097,16 @@ export default function CallRoomPage() {
         
         try {
           // Both participants are already ready with streams, just handle the offer
-          const pc = ensurePC();
+        const pc = ensurePC();
           
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
           const answer = await pc.createAnswer({
             offerToReceiveAudio: true,
             offerToReceiveVideo: mode === "video",
           });
           
-          await pc.setLocalDescription(answer);
-          sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+        await pc.setLocalDescription(answer);
+        sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
           
           // Immediately show connected - like Messenger/Zoom
           setStatus("connected");
@@ -1200,17 +1185,17 @@ export default function CallRoomPage() {
       // Subscribe to both channels
       await Promise.all([
         new Promise<void>((res, rej) => {
-          const to = setTimeout(() => rej(new Error("subscribe timeout")), 8000);
-          ch.subscribe((s) => {
-            if (s === "SUBSCRIBED") {
-              clearTimeout(to);
-              res();
-            }
-            if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
-              clearTimeout(to);
-              rej(new Error(String(s)));
-            }
-          });
+      const to = setTimeout(() => rej(new Error("subscribe timeout")), 8000);
+      ch.subscribe((s) => {
+        if (s === "SUBSCRIBED") {
+          clearTimeout(to);
+          res();
+        }
+        if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+          clearTimeout(to);
+          rej(new Error(String(s)));
+        }
+      });
         }),
         new Promise<void>((res, rej) => {
           const to = setTimeout(() => rej(new Error("staff subscribe timeout")), 8000);
@@ -1228,9 +1213,9 @@ export default function CallRoomPage() {
       ]);
 
       // Send old format for compatibility
-      await ch.send({
-        type: "broadcast",
-        event: "invite",
+    await ch.send({
+      type: "broadcast",
+      event: "invite",
         payload: { conversationId, fromId: me.id, fromName: callerName, mode },
       });
 
@@ -1250,10 +1235,10 @@ export default function CallRoomPage() {
     } catch (error) {
       console.error("Failed to send ring notification:", error);
     } finally {
-      try {
-        supabase.removeChannel(ch);
+    try {
+      supabase.removeChannel(ch);
         supabase.removeChannel(staffCh);
-      } catch {}
+    } catch {}
     }
   }
 
@@ -1304,61 +1289,48 @@ export default function CallRoomPage() {
         console.log(`Adding ${t.kind} track to peer connection:`, t.label);
         pc.addTrack(t, localStreamRef.current!);
       });
-      
-      // Force local video display for callers - immediate and multiple attempts
-      console.log('🎯 Immediately setting up local video for caller...');
+
+      // Force local video display for callers - immediate setup
+      console.log('🎯 Force setting up local video for caller...');
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
       
+      // Additional attempts to ensure video displays
       setTimeout(() => {
         if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force setting local video for caller (100ms)...');
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-      }, 100);
-      
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force setting local video for caller (300ms)...');
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-      }, 300);
-      
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force setting local video for caller (500ms)...');
+          console.log('🔄 Force local video (500ms)');
           setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
         }
       }, 500);
       
       setTimeout(() => {
         if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force setting local video for caller (1000ms)...');
+          console.log('🔄 Force local video (1000ms)');
           setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
         }
       }, 1000);
 
       // 3) Simple call flow like Messenger/Zoom
-      if (role === "caller") {
+    if (role === "caller") {
         // Caller shows ringing and sends offer
-        setStatus("ringing");
-        callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
-        
+      setStatus("ringing");
+      callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
+      
         console.log('🎯 Creating WebRTC offer...');
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: mode === "video",
-        });
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: mode === "video",
+      });
         
-        await pc.setLocalDescription(offer);
-        sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
-        await ringPeer(); // show IncomingCallBanner on the peer
+      await pc.setLocalDescription(offer);
+      sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
+      await ringPeer(); // show IncomingCallBanner on the peer
         
         console.log('✅ Caller sent offer, waiting for answer...');
       } else {
         // Callee shows ringing and waits for offer
         setStatus("ringing");
         console.log('📞 Callee ready and waiting for offer...');
-      }
+    }
     } catch (error) {
       console.error("Failed to start call:", error);
       setStatus("failed");
@@ -2339,12 +2311,12 @@ export default function CallRoomPage() {
                     
                     // Wait a bit for video to load
                     setTimeout(async () => {
-                      try {
+                    try {
                         await localVideoRef.current!.play();
                         console.log('✅ Video started playing');
-                      } catch (playError) {
-                        console.error('❌ Video play failed:', playError);
-                      }
+                    } catch (playError) {
+                      console.error('❌ Video play failed:', playError);
+                    }
                     }, 100);
                     
                     alert('✅ SUCCESS! Media access works. Check console for details and video should appear.');
@@ -2428,7 +2400,7 @@ export default function CallRoomPage() {
                   
                   // Try to play
                   try {
-                    await testVideo.play();
+                  await testVideo.play();
                     console.log('✅ HTML video element playing');
                     alert('✅ HTML test successful! You should see a red-bordered video in the top-right corner.');
                   } catch (playError) {
