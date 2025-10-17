@@ -132,7 +132,7 @@ export default function CallPage() {
     }
   }, [mode]);
 
-  // Setup video element
+  // Setup video element - Enhanced version
   const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal = true) => {
     if (!videoRef.current || !stream) {
       console.warn(`⚠️ Cannot setup video element: videoRef=${!!videoRef.current}, stream=${!!stream}`);
@@ -144,46 +144,96 @@ export default function CallPage() {
       audioTracks: stream.getAudioTracks().length,
       videoTracks: stream.getVideoTracks().length,
       streamId: stream.id,
-      videoElement: !!video
+      videoElement: !!video,
+      videoElementReady: video.readyState
     });
 
-    // Clear any existing stream
+    // Stop any existing tracks
+    if (video.srcObject) {
+      const oldStream = video.srcObject as MediaStream;
+      oldStream.getTracks().forEach(track => track.stop());
+    }
+
+    // Clear and set new stream
     video.srcObject = null;
-    
-    // Set the new stream
     video.srcObject = stream;
+    
+    // Set video properties
     video.muted = isLocal; // Mute local video, unmute remote
     video.autoplay = true;
     video.playsInline = true;
     video.controls = false;
+    video.loop = false;
     
-    // Force load and play
+    // Force video to load
     video.load();
     
-    const playVideo = () => {
-      video.play().then(() => {
-        console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing`);
+    // Create a more robust play function
+    const playVideo = async () => {
+      try {
+        console.log(`🎬 Attempting to play ${isLocal ? 'local' : 'remote'} video...`);
+        
+        // Wait a bit for the video to be ready
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        await video.play();
+        console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing successfully`);
+        
+        // Update debug info
         setDebugInfo(prev => ({ 
           ...prev, 
           [isLocal ? 'localStream' : 'remoteStream']: true 
         }));
-      }).catch(err => {
-        console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
-        // Retry after a short delay
+        
+        // Verify video is actually playing
         setTimeout(() => {
-          if (videoRef.current) {
-            videoRef.current.play().catch(console.warn);
+          if (video.readyState >= 2 && video.videoWidth > 0) {
+            console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video verified: ${video.videoWidth}x${video.videoHeight}`);
+          } else {
+            console.warn(`⚠️ ${isLocal ? 'Local' : 'Remote'} video not ready: readyState=${video.readyState}, dimensions=${video.videoWidth}x${video.videoHeight}`);
           }
-        }, 500);
-      });
+        }, 1000);
+        
+      } catch (err) {
+        console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
+        
+        // Multiple retry attempts
+        for (let i = 0; i < 3; i++) {
+          setTimeout(async () => {
+            try {
+              if (videoRef.current && videoRef.current.srcObject === stream) {
+                await videoRef.current.play();
+                console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing on retry ${i + 1}`);
+              }
+            } catch (retryErr) {
+              console.warn(`⚠️ Retry ${i + 1} failed:`, retryErr);
+            }
+          }, (i + 1) * 500);
+        }
+      }
     };
 
     // Try to play immediately
     playVideo();
 
-    // Also try when video is ready
-    video.addEventListener('loadedmetadata', playVideo, { once: true });
-    video.addEventListener('canplay', playVideo, { once: true });
+    // Also try when video events fire
+    const handleLoadedMetadata = () => {
+      console.log(`📺 ${isLocal ? 'Local' : 'Remote'} video metadata loaded`);
+      playVideo();
+    };
+    
+    const handleCanPlay = () => {
+      console.log(`▶️ ${isLocal ? 'Local' : 'Remote'} video can play`);
+      playVideo();
+    };
+    
+    const handlePlay = () => {
+      console.log(`🎬 ${isLocal ? 'Local' : 'Remote'} video is playing`);
+    };
+
+    video.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+    video.addEventListener('canplay', handleCanPlay, { once: true });
+    video.addEventListener('play', handlePlay, { once: true });
 
     return true;
   }, []);
@@ -202,6 +252,32 @@ export default function CallPage() {
       setupVideoElement(remoteVideoRef, remoteStreamRef.current, false);
     }
   }, [remoteStreamRef.current, setupVideoElement]);
+
+  // Force video setup on component mount
+  useEffect(() => {
+    const forceVideoSetup = () => {
+      console.log('🔧 Force video setup on mount...');
+      
+      // Check if we have streams and video elements
+      if (localStreamRef.current && localVideoRef.current) {
+        console.log('🎥 Setting up local video on mount...');
+        setupVideoElement(localVideoRef, localStreamRef.current, true);
+      }
+      
+      if (remoteStreamRef.current && remoteVideoRef.current) {
+        console.log('🎥 Setting up remote video on mount...');
+        setupVideoElement(remoteVideoRef, remoteStreamRef.current, false);
+      }
+    };
+
+    // Run immediately
+    forceVideoSetup();
+    
+    // Also run after a short delay
+    const timeout = setTimeout(forceVideoSetup, 1000);
+    
+    return () => clearTimeout(timeout);
+  }, [setupVideoElement]);
 
   // Ensure peer connection
   const ensurePC = useCallback((): RTCPeerConnection => {
@@ -673,7 +749,18 @@ export default function CallPage() {
             {/* Remote Video */}
             <div className="relative bg-gray-800">
               <video
-                ref={remoteVideoRef}
+                ref={(ref) => {
+                  remoteVideoRef.current = ref;
+                  // Directly assign stream if available
+                  if (ref && remoteStreamRef.current) {
+                    console.log('🔗 Directly assigning remote stream to video element');
+                    ref.srcObject = remoteStreamRef.current;
+                    ref.muted = false;
+                    ref.autoplay = true;
+                    ref.playsInline = true;
+                    ref.play().catch(console.warn);
+                  }
+                }}
                 autoPlay
                 playsInline
                 className="w-full h-full object-cover"
@@ -711,7 +798,18 @@ export default function CallPage() {
             {/* Local Video */}
             <div className="relative bg-gray-800">
               <video
-                ref={localVideoRef}
+                ref={(ref) => {
+                  localVideoRef.current = ref;
+                  // Directly assign stream if available
+                  if (ref && localStreamRef.current) {
+                    console.log('🔗 Directly assigning local stream to video element');
+                    ref.srcObject = localStreamRef.current;
+                    ref.muted = true;
+                    ref.autoplay = true;
+                    ref.playsInline = true;
+                    ref.play().catch(console.warn);
+                  }
+                }}
                 autoPlay
                 playsInline
                 muted
