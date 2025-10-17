@@ -1077,6 +1077,11 @@ function ChatBoxInner(props: {
     if (!me || !conversationId) return;
     let stream: MediaStream | null = null;
     try {
+      // Check if mediaDevices is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Camera not supported in this browser');
+      }
+      
       stream = await navigator.mediaDevices.getUserMedia({ video: true });
       const video = document.createElement("video");
       (video as any).muted = true;
@@ -1096,7 +1101,21 @@ function ChatBoxInner(props: {
       const previewUrl = URL.createObjectURL(blob);
       setDraft({ blob, type: "image", name: "photo.jpg", previewUrl });
     } catch (e: any) {
-      alert(`Camera error.\n\n${e?.message ?? ""}`);
+      console.error('Camera error in takePhoto:', e);
+      
+      // Provide more specific error messages
+      let errorMessage = 'Camera error.';
+      if (e?.name === 'NotAllowedError') {
+        errorMessage = 'Camera access denied. Please allow camera access and try again.';
+      } else if (e?.name === 'NotFoundError') {
+        errorMessage = 'No camera found. Please check your camera connection.';
+      } else if (e?.name === 'NotReadableError') {
+        errorMessage = 'Camera is being used by another application.';
+      } else if (e?.message) {
+        errorMessage = `Camera error: ${e.message}`;
+      }
+      
+      alert(errorMessage);
     } finally {
       stream?.getTracks().forEach((t) => t.stop());
     }
