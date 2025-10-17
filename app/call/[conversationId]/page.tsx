@@ -79,35 +79,6 @@ function VideoTile({
     const video = videoRef.current;
     console.log(`Setting up video listeners for ${label}`);
     
-    const checkVideoState = () => {
-      const hasVideo = video.videoWidth > 0 && video.videoHeight > 0;
-      const hasSrc = !!video.srcObject;
-      const isPlaying = !video.paused && !video.ended && video.readyState > 2;
-      
-      console.log(`🔍 Video state check for ${label}:`, {
-        hasVideo,
-        hasSrc,
-        isPlaying,
-        videoWidth: video.videoWidth,
-        videoHeight: video.videoHeight,
-        readyState: video.readyState,
-        paused: video.paused,
-        currentTime: video.currentTime
-      });
-      
-      // More aggressive video detection
-      if (hasVideo && hasSrc) {
-        console.log(`✅ Video detected for ${label} - showing video`);
-        setShowVideo(true);
-        setHasVideoStream(true);
-      } else if (hasSrc && video.readyState >= 2) {
-        // Even if video dimensions aren't available yet, if we have a source and it's loaded
-        console.log(`📹 Video source ready for ${label} - showing video`);
-        setShowVideo(true);
-        setHasVideoStream(true);
-      }
-    };
-    
     const handleLoadedMetadata = () => {
       console.log(`✅ Video loaded for ${label}:`, {
         videoWidth: video.videoWidth,
@@ -115,7 +86,8 @@ function VideoTile({
         srcObject: !!video.srcObject,
         readyState: video.readyState
       });
-      checkVideoState();
+      setShowVideo(true);
+      setHasVideoStream(true);
     };
     
     const handleError = (e: any) => {
@@ -126,20 +98,18 @@ function VideoTile({
     
     const handleCanPlay = () => {
       console.log(`▶️ Video can play for ${label}`);
-      checkVideoState();
+      setShowVideo(true);
+      setHasVideoStream(true);
     };
     
     const handlePlay = () => {
       console.log(`🎬 Video started playing for ${label}`);
-      checkVideoState();
+      setShowVideo(true);
+      setHasVideoStream(true);
     };
     
     const handleLoadStart = () => {
       console.log(`🔄 Video load started for ${label}`);
-    };
-    
-    const handleTimeUpdate = () => {
-      checkVideoState();
     };
     
     // Add all event listeners
@@ -147,7 +117,6 @@ function VideoTile({
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('play', handlePlay);
-    video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('error', handleError);
     
     // Check if video already has a source
@@ -156,31 +125,12 @@ function VideoTile({
       video.load(); // Force reload
     }
     
-    // Check video state periodically
-    const interval = setInterval(checkVideoState, 1000);
-    
-    // Also check immediately when stream is assigned
-    const checkImmediately = () => {
-      if (video.srcObject) {
-        console.log(`🎯 Immediate check for ${label} - stream assigned`);
-        checkVideoState();
-      }
-    };
-    
-    // Check immediately and after a short delay
-    checkImmediately();
-    setTimeout(checkImmediately, 100);
-    setTimeout(checkImmediately, 500);
-    setTimeout(checkImmediately, 1000);
-    
     return () => {
       video.removeEventListener('loadstart', handleLoadStart);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('play', handlePlay);
-      video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('error', handleError);
-      clearInterval(interval);
     };
   }, [videoRef, label]);
 
@@ -214,9 +164,9 @@ function VideoTile({
         }}
       />
       
-      {/* Show overlay only when video is not playing */}
-      {!showVideo && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      {/* Always show overlay for debugging */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        {!showVideo && (
           <div className="text-center">
             <Avatar className="mx-auto h-20 w-20 mb-4">
               <AvatarImage src={avatarUrl} />
@@ -235,8 +185,8 @@ function VideoTile({
               <p className="text-orange-400 text-xs mt-1">Video loading...</p>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
       
       <div className="absolute bottom-3 left-3 flex items-center gap-2">
         <div className="rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur">
@@ -538,27 +488,17 @@ export default function CallRoomPage() {
       videoElement: !!video
     });
 
-    // Clear any existing source first
-    video.srcObject = null;
-    
-    // Set the new stream
     video.srcObject = stream;
     video.muted = isLocal; // Local muted, remote unmuted
     video.autoplay = true;
     video.playsInline = true;
     video.controls = false;
 
-    // Force load and play
-    video.load();
-    
+    // Force play
     video.play().then(() => {
       console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing`);
     }).catch(err => {
       console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
-      // Try again after a short delay
-      setTimeout(() => {
-        video.play().catch(console.warn);
-      }, 100);
     });
 
     return true;
@@ -588,74 +528,13 @@ export default function CallRoomPage() {
   // Ensure video elements are updated when streams change
   useEffect(() => {
     if (localStreamRef.current) {
-      console.log('🔄 Setting up local video element with stream:', localStreamRef.current.id);
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-      
-      // Force refresh multiple times to ensure video displays
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force refreshing local video element (500ms)');
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-      }, 500);
-      
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force refreshing local video element (1000ms)');
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-      }, 1000);
-      
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force refreshing local video element (2000ms)');
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-      }, 2000);
     }
   }, [localStreamRef.current, setupVideoElement]);
 
   useEffect(() => {
     if (remoteStreamRef.current) {
-      console.log('🔄 Setting up remote video element with stream:', remoteStreamRef.current.id);
       setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-      
-      // Force refresh multiple times to ensure video displays
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force refreshing remote video element (500ms)');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 500);
-      
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force refreshing remote video element (1000ms)');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 1000);
-      
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force refreshing remote video element (2000ms)');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 2000);
-      
-      // Additional aggressive attempts
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force refreshing remote video element (3000ms)');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 3000);
-      
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force refreshing remote video element (5000ms)');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 5000);
     }
   }, [remoteStreamRef.current, setupVideoElement]);
 
@@ -806,34 +685,8 @@ export default function CallRoomPage() {
         video: remoteStreamRef.current.getVideoTracks().length
       });
       
-      // Set the video element source for remote stream immediately
-      console.log('🎥 Setting up remote video element immediately...');
-      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-      
-      // Also try with retry mechanism
+      // Set the video element source for remote stream using setup function with retry
       setupVideoElementWithRetry(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-      
-      // Force multiple attempts to ensure video displays
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force setting remote video (500ms)');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 500);
-      
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force setting remote video (1000ms)');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 1000);
-      
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force setting remote video (2000ms)');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 2000);
     };
 
     pcRef.current = pc;
@@ -1170,33 +1023,62 @@ export default function CallRoomPage() {
 
   const sendSignal = useCallback((payload: SigPayload) => {
     if (!threadChanRef.current) {
-      console.warn('⚠️ Cannot send signal: no channel available');
+      console.error('❌ Cannot send signal: channel not available');
       return;
     }
-    console.log('📤 Sending signal:', payload);
-    void threadChanRef.current.send({ type: "broadcast", event: "signal", payload });
+    console.log(`📤 Sending signal:`, payload);
+    threadChanRef.current.send({ type: "broadcast", event: "signal", payload })
+      .then(() => {
+        console.log(`✅ Signal sent successfully:`, payload.kind);
+      })
+      .catch((error) => {
+        console.error(`❌ Failed to send signal:`, error);
+      });
   }, []);
 
   useEffect(() => {
     if (!conversationId || !me?.id) return;
 
-    console.log('🔗 Setting up signaling channel:', threadChannel);
+    console.log(`🔗 Setting up signaling channel: ${threadChannel} for user: ${me.id}`);
+
     const ch = supabase.channel(threadChannel, { config: { broadcast: { ack: true } } });
 
     ch.on("broadcast", { event: "signal" }, async (e) => {
-      console.log('📡 Received signal:', e.payload);
       const msg = (e.payload || {}) as SigPayload;
-      if (!msg || msg.from === me.id) return;
+      console.log(`📨 Received signal:`, msg);
+      
+      if (!msg || msg.from === me.id) {
+        console.log(`⏭️ Ignoring signal from self or invalid message`);
+        return;
+      }
 
       if (msg.kind === "webrtc-offer") {
         console.log('📞 Received offer from peer, answering immediately...');
         setStatus("connecting");
         
         try {
-          // Both participants are already ready with streams, just handle the offer
-          const pc = ensurePC();
+          // Ensure we have a local stream before answering
+          if (!localStreamRef.current) {
+            console.log('🎥 Getting local stream for callee...');
+            localStreamRef.current = await getMediaStream();
+            console.log('✅ Local stream acquired for callee:', {
+              audioTracks: localStreamRef.current.getAudioTracks().length,
+              videoTracks: localStreamRef.current.getVideoTracks().length,
+              streamId: localStreamRef.current.id
+            });
+            
+            // Set the video element source with retry
+            setupVideoElementWithRetry(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+            
+            // Add tracks to peer connection
+            const pc = ensurePC();
+            localStreamRef.current.getTracks().forEach((t) => {
+              console.log(`Adding ${t.kind} track to peer connection:`, t.label);
+              pc.addTrack(t, localStreamRef.current!);
+            });
+          }
           
-          // Set remote description and create answer
+          const pc = ensurePC();
           await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
           const answer = await pc.createAnswer({
             offerToReceiveAudio: true,
@@ -1208,7 +1090,7 @@ export default function CallRoomPage() {
           sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
           console.log('✅ Answer sent to peer - connection should establish now');
           
-          // Clear any connection timeout since we received the offer
+          // Clear any callee timeout since we received the offer
           if (connectionTimeout) {
             clearTimeout(connectionTimeout);
             setConnectionTimeout(null);
@@ -1219,16 +1101,9 @@ export default function CallRoomPage() {
           setMediaError("Failed to establish connection. Please try again.");
         }
       } else if (msg.kind === "webrtc-answer") {
-        console.log('📞 Received answer from peer, setting remote description...');
+        console.log('📞 Received answer from peer');
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        console.log('✅ Remote description set, connection should establish now');
-        
-        // Clear any connection timeout since we received the answer
-        if (connectionTimeout) {
-          clearTimeout(connectionTimeout);
-          setConnectionTimeout(null);
-        }
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
@@ -1240,20 +1115,33 @@ export default function CallRoomPage() {
           // Don't ignore - this might be important for connection
         }
       } else if (msg.kind === "bye") {
+        console.log('📞 Received bye from peer');
         endCall(true);
       }
     });
 
-    ch.subscribe();
+    // Add subscription status monitoring
+    ch.subscribe((status) => {
+      console.log(`📡 Channel subscription status: ${status}`);
+      if (status === "SUBSCRIBED") {
+        console.log(`✅ Successfully subscribed to channel: ${threadChannel}`);
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.error(`❌ Channel subscription failed: ${status}`);
+        setStatus("failed");
+        setMediaError("Failed to establish signaling connection. Please try again.");
+      }
+    });
+    
     threadChanRef.current = ch;
 
     return () => {
+      console.log(`🔌 Cleaning up signaling channel: ${threadChannel}`);
       try {
         supabase.removeChannel(ch);
       } catch {}
       threadChanRef.current = null;
     };
-  }, [conversationId, me?.id, threadChannel, mode, getMediaStream, setupVideoElementWithRetry, ensurePC, sendSignal, connectionTimeout]);
+  }, [conversationId, ensurePC, me?.id, sendSignal, threadChannel, mode, setupVideoElementWithRetry, getMediaStream, connectionTimeout]);
 
   // ---------- Ring peer (for IncomingCallBanner) on user_${peer} ----------
   async function ringPeer() {
@@ -1376,50 +1264,40 @@ export default function CallRoomPage() {
         pc.addTrack(t, localStreamRef.current!);
       });
 
-      // 3) Handle caller and callee flows differently
+      // 3) If caller, create offer + send + ring
       if (role === "caller") {
-        // Caller shows "ringing" and creates offer
         setStatus("ringing");
         callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
         
-        console.log('📞 Caller creating offer...');
+        console.log('🎯 Creating WebRTC offer...');
         const offer = await pc.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: mode === "video",
         });
-        console.log('Created offer with audio:', offer.sdp?.includes('m=audio'));
-        console.log('Created offer with video:', offer.sdp?.includes('m=video'));
+        console.log('✅ Created offer with audio:', offer.sdp?.includes('m=audio'));
+        console.log('✅ Created offer with video:', offer.sdp?.includes('m=video'));
+        
         await pc.setLocalDescription(offer);
+        console.log('✅ Set local description for offer');
+        
+        // Send the offer via signaling channel
+        console.log('📤 Sending offer to peer...');
         sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
+        
+        // Also ring the peer to show notification
+        console.log('📞 Ringing peer...');
         await ringPeer(); // show IncomingCallBanner on the peer
         
-        console.log('✅ Caller sent offer, waiting for answer...');
-      } else {
-        // Callee shows "connecting" and waits for offer
-        setStatus("connecting");
-        console.log('📞 Callee ready and waiting for offer...');
+        // Set connection timeout (30 seconds)
+        const timeout = setTimeout(() => {
+          if (status !== "connected") {
+            console.warn("⚠️ Connection timeout - no response from peer");
+            setStatus("failed");
+            setMediaError("Connection timeout. The other person may not be available or there may be a network issue.");
+          }
+        }, 30000);
+        setConnectionTimeout(timeout);
       }
-      
-      // Set connection timeout (30 seconds) for both
-      const timeout = setTimeout(() => {
-        if (status !== "connected") {
-          console.warn("⚠️ Connection timeout - no response from peer");
-          setStatus("failed");
-          setMediaError("Connection timeout. The other person may not be available or there may be a network issue.");
-        }
-      }, 30000);
-      setConnectionTimeout(timeout);
-      
-      // Force connection check after 5 seconds
-      setTimeout(() => {
-        const pc = pcRef.current;
-        if (pc && pc.connectionState === "connected" && status !== "connected") {
-          console.log('🎯 Force updating connection status after 5 seconds');
-          setStatus("connected");
-          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-          startAudioLevelMonitoring();
-        }
-      }, 5000);
     } catch (error) {
       console.error("Failed to start call:", error);
       setStatus("failed");
@@ -2515,75 +2393,6 @@ export default function CallRoomPage() {
               🧪 HTML Test
             </Button>
             
-            {/* Refresh video button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                console.log('🔄 Manually refreshing video streams...');
-                if (localStreamRef.current && localVideoRef.current) {
-                  setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-                }
-                if (remoteStreamRef.current && remoteVideoRef.current) {
-                  console.log('🔄 Force refreshing remote video...');
-                  setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-                  
-                  // Multiple attempts
-                  setTimeout(() => {
-                    if (remoteVideoRef.current && remoteStreamRef.current) {
-                      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-                    }
-                  }, 100);
-                  
-                  setTimeout(() => {
-                    if (remoteVideoRef.current && remoteStreamRef.current) {
-                      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-                    }
-                  }, 500);
-                }
-                alert('Video streams refreshed! Check if video is now visible.');
-              }}
-              className="text-white hover:bg-white/10"
-              title="Refresh Video"
-            >
-              🔄 Refresh Video
-            </Button>
-            
-            {/* Force remote video button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                console.log('🎯 Force displaying remote video...');
-                if (remoteStreamRef.current && remoteVideoRef.current) {
-                  console.log('Remote stream info:', {
-                    id: remoteStreamRef.current.id,
-                    audioTracks: remoteStreamRef.current.getAudioTracks().length,
-                    videoTracks: remoteStreamRef.current.getVideoTracks().length,
-                    active: remoteStreamRef.current.active
-                  });
-                  
-                  // Force clear and set
-                  remoteVideoRef.current.srcObject = null;
-                  setTimeout(() => {
-                    if (remoteVideoRef.current && remoteStreamRef.current) {
-                      remoteVideoRef.current.srcObject = remoteStreamRef.current;
-                      remoteVideoRef.current.load();
-                      remoteVideoRef.current.play().catch(console.warn);
-                      console.log('✅ Force set remote video srcObject');
-                    }
-                  }, 100);
-                } else {
-                  console.log('❌ No remote stream or video element available');
-                }
-                alert('Remote video force refresh attempted! Check console for details.');
-              }}
-              className="text-white hover:bg-white/10"
-              title="Force Remote Video"
-            >
-              🎯 Force Remote
-            </Button>
-            
             {/* Debug info button */}
             <Button
               variant="ghost"
@@ -2687,7 +2496,6 @@ export default function CallRoomPage() {
             <div className="grid gap-6 lg:grid-cols-2">
               {/* Remote video */}
               <VideoTile
-                key={`remote-${remoteStreamRef.current?.id || 'no-stream'}`}
                 videoRef={remoteVideoRef}
                 label="Remote"
                 isConnected={status === "connected"}
@@ -2697,7 +2505,6 @@ export default function CallRoomPage() {
               
               {/* Local video */}
               <VideoTile
-                key={`local-${localStreamRef.current?.id || 'no-stream'}`}
                 videoRef={localVideoRef}
                 label="You"
                 mirrored
