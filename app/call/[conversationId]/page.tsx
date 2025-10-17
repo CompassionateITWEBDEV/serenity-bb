@@ -91,10 +91,18 @@ function VideoTile({
         videoWidth: video.videoWidth,
         videoHeight: video.videoHeight,
         readyState: video.readyState,
-        paused: video.paused
+        paused: video.paused,
+        currentTime: video.currentTime
       });
       
+      // More aggressive video detection
       if (hasVideo && hasSrc) {
+        console.log(`✅ Video detected for ${label} - showing video`);
+        setShowVideo(true);
+        setHasVideoStream(true);
+      } else if (hasSrc && video.readyState >= 2) {
+        // Even if video dimensions aren't available yet, if we have a source and it's loaded
+        console.log(`📹 Video source ready for ${label} - showing video`);
         setShowVideo(true);
         setHasVideoStream(true);
       }
@@ -151,6 +159,20 @@ function VideoTile({
     // Check video state periodically
     const interval = setInterval(checkVideoState, 1000);
     
+    // Also check immediately when stream is assigned
+    const checkImmediately = () => {
+      if (video.srcObject) {
+        console.log(`🎯 Immediate check for ${label} - stream assigned`);
+        checkVideoState();
+      }
+    };
+    
+    // Check immediately and after a short delay
+    checkImmediately();
+    setTimeout(checkImmediately, 100);
+    setTimeout(checkImmediately, 500);
+    setTimeout(checkImmediately, 1000);
+    
     return () => {
       video.removeEventListener('loadstart', handleLoadStart);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
@@ -192,9 +214,9 @@ function VideoTile({
         }}
       />
       
-      {/* Always show overlay for debugging */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        {!showVideo && (
+      {/* Show overlay only when video is not playing */}
+      {!showVideo && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="text-center">
             <Avatar className="mx-auto h-20 w-20 mb-4">
               <AvatarImage src={avatarUrl} />
@@ -213,8 +235,8 @@ function VideoTile({
               <p className="text-orange-400 text-xs mt-1">Video loading...</p>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
       
       <div className="absolute bottom-3 left-3 flex items-center gap-2">
         <div className="rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur">
@@ -569,13 +591,27 @@ export default function CallRoomPage() {
       console.log('🔄 Setting up local video element with stream:', localStreamRef.current.id);
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
       
-      // Force refresh after a short delay
+      // Force refresh multiple times to ensure video displays
       setTimeout(() => {
         if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Force refreshing local video element');
+          console.log('🔄 Force refreshing local video element (500ms)');
           setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
         }
       }, 500);
+      
+      setTimeout(() => {
+        if (localVideoRef.current && localStreamRef.current) {
+          console.log('🔄 Force refreshing local video element (1000ms)');
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+      }, 1000);
+      
+      setTimeout(() => {
+        if (localVideoRef.current && localStreamRef.current) {
+          console.log('🔄 Force refreshing local video element (2000ms)');
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+      }, 2000);
     }
   }, [localStreamRef.current, setupVideoElement]);
 
@@ -584,13 +620,27 @@ export default function CallRoomPage() {
       console.log('🔄 Setting up remote video element with stream:', remoteStreamRef.current.id);
       setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
       
-      // Force refresh after a short delay
+      // Force refresh multiple times to ensure video displays
       setTimeout(() => {
         if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Force refreshing remote video element');
+          console.log('🔄 Force refreshing remote video element (500ms)');
           setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
         }
       }, 500);
+      
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force refreshing remote video element (1000ms)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 1000);
+      
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force refreshing remote video element (2000ms)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 2000);
     }
   }, [remoteStreamRef.current, setupVideoElement]);
 
@@ -1285,12 +1335,12 @@ export default function CallRoomPage() {
         pc.addTrack(t, localStreamRef.current!);
       });
 
-      // 3) Both caller and callee are now ready with media streams
-      setStatus("ringing");
-      callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
-      
+      // 3) Handle caller and callee flows differently
       if (role === "caller") {
-        // Caller creates offer and sends it
+        // Caller shows "ringing" and creates offer
+        setStatus("ringing");
+        callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
+        
         console.log('📞 Caller creating offer...');
         const offer = await pc.createOffer({
           offerToReceiveAudio: true,
@@ -1304,7 +1354,8 @@ export default function CallRoomPage() {
         
         console.log('✅ Caller sent offer, waiting for answer...');
       } else {
-        // Callee is ready and waiting for offer
+        // Callee shows "connecting" and waits for offer
+        setStatus("connecting");
         console.log('📞 Callee ready and waiting for offer...');
       }
       
