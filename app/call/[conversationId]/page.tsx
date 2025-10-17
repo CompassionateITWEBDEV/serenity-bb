@@ -90,6 +90,11 @@ export default function CallPage() {
     try {
       console.log('🎥 Requesting media stream for mode:', mode);
       
+      // Check if mediaDevices is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Media devices not supported in this browser');
+      }
+      
       const constraints: MediaStreamConstraints = {
         audio: {
           echoCancellation: true,
@@ -128,47 +133,64 @@ export default function CallPage() {
       return stream;
     } catch (error) {
       console.error('❌ Failed to get media stream:', error);
+      
+      // Provide more specific error messages
+      if (error instanceof Error) {
+        if (error.name === 'NotAllowedError') {
+          throw new Error('Camera/microphone access denied. Please allow access and try again.');
+        } else if (error.name === 'NotFoundError') {
+          throw new Error('No camera/microphone found. Please check your devices.');
+        } else if (error.name === 'NotReadableError') {
+          throw new Error('Camera/microphone is being used by another application.');
+        }
+      }
+      
       throw new Error('Failed to access camera/microphone. Please check permissions and try again.');
     }
   }, [mode]);
 
   // Enhanced video element setup
   const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal = true) => {
-    if (!videoRef.current || !stream) {
-      console.warn(`⚠️ Cannot setup video element: videoRef=${!!videoRef.current}, stream=${!!stream}`);
-      return false;
-    }
+    try {
+      if (!videoRef.current || !stream) {
+        console.warn(`⚠️ Cannot setup video element: videoRef=${!!videoRef.current}, stream=${!!stream}`);
+        return false;
+      }
 
-    const video = videoRef.current;
-    console.log(`🎥 Setting up ${isLocal ? 'local' : 'remote'} video:`, {
-      audioTracks: stream.getAudioTracks().length,
-      videoTracks: stream.getVideoTracks().length,
-      streamId: stream.id,
-      videoElement: !!video,
-      videoElementReady: video.readyState
-    });
+      const video = videoRef.current;
+      console.log(`🎥 Setting up ${isLocal ? 'local' : 'remote'} video:`, {
+        audioTracks: stream.getAudioTracks().length,
+        videoTracks: stream.getVideoTracks().length,
+        streamId: stream.id,
+        videoElement: !!video,
+        videoElementReady: video.readyState
+      });
 
-    // Stop any existing tracks
-    if (video.srcObject) {
-      const oldStream = video.srcObject as MediaStream;
-      oldStream.getTracks().forEach(track => track.stop());
-    }
+      // Stop any existing tracks
+      if (video.srcObject) {
+        const oldStream = video.srcObject as MediaStream;
+        oldStream.getTracks().forEach(track => track.stop());
+      }
 
-    // Clear and set new stream
-    video.srcObject = null;
-    video.srcObject = stream;
-    
-    // Set video properties
-    video.muted = isLocal; // Mute local video, unmute remote
-    video.autoplay = true;
-    video.playsInline = true;
-    video.controls = false;
-    video.loop = false;
-    
-    // Force video to load
-    video.load();
-    
-    // Create a more robust play function
+      // Clear and set new stream
+      video.srcObject = null;
+      video.srcObject = stream;
+      
+      // Set video properties safely
+      try {
+        video.muted = isLocal; // Mute local video, unmute remote
+        video.autoplay = true;
+        video.playsInline = true;
+        video.controls = false;
+        video.loop = false;
+        
+        // Force video to load
+        video.load();
+      } catch (videoError) {
+        console.warn('⚠️ Error setting video properties:', videoError);
+      }
+      
+      // Create a more robust play function
     const playVideo = async () => {
       try {
         console.log(`🎬 Attempting to play ${isLocal ? 'local' : 'remote'} video...`);
@@ -269,11 +291,15 @@ export default function CallPage() {
       console.log(`🎬 ${isLocal ? 'Local' : 'Remote'} video is playing`);
     };
 
-    video.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
-    video.addEventListener('canplay', handleCanPlay, { once: true });
-    video.addEventListener('play', handlePlay, { once: true });
+      video.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+      video.addEventListener('canplay', handleCanPlay, { once: true });
+      video.addEventListener('play', handlePlay, { once: true });
 
-    return true;
+      return true;
+    } catch (error) {
+      console.error('❌ Error in setupVideoElement:', error);
+      return false;
+    }
   }, []);
 
   // Ensure video elements are set up when streams are available
@@ -432,28 +458,60 @@ export default function CallPage() {
       setStatus("connecting");
       setConnectionError(null);
 
-      // Get local media
-      localStreamRef.current = await getMediaStream();
-      setDebugInfo(prev => ({ ...prev, localStream: true }));
+      // Get local media with error handling
+      try {
+        localStreamRef.current = await getMediaStream();
+        setDebugInfo(prev => ({ ...prev, localStream: true }));
+        console.log('✅ Local media acquired');
+      } catch (mediaError) {
+        console.error('❌ Failed to get media:', mediaError);
+        setConnectionError(mediaError instanceof Error ? mediaError.message : "Failed to access camera/microphone");
+        setStatus("ended");
+        return;
+      }
       
-      // Setup video element
-      setupVideoElement(localVideoRef, localStreamRef.current, true);
+      // Setup video element with error handling
+      try {
+        const videoSetupSuccess = setupVideoElement(localVideoRef, localStreamRef.current, true);
+        if (!videoSetupSuccess) {
+          console.warn('⚠️ Video setup failed, but continuing...');
+        }
+      } catch (videoError) {
+        console.error('❌ Video setup error:', videoError);
+        // Continue anyway - audio might still work
+      }
       
       // Setup peer connection
-      const pc = ensurePC();
-      localStreamRef.current.getTracks().forEach((track) => {
-        pc.addTrack(track, localStreamRef.current!);
-      });
+      try {
+        const pc = ensurePC();
+        localStreamRef.current.getTracks().forEach((track) => {
+          pc.addTrack(track, localStreamRef.current!);
+        });
+        console.log('✅ Peer connection setup complete');
+      } catch (pcError) {
+        console.error('❌ Peer connection error:', pcError);
+        setConnectionError("Failed to setup connection");
+        setStatus("ended");
+        return;
+      }
 
       // If caller, create and send offer
       if (role === "caller") {
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: mode === "video",
-        });
-        await pc.setLocalDescription(offer);
-        await sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
-        console.log('✅ Offer sent');
+        try {
+          const pc = ensurePC();
+          const offer = await pc.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: mode === "video",
+          });
+          await pc.setLocalDescription(offer);
+          await sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
+          console.log('✅ Offer sent');
+        } catch (offerError) {
+          console.error('❌ Failed to create/send offer:', offerError);
+          setConnectionError("Failed to initiate call");
+          setStatus("ended");
+          return;
+        }
       }
       
       // Set to connected state
