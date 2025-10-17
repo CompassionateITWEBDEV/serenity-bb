@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getServerSupabase } from "@/lib/supabase/server";
+import { supabaseRoute } from "@/lib/supabase/server";
 
 const Body = z.object({
   patientId: z.string().min(1),
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    const supabase = getServerSupabase();
+    const supabase = supabaseRoute();
     const { data: auth, error: authErr } = await supabase.auth.getUser();
     if (authErr) return NextResponse.json({ error: authErr.message }, { status: 401 });
     if (!auth?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

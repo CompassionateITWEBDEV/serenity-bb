@@ -12,7 +12,11 @@ The video call system now supports flexible device configurations:
 
 ### ✅ **Audio Calls**
 - **With microphone**: Full audio call experience
+<<<<<<< HEAD
 - **No microphone**: ✅ **Always works!** Silent audio stream (you can hear but not speak)
+=======
+- **No microphone**: Not supported (microphone required for audio calls)
+>>>>>>> 9e97ea17969f87d874e52eba3d4ab5de84954d0b
 
 ## Common "Requested device not found" Errors
 
@@ -26,6 +30,7 @@ The video call system now supports flexible device configurations:
 - Check if microphone is enabled in system settings
 - Try refreshing the page and allowing microphone access
 
+<<<<<<< HEAD
 ### 1.5. **Headset Not Detected (Common Issue)**
 **Problem**: Headset is plugged in but browser doesn't detect it
 
@@ -39,6 +44,8 @@ The video call system now supports flexible device configurations:
 - **Restart your browser** after connecting the headset
 - **Check if headset requires drivers** or special software
 
+=======
+>>>>>>> 9e97ea17969f87d874e52eba3d4ab5de84954d0b
 ### 2. **No Camera Found (Video Calls)**
 **Error**: "No camera found. Please connect a camera or switch to audio call."
 
@@ -60,6 +67,7 @@ The video call system now supports flexible device configurations:
 - You can still hear them (if they have audio)
 - Perfect for "view-only" participation
 
+<<<<<<< HEAD
 ### 2.6. **No Microphone (Audio Calls)**
 **Status**: ✅ **This works automatically!**
 
@@ -70,6 +78,8 @@ The video call system now supports flexible device configurations:
 - They won't hear you speak (silent audio stream)
 - Perfect for "listen-only" participation
 
+=======
+>>>>>>> 9e97ea17969f87d874e52eba3d4ab5de84954d0b
 ### 3. **Permission Denied**
 **Error**: "Permission denied by user" or "Camera and microphone access denied. Please allow access and try again."
 
@@ -87,12 +97,15 @@ The video call system now supports flexible device configurations:
 - **Safari**: Safari menu → Settings → Websites → Camera/Microphone → Allow
 - **Edge**: Click the lock icon → Permissions → Allow camera/microphone
 
+<<<<<<< HEAD
 **Check device permissions in browser**:
 1. **Chrome**: `chrome://settings/content/microphone` and `chrome://settings/content/camera`
 2. **Firefox**: `about:preferences#privacy` → Permissions → Microphone/Camera
 3. **Edge**: `edge://settings/content/microphone` and `edge://settings/content/camera`
 4. **Safari**: Safari menu → Settings → Websites → Camera/Microphone
 
+=======
+>>>>>>> 9e97ea17969f87d874e52eba3d4ab5de84954d0b
 ### 4. **Device in Use**
 **Error**: "Camera or microphone is being used by another application."
 

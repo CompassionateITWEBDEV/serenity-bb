@@ -316,6 +316,7 @@ export default function CallRoomPage() {
   const [hasVideo, setHasVideo] = useState<boolean | null>(null);
   const [isFallbackStream, setIsFallbackStream] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [autoAccept, setAutoAccept] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -449,6 +450,11 @@ export default function CallRoomPage() {
   useEffect(() => {
     setPeerInfo({ name: peerName });
   }, [peerName]);
+
+  // Set autoAccept based on role - callees should auto-accept incoming calls
+  useEffect(() => {
+    setAutoAccept(role === "callee");
+  }, [role]);
 
   // Function to ensure video elements are properly set up
   const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal: boolean) => {

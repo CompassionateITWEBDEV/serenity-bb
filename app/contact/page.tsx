@@ -159,8 +159,8 @@ export default function ContactPage() {
                     <div>
                       <h3 className="font-semibold text-gray-900">Email</h3>
                       <p className="text-gray-600">
-                        <a className="underline" href="mailto:info@serenityrehab.com">
-                          info@serenityrehab.com
+                        <a className="underline" href="mailto:info@src.health">
+                          info@src.health
                         </a>
                       </p>
                       <p className="text-gray-600">src.health</p>
