@@ -641,6 +641,21 @@ export default function CallRoomPage() {
           setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
         }
       }, 2000);
+      
+      // Additional aggressive attempts
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force refreshing remote video element (3000ms)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 3000);
+      
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force refreshing remote video element (5000ms)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 5000);
     }
   }, [remoteStreamRef.current, setupVideoElement]);
 
@@ -791,8 +806,34 @@ export default function CallRoomPage() {
         video: remoteStreamRef.current.getVideoTracks().length
       });
       
-      // Set the video element source for remote stream using setup function with retry
+      // Set the video element source for remote stream immediately
+      console.log('🎥 Setting up remote video element immediately...');
+      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      
+      // Also try with retry mechanism
       setupVideoElementWithRetry(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      
+      // Force multiple attempts to ensure video displays
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force setting remote video (500ms)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 500);
+      
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force setting remote video (1000ms)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 1000);
+      
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Force setting remote video (2000ms)');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 2000);
     };
 
     pcRef.current = pc;
@@ -2484,7 +2525,21 @@ export default function CallRoomPage() {
                   setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
                 }
                 if (remoteStreamRef.current && remoteVideoRef.current) {
+                  console.log('🔄 Force refreshing remote video...');
                   setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+                  
+                  // Multiple attempts
+                  setTimeout(() => {
+                    if (remoteVideoRef.current && remoteStreamRef.current) {
+                      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+                    }
+                  }, 100);
+                  
+                  setTimeout(() => {
+                    if (remoteVideoRef.current && remoteStreamRef.current) {
+                      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+                    }
+                  }, 500);
                 }
                 alert('Video streams refreshed! Check if video is now visible.');
               }}
@@ -2492,6 +2547,41 @@ export default function CallRoomPage() {
               title="Refresh Video"
             >
               🔄 Refresh Video
+            </Button>
+            
+            {/* Force remote video button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                console.log('🎯 Force displaying remote video...');
+                if (remoteStreamRef.current && remoteVideoRef.current) {
+                  console.log('Remote stream info:', {
+                    id: remoteStreamRef.current.id,
+                    audioTracks: remoteStreamRef.current.getAudioTracks().length,
+                    videoTracks: remoteStreamRef.current.getVideoTracks().length,
+                    active: remoteStreamRef.current.active
+                  });
+                  
+                  // Force clear and set
+                  remoteVideoRef.current.srcObject = null;
+                  setTimeout(() => {
+                    if (remoteVideoRef.current && remoteStreamRef.current) {
+                      remoteVideoRef.current.srcObject = remoteStreamRef.current;
+                      remoteVideoRef.current.load();
+                      remoteVideoRef.current.play().catch(console.warn);
+                      console.log('✅ Force set remote video srcObject');
+                    }
+                  }, 100);
+                } else {
+                  console.log('❌ No remote stream or video element available');
+                }
+                alert('Remote video force refresh attempted! Check console for details.');
+              }}
+              className="text-white hover:bg-white/10"
+              title="Force Remote Video"
+            >
+              🎯 Force Remote
             </Button>
             
             {/* Debug info button */}
