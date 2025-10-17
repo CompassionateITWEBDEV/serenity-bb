@@ -176,7 +176,20 @@ export default function CallPage() {
         // Wait a bit for the video to be ready
         await new Promise(resolve => setTimeout(resolve, 100));
         
-        await video.play();
+        // Check if video is ready to play
+        if (video.readyState < 2) {
+          console.log(`⏳ Video not ready yet, waiting...`);
+          return;
+        }
+        
+        // Try to play the video
+        const playPromise = video.play();
+        
+        // Handle play promise
+        if (playPromise !== undefined) {
+          await playPromise;
+        }
+        
         console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing successfully`);
         
         // Update debug info
@@ -205,8 +218,20 @@ export default function CallPage() {
       } catch (err) {
         console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
         
-        // Multiple retry attempts
-        for (let i = 0; i < 5; i++) {
+        // Don't retry if it's a user interaction error
+        if (err instanceof Error && err.name === 'NotAllowedError') {
+          console.log(`ℹ️ Video play blocked by browser - user interaction required`);
+          // Set up click handler to play video
+          const playOnClick = () => {
+            video.play().catch(console.warn);
+            document.removeEventListener('click', playOnClick);
+          };
+          document.addEventListener('click', playOnClick);
+          return;
+        }
+        
+        // Multiple retry attempts for other errors
+        for (let i = 0; i < 3; i++) {
           setTimeout(async () => {
             try {
               if (videoRef.current && videoRef.current.srcObject === stream) {
@@ -221,7 +246,7 @@ export default function CallPage() {
             } catch (retryErr) {
               console.warn(`⚠️ Retry ${i + 1} failed:`, retryErr);
             }
-          }, (i + 1) * 300);
+          }, (i + 1) * 1000);
         }
       }
     };
@@ -684,10 +709,21 @@ export default function CallPage() {
           sendAnswer();
         } else if (msg.kind === "webrtc-answer") {
           console.log('📞 Received answer from peer');
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+          // Check if we can set remote description
+          if (pc.signalingState === "have-local-offer") {
+            await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+            console.log('✅ Set remote description (answer)');
+          } else {
+            console.warn('⚠️ Cannot set remote description - wrong signaling state:', pc.signalingState);
+          }
         } else if (msg.kind === "webrtc-ice") {
           console.log('🧊 Received ICE candidate from peer');
-          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+            console.log('✅ Added ICE candidate');
+          } catch (iceError) {
+            console.warn('⚠️ Failed to add ICE candidate:', iceError);
+          }
         } else if (msg.kind === "bye") {
           console.log('📞 Received bye from peer');
           setStatus("ended");
@@ -885,7 +921,13 @@ export default function CallPage() {
     }
     
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div 
+        className="min-h-screen bg-gray-900 flex items-center justify-center cursor-pointer"
+        onClick={() => {
+          console.log('👆 User clicked - enabling video playback');
+          // This click will enable video playback for the rest of the session
+        }}
+      >
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4"></div>
           <p className="text-white text-lg mb-2">
@@ -899,10 +941,14 @@ export default function CallPage() {
               Call will be accepted automatically
             </p>
           )}
+          <p className="text-yellow-400 text-xs mt-2">
+            Click anywhere to enable video playback
+          </p>
           {autoAccept && (
             <div className="mt-4 space-y-2">
               <Button 
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   console.log('🎯 Manual auto-accept triggered...');
                   prepareForCall();
                 }}
@@ -911,7 +957,8 @@ export default function CallPage() {
                 Accept Call Now
               </Button>
               <Button 
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   console.log('🎯 Force connection triggered...');
                   setStatus("connected");
                   getMediaStream().then(stream => {
