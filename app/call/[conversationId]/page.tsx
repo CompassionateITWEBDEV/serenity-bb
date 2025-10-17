@@ -546,6 +546,29 @@ export default function CallRoomPage() {
     }
   }, [status, setupVideoElement]);
 
+  // Force local video display for callers
+  useEffect(() => {
+    if (role === "caller" && localStreamRef.current && localVideoRef.current) {
+      console.log('🎯 Caller - forcing local video display...');
+      setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+      
+      // Multiple attempts to ensure video displays
+      setTimeout(() => {
+        if (localVideoRef.current && localStreamRef.current) {
+          console.log('🔄 Force local video (1s)');
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+      }, 1000);
+      
+      setTimeout(() => {
+        if (localVideoRef.current && localStreamRef.current) {
+          console.log('🔄 Force local video (2s)');
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+      }, 2000);
+    }
+  }, [role, setupVideoElement]);
+
   // Initialize video elements and check permissions
   useEffect(() => {
     if (authChecked && me?.id) {
@@ -1281,6 +1304,21 @@ export default function CallRoomPage() {
         console.log(`Adding ${t.kind} track to peer connection:`, t.label);
         pc.addTrack(t, localStreamRef.current!);
       });
+      
+      // Force local video display for callers
+      setTimeout(() => {
+        if (localVideoRef.current && localStreamRef.current) {
+          console.log('🔄 Force setting local video for caller...');
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+      }, 100);
+      
+      setTimeout(() => {
+        if (localVideoRef.current && localStreamRef.current) {
+          console.log('🔄 Force setting local video for caller (500ms)...');
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+      }, 500);
 
       // 3) Simple call flow like Messenger/Zoom
       if (role === "caller") {
