@@ -540,20 +540,24 @@ export default function CallPage() {
   // Toggle mute
   const toggleMute = useCallback(() => {
     if (localStreamRef.current) {
+      const newMutedState = !muted;
       localStreamRef.current.getAudioTracks().forEach((track) => {
-        track.enabled = muted;
+        track.enabled = !newMutedState; // enabled = !muted
       });
-      setMuted(!muted);
+      setMuted(newMutedState);
+      console.log(`🔊 Audio ${newMutedState ? 'muted' : 'unmuted'}`);
     }
   }, [muted]);
 
   // Toggle camera
   const toggleCamera = useCallback(() => {
     if (localStreamRef.current) {
+      const newCamOffState = !camOff;
       localStreamRef.current.getVideoTracks().forEach((track) => {
-        track.enabled = camOff;
+        track.enabled = !newCamOffState; // enabled = !camOff
       });
-      setCamOff(!camOff);
+      setCamOff(newCamOffState);
+      console.log(`📹 Camera ${newCamOffState ? 'turned off' : 'turned on'}`);
     }
   }, [camOff]);
 
@@ -899,43 +903,56 @@ export default function CallPage() {
       </div>
 
       {/* Controls */}
-      <div className="flex items-center justify-center gap-4 p-6 bg-gray-800">
+      <div className="flex items-center justify-center gap-4 p-6 bg-gray-800 border-t border-gray-700">
         {status === "idle" ? (
           <Button
             onClick={startCall}
-            className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-full"
+            className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-full text-lg font-semibold"
           >
-            <Phone className="h-5 w-5 mr-2" />
+            <Phone className="h-6 w-6 mr-2" />
             Start Call
           </Button>
         ) : (
-          <>
+          <div className="flex items-center gap-4">
+            {/* Mute/Unmute Button */}
             <Button
               onClick={toggleMute}
               variant={muted ? "destructive" : "outline"}
-              className="text-white"
+              className={`text-white px-4 py-3 rounded-full ${muted ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-600 hover:bg-gray-700'}`}
+              title={muted ? "Unmute" : "Mute"}
             >
-              {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+              {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+              <span className="ml-2 text-sm font-medium">
+                {muted ? "Unmute" : "Mute"}
+              </span>
             </Button>
             
+            {/* Camera On/Off Button (Video Mode Only) */}
             {mode === "video" && (
               <Button
                 onClick={toggleCamera}
                 variant={camOff ? "destructive" : "outline"}
-                className="text-white"
+                className={`text-white px-4 py-3 rounded-full ${camOff ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-600 hover:bg-gray-700'}`}
+                title={camOff ? "Turn Camera On" : "Turn Camera Off"}
               >
-                {camOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
+                {camOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
+                <span className="ml-2 text-sm font-medium">
+                  {camOff ? "Camera On" : "Camera Off"}
+                </span>
               </Button>
             )}
             
+            {/* End Call Button */}
             <Button
               onClick={endCall}
               variant="destructive"
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-full text-lg font-semibold"
+              title="End Call"
             >
-              <PhoneOff className="h-5 w-5" />
+              <PhoneOff className="h-6 w-6 mr-2" />
+              End Call
             </Button>
-          </>
+          </div>
         )}
       </div>
     </div>
