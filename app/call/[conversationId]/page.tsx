@@ -546,10 +546,21 @@ export default function CallRoomPage() {
     }
   }, [status, setupVideoElement]);
 
-  // Debug status changes
+  // Debug status changes and force UI updates
   useEffect(() => {
     console.log('📞 Status changed to:', status);
-  }, [status]);
+    
+    // Force UI update when status changes to connected
+    if (status === "connected") {
+      // Force re-render of video elements
+      if (localVideoRef.current && localStreamRef.current) {
+        setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+      }
+      if (remoteVideoRef.current && remoteStreamRef.current) {
+        setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      }
+    }
+  }, [status, setupVideoElement]);
 
   // Ensure local video is displayed for both caller and callee (like patient code)
   useEffect(() => {
@@ -1116,7 +1127,6 @@ export default function CallRoomPage() {
 
       if (msg.kind === "webrtc-offer") {
         console.log('📞 Received offer from peer, answering immediately...');
-        console.log('📞 Current status before answering:', status);
         
         try {
           // Both participants are already ready with streams, just handle the offer
@@ -1131,13 +1141,17 @@ export default function CallRoomPage() {
           await pc.setLocalDescription(answer);
           sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
           
-          // Immediately show connected - both participants connected
-          console.log('📞 Setting status to connected...');
+          // FORCE CONNECTED STATUS - IMMEDIATE
           setStatus("connected");
           callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
           startAudioLevelMonitoring();
           
-          console.log('✅ Answer sent - call connected immediately! Status:', status);
+          // Force UI update
+          setTimeout(() => {
+            setStatus("connected");
+          }, 100);
+          
+          console.log('✅ Answer sent - call connected immediately!');
         } catch (error) {
           console.error('❌ Failed to handle offer:', error);
           setStatus("failed");
@@ -1145,17 +1159,20 @@ export default function CallRoomPage() {
         }
       } else if (msg.kind === "webrtc-answer") {
         console.log('📞 Received answer from peer');
-        console.log('📞 Current status before answering:', status);
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
         
-        // Immediately show connected - both participants connected
-        console.log('📞 Setting status to connected...');
+        // FORCE CONNECTED STATUS - IMMEDIATE
         setStatus("connected");
         callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
         startAudioLevelMonitoring();
         
-        console.log('✅ Call connected immediately! Status:', status);
+        // Force UI update
+        setTimeout(() => {
+          setStatus("connected");
+        }, 100);
+        
+        console.log('✅ Call connected immediately!');
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
