@@ -508,49 +508,88 @@ export default function CallPage() {
     }
   }, [me?.id, peerUserId, status, startCall]);
 
+  // Prepare for incoming call (callees only)
+  const prepareForCall = useCallback(async () => {
+    if (!me?.id || !peerUserId) return;
+
+    try {
+      console.log('🎯 Preparing for incoming call...');
+      setStatus("connecting");
+      setConnectionError(null);
+
+      // Get local media first
+      console.log('🎥 Getting local media for callee...');
+      localStreamRef.current = await getMediaStream();
+      setDebugInfo(prev => ({ ...prev, localStream: true }));
+      console.log('✅ Callee local media acquired');
+      
+      // Setup video element immediately
+      console.log('🎥 Setting up callee local video element...');
+      const videoSetupSuccess = setupVideoElement(localVideoRef, localStreamRef.current, true);
+      if (videoSetupSuccess) {
+        console.log('✅ Callee local video element setup successful');
+        // Set status to connected after video is set up
+        setTimeout(() => {
+          setStatus("connected");
+          console.log('✅ Callee status set to connected');
+        }, 1000);
+      } else {
+        console.warn('⚠️ Failed to setup callee local video element');
+      }
+
+      // Setup peer connection
+      const pc = ensurePC();
+      console.log('🔗 Callee adding tracks to peer connection...');
+      localStreamRef.current.getTracks().forEach((track) => {
+        console.log(`➕ Callee adding ${track.kind} track:`, track.label, track.enabled);
+        pc.addTrack(track, localStreamRef.current!);
+      });
+      
+      // Verify tracks were added
+      const senders = pc.getSenders();
+      console.log('📤 Callee peer connection senders:', senders.length);
+      senders.forEach((sender, index) => {
+        console.log(`Callee Sender ${index}:`, {
+          track: sender.track?.kind,
+          label: sender.track?.label,
+          enabled: sender.track?.enabled
+        });
+      });
+      
+      console.log('✅ Callee prepared for incoming call');
+    } catch (error) {
+      console.error("Failed to prepare for call:", error);
+      setConnectionError(error instanceof Error ? error.message : "Failed to prepare for call");
+      setStatus("ended");
+    }
+  }, [me?.id, peerUserId, getMediaStream, setupVideoElement, ensurePC]);
+
   // Auto-accept call for callees (staff receiving calls)
   useEffect(() => {
     if (autoAccept && role === "callee" && me?.id && peerUserId) {
       console.log('🎯 Auto-accepting incoming call...');
       
-      // Force start call immediately for auto-accept
-      const immediateStart = () => {
-        console.log('🎯 Executing immediate auto-accept...');
-        setStatus("connecting");
-        startCall();
-      };
-      
-      // Start immediately
-      immediateStart();
+      // Prepare for call immediately
+      prepareForCall();
       
       // Also try after a short delay to ensure everything is ready
-      const delayedStart = setTimeout(() => {
-        console.log('🎯 Delayed auto-accept triggered...');
-        setStatus("connecting");
-        startCall();
+      const delayedPrepare = setTimeout(() => {
+        console.log('🎯 Delayed prepare triggered...');
+        prepareForCall();
       }, 1000);
       
-      // Fallback: force start call after 3 seconds regardless of status
+      // Fallback: prepare after 3 seconds
       const fallbackTimeout = setTimeout(() => {
-        console.log('🎯 Fallback auto-accept triggered...');
-        setStatus("connecting");
-        startCall();
+        console.log('🎯 Fallback prepare triggered...');
+        prepareForCall();
       }, 3000);
       
-      // Final fallback: force start call after 5 seconds
-      const finalTimeout = setTimeout(() => {
-        console.log('🎯 Final fallback auto-accept triggered...');
-        setStatus("connecting");
-        startCall();
-      }, 5000);
-      
       return () => {
-        clearTimeout(delayedStart);
+        clearTimeout(delayedPrepare);
         clearTimeout(fallbackTimeout);
-        clearTimeout(finalTimeout);
       };
     }
-  }, [autoAccept, role, me?.id, peerUserId, startCall]);
+  }, [autoAccept, role, me?.id, peerUserId, prepareForCall]);
 
   // Handle incoming signals
   useEffect(() => {
@@ -595,13 +634,34 @@ export default function CallPage() {
             });
           }
 
+          // Set remote description and create answer
           await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+          console.log('✅ Callee set remote description');
+          
           const answer = await pc.createAnswer({
             offerToReceiveAudio: true,
             offerToReceiveVideo: mode === "video",
           });
+          console.log('✅ Callee created answer');
+          
           await pc.setLocalDescription(answer);
-          sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+          console.log('✅ Callee set local description');
+          
+          // Send answer with retry mechanism
+          const sendAnswer = async (retryCount = 0) => {
+            try {
+              console.log(`📤 Sending answer (attempt ${retryCount + 1})...`);
+              await sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+              console.log('✅ Answer sent successfully');
+            } catch (error) {
+              console.warn(`⚠️ Failed to send answer (attempt ${retryCount + 1}):`, error);
+              if (retryCount < 3) {
+                setTimeout(() => sendAnswer(retryCount + 1), 1000 * (retryCount + 1));
+              }
+            }
+          };
+          
+          sendAnswer();
         } else if (msg.kind === "webrtc-answer") {
           console.log('📞 Received answer from peer');
           await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
@@ -770,8 +830,7 @@ export default function CallPage() {
     if (autoAccept && me?.id && peerUserId) {
       console.log('🎯 Force auto-accept from waiting screen...');
       setTimeout(() => {
-        setStatus("connecting");
-        startCall();
+        prepareForCall();
       }, 100);
     }
     
@@ -794,8 +853,7 @@ export default function CallPage() {
             <Button 
               onClick={() => {
                 console.log('🎯 Manual auto-accept triggered...');
-                setStatus("connecting");
-                startCall();
+                prepareForCall();
               }}
               className="mt-4 bg-cyan-600 hover:bg-cyan-700"
             >
