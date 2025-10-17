@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { determineUserRole, getMessagesUrl } from "@/lib/user-role";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -449,7 +450,7 @@ export default function CallPage() {
     }
   }, []);
 
-  const endCall = useCallback(() => {
+  const endCall = useCallback(async () => {
     console.log('📞 Ending call...');
     
     // Clear timeout
@@ -477,7 +478,23 @@ export default function CallPage() {
       peerConnection: false,
       connectionState: 'new'
     });
-    router.push(`/dashboard/messages`);
+    
+    // Determine user role and redirect appropriately
+    if (me?.id) {
+      try {
+        const userRole = await determineUserRole(me.id);
+        const messagesUrl = getMessagesUrl(userRole);
+        console.log(`🔄 Redirecting to ${messagesUrl} for ${userRole} user`);
+        router.push(messagesUrl);
+      } catch (error) {
+        console.error('❌ Error determining user role:', error);
+        // Fallback to patient messages page
+        router.push('/dashboard/messages');
+      }
+    } else {
+      // Fallback if no user ID
+      router.push('/dashboard/messages');
+    }
   }, [me?.id, sendSignal, router]);
 
   if (!me) {
@@ -502,7 +519,19 @@ export default function CallPage() {
               <p className="text-red-400 mb-4">{connectionError}</p>
             )}
           </div>
-          <Button onClick={() => router.push("/dashboard/messages")} className="bg-blue-600 hover:bg-blue-700">
+          <Button onClick={async () => {
+            if (me?.id) {
+              try {
+                const userRole = await determineUserRole(me.id);
+                const messagesUrl = getMessagesUrl(userRole);
+                router.push(messagesUrl);
+              } catch (error) {
+                router.push('/dashboard/messages');
+              }
+            } else {
+              router.push('/dashboard/messages');
+            }
+          }} className="bg-blue-600 hover:bg-blue-700">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Messages
           </Button>
@@ -519,7 +548,19 @@ export default function CallPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => router.push("/dashboard/messages")}
+            onClick={async () => {
+              if (me?.id) {
+                try {
+                  const userRole = await determineUserRole(me.id);
+                  const messagesUrl = getMessagesUrl(userRole);
+                  router.push(messagesUrl);
+                } catch (error) {
+                  router.push('/dashboard/messages');
+                }
+              } else {
+                router.push('/dashboard/messages');
+              }
+            }}
             className="text-white hover:bg-gray-800"
           >
             <ArrowLeft className="h-5 w-5" />
