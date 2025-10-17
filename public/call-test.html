@@ -3,250 +3,478 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Call Functionality Test</title>
+    <title>Video Call Test - Serenity B9</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .test-container {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
-        .test-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 0;
-            border-bottom: 1px solid #eee;
-        }
-        .test-item:last-child {
-            border-bottom: none;
-        }
-        .status {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-weight: bold;
-        }
-        .pass { background-color: #d4edda; color: #155724; }
-        .fail { background-color: #f8d7da; color: #721c24; }
-        .warning { background-color: #fff3cd; color: #856404; }
-        .test-button {
-            background: #007bff;
+            background: #1a1a1a;
             color: white;
-            border: none;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .test-section {
+            background: #333;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .video-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .video-box {
+            background: #444;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+        }
+        video {
+            width: 100%;
+            max-width: 400px;
+            height: 300px;
+            background: #000;
+            border-radius: 5px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        button {
             padding: 10px 20px;
+            border: none;
             border-radius: 5px;
             cursor: pointer;
-            margin: 5px;
+            font-size: 14px;
+            transition: all 0.3s;
         }
-        .test-button:hover {
-            background: #0056b3;
+        .start-btn {
+            background: #4CAF50;
+            color: white;
         }
-        .test-button:disabled {
-            background: #6c757d;
-            cursor: not-allowed;
+        .start-btn:hover {
+            background: #45a049;
+        }
+        .stop-btn {
+            background: #f44336;
+            color: white;
+        }
+        .stop-btn:hover {
+            background: #da190b;
+        }
+        .test-btn {
+            background: #2196F3;
+            color: white;
+        }
+        .test-btn:hover {
+            background: #1976D2;
+        }
+        .status {
+            background: #555;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+        .error {
+            background: #d32f2f;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .success {
+            background: #4caf50;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .warning {
+            background: #ff9800;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .log {
+            background: #222;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .test-results {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .result-box {
+            background: #444;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .pass {
+            border-left: 5px solid #4caf50;
+        }
+        .fail {
+            border-left: 5px solid #f44336;
+        }
+        .pending {
+            border-left: 5px solid #ff9800;
         }
     </style>
 </head>
 <body>
-    <h1>📞 Call Functionality Test</h1>
-    
-    <div class="test-container">
-        <h2>🔧 System Requirements</h2>
-        <div class="test-item">
-            <span>WebRTC Support</span>
-            <span id="webrtc-status" class="status">Testing...</span>
+    <div class="container">
+        <h1>🎥 Video Call Test - Serenity B9</h1>
+        <p>This page tests the video calling functionality for both staff and patient users.</p>
+        
+        <!-- Camera Test Section -->
+        <div class="test-section">
+            <h2>📹 Camera Access Test</h2>
+            <div class="video-grid">
+                <div class="video-box">
+                    <h3>Staff Camera</h3>
+                    <video id="staffVideo" autoplay muted playsinline></video>
+                    <div id="staffStatus" class="status">Not started</div>
+                </div>
+                
+                <div class="video-box">
+                    <h3>Patient Camera</h3>
+                    <video id="patientVideo" autoplay muted playsinline></video>
+                    <div id="patientStatus" class="status">Not started</div>
+                </div>
+            </div>
+            
+            <div class="controls">
+                <button class="start-btn" onclick="testStaffCamera()">Test Staff Camera</button>
+                <button class="start-btn" onclick="testPatientCamera()">Test Patient Camera</button>
+                <button class="test-btn" onclick="testBothCameras()">Test Both Cameras</button>
+                <button class="stop-btn" onclick="stopAllCameras()">Stop All Cameras</button>
+            </div>
         </div>
-        <div class="test-item">
-            <span>RTCPeerConnection</span>
-            <span id="peerconnection-status" class="status">Testing...</span>
-        </div>
-        <div class="test-item">
-            <span>getUserMedia</span>
-            <span id="getusermedia-status" class="status">Testing...</span>
-        </div>
-        <div class="test-item">
-            <span>Secure Context (HTTPS)</span>
-            <span id="secure-status" class="status">Testing...</span>
-        </div>
-        <div class="test-item">
-            <span>Camera Permission</span>
-            <span id="camera-status" class="status">Testing...</span>
-        </div>
-        <div class="test-item">
-            <span>Microphone Permission</span>
-            <span id="microphone-status" class="status">Testing...</span>
-        </div>
-    </div>
 
-    <div class="test-container">
-        <h2>🧪 Call Tests</h2>
-        <button class="test-button" id="test-camera" onclick="testCamera()">Test Camera</button>
-        <button class="test-button" id="test-microphone" onclick="testMicrophone()">Test Microphone</button>
-        <button class="test-button" id="test-peerconnection" onclick="testPeerConnection()">Test PeerConnection</button>
-        <button class="test-button" id="test-call-pages" onclick="testCallPages()">Test Call Pages</button>
-    </div>
-
-    <div class="test-container">
-        <h2>📊 Test Results</h2>
-        <div id="test-results">
-            <p>Click the test buttons above to run individual tests.</p>
+        <!-- WebRTC Test Section -->
+        <div class="test-section">
+            <h2>🔗 WebRTC Connection Test</h2>
+            <div class="video-grid">
+                <div class="video-box">
+                    <h3>Local Stream</h3>
+                    <video id="localVideo" autoplay muted playsinline></video>
+                    <div id="localStatus" class="status">Not started</div>
+                </div>
+                
+                <div class="video-box">
+                    <h3>Remote Stream (Mirror)</h3>
+                    <video id="remoteVideo" autoplay playsinline></video>
+                    <div id="remoteStatus" class="status">Not started</div>
+                </div>
+            </div>
+            
+            <div class="controls">
+                <button class="start-btn" onclick="startWebRTCTest()">Start WebRTC Test</button>
+                <button class="stop-btn" onclick="stopWebRTCTest()">Stop WebRTC Test</button>
+            </div>
         </div>
-    </div>
 
-    <div class="test-container">
-        <h2>📞 Quick Call Test</h2>
-        <p>To test actual calls, go to your Serenity Connect app:</p>
-        <ol>
-            <li>Go to <code>/dashboard/messages</code></li>
-            <li>Select a conversation</li>
-            <li>Click the phone icon for audio call or video icon for video call</li>
-            <li>Allow camera/microphone permissions when prompted</li>
-        </ol>
+        <!-- Test Results -->
+        <div class="test-section">
+            <h2>📊 Test Results</h2>
+            <div class="test-results">
+                <div class="result-box pending" id="cameraTest">
+                    <h3>Camera Access</h3>
+                    <div id="cameraResult">Pending...</div>
+                </div>
+                <div class="result-box pending" id="webrtcTest">
+                    <h3>WebRTC Connection</h3>
+                    <div id="webrtcResult">Pending...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Debug Log -->
+        <div class="test-section">
+            <h2>🐛 Debug Log</h2>
+            <div id="log" class="log"></div>
+            <button class="test-btn" onclick="clearLog()">Clear Log</button>
+        </div>
     </div>
 
     <script>
-        // Test system requirements
-        function testSystemRequirements() {
-            // WebRTC Support
-            const webrtcSupported = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-            document.getElementById('webrtc-status').textContent = webrtcSupported ? 'PASS' : 'FAIL';
-            document.getElementById('webrtc-status').className = webrtcSupported ? 'status pass' : 'status fail';
-
-            // RTCPeerConnection
-            const peerConnectionSupported = !!(window.RTCPeerConnection);
-            document.getElementById('peerconnection-status').textContent = peerConnectionSupported ? 'PASS' : 'FAIL';
-            document.getElementById('peerconnection-status').className = peerConnectionSupported ? 'status pass' : 'status fail';
-
-            // getUserMedia
-            const getUserMediaSupported = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-            document.getElementById('getusermedia-status').textContent = getUserMediaSupported ? 'PASS' : 'FAIL';
-            document.getElementById('getusermedia-status').className = getUserMediaSupported ? 'status pass' : 'status fail';
-
-            // Secure Context
-            const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
-            document.getElementById('secure-status').textContent = isSecure ? 'PASS' : 'FAIL';
-            document.getElementById('secure-status').className = isSecure ? 'status pass' : 'status fail';
-
-            // Camera Permission
-            if (navigator.permissions) {
-                navigator.permissions.query({ name: 'camera' }).then((result) => {
-                    document.getElementById('camera-status').textContent = result.state.toUpperCase();
-                    document.getElementById('camera-status').className = result.state === 'granted' ? 'status pass' : 'status warning';
-                }).catch(() => {
-                    document.getElementById('camera-status').textContent = 'UNKNOWN';
-                    document.getElementById('camera-status').className = 'status warning';
-                });
-            } else {
-                document.getElementById('camera-status').textContent = 'UNKNOWN';
-                document.getElementById('camera-status').className = 'status warning';
+        let staffStream = null;
+        let patientStream = null;
+        let localStream = null;
+        let remoteStream = null;
+        let pc = null;
+        
+        function log(message, type = 'info') {
+            const logContent = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            
+            if (type === 'error') {
+                logEntry.style.color = '#f44336';
+            } else if (type === 'success') {
+                logEntry.style.color = '#4caf50';
+            } else if (type === 'warning') {
+                logEntry.style.color = '#ff9800';
             }
-
-            // Microphone Permission
-            if (navigator.permissions) {
-                navigator.permissions.query({ name: 'microphone' }).then((result) => {
-                    document.getElementById('microphone-status').textContent = result.state.toUpperCase();
-                    document.getElementById('microphone-status').className = result.state === 'granted' ? 'status pass' : 'status warning';
-                }).catch(() => {
-                    document.getElementById('microphone-status').textContent = 'UNKNOWN';
-                    document.getElementById('microphone-status').className = 'status warning';
-                });
-            } else {
-                document.getElementById('microphone-status').textContent = 'UNKNOWN';
-                document.getElementById('microphone-status').className = 'status warning';
-            }
+            
+            logContent.appendChild(logEntry);
+            logContent.scrollTop = logContent.scrollHeight;
         }
-
-        // Test camera
-        async function testCamera() {
-            const button = document.getElementById('test-camera');
-            button.disabled = true;
-            button.textContent = 'Testing...';
-
+        
+        function updateResult(testId, status, message) {
+            const resultBox = document.getElementById(testId);
+            const resultDiv = document.getElementById(testId.replace('Test', 'Result'));
+            
+            resultBox.className = `result-box ${status}`;
+            resultDiv.innerHTML = message;
+        }
+        
+        async function testStaffCamera() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                document.getElementById('test-results').innerHTML += '<p>✅ Camera test: PASS - Camera access granted</p>';
-                stream.getTracks().forEach(track => track.stop());
+                log('🎥 Testing staff camera access...');
+                const constraints = {
+                    audio: true,
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        frameRate: { ideal: 30 }
+                    }
+                };
+                
+                staffStream = await navigator.mediaDevices.getUserMedia(constraints);
+                const staffVideo = document.getElementById('staffVideo');
+                staffVideo.srcObject = staffStream;
+                
+                staffVideo.onloadedmetadata = () => {
+                    document.getElementById('staffStatus').innerHTML = 
+                        `✅ Staff camera working: ${staffVideo.videoWidth}x${staffVideo.videoHeight}`;
+                    log('✅ Staff camera working properly', 'success');
+                    updateResult('cameraTest', 'pass', 'Staff camera: ✅ Working');
+                };
+                
+                staffVideo.onerror = (e) => {
+                    log('❌ Staff camera error: ' + e.message, 'error');
+                    updateResult('cameraTest', 'fail', 'Staff camera: ❌ Failed');
+                };
+                
             } catch (error) {
-                document.getElementById('test-results').innerHTML += `<p>❌ Camera test: FAIL - ${error.message}</p>`;
+                log('❌ Staff camera failed: ' + error.message, 'error');
+                document.getElementById('staffStatus').innerHTML = '❌ Failed: ' + error.message;
+                updateResult('cameraTest', 'fail', 'Staff camera: ❌ ' + error.message);
             }
-
-            button.disabled = false;
-            button.textContent = 'Test Camera';
         }
-
-        // Test microphone
-        async function testMicrophone() {
-            const button = document.getElementById('test-microphone');
-            button.disabled = true;
-            button.textContent = 'Testing...';
-
+        
+        async function testPatientCamera() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                document.getElementById('test-results').innerHTML += '<p>✅ Microphone test: PASS - Microphone access granted</p>';
-                stream.getTracks().forEach(track => track.stop());
+                log('🎥 Testing patient camera access...');
+                const constraints = {
+                    audio: true,
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        frameRate: { ideal: 30 }
+                    }
+                };
+                
+                patientStream = await navigator.mediaDevices.getUserMedia(constraints);
+                const patientVideo = document.getElementById('patientVideo');
+                patientVideo.srcObject = patientStream;
+                
+                patientVideo.onloadedmetadata = () => {
+                    document.getElementById('patientStatus').innerHTML = 
+                        `✅ Patient camera working: ${patientVideo.videoWidth}x${patientVideo.videoHeight}`;
+                    log('✅ Patient camera working properly', 'success');
+                    updateResult('cameraTest', 'pass', 'Both cameras: ✅ Working');
+                };
+                
+                patientVideo.onerror = (e) => {
+                    log('❌ Patient camera error: ' + e.message, 'error');
+                    updateResult('cameraTest', 'fail', 'Patient camera: ❌ Failed');
+                };
+                
             } catch (error) {
-                document.getElementById('test-results').innerHTML += `<p>❌ Microphone test: FAIL - ${error.message}</p>`;
+                log('❌ Patient camera failed: ' + error.message, 'error');
+                document.getElementById('patientStatus').innerHTML = '❌ Failed: ' + error.message;
+                updateResult('cameraTest', 'fail', 'Patient camera: ❌ ' + error.message);
             }
-
-            button.disabled = false;
-            button.textContent = 'Test Microphone';
         }
-
-        // Test PeerConnection
-        function testPeerConnection() {
-            const button = document.getElementById('test-peerconnection');
-            button.disabled = true;
-            button.textContent = 'Testing...';
-
+        
+        async function testBothCameras() {
+            log('🎥 Testing both cameras simultaneously...');
+            await testStaffCamera();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await testPatientCamera();
+        }
+        
+        function stopAllCameras() {
+            if (staffStream) {
+                staffStream.getTracks().forEach(track => track.stop());
+                staffStream = null;
+            }
+            if (patientStream) {
+                patientStream.getTracks().forEach(track => track.stop());
+                patientStream = null;
+            }
+            
+            document.getElementById('staffVideo').srcObject = null;
+            document.getElementById('patientVideo').srcObject = null;
+            document.getElementById('staffStatus').innerHTML = 'Stopped';
+            document.getElementById('patientStatus').innerHTML = 'Stopped';
+            
+            log('🛑 All cameras stopped');
+        }
+        
+        async function startWebRTCTest() {
             try {
-                const pc = new RTCPeerConnection();
-                document.getElementById('test-results').innerHTML += '<p>✅ PeerConnection test: PASS - RTCPeerConnection created successfully</p>';
+                log('🔗 Starting WebRTC connection test...');
+                
+                // Get local stream
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                    video: { width: 640, height: 480 }
+                });
+                
+                const localVideo = document.getElementById('localVideo');
+                localVideo.srcObject = localStream;
+                
+                localVideo.onloadedmetadata = () => {
+                    document.getElementById('localStatus').innerHTML = 
+                        `✅ Local stream: ${localVideo.videoWidth}x${localVideo.videoHeight}`;
+                    log('✅ Local stream ready');
+                };
+                
+                // Create peer connection
+                pc = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+                
+                // Add local stream to peer connection
+                localStream.getTracks().forEach(track => {
+                    pc.addTrack(track, localStream);
+                });
+                
+                // Handle remote stream
+                pc.ontrack = (event) => {
+                    log('📺 Remote track received');
+                    remoteStream = event.streams[0];
+                    const remoteVideo = document.getElementById('remoteVideo');
+                    remoteVideo.srcObject = remoteStream;
+                    
+                    remoteVideo.onloadedmetadata = () => {
+                        document.getElementById('remoteStatus').innerHTML = 
+                            `✅ Remote stream: ${remoteVideo.videoWidth}x${remoteVideo.videoHeight}`;
+                        log('✅ Remote stream ready');
+                        updateResult('webrtcTest', 'pass', 'WebRTC: ✅ Working');
+                    };
+                };
+                
+                // Create offer and answer (simulating both sides)
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                
+                // Simulate remote peer
+                const remotePC = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+                
+                remotePC.ontrack = (event) => {
+                    const remoteVideo = document.getElementById('remoteVideo');
+                    remoteVideo.srcObject = event.streams[0];
+                };
+                
+                await remotePC.setRemoteDescription(offer);
+                const answer = await remotePC.createAnswer();
+                await remotePC.setLocalDescription(answer);
+                await pc.setRemoteDescription(answer);
+                
+                // Exchange ICE candidates
+                pc.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        remotePC.addIceCandidate(event.candidate);
+                    }
+                };
+                
+                remotePC.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        pc.addIceCandidate(event.candidate);
+                    }
+                };
+                
+                // Add remote stream to remote PC
+                localStream.getTracks().forEach(track => {
+                    remotePC.addTrack(track, localStream);
+                });
+                
+                log('✅ WebRTC connection established', 'success');
+                
+            } catch (error) {
+                log('❌ WebRTC test failed: ' + error.message, 'error');
+                updateResult('webrtcTest', 'fail', 'WebRTC: ❌ ' + error.message);
+            }
+        }
+        
+        function stopWebRTCTest() {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            if (remoteStream) {
+                remoteStream.getTracks().forEach(track => track.stop());
+                remoteStream = null;
+            }
+            if (pc) {
                 pc.close();
-            } catch (error) {
-                document.getElementById('test-results').innerHTML += `<p>❌ PeerConnection test: FAIL - ${error.message}</p>`;
+                pc = null;
             }
-
-            button.disabled = false;
-            button.textContent = 'Test PeerConnection';
+            
+            document.getElementById('localVideo').srcObject = null;
+            document.getElementById('remoteVideo').srcObject = null;
+            document.getElementById('localStatus').innerHTML = 'Stopped';
+            document.getElementById('remoteStatus').innerHTML = 'Stopped';
+            
+            log('🛑 WebRTC test stopped');
         }
-
-        // Test call pages
-        function testCallPages() {
-            const button = document.getElementById('test-call-pages');
-            button.disabled = true;
-            button.textContent = 'Testing...';
-
-            const callPages = [
-                '/call/audio/test',
-                '/call/video/test',
-                '/call/fixed/test'
-            ];
-
-            let results = '<p>📞 Call Pages Test:</p><ul>';
-            callPages.forEach(page => {
-                results += `<li>✅ ${page}: Available</li>`;
-            });
-            results += '</ul>';
-
-            document.getElementById('test-results').innerHTML += results;
-
-            button.disabled = false;
-            button.textContent = 'Test Call Pages';
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
         }
-
-        // Run tests on page load
-        window.onload = function() {
-            testSystemRequirements();
+        
+        // Auto-run basic tests on page load
+        window.onload = () => {
+            log('🚀 Video call test page loaded');
+            log('Click "Test Both Cameras" to start testing');
+            
+            // Check if getUserMedia is supported
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                log('✅ getUserMedia API is supported', 'success');
+            } else {
+                log('❌ getUserMedia API is not supported', 'error');
+            }
+            
+            // Check if WebRTC is supported
+            if (window.RTCPeerConnection) {
+                log('✅ WebRTC is supported', 'success');
+            } else {
+                log('❌ WebRTC is not supported', 'error');
+            }
         };
     </script>
 </body>
 </html>
-
