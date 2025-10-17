@@ -15,14 +15,11 @@ import {
   Mic,
   MicOff,
   ArrowLeft,
+  RefreshCw,
 } from "lucide-react";
 
 /**
- * Optional TURN/STUN via env:
- * NEXT_PUBLIC_ICE_STUN=stun:stun.l.google.com:19302
- * NEXT_PUBLIC_ICE_TURN_URI=turns:YOUR_TURN_HOST:5349
- * NEXT_PUBLIC_ICE_TURN_USER=turn_user
- * NEXT_PUBLIC_ICE_TURN_PASS=turn_pass
+ * ICE Servers configuration
  */
 function buildIceServers(): RTCIceServer[] {
   const stun = process.env.NEXT_PUBLIC_ICE_STUN || "stun:stun.l.google.com:19302";
@@ -48,8 +45,9 @@ export default function CallPage() {
   const mode = qs.get("mode") || "audio";
   const role = qs.get("role") || "caller";
   const peerUserId = qs.get("peer") || "";
-  const peerName = qs.get("peerName") || "Peer";
+  const peerName = qs.get("peerName") || "Unknown";
 
+  // State
   const [me, setMe] = useState<{ id: string; name: string } | null>(null);
   const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "ended">("idle");
   const [muted, setMuted] = useState(false);
@@ -61,18 +59,19 @@ export default function CallPage() {
     peerConnection: false,
     connectionState: 'new'
   });
-  const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Refs
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const supabaseChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const supabaseChannelRef = useRef<any>(null);
+  const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const threadChannel = useMemo(() => `thread_${conversationId}`, [conversationId]);
+  const threadChannel = `thread_${conversationId}`;
 
-  // Auth
+  // Get user info
   useEffect(() => {
     (async () => {
       const { data: au } = await supabase.auth.getUser();
@@ -85,7 +84,7 @@ export default function CallPage() {
     })();
   }, [router]);
 
-  // Get media stream
+  // Get media stream with enhanced error handling
   const getMediaStream = useCallback(async (): Promise<MediaStream> => {
     try {
       console.log('🎥 Requesting media stream for mode:', mode);
@@ -132,7 +131,7 @@ export default function CallPage() {
     }
   }, [mode]);
 
-  // Setup video element - Enhanced version
+  // Enhanced video element setup
   const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal = true) => {
     if (!videoRef.current || !stream) {
       console.warn(`⚠️ Cannot setup video element: videoRef=${!!videoRef.current}, stream=${!!stream}`);
@@ -369,16 +368,20 @@ export default function CallPage() {
   }, [me?.id, setupVideoElement]);
 
   // Send signal
-  const sendSignal = useCallback((payload: SigPayload) => {
-    try {
-      const ch = supabaseChannelRef.current;
-      if (ch) {
-        ch.send({ type: "broadcast", event: "signal", payload });
-      }
-    } catch (error) {
-      console.error("Failed to send signal:", error);
+  const sendSignal = useCallback(async (payload: SigPayload) => {
+    if (!conversationId) return;
+    
+    const ch = supabase.channel(threadChannel, { config: { broadcast: { ack: true } } });
+    const response = await ch.send({
+      type: "broadcast",
+      event: "signal",
+      payload,
+    });
+    
+    if (response !== "ok") {
+      throw new Error("Failed to send signal");
     }
-  }, []);
+  }, [conversationId, threadChannel]);
 
   // Start call
   const startCall = useCallback(async () => {
@@ -458,7 +461,7 @@ export default function CallPage() {
       setConnectionError(error instanceof Error ? error.message : "Failed to start call");
       setStatus("ended");
     }
-  }, [me?.id, peerUserId, getMediaStream, setupVideoElement, ensurePC, sendSignal, mode]);
+  }, [me?.id, peerUserId, getMediaStream, setupVideoElement, ensurePC, sendSignal, mode, status]);
 
   // Handle incoming signals
   useEffect(() => {
@@ -511,10 +514,13 @@ export default function CallPage() {
           await pc.setLocalDescription(answer);
           sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
         } else if (msg.kind === "webrtc-answer") {
+          console.log('📞 Received answer from peer');
           await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
         } else if (msg.kind === "webrtc-ice") {
+          console.log('🧊 Received ICE candidate from peer');
           await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
         } else if (msg.kind === "bye") {
+          console.log('📞 Received bye from peer');
           setStatus("ended");
         }
       } catch (error) {
@@ -524,35 +530,28 @@ export default function CallPage() {
     });
 
     ch.subscribe();
-
     return () => {
       try {
         supabase.removeChannel(ch);
       } catch {}
     };
-  }, [conversationId, me?.id, threadChannel, ensurePC, getMediaStream, setupVideoElement, sendSignal, mode]);
+  }, [conversationId, me?.id, ensurePC, getMediaStream, setupVideoElement, sendSignal, mode]);
 
-  // Auto-start call for caller
-  useEffect(() => {
-    if (role === "caller" && me?.id && status === "idle") {
-      startCall();
-    }
-  }, [role, me?.id, status, startCall]);
-
-  // Controls
+  // Toggle mute
   const toggleMute = useCallback(() => {
     if (localStreamRef.current) {
       localStreamRef.current.getAudioTracks().forEach((track) => {
-        track.enabled = !track.enabled;
+        track.enabled = muted;
       });
       setMuted(!muted);
     }
   }, [muted]);
 
+  // Toggle camera
   const toggleCamera = useCallback(() => {
     if (localStreamRef.current) {
       localStreamRef.current.getVideoTracks().forEach((track) => {
-        track.enabled = !track.enabled;
+        track.enabled = camOff;
       });
       setCamOff(!camOff);
     }
@@ -583,6 +582,36 @@ export default function CallPage() {
       setupVideoElement(remoteVideoRef, remoteStreamRef.current, false);
     }
   }, [setupVideoElement]);
+
+  // Refresh camera
+  const refreshCamera = useCallback(async () => {
+    console.log('🔄 Refreshing camera...');
+    try {
+      // Stop existing stream
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      
+      // Get new stream
+      localStreamRef.current = await getMediaStream();
+      setDebugInfo(prev => ({ ...prev, localStream: true }));
+      
+      // Setup video element
+      setupVideoElement(localVideoRef, localStreamRef.current, true);
+      
+      // Add tracks to peer connection if connected
+      if (pcRef.current && localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => {
+          pcRef.current!.addTrack(track, localStreamRef.current!);
+        });
+      }
+      
+      console.log('✅ Camera refreshed successfully');
+    } catch (error) {
+      console.error('❌ Failed to refresh camera:', error);
+      setConnectionError('Failed to refresh camera. Please check permissions.');
+    }
+  }, [getMediaStream, setupVideoElement]);
 
   const endCall = useCallback(async () => {
     console.log('📞 Ending call...');
@@ -632,22 +661,21 @@ export default function CallPage() {
   }, [me?.id, sendSignal, router]);
 
   if (!me) {
-  return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-          <p className="text-white text-lg">Loading...</p>
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto mb-4"></div>
+          <p className="text-white">Loading...</p>
         </div>
       </div>
     );
   }
 
   if (status === "ended") {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="mb-6">
-            <PhoneOff className="h-16 w-16 text-red-500 mx-auto mb-4" />
+  return (
+    <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="text-center">
+          <div className="mb-8">
             <h1 className="text-2xl font-bold text-white mb-2">Call Ended</h1>
             {connectionError && (
               <p className="text-red-400 mb-4">{connectionError}</p>
@@ -675,7 +703,7 @@ export default function CallPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-gray-900 flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-700">
         <div className="flex items-center gap-3">
@@ -700,7 +728,7 @@ export default function CallPage() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h1 className="text-lg font-semibold">
+            <h1 className="text-xl font-bold text-white">
               {mode === "video" ? "Video" : "Audio"} Call
             </h1>
             <p className="text-sm text-gray-400">with {peerName}</p>
@@ -734,6 +762,15 @@ export default function CallPage() {
                     className="text-xs"
                   >
                     Force Video
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={refreshCamera}
+                    className="text-xs"
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Refresh Camera
                   </Button>
                 </div>
               )}
@@ -849,52 +886,57 @@ export default function CallPage() {
           /* Audio Call Interface */
           <div className="flex items-center justify-center h-[calc(100vh-200px)]">
             <div className="text-center">
-              <div className="mb-8">
-                <div className="w-32 h-32 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Avatar className="h-20 w-20">
-                    <AvatarFallback className="text-2xl">{peerName[0]}</AvatarFallback>
-                  </Avatar>
-                </div>
-                <h2 className="text-2xl font-semibold mb-2">{peerName}</h2>
-                <p className="text-gray-400">
-                  {status === "connecting" ? "Connecting..." : status === "connected" ? "Connected" : "Calling..."}
-                </p>
+              <div className="w-32 h-32 bg-gray-700 rounded-full flex items-center justify-center mb-8 mx-auto">
+                <Avatar className="w-20 h-20">
+                  <AvatarFallback className="text-2xl">{peerName[0]}</AvatarFallback>
+                </Avatar>
               </div>
+              <h2 className="text-2xl font-bold text-white mb-2">{peerName}</h2>
+              <p className="text-gray-400 mb-8">Audio Call</p>
             </div>
           </div>
         )}
       </div>
 
       {/* Controls */}
-      <div className="flex items-center justify-center gap-4 p-6 border-t border-gray-700">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleMute}
-          className={`w-12 h-12 rounded-full ${muted ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600'}`}
-        >
-          {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
-        </Button>
-
-        {mode === "video" && (
+      <div className="flex items-center justify-center gap-4 p-6 bg-gray-800">
+        {status === "idle" ? (
           <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleCamera}
-            className={`w-12 h-12 rounded-full ${camOff ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600'}`}
+            onClick={startCall}
+            className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-full"
           >
-            {camOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
+            <Phone className="h-5 w-5 mr-2" />
+            Start Call
           </Button>
+        ) : (
+          <>
+            <Button
+              onClick={toggleMute}
+              variant={muted ? "destructive" : "outline"}
+              className="text-white"
+            >
+              {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+            </Button>
+            
+            {mode === "video" && (
+              <Button
+                onClick={toggleCamera}
+                variant={camOff ? "destructive" : "outline"}
+                className="text-white"
+              >
+                {camOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
+              </Button>
+            )}
+            
+            <Button
+              onClick={endCall}
+              variant="destructive"
+              className="bg-red-600 hover:bg-red-700"
+            >
+              <PhoneOff className="h-5 w-5" />
+            </Button>
+          </>
         )}
-
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={endCall}
-          className="w-12 h-12 rounded-full bg-red-600 hover:bg-red-700"
-        >
-          <PhoneOff className="h-6 w-6" />
-        </Button>
       </div>
     </div>
   );

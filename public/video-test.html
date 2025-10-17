@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Test - Serenity B9</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .video-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .video-box {
+            background: #333;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+        video {
+            width: 100%;
+            max-width: 400px;
+            height: 300px;
+            background: #000;
+            border-radius: 5px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .start-btn {
+            background: #4CAF50;
+            color: white;
+        }
+        .stop-btn {
+            background: #f44336;
+            color: white;
+        }
+        .refresh-btn {
+            background: #2196F3;
+            color: white;
+        }
+        .status {
+            background: #333;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .error {
+            background: #d32f2f;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .success {
+            background: #4caf50;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 Video Test - Serenity B9</h1>
+        <p>This page helps test camera access and video display for the calling system.</p>
+        
+        <div class="controls">
+            <button class="start-btn" onclick="startVideo()">Start Camera</button>
+            <button class="stop-btn" onclick="stopVideo()">Stop Camera</button>
+            <button class="refresh-btn" onclick="refreshVideo()">Refresh Camera</button>
+        </div>
+        
+        <div class="video-container">
+            <div class="video-box">
+                <h3>Local Video (You)</h3>
+                <video id="localVideo" autoplay muted playsinline></video>
+                <div id="localStatus" class="status">Not started</div>
+            </div>
+            
+            <div class="video-box">
+                <h3>Test Video (Mirror)</h3>
+                <video id="testVideo" autoplay muted playsinline></video>
+                <div id="testStatus" class="status">Not started</div>
+            </div>
+        </div>
+        
+        <div id="log" class="status">
+            <h3>Debug Log:</h3>
+            <div id="logContent"></div>
+        </div>
+    </div>
+
+    <script>
+        let localStream = null;
+        let testStream = null;
+        
+        function log(message, type = 'info') {
+            const logContent = document.getElementById('logContent');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            
+            if (type === 'error') {
+                logEntry.className = 'error';
+            } else if (type === 'success') {
+                logEntry.className = 'success';
+            }
+            
+            logContent.appendChild(logEntry);
+            logContent.scrollTop = logContent.scrollHeight;
+        }
+        
+        async function startVideo() {
+            try {
+                log('🎥 Requesting camera access...');
+                
+                const constraints = {
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                    },
+                    video: {
+                        width: { ideal: 1280, max: 1920 },
+                        height: { ideal: 720, max: 1080 },
+                        frameRate: { ideal: 30, max: 60 }
+                    }
+                };
+                
+                localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                log('✅ Camera access granted!', 'success');
+                
+                // Setup local video
+                const localVideo = document.getElementById('localVideo');
+                localVideo.srcObject = localStream;
+                localVideo.muted = true;
+                localVideo.autoplay = true;
+                localVideo.playsInline = true;
+                
+                localVideo.onloadedmetadata = () => {
+                    log('✅ Local video metadata loaded');
+                    document.getElementById('localStatus').innerHTML = 
+                        `✅ Playing: ${localVideo.videoWidth}x${localVideo.videoHeight}`;
+                };
+                
+                localVideo.onplay = () => {
+                    log('✅ Local video started playing');
+                };
+                
+                localVideo.onerror = (e) => {
+                    log('❌ Local video error: ' + e.message, 'error');
+                };
+                
+                // Create test video (mirror)
+                testStream = localStream.clone();
+                const testVideo = document.getElementById('testVideo');
+                testVideo.srcObject = testStream;
+                testVideo.muted = true;
+                testVideo.autoplay = true;
+                testVideo.playsInline = true;
+                
+                testVideo.onloadedmetadata = () => {
+                    log('✅ Test video metadata loaded');
+                    document.getElementById('testStatus').innerHTML = 
+                        `✅ Playing: ${testVideo.videoWidth}x${testVideo.videoHeight}`;
+                };
+                
+                testVideo.onplay = () => {
+                    log('✅ Test video started playing');
+                };
+                
+                testVideo.onerror = (e) => {
+                    log('❌ Test video error: ' + e.message, 'error');
+                };
+                
+                // Log stream info
+                log(`📊 Stream info: Audio tracks: ${localStream.getAudioTracks().length}, Video tracks: ${localStream.getVideoTracks().length}`);
+                log(`📊 Stream ID: ${localStream.id}`);
+                
+                localStream.getAudioTracks().forEach((track, index) => {
+                    log(`🔊 Audio track ${index}: ${track.label} (enabled: ${track.enabled})`);
+                });
+                
+                localStream.getVideoTracks().forEach((track, index) => {
+                    log(`📹 Video track ${index}: ${track.label} (enabled: ${track.enabled})`);
+                });
+                
+            } catch (error) {
+                log('❌ Failed to access camera: ' + error.message, 'error');
+                document.getElementById('localStatus').innerHTML = '❌ Failed to access camera';
+                document.getElementById('testStatus').innerHTML = '❌ Failed to access camera';
+            }
+        }
+        
+        function stopVideo() {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            if (testStream) {
+                testStream.getTracks().forEach(track => track.stop());
+                testStream = null;
+            }
+            
+            document.getElementById('localVideo').srcObject = null;
+            document.getElementById('testVideo').srcObject = null;
+            document.getElementById('localStatus').innerHTML = 'Stopped';
+            document.getElementById('testStatus').innerHTML = 'Stopped';
+            
+            log('🛑 Video stopped');
+        }
+        
+        async function refreshVideo() {
+            log('🔄 Refreshing camera...');
+            stopVideo();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await startVideo();
+        }
+        
+        // Auto-start on page load
+        window.onload = () => {
+            log('🚀 Video test page loaded');
+            log('Click "Start Camera" to begin testing');
+        };
+    </script>
+</body>
+</html>
