@@ -1102,28 +1102,10 @@ export default function CallRoomPage() {
         setStatus("connecting");
         
         try {
-          // Ensure we have a local stream before answering
-          if (!localStreamRef.current) {
-            console.log('🎥 Getting local stream for callee...');
-            localStreamRef.current = await getMediaStream();
-            console.log('✅ Local stream acquired for callee:', {
-              audioTracks: localStreamRef.current.getAudioTracks().length,
-              videoTracks: localStreamRef.current.getVideoTracks().length,
-              streamId: localStreamRef.current.id
-            });
-            
-            // Set the video element source with retry
-            setupVideoElementWithRetry(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-            
-            // Add tracks to peer connection
-            const pc = ensurePC();
-            localStreamRef.current.getTracks().forEach((t) => {
-              console.log(`Adding ${t.kind} track to peer connection:`, t.label);
-              pc.addTrack(t, localStreamRef.current!);
-            });
-          }
-          
+          // Both participants are already ready with streams, just handle the offer
           const pc = ensurePC();
+          
+          // Set remote description and create answer
           await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
           const answer = await pc.createAnswer({
             offerToReceiveAudio: true,
@@ -1135,7 +1117,7 @@ export default function CallRoomPage() {
           sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
           console.log('✅ Answer sent to peer - connection should establish now');
           
-          // Clear any callee timeout since we received the offer
+          // Clear any connection timeout since we received the offer
           if (connectionTimeout) {
             clearTimeout(connectionTimeout);
             setConnectionTimeout(null);
@@ -1146,8 +1128,16 @@ export default function CallRoomPage() {
           setMediaError("Failed to establish connection. Please try again.");
         }
       } else if (msg.kind === "webrtc-answer") {
+        console.log('📞 Received answer from peer, setting remote description...');
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        console.log('✅ Remote description set, connection should establish now');
+        
+        // Clear any connection timeout since we received the answer
+        if (connectionTimeout) {
+          clearTimeout(connectionTimeout);
+          setConnectionTimeout(null);
+        }
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
@@ -1295,11 +1285,13 @@ export default function CallRoomPage() {
         pc.addTrack(t, localStreamRef.current!);
       });
 
-      // 3) If caller, create offer + send + ring
+      // 3) Both caller and callee are now ready with media streams
+      setStatus("ringing");
+      callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
+      
       if (role === "caller") {
-        setStatus("ringing");
-        callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
-        
+        // Caller creates offer and sends it
+        console.log('📞 Caller creating offer...');
         const offer = await pc.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: mode === "video",
@@ -1310,16 +1302,32 @@ export default function CallRoomPage() {
         sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
         await ringPeer(); // show IncomingCallBanner on the peer
         
-        // Set connection timeout (30 seconds)
-        const timeout = setTimeout(() => {
-          if (status !== "connected") {
-            console.warn("⚠️ Connection timeout - no response from peer");
-            setStatus("failed");
-            setMediaError("Connection timeout. The other person may not be available or there may be a network issue.");
-          }
-        }, 30000);
-        setConnectionTimeout(timeout);
+        console.log('✅ Caller sent offer, waiting for answer...');
+      } else {
+        // Callee is ready and waiting for offer
+        console.log('📞 Callee ready and waiting for offer...');
       }
+      
+      // Set connection timeout (30 seconds) for both
+      const timeout = setTimeout(() => {
+        if (status !== "connected") {
+          console.warn("⚠️ Connection timeout - no response from peer");
+          setStatus("failed");
+          setMediaError("Connection timeout. The other person may not be available or there may be a network issue.");
+        }
+      }, 30000);
+      setConnectionTimeout(timeout);
+      
+      // Force connection check after 5 seconds
+      setTimeout(() => {
+        const pc = pcRef.current;
+        if (pc && pc.connectionState === "connected" && status !== "connected") {
+          console.log('🎯 Force updating connection status after 5 seconds');
+          setStatus("connected");
+          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+          startAudioLevelMonitoring();
+        }
+      }, 5000);
     } catch (error) {
       console.error("Failed to start call:", error);
       setStatus("failed");
