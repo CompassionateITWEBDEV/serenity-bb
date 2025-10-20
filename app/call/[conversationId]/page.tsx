@@ -555,23 +555,32 @@ export default function CallRoomPage() {
 
   // Ensure video elements are updated when streams change
   useEffect(() => {
-    if (localStreamRef.current) {
+    (async () => {
+      if (!localStreamRef.current) return;
+      const el = await waitForRef(localVideoRef);
+      if (!el) return;
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-    }
+    })();
   }, [localStreamRef.current, setupVideoElement]);
 
   useEffect(() => {
-    if (remoteStreamRef.current) {
+    (async () => {
+      if (!remoteStreamRef.current) return;
+      const el = await waitForRef(remoteVideoRef);
+      if (!el) return;
       setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-    }
+    })();
   }, [remoteStreamRef.current, setupVideoElement]);
 
   // Simple video display when connected
   useEffect(() => {
-    if (status === "connected" && remoteStreamRef.current && remoteVideoRef.current) {
+    (async () => {
+      if (!(status === "connected" && remoteStreamRef.current)) return;
+      const el = await waitForRef(remoteVideoRef);
+      if (!el) return;
       console.log('🎯 Connection established - setting up remote video...');
       setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-    }
+    })();
   }, [status, setupVideoElement]);
 
   // Debug status changes and force UI updates
@@ -671,8 +680,9 @@ export default function CallRoomPage() {
 
   // ---------- WebRTC core ----------
   const ensurePC = useCallback(() => {
-    if (pcRef.current) return pcRef.current;
-    const pc = new RTCPeerConnection({ iceServers: buildIceServers() });
+    try {
+      if (pcRef.current) return pcRef.current;
+      const pc = new RTCPeerConnection({ iceServers: buildIceServers() });
 
     pc.onicecandidate = (ev) => {
       if (ev.candidate && me?.id) {
@@ -752,12 +762,23 @@ export default function CallRoomPage() {
         audio: remoteStreamRef.current.getAudioTracks().length,
         video: remoteStreamRef.current.getVideoTracks().length
       });
-      // Set the video element once
-      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      // Set the video element once (wait for mount)
+      (async () => {
+        const el = await waitForRef(remoteVideoRef);
+        if (!el) return;
+        setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current!, false);
+      })();
     };
 
-    pcRef.current = pc;
-    return pc;
+      pcRef.current = pc;
+      return pc;
+    } catch (error) {
+      console.warn('⚠️ ensurePC error:', error);
+      // Return a dummy PC to prevent further errors
+      const dummy = new RTCPeerConnection({ iceServers: [] });
+      pcRef.current = dummy;
+      return dummy;
+    }
   }, [me?.id]);
 
   const getConstraints = useCallback((): MediaStreamConstraints => {
@@ -1129,18 +1150,31 @@ export default function CallRoomPage() {
   const threadChannel = useMemo(() => `thread_${conversationId}`, [conversationId]);
 
   const sendSignal = useCallback((payload: SigPayload) => {
-    if (!threadChanRef.current) {
-      console.error('❌ Cannot send signal: channel not available');
-      return;
+    try {
+      if (!threadChanRef.current) {
+        console.warn('⚠️ Cannot send signal: channel not available');
+        return;
+      }
+      console.log(`📤 Sending signal:`, payload);
+      threadChanRef.current.send({ type: "broadcast", event: "signal", payload })
+        .then(() => {
+          console.log(`✅ Signal sent successfully:`, payload.kind);
+        })
+        .catch((error) => {
+          console.warn(`⚠️ Failed to send signal:`, error);
+        });
+    } catch (error) {
+      console.warn('⚠️ sendSignal error:', error);
     }
-    console.log(`📤 Sending signal:`, payload);
-    threadChanRef.current.send({ type: "broadcast", event: "signal", payload })
-      .then(() => {
-        console.log(`✅ Signal sent successfully:`, payload.kind);
-      })
-      .catch((error) => {
-        console.error(`❌ Failed to send signal:`, error);
-      });
+  }, []);
+
+  // Helper: wait for a ref to mount before using it
+  const waitForRef = useCallback(async <T,>(ref: React.RefObject<T>, tries = 30, delay = 100): Promise<T | null> => {
+    for (let i = 0; i < tries; i++) {
+      if (ref.current) return ref.current;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+    return null;
   }, []);
 
   useEffect(() => {
