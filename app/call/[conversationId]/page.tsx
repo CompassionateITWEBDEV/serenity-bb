@@ -819,7 +819,7 @@ export default function CallRoomPage() {
     return () => {
       clearTimeout(autoConnectTimer);
     };
-  }, [authChecked, me?.id, mode, role, conversationId, peerUserId, status]);
+  }, [authChecked, me?.id, mode, role, conversationId, peerUserId, status, startAudioLevelMonitoring, waitForRef]);
 
   // Call duration timer and immediate video setup
   useEffect(() => {
@@ -1429,16 +1429,19 @@ export default function CallRoomPage() {
     }
   }, []);
 
-  // Helper: wait for a ref to mount before using it
-  const waitForRef = useCallback(async <T,>(ref: React.RefObject<T>, tries = 20, delay = 150): Promise<T | null> => {
+  // Helper: wait for a ref to mount before using it - ULTRA-AGGRESSIVE for mobile
+  const waitForRef = useCallback(async <T,>(ref: React.RefObject<T>, tries = 50, delay = 100): Promise<T | null> => {
     for (let i = 0; i < tries; i++) {
-      if (ref.current) return ref.current;
-      if (i <= 2) { // Only log first few attempts
+      if (ref.current) {
+        console.log(`✅ Video element found after ${i + 1} attempts: ${ref === localVideoRef ? 'local' : 'remote'}`);
+        return ref.current;
+      }
+      if (i <= 5) { // Log first few attempts
         console.log(`⏳ Waiting for video element (attempt ${i + 1}/${tries})...`);
       }
       await new Promise((r) => setTimeout(r, delay));
     }
-    console.warn('⚠️ Video element not found within timeout');
+    console.error(`❌ Video element not found after ${tries} attempts: ${ref === localVideoRef ? 'local' : 'remote'}`);
     return null;
   }, []);
 
@@ -2217,20 +2220,49 @@ export default function CallRoomPage() {
     }
   }, []);
 
-  // ULTRA-AGGRESSIVE video refresh system for mobile/Vercel
+  // ULTRA-AGGRESSIVE video element mounting and refresh system for mobile/Vercel
   useEffect(() => {
     if (status !== "connected") return;
     
-    console.log('🔄 ULTRA-AGGRESSIVE video refresh for mobile/Vercel...');
+    console.log('🔄 ULTRA-AGGRESSIVE video mounting and refresh for mobile/Vercel...');
     
-    // Continuous refresh for mobile - runs every 2 seconds
-    const mobileRefreshInterval = setInterval(() => {
+    // Continuous video element mounting check - runs every 1 second
+    const videoMountInterval = setInterval(() => {
       const localVideo = localVideoRef.current;
       const remoteVideo = remoteVideoRef.current;
       
-      console.log('🔄 Mobile continuous video refresh...');
+      console.log('🔍 Checking video element mounting...');
       
-      // Local video refresh
+      // Check if local video element exists and has stream
+      if (!localVideo && localStreamRef.current) {
+        console.warn('⚠️ Local video element not found but stream exists!');
+        // Try to find it again
+        setTimeout(() => {
+          if (localVideoRef.current && localStreamRef.current) {
+            console.log('✅ Local video element found on retry');
+            localVideoRef.current.srcObject = localStreamRef.current;
+            localVideoRef.current.play().catch(console.warn);
+          }
+        }, 100);
+      }
+      
+      // Check if remote video element exists and has stream
+      if (!remoteVideo && remoteStreamRef.current) {
+        console.warn('⚠️ Remote video element not found but stream exists!');
+        // Try to find it again
+        setTimeout(() => {
+          if (remoteVideoRef.current && remoteStreamRef.current) {
+            console.log('✅ Remote video element found on retry');
+            remoteVideoRef.current.srcObject = remoteStreamRef.current;
+            remoteVideoRef.current.muted = false;
+            remoteVideoRef.current.playsInline = true;
+            remoteVideoRef.current.autoplay = true;
+            remoteVideoRef.current.play().catch(console.warn);
+          }
+        }, 100);
+      }
+      
+      // If elements exist, check if they need refresh
       if (localVideo && localStreamRef.current) {
         if (!localVideo.srcObject || localVideo.videoWidth === 0) {
           console.log('🔄 Mobile: Refreshing local video...');
@@ -2243,7 +2275,6 @@ export default function CallRoomPage() {
         }
       }
       
-      // Remote video refresh - ULTRA-AGGRESSIVE for mobile
       if (remoteVideo && remoteStreamRef.current) {
         if (!remoteVideo.srcObject || remoteVideo.videoWidth === 0) {
           console.log('🔄 Mobile: ULTRA-AGGRESSIVE remote video refresh...');
@@ -2268,7 +2299,7 @@ export default function CallRoomPage() {
           }, 100);
         }
       }
-    }, 2000); // Every 2 seconds
+    }, 1000); // Every 1 second
     
     // Initial aggressive refresh sequence
     const initialRefresh = (attempt = 1) => {
@@ -2312,7 +2343,7 @@ export default function CallRoomPage() {
     setTimeout(() => initialRefresh(3), 5000);
     
     return () => {
-      clearInterval(mobileRefreshInterval);
+      clearInterval(videoMountInterval);
     };
   }, [status]);
 
