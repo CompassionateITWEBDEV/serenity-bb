@@ -734,8 +734,15 @@ export default function CallRoomPage() {
         if (remoteStreamRef.current) {
           (async () => {
             const el = await waitForRef(remoteVideoRef);
-            if (el) setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+            if (el) {
+              setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+              console.log('✅ Remote video setup on ICE connect');
+            } else {
+              console.warn('⚠️ Remote video element not ready on ICE connect');
+            }
           })();
+        } else {
+          console.warn('⚠️ No remote stream available on ICE connect');
         }
       } else if (iceState === "checking") {
         // Also set connected when ICE is checking (more aggressive)
@@ -779,8 +786,22 @@ export default function CallRoomPage() {
       // Set the video element once (wait for mount)
       (async () => {
         const el = await waitForRef(remoteVideoRef);
-        if (!el) return;
+        if (!el) {
+          console.warn('⚠️ Remote video element not ready, retrying...');
+          // Retry after a short delay
+          setTimeout(async () => {
+            const retryEl = await waitForRef(remoteVideoRef);
+            if (retryEl) {
+              setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current!, false);
+              console.log('✅ Remote video element setup complete (retry)');
+            } else {
+              console.error('❌ Remote video element still not ready after retry');
+            }
+          }, 1000);
+          return;
+        }
         setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current!, false);
+        console.log('✅ Remote video element setup complete');
       })();
     };
 
@@ -1505,6 +1526,31 @@ export default function CallRoomPage() {
       setCallProcessed(false); // Reset call state on unmount
     };
   }, [connectionTimeout]);
+
+  // Debug function to check video elements
+  const debugVideoElements = useCallback(() => {
+    console.log('🔍 Video Elements Debug:');
+    console.log('Local video ref:', localVideoRef.current);
+    console.log('Remote video ref:', remoteVideoRef.current);
+    console.log('Local stream:', localStreamRef.current);
+    console.log('Remote stream:', remoteStreamRef.current);
+    console.log('Local video srcObject:', localVideoRef.current?.srcObject);
+    console.log('Remote video srcObject:', remoteVideoRef.current?.srcObject);
+    console.log('Local video readyState:', localVideoRef.current?.readyState);
+    console.log('Remote video readyState:', remoteVideoRef.current?.readyState);
+    
+    // Check remote stream tracks
+    if (remoteStreamRef.current) {
+      const tracks = remoteStreamRef.current.getTracks();
+      console.log('Remote stream tracks:', tracks.map(t => ({ kind: t.kind, label: t.label, enabled: t.enabled, readyState: t.readyState })));
+    }
+    
+    // Check if video elements are in DOM
+    const localEl = document.querySelector('#localVideo');
+    const remoteEl = document.querySelector('#remoteVideo');
+    console.log('Local video in DOM:', localEl);
+    console.log('Remote video in DOM:', remoteEl);
+  }, []);
 
   // ---------- Controls ----------
   const toggleMute = useCallback(() => {
@@ -2526,6 +2572,7 @@ export default function CallRoomPage() {
                   webRTC: !!(window.RTCPeerConnection || (window as any).webkitRTCPeerConnection),
                   https: location.protocol === 'https:'
                 });
+                debugVideoElements();
                 console.log('Local stream:', localStreamRef.current ? {
                   audioTracks: localStreamRef.current.getAudioTracks().length,
                   videoTracks: localStreamRef.current.getVideoTracks().length,
