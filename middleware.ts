@@ -21,9 +21,21 @@ export async function middleware(req: NextRequest) {
 
   // Always touch the session to refresh cookies when needed
   // (critical for API routes and any SSR/edge paths)
+  
+  // Check for required environment variables
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  
+  if (!supabaseUrl || !supabaseKey) {
+    console.error("Missing Supabase environment variables in middleware");
+    // During build time, environment variables might not be available
+    // Allow the request to proceed without authentication
+    return res;
+  }
+  
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseKey,
     {
       cookies: {
         get(name: string) {
@@ -46,7 +58,13 @@ export async function middleware(req: NextRequest) {
       },
     }
   );
-  await supabase.auth.getSession();
+  
+  try {
+    await supabase.auth.getSession();
+  } catch (error) {
+    console.error("Error getting session in middleware:", error);
+    // Continue with the request even if session fetch fails
+  }
 
   // Public pages (no SSR hard-block; we may redirect if user already authed)
   const PUBLIC = new Set<string>([

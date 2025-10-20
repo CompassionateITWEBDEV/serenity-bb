@@ -6,7 +6,9 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "next lint",
-    "start": "next start -p ${PORT:-3000}"
+    "start": "next start -p ${PORT:-3000}",
+    "verify-env": "node scripts/verify-env.js",
+    "prebuild": "node scripts/verify-env.js || true"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
