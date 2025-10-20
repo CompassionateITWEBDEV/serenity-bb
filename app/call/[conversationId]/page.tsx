@@ -535,7 +535,7 @@ export default function CallRoomPage() {
   // Function to setup video element with retry
   const setupVideoElementWithRetry = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream | null, isLocal: boolean, maxRetries = 10, delayMs = 150) => {
     let retries = 0;
-    
+
     const trySetup = () => {
       const ok = setupVideoElement(videoRef, stream, isLocal);
       if (ok) return true;
@@ -544,12 +544,12 @@ export default function CallRoomPage() {
         console.warn(`❌ Failed to setup video element after ${maxRetries} retries`);
         return false;
       }
-        retries++;
-        console.log(`🔄 Retrying video setup (${retries}/${maxRetries})...`);
+      retries++;
+      console.log(`🔄 Retrying video setup (${retries}/${maxRetries})...`);
       setTimeout(trySetup, delayMs);
-        return false;
+      return false;
     };
-    
+
     return trySetup();
   }, [setupVideoElement]);
 
@@ -681,8 +681,8 @@ export default function CallRoomPage() {
   // ---------- WebRTC core ----------
   const ensurePC = useCallback(() => {
     try {
-    if (pcRef.current) return pcRef.current;
-    const pc = new RTCPeerConnection({ iceServers: buildIceServers() });
+      if (pcRef.current) return pcRef.current;
+      const pc = new RTCPeerConnection({ iceServers: buildIceServers() });
 
     pc.onicecandidate = (ev) => {
       if (ev.candidate && me?.id) {
@@ -720,9 +720,9 @@ export default function CallRoomPage() {
       
       if (iceState === "connected" || iceState === "completed") {
         console.log("✅ ICE connection established");
-          setStatus("connected");
-          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-          startAudioLevelMonitoring();
+        setStatus("connected");
+        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+        startAudioLevelMonitoring();
         
         // Ensure video elements are set up when ICE connects
         if (localStreamRef.current) {
@@ -734,25 +734,8 @@ export default function CallRoomPage() {
         if (remoteStreamRef.current) {
           (async () => {
             const el = await waitForRef(remoteVideoRef);
-            if (el) {
-              setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-              console.log('✅ Remote video setup on ICE connect');
-              
-              // Mobile-specific: Force video refresh
-              setTimeout(() => {
-                if (el && remoteStreamRef.current) {
-                  el.srcObject = remoteStreamRef.current;
-                  el.load();
-                  el.play().catch(e => console.warn('Mobile video play failed:', e));
-                  console.log('📱 Mobile video refresh applied');
-                }
-              }, 500);
-            } else {
-              console.warn('⚠️ Remote video element not ready on ICE connect');
-            }
+            if (el) setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
           })();
-        } else {
-          console.warn('⚠️ No remote stream available on ICE connect');
         }
       } else if (iceState === "checking") {
         // Also set connected when ICE is checking (more aggressive)
@@ -793,55 +776,16 @@ export default function CallRoomPage() {
         audio: remoteStreamRef.current.getAudioTracks().length,
         video: remoteStreamRef.current.getVideoTracks().length
       });
-      
-      // For mobile compatibility, handle video tracks specially
-      if (ev.track.kind === 'video') {
-        console.log('📹 Video track received, setting up remote video...');
-        // Set the video element with mobile-friendly approach
-        (async () => {
-          const el = await waitForRef(remoteVideoRef);
-          if (!el) {
-            console.warn('⚠️ Remote video element not ready, retrying...');
-            // Multiple retries for mobile compatibility
-            let retries = 0;
-            const maxRetries = 5;
-            const retryInterval = 500;
-            
-            const retrySetup = async () => {
-              retries++;
-              const retryEl = await waitForRef(remoteVideoRef);
-              if (retryEl) {
-                setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current!, false);
-                console.log('✅ Remote video element setup complete (retry)', retries);
-              } else if (retries < maxRetries) {
-                console.log(`🔄 Retrying remote video setup (${retries}/${maxRetries})...`);
-                setTimeout(retrySetup, retryInterval);
-              } else {
-                console.error('❌ Remote video element still not ready after all retries');
-              }
-            };
-            
-            setTimeout(retrySetup, retryInterval);
-            return;
-          }
-          
-          // Direct setup for mobile compatibility
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current!, false);
-          console.log('✅ Remote video element setup complete');
-          
-          // Additional mobile-specific setup
-          if (el) {
-            el.muted = false; // Ensure audio is not muted for mobile
-            el.playsInline = true; // Important for mobile
-            el.controls = false; // Remove controls for mobile
-            console.log('📱 Mobile-specific video setup applied');
-          }
-        })();
-      }
+      // Set the video element once (wait for mount)
+      (async () => {
+        const el = await waitForRef(remoteVideoRef);
+        if (!el) return;
+        setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current!, false);
+      })();
     };
 
-    pcRef.current = pc;
-    return pc;
+      pcRef.current = pc;
+      return pc;
     } catch (error) {
       console.warn('⚠️ ensurePC error:', error);
       // Return a dummy PC to prevent further errors
@@ -1221,16 +1165,16 @@ export default function CallRoomPage() {
 
   const sendSignal = useCallback((payload: SigPayload) => {
     try {
-    if (!threadChanRef.current) {
+      if (!threadChanRef.current) {
         console.warn('⚠️ Cannot send signal: channel not available');
-      return;
-    }
-    console.log(`📤 Sending signal:`, payload);
-    threadChanRef.current.send({ type: "broadcast", event: "signal", payload })
-      .then(() => {
-        console.log(`✅ Signal sent successfully:`, payload.kind);
-      })
-      .catch((error) => {
+        return;
+      }
+      console.log(`📤 Sending signal:`, payload);
+      threadChanRef.current.send({ type: "broadcast", event: "signal", payload })
+        .then(() => {
+          console.log(`✅ Signal sent successfully:`, payload.kind);
+        })
+        .catch((error) => {
           console.warn(`⚠️ Failed to send signal:`, error);
         });
     } catch (error) {
@@ -1307,14 +1251,14 @@ export default function CallRoomPage() {
         await pc.setLocalDescription(answer);
         sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
         console.log('✅ Answer sent');
-          
+        
         // Immediately transition to connected after sending answer
         // This prevents getting stuck in "connecting" state
         console.log('🔄 Callee: transitioning to connected after answer sent');
-          setStatus("connected");
-          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-          startAudioLevelMonitoring();
-          
+        setStatus("connected");
+        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+        startAudioLevelMonitoring();
+        
         // Additional fallback for ICE connection issues
         setTimeout(() => {
           if (status !== "connected") {
@@ -1324,19 +1268,6 @@ export default function CallRoomPage() {
             startAudioLevelMonitoring();
           }
         }, 1000);
-        
-        // Mobile video fallback - ensure remote video is displayed
-        setTimeout(() => {
-          if (remoteStreamRef.current && remoteVideoRef.current) {
-            const el = remoteVideoRef.current;
-            if (el.srcObject !== remoteStreamRef.current) {
-              console.log('📱 Mobile video fallback: reattaching remote stream');
-              el.srcObject = remoteStreamRef.current;
-              el.load();
-              el.play().catch(e => console.warn('Mobile fallback play failed:', e));
-            }
-          }
-        }, 2000);
         
         // Prevent further offer processing once connected
         setTimeout(() => {
@@ -1486,7 +1417,7 @@ export default function CallRoomPage() {
       // Callee shows idle and waits
       setMediaError(null);
     } else {
-    setStatus("connecting");
+      setStatus("connecting");
       setMediaError(null);
     }
     setMediaError(null);
@@ -1574,31 +1505,6 @@ export default function CallRoomPage() {
       setCallProcessed(false); // Reset call state on unmount
     };
   }, [connectionTimeout]);
-
-  // Debug function to check video elements
-  const debugVideoElements = useCallback(() => {
-    console.log('🔍 Video Elements Debug:');
-    console.log('Local video ref:', localVideoRef.current);
-    console.log('Remote video ref:', remoteVideoRef.current);
-    console.log('Local stream:', localStreamRef.current);
-    console.log('Remote stream:', remoteStreamRef.current);
-    console.log('Local video srcObject:', localVideoRef.current?.srcObject);
-    console.log('Remote video srcObject:', remoteVideoRef.current?.srcObject);
-    console.log('Local video readyState:', localVideoRef.current?.readyState);
-    console.log('Remote video readyState:', remoteVideoRef.current?.readyState);
-    
-    // Check remote stream tracks
-    if (remoteStreamRef.current) {
-      const tracks = remoteStreamRef.current.getTracks();
-      console.log('Remote stream tracks:', tracks.map(t => ({ kind: t.kind, label: t.label, enabled: t.enabled, readyState: t.readyState })));
-    }
-    
-    // Check if video elements are in DOM
-    const localEl = document.querySelector('#localVideo');
-    const remoteEl = document.querySelector('#remoteVideo');
-    console.log('Local video in DOM:', localEl);
-    console.log('Remote video in DOM:', remoteEl);
-  }, []);
 
   // ---------- Controls ----------
   const toggleMute = useCallback(() => {
@@ -2620,7 +2526,6 @@ export default function CallRoomPage() {
                   webRTC: !!(window.RTCPeerConnection || (window as any).webkitRTCPeerConnection),
                   https: location.protocol === 'https:'
                 });
-                debugVideoElements();
                 console.log('Local stream:', localStreamRef.current ? {
                   audioTracks: localStreamRef.current.getAudioTracks().length,
                   videoTracks: localStreamRef.current.getVideoTracks().length,
