@@ -740,11 +740,15 @@ export default function CallRoomPage() {
       const remoteEl = remoteVideoRef.current;
       
       if (localEl) {
-        console.log('✅ Local video element initialized');
+        console.log('✅ Local video element initialized for mobile');
         localEl.muted = true;
         localEl.playsInline = true;
         localEl.autoplay = true;
         localEl.controls = false;
+        // Mobile-specific attributes
+        localEl.setAttribute('playsinline', 'true');
+        localEl.setAttribute('webkit-playsinline', 'true');
+        localEl.setAttribute('x5-video-player-type', 'h5');
         // Ensure video element is ready
         localEl.addEventListener('loadedmetadata', () => {
           console.log('✅ Local video metadata loaded');
@@ -754,11 +758,15 @@ export default function CallRoomPage() {
       }
       
       if (remoteEl) {
-        console.log('✅ Remote video element initialized');
+        console.log('✅ Remote video element initialized for mobile');
         remoteEl.muted = false;
         remoteEl.playsInline = true;
         remoteEl.autoplay = true;
         remoteEl.controls = false;
+        // Mobile-specific attributes
+        remoteEl.setAttribute('playsinline', 'true');
+        remoteEl.setAttribute('webkit-playsinline', 'true');
+        remoteEl.setAttribute('x5-video-player-type', 'h5');
         // Ensure video element is ready
         remoteEl.addEventListener('loadedmetadata', () => {
           console.log('✅ Remote video metadata loaded');
@@ -926,32 +934,51 @@ export default function CallRoomPage() {
         video: remoteStreamRef.current.getVideoTracks().length
       });
       
-      // Immediate remote video setup - no delays
-      const remoteEl = remoteVideoRef.current;
-      if (remoteEl && remoteStreamRef.current) {
-        console.log('🎯 Setting up remote video immediately');
-        remoteEl.srcObject = remoteStreamRef.current;
-        remoteEl.play().catch(console.warn);
-        console.log(`✅ Remote video set up immediately with ${ev.track.kind} track`);
-        
-        // Force play if needed
-        setTimeout(() => {
-          if (remoteEl.paused) {
-            remoteEl.play().catch(console.warn);
-            console.log('🔄 Forced remote video play');
+      // Mobile-optimized remote video setup
+      const setupMobileVideo = () => {
+        const remoteEl = remoteVideoRef.current;
+        if (remoteEl && remoteStreamRef.current) {
+          console.log('🎯 Setting up remote video for mobile');
+          
+          // Mobile-specific attributes
+          remoteEl.setAttribute('playsinline', 'true');
+          remoteEl.setAttribute('webkit-playsinline', 'true');
+          remoteEl.muted = false; // Ensure audio is not muted
+          remoteEl.volume = 1.0;
+          
+          // Clear any existing stream first
+          remoteEl.srcObject = null;
+          
+          // Set new stream
+          remoteEl.srcObject = remoteStreamRef.current;
+          
+          // Force play with mobile-specific handling
+          const playPromise = remoteEl.play();
+          if (playPromise !== undefined) {
+            playPromise.then(() => {
+              console.log('✅ Remote video playing successfully on mobile');
+            }).catch(error => {
+              console.warn('⚠️ Mobile video play failed, retrying:', error);
+              // Retry with user interaction simulation
+              setTimeout(() => {
+                remoteEl.play().catch(console.warn);
+              }, 500);
+            });
           }
-        }, 100);
-      } else {
-        console.warn('⚠️ Remote video element or stream not ready');
-        // Retry after a short delay
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-            remoteVideoRef.current.srcObject = remoteStreamRef.current;
-            remoteVideoRef.current.play().catch(console.warn);
-            console.log('✅ Remote video set up on retry');
+          
+          console.log(`✅ Remote video set up for mobile with ${ev.track.kind} track`);
+        } else {
+          console.warn('⚠️ Remote video element or stream not ready for mobile');
         }
-        }, 200);
-      }
+      };
+      
+      // Immediate setup
+      setupMobileVideo();
+      
+      // Mobile retry mechanism
+      setTimeout(setupMobileVideo, 200);
+      setTimeout(setupMobileVideo, 1000);
+      setTimeout(setupMobileVideo, 3000);
     };
 
     pcRef.current = pc;
@@ -1432,18 +1459,32 @@ export default function CallRoomPage() {
           callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
           startAudioLevelMonitoring();
           
-        // Force video refresh for both participants
+        // Force video refresh for both participants with mobile optimization
         setTimeout(() => {
-          console.log('🔄 Forcing video refresh after answer sent');
+          console.log('🔄 Forcing video refresh after answer sent for mobile');
           if (localVideoRef.current && localStreamRef.current) {
             localVideoRef.current.srcObject = localStreamRef.current;
             localVideoRef.current.play().catch(console.warn);
           }
           if (remoteVideoRef.current && remoteStreamRef.current) {
-            remoteVideoRef.current.srcObject = remoteStreamRef.current;
-            remoteVideoRef.current.play().catch(console.warn);
+            // Mobile-specific remote video refresh
+            const remoteEl = remoteVideoRef.current;
+            remoteEl.setAttribute('playsinline', 'true');
+            remoteEl.setAttribute('webkit-playsinline', 'true');
+            remoteEl.srcObject = remoteStreamRef.current;
+            remoteEl.play().catch(console.warn);
+            console.log('✅ Mobile remote video refreshed');
           }
         }, 500);
+        
+        // Additional mobile retry
+        setTimeout(() => {
+          if (remoteVideoRef.current && remoteStreamRef.current) {
+            remoteVideoRef.current.srcObject = remoteStreamRef.current;
+            remoteVideoRef.current.play().catch(console.warn);
+            console.log('🔄 Mobile video retry completed');
+          }
+        }, 2000);
         
         // Comprehensive video setup for callee
         const setupCalleeVideo = () => {
@@ -2550,6 +2591,37 @@ export default function CallRoomPage() {
               className="w-full bg-green-600 hover:bg-green-700 text-white"
             >
               🔄 Force Video Refresh
+            </Button>
+            
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                console.log('📱 Mobile Video Fix triggered');
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                console.log('Device type:', isMobile ? 'Mobile' : 'Desktop');
+                
+                if (remoteVideoRef.current && remoteStreamRef.current) {
+                  const remoteEl = remoteVideoRef.current;
+                  // Mobile-specific attributes
+                  remoteEl.setAttribute('playsinline', 'true');
+                  remoteEl.setAttribute('webkit-playsinline', 'true');
+                  remoteEl.setAttribute('x5-video-player-type', 'h5');
+                  remoteEl.muted = false;
+                  remoteEl.volume = 1.0;
+                  
+                  // Clear and reset stream
+                  remoteEl.srcObject = null;
+                  setTimeout(() => {
+                    remoteEl.srcObject = remoteStreamRef.current;
+                    remoteEl.play().catch(console.warn);
+                    console.log('✅ Mobile video fix applied');
+                  }, 100);
+                }
+                alert('Mobile video fix applied - check if video appears');
+              }}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              📱 Mobile Video Fix
             </Button>
             
             {/* Comprehensive test button */}
