@@ -723,71 +723,89 @@ export default function CallRoomPage() {
     }
   }, [localStreamRef.current, setupVideoElement]);
 
-  // Initialize video elements and check permissions
+  // Comprehensive video call initialization
   useEffect(() => {
-    if (authChecked && me?.id) {
-      console.log('🚀 Initializing call component...');
+    if (!authChecked || !me?.id) return;
+    
+    console.log('🚀 Initializing comprehensive video call system...', {
+      role,
+      mode,
+      conversationId,
+      peerUserId
+    });
+    
+    // Initialize video elements immediately
+    const initVideoElements = () => {
+      const localEl = localVideoRef.current;
+      const remoteEl = remoteVideoRef.current;
       
-      // Initialize video elements with limited retries
-      let retryCount = 0;
-      const maxRetries = 10;
+      if (localEl) {
+        console.log('✅ Local video element initialized');
+        localEl.muted = true;
+        localEl.playsInline = true;
+        localEl.autoplay = true;
+        localEl.controls = false;
+        // Ensure video element is ready
+        localEl.addEventListener('loadedmetadata', () => {
+          console.log('✅ Local video metadata loaded');
+        });
+      } else {
+        console.warn('⚠️ Local video element not found');
+      }
       
-      const initVideoElements = () => {
-        if (retryCount >= maxRetries) {
-          console.warn('⚠️ Max retries reached for video element initialization');
-          return;
+      if (remoteEl) {
+        console.log('✅ Remote video element initialized');
+        remoteEl.muted = false;
+        remoteEl.playsInline = true;
+        remoteEl.autoplay = true;
+        remoteEl.controls = false;
+        // Ensure video element is ready
+        remoteEl.addEventListener('loadedmetadata', () => {
+          console.log('✅ Remote video metadata loaded');
+        });
+      } else {
+        console.warn('⚠️ Remote video element not found');
+      }
+    };
+    
+    // Initialize immediately and retry if needed
+    initVideoElements();
+    setTimeout(initVideoElements, 100);
+    setTimeout(initVideoElements, 500);
+    
+    getAvailableDevices();
+    
+    // Request permissions and prepare for call
+    const prepareCall = async () => {
+      try {
+        console.log('🔐 Preparing call permissions...');
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: true, 
+          video: mode === "video" 
+        });
+        console.log('✅ Call permissions granted');
+        
+        // Store the stream for immediate use
+        localStreamRef.current = stream;
+        
+        // Set up local video immediately
+        const localEl = localVideoRef.current;
+        if (localEl) {
+          localEl.srcObject = stream;
+          localEl.play().catch(console.warn);
+          console.log('✅ Local video set up immediately');
         }
         
-        if (localVideoRef.current) {
-          console.log('✅ Local video element found');
-          localVideoRef.current.muted = true;
-          localVideoRef.current.playsInline = true;
-          localVideoRef.current.autoplay = true;
-        } else {
-          retryCount++;
-          if (retryCount <= 3) { // Only log first few attempts
-            console.warn(`⚠️ Local video element not found - retrying ${retryCount}/${maxRetries}...`);
-          }
-          setTimeout(initVideoElements, 200);
-        }
-        
-        if (remoteVideoRef.current) {
-          console.log('✅ Remote video element found');
-          remoteVideoRef.current.muted = false;
-          remoteVideoRef.current.playsInline = true;
-          remoteVideoRef.current.autoplay = true;
-        } else {
-          if (retryCount <= 3) { // Only log first few attempts
-            console.warn(`⚠️ Remote video element not found - retrying ${retryCount}/${maxRetries}...`);
-          }
-          setTimeout(initVideoElements, 200);
-        }
-      };
-      
-      initVideoElements();
-      
-      getAvailableDevices();
-      
-      // Proactively request permissions for better UX
-      const requestInitialPermissions = async () => {
-        try {
-          console.log('🔐 Requesting initial permissions...');
-          const stream = await navigator.mediaDevices.getUserMedia({ 
-            audio: true, 
-            video: mode === "video" 
-          });
-          console.log('✅ Initial permissions granted');
-          // Immediately stop the stream
-          stream.getTracks().forEach(track => track.stop());
-        } catch (error) {
-          console.log("⚠️ Initial permission check failed (this is normal):", error);
-        }
-      };
-      
-      // Small delay to let the UI render first
-      setTimeout(requestInitialPermissions, 500);
-    }
-  }, [authChecked, me?.id, mode]);
+        // Don't stop the stream - keep it for the call
+      } catch (error) {
+        console.warn("⚠️ Permission request failed:", error);
+        setMediaError("Camera/microphone access denied. Please allow access and refresh the page.");
+      }
+    };
+    
+    // Start preparation after a short delay
+    setTimeout(prepareCall, 1000);
+  }, [authChecked, me?.id, mode, role, conversationId, peerUserId]);
 
   // Call duration timer
   useEffect(() => {
@@ -908,23 +926,33 @@ export default function CallRoomPage() {
         video: remoteStreamRef.current.getVideoTracks().length
       });
       
-      // Set up remote video immediately for both caller and callee
-      const remoteEl = remoteVideoRef.current;
-      if (remoteEl) {
-        remoteEl.srcObject = remoteStreamRef.current;
-        remoteEl.play().catch(console.warn);
-        console.log(`✅ Remote video set up immediately with ${ev.track.kind} track`);
-      } else {
-        // Retry if element not ready
-        setTimeout(() => {
-          const retryEl = remoteVideoRef.current;
-          if (retryEl) {
-            retryEl.srcObject = remoteStreamRef.current;
-            retryEl.play().catch(console.warn);
-            console.log(`✅ Remote video set up on retry with ${ev.track.kind} track`);
-          }
-        }, 200);
-      }
+      // Comprehensive remote video setup
+      const setupRemoteVideo = () => {
+        const remoteEl = remoteVideoRef.current;
+        if (remoteEl) {
+          // Clear and set new stream
+          remoteEl.srcObject = null;
+          remoteEl.load();
+          
+          setTimeout(() => {
+            remoteEl.srcObject = remoteStreamRef.current;
+            remoteEl.play().catch(console.warn);
+            console.log(`✅ Remote video set up with ${ev.track.kind} track`);
+            
+            // Force play if needed
+            setTimeout(() => {
+              if (remoteEl.paused) {
+                remoteEl.play().catch(console.warn);
+              }
+            }, 100);
+          }, 50);
+        } else {
+          console.warn('⚠️ Remote video element not ready, retrying...');
+          setTimeout(setupRemoteVideo, 200);
+        }
+      };
+      
+      setupRemoteVideo();
     };
 
       pcRef.current = pc;
@@ -1400,30 +1428,37 @@ export default function CallRoomPage() {
         console.log('✅ Answer sent');
         
         // Immediately transition to connected after sending answer
-        // This prevents getting stuck in "connecting" state
         console.log('🔄 Callee: transitioning to connected after answer sent');
         setStatus("connected");
         callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
         startAudioLevelMonitoring();
         
-        // Ensure both local and remote video are immediately set up for callee
-        if (localStreamRef.current) {
-          const localEl = localVideoRef.current;
-          if (localEl) {
-            localEl.srcObject = localStreamRef.current;
-            localEl.play().catch(console.warn);
-            console.log('✅ Callee local video set up immediately');
+        // Comprehensive video setup for callee
+        const setupCalleeVideo = () => {
+          // Local video setup
+          if (localStreamRef.current) {
+            const localEl = localVideoRef.current;
+            if (localEl) {
+              localEl.srcObject = localStreamRef.current;
+              localEl.play().catch(console.warn);
+              console.log('✅ Callee local video set up immediately');
+            }
           }
-        }
+          
+          // Remote video setup
+          if (remoteStreamRef.current) {
+            const remoteEl = remoteVideoRef.current;
+            if (remoteEl) {
+              remoteEl.srcObject = remoteStreamRef.current;
+              remoteEl.play().catch(console.warn);
+              console.log('✅ Callee remote video set up immediately');
+            }
+          }
+        };
         
-        if (remoteStreamRef.current) {
-          const remoteEl = remoteVideoRef.current;
-          if (remoteEl) {
-            remoteEl.srcObject = remoteStreamRef.current;
-            remoteEl.play().catch(console.warn);
-            console.log('✅ Callee remote video set up immediately');
-          }
-        }
+        setupCalleeVideo();
+        // Retry after a short delay to ensure video elements are ready
+        setTimeout(setupCalleeVideo, 500);
         
         // Additional fallback for ICE connection issues
         setTimeout(() => {
@@ -1619,14 +1654,28 @@ export default function CallRoomPage() {
       pc.addTrack(t, localStreamRef.current!);
     });
 
-      // Set up local video immediately for caller
-      console.log('🎯 Setting up local video for caller...');
-      const localEl = localVideoRef.current;
-      if (localEl) {
-        localEl.srcObject = localStreamRef.current;
-        localEl.play().catch(console.warn);
-        console.log('✅ Caller local video set up immediately');
-      }
+      // Comprehensive caller video setup
+      console.log('🎯 Setting up caller video system...');
+      const setupCallerVideo = () => {
+        const localEl = localVideoRef.current;
+        if (localEl && localStreamRef.current) {
+          localEl.srcObject = localStreamRef.current;
+          localEl.play().catch(console.warn);
+          console.log('✅ Caller local video set up immediately');
+        }
+        
+        // Also prepare for remote video
+        const remoteEl = remoteVideoRef.current;
+        if (remoteEl && remoteStreamRef.current) {
+          remoteEl.srcObject = remoteStreamRef.current;
+          remoteEl.play().catch(console.warn);
+          console.log('✅ Caller remote video set up immediately');
+        }
+      };
+      
+      setupCallerVideo();
+      // Retry to ensure video elements are ready
+      setTimeout(setupCallerVideo, 300);
 
       // 3) Simple call flow like Messenger/Zoom
     if (role === "caller") {
@@ -2081,39 +2130,59 @@ export default function CallRoomPage() {
     }
   }, []);
 
-  // Ensure video elements are properly set up when connected
+  // Comprehensive video refresh system for screen time
   useEffect(() => {
     if (status !== "connected") return;
     
-    // Wait a bit for video elements to be mounted
-    setTimeout(() => {
+    console.log('🔄 Comprehensive video refresh for screen time...');
+    
+    // Multiple refresh attempts to ensure video works
+    const refreshVideo = (attempt = 1) => {
       const localVideo = localVideoRef.current;
       const remoteVideo = remoteVideoRef.current;
       
+      console.log(`🔄 Video refresh attempt ${attempt}`);
+      
+      // Local video refresh
       if (localVideo && localStreamRef.current) {
-        if (!localVideo.srcObject) {
-          console.log('🔄 Setting up local video after connection');
-          localVideo.srcObject = localStreamRef.current;
-          localVideo.play().catch(console.warn);
+        if (!localVideo.srcObject || localVideo.videoWidth === 0) {
+          console.log('🔄 Refreshing local video...');
+          localVideo.srcObject = null;
+          localVideo.load();
+          setTimeout(() => {
+            localVideo.srcObject = localStreamRef.current;
+            localVideo.play().catch(console.warn);
+          }, 100);
         } else {
-          console.log('✅ Local video already set up');
+          console.log('✅ Local video is working');
         }
-      } else {
-        console.warn('⚠️ Local video element or stream not available');
       }
       
+      // Remote video refresh
       if (remoteVideo && remoteStreamRef.current) {
-        if (!remoteVideo.srcObject) {
-          console.log('🔄 Setting up remote video after connection');
-          remoteVideo.srcObject = remoteStreamRef.current;
-          remoteVideo.play().catch(console.warn);
+        if (!remoteVideo.srcObject || remoteVideo.videoWidth === 0) {
+          console.log('🔄 Refreshing remote video...');
+          remoteVideo.srcObject = null;
+          remoteVideo.load();
+          setTimeout(() => {
+            remoteVideo.srcObject = remoteStreamRef.current;
+            remoteVideo.play().catch(console.warn);
+          }, 100);
         } else {
-          console.log('✅ Remote video already set up');
+          console.log('✅ Remote video is working');
         }
-      } else {
-        console.warn('⚠️ Remote video element or stream not available');
       }
-    }, 1500);
+      
+      // Retry if needed (max 3 attempts)
+      if (attempt < 3) {
+        setTimeout(() => refreshVideo(attempt + 1), 1000);
+      }
+    };
+    
+    // Start refresh sequence
+    setTimeout(() => refreshVideo(1), 500);
+    setTimeout(() => refreshVideo(2), 2000);
+    setTimeout(() => refreshVideo(3), 4000);
   }, [status]);
 
   // Comprehensive media test function
