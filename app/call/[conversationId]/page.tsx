@@ -1201,13 +1201,18 @@ export default function CallRoomPage() {
         const pc = ensurePC();
         // Ensure callee has local media tracks before answering
         if (!localStreamRef.current) {
-          console.log('🎤 No local stream yet on callee; acquiring now before answering...');
+          console.log('🎤 Callee acquiring media now (call accepted)...');
+          setStatus("connecting"); // Show connecting only when actually accepting
           try {
             localStreamRef.current = await getMediaStream();
             setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
             localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
+            console.log('✅ Callee media acquired and tracks added');
           } catch (e) {
             console.warn('⚠️ Failed to acquire local media before answer:', e);
+            setStatus("failed");
+            setMediaError("Failed to access camera/microphone. Please try again.");
+            return;
           }
         }
           
@@ -1437,23 +1442,8 @@ export default function CallRoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authChecked, me?.id, role]);
 
-  // Callee preparation: prepare immediately when page loads (user accepted from notification)
-  useEffect(() => {
-    if (!(role === "callee" && status === "idle" && authChecked && me?.id)) return;
-    (async () => {
-      try {
-        // Prepare immediately when the page loads (user accepted from notification)
-        localStreamRef.current = await getMediaStream();
-        setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        const pc = ensurePC();
-        localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
-        console.log('✅ Callee prepared and waiting for offer');
-      } catch (error) {
-        console.error('❌ Callee preparation failed:', error);
-        setStatus("failed");
-      }
-    })();
-  }, [role, status, authChecked, me?.id, getMediaStream, ensurePC, setupVideoElement]);
+  // Callee preparation: only prepare when offer arrives (not on page load)
+  // This keeps callee in "idle" state until they actually accept
 
   // Cleanup connection timeout on unmount
   useEffect(() => {
