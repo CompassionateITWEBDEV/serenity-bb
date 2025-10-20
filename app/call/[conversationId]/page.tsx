@@ -926,61 +926,32 @@ export default function CallRoomPage() {
         video: remoteStreamRef.current.getVideoTracks().length
       });
       
-      // AGGRESSIVE remote video setup with multiple retries
-      const setupRemoteVideo = (attempt = 1) => {
-        const remoteEl = remoteVideoRef.current;
-        if (remoteEl && remoteStreamRef.current) {
-          console.log(`🎯 Setting up remote video (attempt ${attempt})`);
-          
-          // Clear and set new stream immediately
-          remoteEl.srcObject = null;
-          remoteEl.load();
-          
-          // Set stream immediately
-          remoteEl.srcObject = remoteStreamRef.current;
-          remoteEl.play().catch(console.warn);
-          console.log(`✅ Remote video set up with ${ev.track.kind} track (attempt ${attempt})`);
-          
-          // Force play multiple times
-          setTimeout(() => {
-            if (remoteEl.paused) {
-              remoteEl.play().catch(console.warn);
-              console.log('🔄 Forced remote video play');
-            }
-          }, 100);
-          
-          setTimeout(() => {
-            if (remoteEl.paused) {
-              remoteEl.play().catch(console.warn);
-              console.log('🔄 Second forced remote video play');
-            }
-          }, 500);
-          
-          // Check if video is actually playing
-          setTimeout(() => {
-            if (remoteEl.videoWidth === 0 || remoteEl.videoHeight === 0) {
-              console.warn('⚠️ Remote video appears black, retrying...');
-              if (attempt < 5) {
-                setupRemoteVideo(attempt + 1);
-              }
-            } else {
-              console.log('✅ Remote video is playing successfully');
-            }
-          }, 1000);
-          
-        } else {
-          console.warn(`⚠️ Remote video element not ready (attempt ${attempt}), retrying...`);
-          if (attempt < 10) {
-            setTimeout(() => setupRemoteVideo(attempt + 1), 200);
+      // Immediate remote video setup - no delays
+      const remoteEl = remoteVideoRef.current;
+      if (remoteEl && remoteStreamRef.current) {
+        console.log('🎯 Setting up remote video immediately');
+        remoteEl.srcObject = remoteStreamRef.current;
+        remoteEl.play().catch(console.warn);
+        console.log(`✅ Remote video set up immediately with ${ev.track.kind} track`);
+        
+        // Force play if needed
+        setTimeout(() => {
+          if (remoteEl.paused) {
+            remoteEl.play().catch(console.warn);
+            console.log('🔄 Forced remote video play');
           }
-        }
-      };
-      
-      // Try immediately and with multiple retries
-      setupRemoteVideo();
-      setTimeout(() => setupRemoteVideo(2), 200);
-      setTimeout(() => setupRemoteVideo(3), 1000);
-      setTimeout(() => setupRemoteVideo(4), 2000);
+        }, 100);
+      } else {
+        console.warn('⚠️ Remote video element or stream not ready');
+        // Retry after a short delay
+        setTimeout(() => {
+          if (remoteVideoRef.current && remoteStreamRef.current) {
+            remoteVideoRef.current.srcObject = remoteStreamRef.current;
+            remoteVideoRef.current.play().catch(console.warn);
+            console.log('✅ Remote video set up on retry');
+          }
+        }, 200);
+      }
     };
 
       pcRef.current = pc;
@@ -1460,6 +1431,19 @@ export default function CallRoomPage() {
         setStatus("connected");
         callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
         startAudioLevelMonitoring();
+        
+        // Force video refresh for both participants
+        setTimeout(() => {
+          console.log('🔄 Forcing video refresh after answer sent');
+          if (localVideoRef.current && localStreamRef.current) {
+            localVideoRef.current.srcObject = localStreamRef.current;
+            localVideoRef.current.play().catch(console.warn);
+          }
+          if (remoteVideoRef.current && remoteStreamRef.current) {
+            remoteVideoRef.current.srcObject = remoteStreamRef.current;
+            remoteVideoRef.current.play().catch(console.warn);
+          }
+        }, 500);
         
         // Comprehensive video setup for callee
         const setupCalleeVideo = () => {
@@ -2547,26 +2531,25 @@ export default function CallRoomPage() {
               🔍 Debug Video
             </Button>
             
-            {/* Force remote video setup button */}
             <Button 
               variant="outline" 
               onClick={() => {
-                console.log('🔄 Forcing remote video setup...');
-                if (remoteStreamRef.current && remoteVideoRef.current) {
-                  remoteVideoRef.current.srcObject = null;
-                  remoteVideoRef.current.load();
-                  setTimeout(() => {
-                    remoteVideoRef.current!.srcObject = remoteStreamRef.current;
-                    remoteVideoRef.current!.play().catch(console.warn);
-                    console.log('✅ Forced remote video setup');
-                  }, 100);
-                } else {
-                  console.warn('⚠️ No remote stream or video element available');
+                console.log('🔄 Force Video Refresh triggered');
+                if (localVideoRef.current && localStreamRef.current) {
+                  localVideoRef.current.srcObject = localStreamRef.current;
+                  localVideoRef.current.play().catch(console.warn);
+                  console.log('✅ Local video refreshed');
                 }
+                if (remoteVideoRef.current && remoteStreamRef.current) {
+                  remoteVideoRef.current.srcObject = remoteStreamRef.current;
+                  remoteVideoRef.current.play().catch(console.warn);
+                  console.log('✅ Remote video refreshed');
+                }
+                alert('Video refresh attempted - check console for results');
               }}
               className="w-full bg-green-600 hover:bg-green-700 text-white"
             >
-              🔄 Force Remote Video
+              🔄 Force Video Refresh
             </Button>
             
             {/* Comprehensive test button */}
