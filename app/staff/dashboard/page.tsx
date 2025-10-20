@@ -28,6 +28,19 @@ import {
   Radio as RadioIcon,
   EyeOff,
   Bell,
+  UserCheck,
+  Calendar,
+  FileText,
+  BarChart3,
+  Video,
+  Phone,
+  Mail,
+  Clock,
+  AlertCircle,
+  CheckCircle,
+  XCircle,
+  Plus,
+  MoreHorizontal,
 } from "lucide-react";
 
 import type { DrugTest, TestStatus } from "@/lib/drug-tests";
@@ -193,53 +206,114 @@ export default function StaffDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full bg-cyan-100 grid place-items-center">
-              <ShieldCheck className="h-5 w-5 text-cyan-600" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      {/* Enhanced Header */}
+      <header className="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 grid place-items-center shadow-lg">
+                <ShieldCheck className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900">Staff Console</h1>
+                <p className="text-sm text-slate-600">Comprehensive care management dashboard</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-semibold">Staff Console</h1>
-              <p className="text-xs text-slate-500">Care operations at a glance</p>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-sm font-medium text-slate-700">Live System</span>
+              </div>
+              <Badge variant="secondary" className="gap-2 px-3 py-1">
+                <Activity className="h-4 w-4" />
+                {patients.length} Patients
+              </Badge>
+              <Button variant="outline" size="sm" className="gap-2">
+                <Bell className="h-4 w-4" />
+                Notifications
+              </Button>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="gap-1">
-              <Activity className="h-3.5 w-3.5" /> Live
-            </Badge>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
-        {/* Icon Row */}
-        <div className="flex items-center gap-4">
-          <IconPill size="lg" active={view === "home"} onClick={() => setView("home")} aria="Home">
-            <HomeIcon className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" active={view === "tests"} onClick={() => setView("tests")} aria="Drug Tests">
-            <TestTube2 className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/messages")} aria="Messages">
-            <MessageSquare className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts">
-            <RadioIcon className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups">
-            <EyeOff className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/notifications")} aria="Notifications">
-            <Bell className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/clinician/dashboard")} aria="Clinicians">
-            <Users className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/profile")} aria="Settings">
-            <SettingsIcon className="h-6 w-6" />
-          </IconPill>
+      <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+        {/* Enhanced Navigation Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          {/* Primary Actions */}
+          <NavigationCard
+            icon={<HomeIcon className="h-6 w-6" />}
+            title="Dashboard"
+            description="Overview & Analytics"
+            active={view === "home"}
+            onClick={() => setView("home")}
+            color="blue"
+          />
+          <NavigationCard
+            icon={<TestTube2 className="h-6 w-6" />}
+            title="Drug Tests"
+            description="Manage Testing"
+            active={view === "tests"}
+            onClick={() => setView("tests")}
+            color="green"
+          />
+          <NavigationCard
+            icon={<MessageSquare className="h-6 w-6" />}
+            title="Messages"
+            description="Patient Communication"
+            onClick={() => router.push("/staff/messages")}
+            color="purple"
+          />
+          <NavigationCard
+            icon={<Users className="h-6 w-6" />}
+            title="Patients"
+            description="Patient Management"
+            onClick={() => router.push("/staff/patient-inbox")}
+            color="orange"
+          />
+          <NavigationCard
+            icon={<Video className="h-6 w-6" />}
+            title="Video Calls"
+            description="Patient Consultations"
+            onClick={() => router.push("/staff/broadcasts")}
+            color="red"
+          />
+          <NavigationCard
+            icon={<Bell className="h-6 w-6" />}
+            title="Notifications"
+            description="Alerts & Updates"
+            onClick={() => router.push("/staff/notifications")}
+            color="yellow"
+          />
+        </div>
+
+        {/* Secondary Actions Row */}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="outline" size="sm" className="gap-2">
+            <Calendar className="h-4 w-4" />
+            Schedule
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2">
+            <FileText className="h-4 w-4" />
+            Reports
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2">
+            <BarChart3 className="h-4 w-4" />
+            Analytics
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2">
+            <RadioIcon className="h-4 w-4" />
+            Broadcasts
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2">
+            <EyeOff className="h-4 w-4" />
+            Groups
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2">
+            <SettingsIcon className="h-4 w-4" />
+            Settings
+          </Button>
         </div>
 
         {/* Search / Filter */}
@@ -263,18 +337,87 @@ export default function StaffDashboardPage() {
 
         {view === "home" && (
           <>
-            <section>
-              <h2 className="text-xl font-semibold tracking-tight">Random Drug Test Manager</h2>
-              <Card className="mt-4 shadow-sm">
-                <CardContent className="p-5">
-                  <RandomDrugTestManager patients={patients} onCreate={handleModalCreate} />
-                </CardContent>
-              </Card>
-            </section>
+            {/* Quick Stats Overview */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <StatCard
+                icon={<Users className="h-5 w-5" />}
+                title="Total Patients"
+                value={patients.length}
+                change="+12%"
+                changeType="positive"
+                color="blue"
+              />
+              <StatCard
+                icon={<TestTube2 className="h-5 w-5" />}
+                title="Pending Tests"
+                value={tests.filter(t => t.status === 'pending').length}
+                change="+3"
+                changeType="neutral"
+                color="green"
+              />
+              <StatCard
+                icon={<CheckCircle className="h-5 w-5" />}
+                title="Completed Tests"
+                value={tests.filter(t => t.status === 'completed').length}
+                change="+8"
+                changeType="positive"
+                color="emerald"
+              />
+              <StatCard
+                icon={<AlertCircle className="h-5 w-5" />}
+                title="Missed Tests"
+                value={tests.filter(t => t.status === 'missed').length}
+                change="-2"
+                changeType="negative"
+                color="red"
+              />
+            </div>
+
+            {/* Main Content Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <section>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold tracking-tight">Random Drug Test Manager</h2>
+                  <Button size="sm" className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    New Test
+                  </Button>
+                </div>
+                <Card className="shadow-lg border-0 bg-white">
+                  <CardContent className="p-6">
+                    <RandomDrugTestManager patients={patients} onCreate={handleModalCreate} />
+                  </CardContent>
+                </Card>
+              </section>
+
+              <section>
+                <h2 className="text-xl font-semibold tracking-tight mb-4">Recent Activity</h2>
+                <Card className="shadow-lg border-0 bg-white">
+                  <CardContent className="p-6">
+                    <div className="space-y-4">
+                      {filteredTests.slice(0, 5).map((test) => (
+                        <div key={test.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-50">
+                          <div className="flex items-center gap-3">
+                            <div className="h-8 w-8 rounded-full bg-cyan-100 grid place-items-center">
+                              <UserCheck className="h-4 w-4 text-cyan-600" />
+                            </div>
+                            <div>
+                              <p className="font-medium text-sm">{test.patient.name}</p>
+                              <p className="text-xs text-slate-500">{fmtWhen(test.scheduledFor)}</p>
+                            </div>
+                          </div>
+                          <StatusChip status={test.status} />
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </section>
+            </div>
 
             <section>
-              <h2 className="text-xl font-semibold tracking-tight">Real-Time Intake Queue</h2>
-              <p className="text-xs text-slate-500 -mt-1">Monitor patient progress across intake roles</p>
+              <h2 className="text-xl font-semibold tracking-tight mb-4">Real-Time Intake Queue</h2>
+              <p className="text-sm text-slate-600 mb-6">Monitor patient progress across intake roles</p>
               <IntakeQueue patients={patients} />
             </section>
           </>
@@ -379,6 +522,103 @@ export default function StaffDashboardPage() {
       await sweetAlert({ icon: "error", title: "Failed to create test", text: err?.message ?? "Please try again." });
     }
   }
+}
+
+/* --------- Enhanced Components --------- */
+
+function NavigationCard({
+  icon,
+  title,
+  description,
+  active,
+  onClick,
+  color = "blue",
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  active?: boolean;
+  onClick?: () => void;
+  color?: "blue" | "green" | "purple" | "orange" | "red" | "yellow";
+}) {
+  const colorMap = {
+    blue: "from-blue-500 to-blue-600",
+    green: "from-green-500 to-green-600",
+    purple: "from-purple-500 to-purple-600",
+    orange: "from-orange-500 to-orange-600",
+    red: "from-red-500 to-red-600",
+    yellow: "from-yellow-500 to-yellow-600",
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group relative p-6 rounded-xl border-2 transition-all duration-200 ${
+        active
+          ? "border-cyan-300 bg-cyan-50 shadow-lg"
+          : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-md"
+      }`}
+    >
+      <div className="flex flex-col items-center text-center space-y-3">
+        <div className={`h-12 w-12 rounded-xl bg-gradient-to-br ${colorMap[color]} grid place-items-center shadow-lg group-hover:scale-105 transition-transform`}>
+          <div className="text-white">{icon}</div>
+        </div>
+        <div>
+          <h3 className="font-semibold text-slate-900">{title}</h3>
+          <p className="text-xs text-slate-600 mt-1">{description}</p>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function StatCard({
+  icon,
+  title,
+  value,
+  change,
+  changeType,
+  color = "blue",
+}: {
+  icon: React.ReactNode;
+  title: string;
+  value: number;
+  change: string;
+  changeType: "positive" | "negative" | "neutral";
+  color?: "blue" | "green" | "emerald" | "red" | "yellow" | "purple";
+}) {
+  const colorMap = {
+    blue: "text-blue-600 bg-blue-100",
+    green: "text-green-600 bg-green-100",
+    emerald: "text-emerald-600 bg-emerald-100",
+    red: "text-red-600 bg-red-100",
+    yellow: "text-yellow-600 bg-yellow-100",
+    purple: "text-purple-600 bg-purple-100",
+  };
+
+  const changeColorMap = {
+    positive: "text-green-600",
+    negative: "text-red-600",
+    neutral: "text-slate-600",
+  };
+
+  return (
+    <Card className="p-6 shadow-lg border-0 bg-white">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-slate-600">{title}</p>
+          <p className="text-3xl font-bold text-slate-900 mt-2">{value}</p>
+          <p className={`text-sm font-medium mt-1 ${changeColorMap[changeType]}`}>
+            {change}
+          </p>
+        </div>
+        <div className={`h-12 w-12 rounded-xl ${colorMap[color]} grid place-items-center`}>
+          {icon}
+        </div>
+      </div>
+    </Card>
+  );
 }
 
 /* --------- IconPill with size control --------- */
