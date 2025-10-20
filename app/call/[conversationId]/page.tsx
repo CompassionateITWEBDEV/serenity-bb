@@ -737,6 +737,12 @@ export default function CallRoomPage() {
             if (el) setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
           })();
         }
+      } else if (iceState === "checking") {
+        // Also set connected when ICE is checking (more aggressive)
+        console.log("🔄 ICE checking - setting connected status");
+        setStatus("connected");
+        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+        startAudioLevelMonitoring();
       } else if (iceState === "failed") {
         console.error("❌ ICE connection failed - trying to restart ICE");
         // Try to restart ICE gathering
@@ -1246,16 +1252,22 @@ export default function CallRoomPage() {
         sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
         console.log('✅ Answer sent');
         
-        // Fallback: ensure callee transitions to connected after a short delay
-        // This handles cases where ICE connection state changes are missed
+        // Immediately transition to connected after sending answer
+        // This prevents getting stuck in "connecting" state
+        console.log('🔄 Callee: transitioning to connected after answer sent');
+        setStatus("connected");
+        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+        startAudioLevelMonitoring();
+        
+        // Additional fallback for ICE connection issues
         setTimeout(() => {
-          if (status === "connecting") {
-            console.log('🔄 Callee fallback: transitioning to connected');
+          if (status !== "connected") {
+            console.log('🔄 Callee fallback: forcing connected status');
             setStatus("connected");
             callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
             startAudioLevelMonitoring();
           }
-        }, 2000);
+        }, 1000);
         
         // Prevent further offer processing once connected
         setTimeout(() => {
