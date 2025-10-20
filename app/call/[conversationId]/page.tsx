@@ -31,16 +31,11 @@ import AudioCallInterface from "@/components/call/AudioCallInterface";
 import CallModeSelector from "@/components/call/CallModeSelector";
 
 /**
- * ICE Servers Configuration
+ * ICE Servers Configuration - Simplified for Vercel compatibility
  */
 function buildIceServers(): RTCIceServer[] {
-  const stun = process.env.NEXT_PUBLIC_ICE_STUN || "stun:stun.l.google.com:19302";
-  const turn = process.env.NEXT_PUBLIC_ICE_TURN_URI || "";
-  const user = process.env.NEXT_PUBLIC_ICE_TURN_USER || "";
-  const pass = process.env.NEXT_PUBLIC_ICE_TURN_PASS || "";
-  const servers: RTCIceServer[] = [{ urls: [stun] }];
-  if (turn && user && pass) servers.push({ urls: [turn], username: user, credential: pass });
-  return servers;
+  // Use default STUN server for simplicity and Vercel compatibility
+  return [{ urls: ["stun:stun.l.google.com:19302"] }];
 }
 
 /**
@@ -275,7 +270,13 @@ export default function CallRoomPage() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error("Session error:", error);
+          router.push("/login");
+          return;
+        }
+        
         if (!session?.user) {
           router.push("/login");
           return;
@@ -287,7 +288,8 @@ export default function CallRoomPage() {
         setAuthChecked(true);
       } catch (error) {
         console.error("Auth check failed:", error);
-        router.push("/login");
+        setStatus("failed");
+        setMediaError("Authentication failed. Please try again.");
       }
     };
 
@@ -303,23 +305,33 @@ export default function CallRoomPage() {
     const getPeerInfo = async () => {
       try {
         if (me.role === "patient") {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from("appointments")
             .select("staff_id, staff:staff_id(name, avatar_url)")
             .eq("patient_id", me.id)
             .eq("id", conversationId)
             .single();
           
+          if (error) {
+            console.error("Peer info error:", error);
+            return;
+          }
+          
           if (data) {
             setPeer({ staff_id: data.staff_id, ...data.staff });
           }
         } else {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from("appointments")
             .select("patient_id, patient:patient_id(name, avatar_url)")
             .eq("staff_id", me.id)
             .eq("id", conversationId)
             .single();
+          
+          if (error) {
+            console.error("Peer info error:", error);
+            return;
+          }
           
           if (data) {
             setPeer({ patient_id: data.patient_id, ...data.patient });
@@ -327,6 +339,8 @@ export default function CallRoomPage() {
         }
       } catch (error) {
         console.error("Failed to get peer info:", error);
+        setStatus("failed");
+        setMediaError("Failed to load call information");
       }
     };
 
@@ -693,105 +707,121 @@ export default function CallRoomPage() {
     );
   }
 
-  // Main call interface
-  return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-700">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => router.back()}
-            className="text-white hover:bg-gray-800"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="font-semibold">{peer?.name || "Unknown"}</h1>
-            <div className="flex items-center gap-2">
-              <Badge variant={status === "connected" ? "default" : "secondary"}>
-                {status === "connected" ? "Connected" : 
-                 status === "connecting" ? "Connecting..." : 
-                 status === "idle" ? "Preparing..." : "Failed"}
-              </Badge>
-              {callDuration > 0 && (
-                <span className="text-sm text-gray-400">
-                  {Math.floor(callDuration / 60)}:{(callDuration % 60).toString().padStart(2, '0')}
-                </span>
-              )}
+  // Main call interface with error boundary
+  try {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => router.back()}
+              className="text-white hover:bg-gray-800"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div>
+              <h1 className="font-semibold">{peer?.name || "Unknown"}</h1>
+              <div className="flex items-center gap-2">
+                <Badge variant={status === "connected" ? "default" : "secondary"}>
+                  {status === "connected" ? "Connected" : 
+                   status === "connecting" ? "Connecting..." : 
+                   status === "idle" ? "Preparing..." : "Failed"}
+                </Badge>
+                {callDuration > 0 && (
+                  <span className="text-sm text-gray-400">
+                    {Math.floor(callDuration / 60)}:{(callDuration % 60).toString().padStart(2, '0')}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          <DeviceStatusIndicator 
-            hasMicrophone={!!localStreamRef.current?.getAudioTracks().length}
-            hasCamera={!!localStreamRef.current?.getVideoTracks().length}
-            mode={mode}
-            isFallbackMode={false}
-            onSwitchToChat={() => router.push(getMessagesUrl(me?.role || "patient"))}
-          />
-          <AccessibilityHelp />
-        </div>
-      </div>
-
-      {/* Video Grid */}
-      <div className="flex-1 p-4">
-        {mode === "video" ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-[calc(100vh-200px)]">
-            <VideoTile
-              videoRef={localVideoRef}
-              label="You"
-              mirrored={true}
-              isLocal={true}
-              isConnected={status === "connected"}
-              avatarUrl={me.avatar_url}
-              name={me.name}
+          
+          <div className="flex items-center gap-2">
+            <DeviceStatusIndicator 
+              hasMicrophone={!!localStreamRef.current?.getAudioTracks().length}
+              hasCamera={!!localStreamRef.current?.getVideoTracks().length}
+              mode={mode}
+              isFallbackMode={false}
+              onSwitchToChat={() => router.push(getMessagesUrl(me?.role || "patient"))}
             />
-            <VideoTile
-              videoRef={remoteVideoRef}
-              label="Peer"
-              isConnected={status === "connected"}
-              avatarUrl={peer?.avatar_url}
-              name={peer?.name}
-            />
+            <AccessibilityHelp />
           </div>
-        ) : (
-          <AudioCallInterface
-            peerName={peer?.name || "Unknown"}
-            peerAvatar={peer?.avatar_url}
-            status={status}
-            callDuration={callDuration}
-            muted={muted}
-            isMuted={muted}
-            onToggleMute={handleToggleMute}
-            onEndCall={endCall}
-            onToggleSpeaker={() => {}}
-            isSpeakerOn={true}
-            audioLevel={audioLevelRef.current}
-            hasAudio={!!localStreamRef.current?.getAudioTracks().length}
-            isFallbackStream={false}
-            formatDuration={(seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`}
-          />
-        )}
-      </div>
+        </div>
 
-      {/* Controls */}
-      <CallControls
-        status={status}
-        muted={muted}
-        camOff={camOff}
-        onToggleMute={handleToggleMute}
-        onToggleCamera={handleToggleCamera}
-        onEndCall={endCall}
-        onShareScreen={handleShareScreen}
-        isSharingScreen={isSharingScreen}
-        mode={mode}
-        hasAudio={!!localStreamRef.current?.getAudioTracks().length}
-        hasVideo={!!localStreamRef.current?.getVideoTracks().length}
-        audioLevel={audioLevelRef.current}
-      />
-    </div>
-  );
+        {/* Video Grid */}
+        <div className="flex-1 p-4">
+          {mode === "video" ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-[calc(100vh-200px)]">
+              <VideoTile
+                videoRef={localVideoRef}
+                label="You"
+                mirrored={true}
+                isLocal={true}
+                isConnected={status === "connected"}
+                avatarUrl={me?.avatar_url}
+                name={me?.name}
+              />
+              <VideoTile
+                videoRef={remoteVideoRef}
+                label="Peer"
+                isConnected={status === "connected"}
+                avatarUrl={peer?.avatar_url}
+                name={peer?.name}
+              />
+            </div>
+          ) : (
+            <AudioCallInterface
+              peerName={peer?.name || "Unknown"}
+              peerAvatar={peer?.avatar_url}
+              status={status}
+              callDuration={callDuration}
+              muted={muted}
+              isMuted={muted}
+              onToggleMute={handleToggleMute}
+              onEndCall={endCall}
+              onToggleSpeaker={() => {}}
+              isSpeakerOn={true}
+              audioLevel={audioLevelRef.current}
+              hasAudio={!!localStreamRef.current?.getAudioTracks().length}
+              isFallbackStream={false}
+              formatDuration={(seconds) => `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`}
+            />
+          )}
+        </div>
+
+        {/* Controls */}
+        <CallControls
+          status={status}
+          muted={muted}
+          camOff={camOff}
+          onToggleMute={handleToggleMute}
+          onToggleCamera={handleToggleCamera}
+          onEndCall={endCall}
+          onShareScreen={handleShareScreen}
+          isSharingScreen={isSharingScreen}
+          mode={mode}
+          hasAudio={!!localStreamRef.current?.getAudioTracks().length}
+          hasVideo={!!localStreamRef.current?.getVideoTracks().length}
+          audioLevel={audioLevelRef.current}
+        />
+      </div>
+    );
+  } catch (error) {
+    console.error("Render error:", error);
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-white text-center max-w-md mx-auto p-6">
+          <div className="text-red-500 text-6xl mb-4">⚠️</div>
+          <h2 className="text-xl font-semibold mb-2">Render Error</h2>
+          <p className="text-gray-300 mb-4">Something went wrong while rendering the call interface.</p>
+          <Button onClick={() => window.location.reload()} className="w-full">
+            Refresh Page
+          </Button>
+        </div>
+      </div>
+    );
+  }
 }
