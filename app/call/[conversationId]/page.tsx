@@ -840,21 +840,28 @@ export default function CallRoomPage() {
         video: remoteStreamRef.current.getVideoTracks().length
       });
       
-      // Set the video element immediately and with retry
-      (async () => {
+      // Force immediate video element update for flexibility
+      const updateVideoElement = async () => {
         const el = await waitForRef(remoteVideoRef);
         if (!el) {
           console.warn('⚠️ Remote video element not ready, retrying...');
-          setTimeout(async () => {
-            const retryEl = await waitForRef(remoteVideoRef);
-            if (retryEl) {
-              setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current!, false);
-            }
-          }, 500);
+          setTimeout(updateVideoElement, 200);
           return;
         }
-        setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current!, false);
-      })();
+        
+        // Force clear and reload video element
+        const video = el;
+        video.srcObject = null;
+        video.load();
+        
+        setTimeout(() => {
+          video.srcObject = remoteStreamRef.current;
+          video.play().catch(console.warn);
+          console.log(`🎥 Remote video element updated with ${ev.track.kind} track`);
+        }, 100);
+      };
+      
+      updateVideoElement();
     };
 
       pcRef.current = pc;
@@ -1638,6 +1645,20 @@ export default function CallRoomPage() {
     
     setCamOff(newCamOffState);
     console.log(`Camera state changed to: ${newCamOffState ? 'off' : 'on'}`);
+    
+    // Force video element refresh when camera state changes for flexibility
+    setTimeout(() => {
+      if (localVideoRef.current && localStreamRef.current) {
+        const video = localVideoRef.current;
+        video.srcObject = null;
+        video.load();
+        setTimeout(() => {
+          video.srcObject = localStreamRef.current;
+          video.play().catch(console.warn);
+          console.log('🔄 Local video refreshed after camera toggle');
+        }, 100);
+      }
+    }, 200);
   }, [camOff]);
 
   const shareScreen = useCallback(async () => {
@@ -1978,6 +1999,45 @@ export default function CallRoomPage() {
       }, 100);
     }
   }, []);
+
+  // Periodic video refresh to ensure flexibility
+  useEffect(() => {
+    if (status !== "connected") return;
+    
+    const interval = setInterval(() => {
+      // Check if video elements are showing content
+      const localVideo = localVideoRef.current;
+      const remoteVideo = remoteVideoRef.current;
+      
+      if (localVideo && localStreamRef.current) {
+        const hasVideo = localVideo.videoWidth > 0 && localVideo.videoHeight > 0;
+        if (!hasVideo && localVideo.srcObject) {
+          console.log('🔄 Local video appears black, refreshing...');
+          localVideo.srcObject = null;
+          localVideo.load();
+          setTimeout(() => {
+            localVideo.srcObject = localStreamRef.current;
+            localVideo.play().catch(console.warn);
+          }, 100);
+        }
+      }
+      
+      if (remoteVideo && remoteStreamRef.current) {
+        const hasVideo = remoteVideo.videoWidth > 0 && remoteVideo.videoHeight > 0;
+        if (!hasVideo && remoteVideo.srcObject) {
+          console.log('🔄 Remote video appears black, refreshing...');
+          remoteVideo.srcObject = null;
+          remoteVideo.load();
+          setTimeout(() => {
+            remoteVideo.srcObject = remoteStreamRef.current;
+            remoteVideo.play().catch(console.warn);
+          }, 100);
+        }
+      }
+    }, 3000); // Check every 3 seconds
+    
+    return () => clearInterval(interval);
+  }, [status]);
 
   // Comprehensive media test function
   const testAllMedia = useCallback(async () => {
