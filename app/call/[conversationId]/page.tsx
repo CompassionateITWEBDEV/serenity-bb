@@ -419,45 +419,90 @@ export default function CallRoomPage() {
   useEffect(() => {
     let alive = true;
     (async () => {
-      const { data: session } = await supabase.auth.getSession();
-      if (!alive) return;
-      if (session.session?.user) {
-        const user = session.session.user;
-        const userRole = await determineUserRole(user.id);
-        setMe({ 
-          id: user.id, 
-          email: user.email,
-          name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-          role: userRole
-        });
-        setAuthChecked(true);
-        return;
-      }
-      const { data: user } = await supabase.auth.getUser();
-      if (user.user) {
-        const userRole = await determineUserRole(user.user.id);
-        setMe({ 
-          id: user.user.id, 
-          email: user.user.email,
-          name: user.user.user_metadata?.name || user.user.email?.split('@')[0] || 'User',
-          role: userRole
-        });
-        setAuthChecked(true);
-        return;
-      }
-      const { data: refreshed } = await supabase.auth.refreshSession();
-      if (refreshed.session?.user) {
-        const user = refreshed.session.user;
-        const userRole = await determineUserRole(user.id);
-        setMe({ 
-          id: user.id, 
-          email: user.email,
-          name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-          role: userRole
-        });
-        setAuthChecked(true);
-      } else {
-        // Keep next so user returns straight to the call if they log in
+      try {
+        const { data: session } = await supabase.auth.getSession();
+        if (!alive) return;
+        if (session.session?.user) {
+          const user = session.session.user;
+          try {
+            const userRole = await determineUserRole(user.id);
+            setMe({ 
+              id: user.id, 
+              email: user.email,
+              name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+              role: userRole
+            });
+            setAuthChecked(true);
+            return;
+          } catch (roleError) {
+            console.error('Error determining user role:', roleError);
+            // Fallback to patient role
+            setMe({ 
+              id: user.id, 
+              email: user.email,
+              name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+              role: 'patient'
+            });
+            setAuthChecked(true);
+            return;
+          }
+        }
+        const { data: user } = await supabase.auth.getUser();
+        if (user.user) {
+          try {
+            const userRole = await determineUserRole(user.user.id);
+            setMe({ 
+              id: user.user.id, 
+              email: user.user.email,
+              name: user.user.user_metadata?.name || user.user.email?.split('@')[0] || 'User',
+              role: userRole
+            });
+            setAuthChecked(true);
+            return;
+          } catch (roleError) {
+            console.error('Error determining user role:', roleError);
+            // Fallback to patient role
+            setMe({ 
+              id: user.user.id, 
+              email: user.user.email,
+              name: user.user.user_metadata?.name || user.user.email?.split('@')[0] || 'User',
+              role: 'patient'
+            });
+            setAuthChecked(true);
+            return;
+          }
+        }
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        if (refreshed.session?.user) {
+          const user = refreshed.session.user;
+          try {
+            const userRole = await determineUserRole(user.id);
+            setMe({ 
+              id: user.id, 
+              email: user.email,
+              name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+              role: userRole
+            });
+            setAuthChecked(true);
+          } catch (roleError) {
+            console.error('Error determining user role:', roleError);
+            // Fallback to patient role
+            setMe({ 
+              id: user.id, 
+              email: user.email,
+              name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+              role: 'patient'
+            });
+            setAuthChecked(true);
+          }
+        } else {
+          // Keep next so user returns straight to the call if they log in
+          const next = encodeURIComponent(location.pathname + location.search);
+          router.replace(`/login?next=${next}`);
+        }
+      } catch (error) {
+        console.error('Authentication error:', error);
+        // Redirect to login on any auth error
         const next = encodeURIComponent(location.pathname + location.search);
         router.replace(`/login?next=${next}`);
       }

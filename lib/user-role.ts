@@ -10,31 +10,36 @@ export type UserRole = 'patient' | 'staff';
 export async function determineUserRole(userId: string): Promise<UserRole> {
   try {
     // Check if user is a patient
-    const { data: patient } = await supabase
+    const { data: patient, error: patientError } = await supabase
       .from("patients")
       .select("user_id")
       .eq("user_id", userId)
       .maybeSingle();
     
-    if (patient?.user_id) {
+    if (patientError) {
+      console.warn("Error checking patient role:", patientError);
+    } else if (patient?.user_id) {
       return 'patient';
     }
 
     // Check if user is staff
-    const { data: staff } = await supabase
+    const { data: staff, error: staffError } = await supabase
       .from("staff")
       .select("user_id")
       .eq("user_id", userId)
       .maybeSingle();
     
-    if (staff?.user_id) {
+    if (staffError) {
+      console.warn("Error checking staff role:", staffError);
+    } else if (staff?.user_id) {
       return 'staff';
     }
 
     // Default to patient if neither found (fallback)
+    console.log(`User ${userId} not found in patients or staff tables, defaulting to patient`);
     return 'patient';
   } catch (error) {
-    console.warn("Error determining user role:", error);
+    console.error("Critical error determining user role:", error);
     return 'patient'; // Default fallback
   }
 }
