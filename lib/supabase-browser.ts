@@ -50,10 +50,24 @@ export async function getAuthUser(): Promise<User | null> {
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  let { data } = await supabase.auth.getSession();
-  let token = data.session?.access_token ?? null;
-  if (!token) token = (await supabase.auth.refreshSession()).data.session?.access_token ?? null;
-  return token;
+  try {
+    let { data } = await supabase.auth.getSession();
+    let token = data.session?.access_token ?? null;
+    if (token) return token;
+    const refreshed = await supabase.auth.refreshSession();
+    return refreshed.data.session?.access_token ?? null;
+  } catch (e: any) {
+    if (typeof e?.message === "string" && /invalid\s+refresh\s+token|not\s+found/i.test(e.message)) {
+      try { await supabase.auth.signOut(); } catch {}
+      try { localStorage.removeItem(STORAGE_KEY); } catch {}
+      if (typeof window !== "undefined") {
+        const next = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `/login?next=${next}`;
+      }
+      return null;
+    }
+    throw e;
+  }
 }
 
 export async function logout(): Promise<void> {

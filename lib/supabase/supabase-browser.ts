@@ -47,8 +47,23 @@ export async function getAuthUser(): Promise<User | null> {
   return data.user ?? null;
 }
 export async function getAccessToken(): Promise<string | null> {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.access_token) return data.session.access_token;
+    const refreshed = await supabase.auth.refreshSession();
+    return refreshed.data.session?.access_token ?? null;
+  } catch (e: any) {
+    if (typeof e?.message === "string" && /invalid\s+refresh\s+token|not\s+found/i.test(e.message)) {
+      try { await supabase.auth.signOut(); } catch {}
+      try { localStorage.removeItem(STORAGE_KEY); } catch {}
+      if (typeof window !== "undefined") {
+        const next = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `/login?next=${next}`;
+      }
+      return null;
+    }
+    throw e;
+  }
 }
 
 /** Reliable session getter (handles hydration) */

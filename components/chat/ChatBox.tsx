@@ -762,7 +762,7 @@ function ChatBoxInner(props: {
     let cancelled = false;
     (async () => {
       try {
-        const s = await getJSON<{ connected: boolean }>("/api/zoom/status");
+        const s = await getJSON<{ connected: boolean }>("/api/zoom/oauth/status");
         if (!cancelled) setZoomConnected(!!s.connected);
       } catch {
         /* ignore */

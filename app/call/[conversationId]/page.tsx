@@ -51,7 +51,6 @@ type SigPayload =
   | { kind: "webrtc-offer"; from: string; sdp: RTCSessionDescriptionInit }
   | { kind: "webrtc-answer"; from: string; sdp: RTCSessionDescriptionInit }
   | { kind: "webrtc-ice"; from: string; candidate: RTCIceCandidateInit }
-  | { kind: "call-connected"; from: string }
   | { kind: "bye"; from: string };
 
 function VideoTile({
@@ -177,7 +176,7 @@ function VideoTile({
             </Avatar>
             <p className="text-white text-sm font-medium">{name || label}</p>
             {!isConnected && (
-              <p className="text-gray-400 text-xs mt-1">Connecting...</p>
+              <p className="text-gray-400 text-xs mt-1">Connecting media...</p>
             )}
             {isConnected && !hasVideoStream && (
               <p className="text-yellow-400 text-xs mt-1">Waiting for video...</p>
@@ -475,13 +474,13 @@ export default function CallRoomPage() {
   }, [peerName]);
 
   // Function to ensure video elements are properly set up
-  const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal: boolean) => {
-    if (!videoRef.current || !stream) {
-      console.warn(`⚠️ Cannot setup video element: videoRef=${!!videoRef.current}, stream=${!!stream}`);
+  const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream | null, isLocal: boolean) => {
+    const video = videoRef.current;
+    if (!video || !stream) {
+      console.warn(`⚠️ Cannot setup video element: videoRef=${!!video}, stream=${!!stream}`);
       return false;
     }
 
-    const video = videoRef.current;
     console.log(`🎥 Setting up ${isLocal ? 'local' : 'remote'} video element:`, {
       audioTracks: stream.getAudioTracks().length,
       videoTracks: stream.getVideoTracks().length,
@@ -489,63 +488,68 @@ export default function CallRoomPage() {
       videoElement: !!video
     });
 
+    // Ensure recommended flags for autoplay
+    try { video.muted = isLocal || video.muted; } catch {}
+    try { video.playsInline = true; } catch {}
+    try { (video as any).webkitPlaysInline = true; } catch {}
+    try { video.autoplay = true; } catch {}
+    try { video.controls = false; } catch {}
+
     // Clear existing source to prevent conflicts
-    video.srcObject = null;
-    video.load();
-    
-    // Set new source
-    video.srcObject = stream;
-    video.muted = isLocal; // Local muted, remote unmuted
-    video.autoplay = true;
-    video.playsInline = true;
-    video.controls = false;
+    try { (video as any).srcObject = null; } catch {}
+    try { video.load(); } catch {}
+
+    // Set new source safely
+    try { (video as any).srcObject = stream; } catch (err) {
+      console.warn("Failed to attach MediaStream to video element:", err);
+      return false;
+    }
 
     // Safe play with proper error handling
     const playVideo = async () => {
       try {
-        // Wait for video to be ready
         if (video.readyState < 2) {
           await new Promise((resolve) => {
             video.addEventListener('loadedmetadata', resolve, { once: true });
-            setTimeout(resolve, 1000); // Fallback timeout
+            setTimeout(resolve, 1000);
           });
         }
-        
-        // Only play if not already playing
         if (video.paused) {
           await video.play();
           console.log(`✅ Video started playing for ${isLocal ? 'local' : 'remote'}`);
         }
       } catch (err) {
         console.warn(`Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
-        // Don't throw - just log the warning
       }
     };
 
-    // Use setTimeout to avoid AbortError
-    setTimeout(playVideo, 100);
+    // Slight delay improves stability across browsers
+    setTimeout(() => {
+      try { video.load(); } catch {}
+      void playVideo();
+    }, 100);
 
     return true;
   }, []);
 
   // Function to setup video element with retry
-  const setupVideoElementWithRetry = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal: boolean, maxRetries = 5) => {
+  const setupVideoElementWithRetry = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream | null, isLocal: boolean, maxRetries = 10, delayMs = 150) => {
     let retries = 0;
-    
+
     const trySetup = () => {
-      if (videoRef.current && stream) {
-        return setupVideoElement(videoRef, stream, isLocal);
-      } else if (retries < maxRetries) {
-        retries++;
-        console.log(`🔄 Retrying video setup (${retries}/${maxRetries})...`);
-        setTimeout(trySetup, 100);
-        return false;
-      } else {
-        console.error(`❌ Failed to setup video element after ${maxRetries} retries`);
+      const ok = setupVideoElement(videoRef, stream, isLocal);
+      if (ok) return true;
+      if (retries >= maxRetries) {
+        // Use warn instead of error to avoid Next.js intercepting as unhandled error
+        console.warn(`❌ Failed to setup video element after ${maxRetries} retries`);
         return false;
       }
+      retries++;
+      console.log(`🔄 Retrying video setup (${retries}/${maxRetries})...`);
+      setTimeout(trySetup, delayMs);
+      return false;
     };
-    
+
     return trySetup();
   }, [setupVideoElement]);
 
@@ -678,15 +682,25 @@ export default function CallRoomPage() {
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState;
       console.log(`🔗 PeerConnection state changed: ${s}`);
-      
-      // Only handle disconnection - connection is handled by signaling
-      // Don't change status to connecting or other states that confuse users
-      if (s === "failed" || s === "disconnected" || s === "closed") {
+      if (s === "connected") {
+        setStatus("connected");
+        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+        startAudioLevelMonitoring();
+        // Ensure video elements are set when fully connected
+        if (localStreamRef.current) {
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+        if (remoteStreamRef.current) {
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      } else if (s === "failed" || s === "closed") {
         setStatus("ended");
         callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
         stopAudioLevelMonitoring();
+      } else if (s === "disconnected") {
+        console.warn("⚠️ PeerConnection disconnected");
       }
-      // Don't handle "connecting" state - let signaling handle connection status
     };
 
     // Add ICE connection state monitoring
@@ -696,16 +710,21 @@ export default function CallRoomPage() {
       
       if (iceState === "connected" || iceState === "completed") {
         console.log("✅ ICE connection established");
-        // Immediately set to connected when ICE is ready
-        if (status !== "connected") {
-          setStatus("connected");
-          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-          startAudioLevelMonitoring();
+        setStatus("connected");
+        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+        startAudioLevelMonitoring();
+        if (localStreamRef.current) {
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+        if (remoteStreamRef.current) {
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
         }
       } else if (iceState === "failed") {
         console.error("❌ ICE connection failed - trying to restart ICE");
         // Try to restart ICE gathering
         pc.restartIce();
+      } else if (iceState === "disconnected") {
+        console.warn("⚠️ ICE disconnected");
       }
     };
 
@@ -733,21 +752,8 @@ export default function CallRoomPage() {
         audio: remoteStreamRef.current.getAudioTracks().length,
         video: remoteStreamRef.current.getVideoTracks().length
       });
-      
-      // Set the video element source for remote stream immediately
-      console.log('🎥 Setting up remote video element immediately...');
+      // Set the video element once
       setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-      
-      // Also try with retry mechanism
-      setupVideoElementWithRetry(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-      
-      // Single retry attempt to avoid AbortError
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Single retry for remote video (1000ms)');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 1000);
     };
 
     pcRef.current = pc;
@@ -1128,21 +1134,7 @@ export default function CallRoomPage() {
           
         await pc.setLocalDescription(answer);
         sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
-          
-          // FORCE CONNECTED STATUS - IMMEDIATE
-          setStatus("connected");
-          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-          startAudioLevelMonitoring();
-          
-          // Notify caller that call is connected
-          sendSignal({ kind: "call-connected", from: me.id });
-          
-          // Force UI update
-          setTimeout(() => {
-            setStatus("connected");
-          }, 100);
-          
-          console.log('✅ Answer sent - call connected immediately!');
+          console.log('✅ Answer sent');
         } catch (error) {
           console.error('❌ Failed to handle offer:', error);
           setStatus("failed");
@@ -1152,28 +1144,7 @@ export default function CallRoomPage() {
         console.log('📞 Received answer from peer');
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        
-        // FORCE CONNECTED STATUS - IMMEDIATE
-        setStatus("connected");
-        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-        startAudioLevelMonitoring();
-        
-        // Notify callee that call is connected
-        sendSignal({ kind: "call-connected", from: me.id });
-        
-        // Force UI update
-        setTimeout(() => {
-          setStatus("connected");
-        }, 100);
-        
-        console.log('✅ Call connected immediately!');
-      } else if (msg.kind === "call-connected") {
-        console.log('📞 Received call-connected signal from peer');
-        // Both participants should show connected
-        setStatus("connected");
-        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-        startAudioLevelMonitoring();
-        console.log('✅ Call status synchronized - both connected!');
+        console.log('✅ Remote description set');
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
@@ -1300,7 +1271,14 @@ export default function CallRoomPage() {
   const startOrPrep = useCallback(async () => {
     if (!me?.id) return;
 
-    setStatus("connecting");
+    // Caller shows ringing until callee answers; callee stays idle and prepares
+    if (role !== "caller") {
+      // Callee shows idle and waits
+      setMediaError(null);
+    } else {
+      setStatus("connecting");
+      setMediaError(null);
+    }
     setMediaError(null);
 
     // Log call initiation (non-blocking)
@@ -1340,7 +1318,7 @@ export default function CallRoomPage() {
 
       // 3) Simple call flow like Messenger/Zoom
     if (role === "caller") {
-        // Caller shows ringing and sends offer
+        // Caller shows ringing until callee answers
       setStatus("ringing");
       callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
       
@@ -1356,8 +1334,7 @@ export default function CallRoomPage() {
         
         console.log('✅ Caller sent offer, waiting for answer...');
       } else {
-        // Callee shows connecting and waits for offer
-        setStatus("connecting");
+        // Callee shows idle and waits
         console.log('📞 Callee ready and waiting for offer...');
     }
     } catch (error) {
@@ -1367,77 +1344,31 @@ export default function CallRoomPage() {
     }
   }, [ensurePC, getMediaStream, me?.id, mode, role, sendSignal, conversationId, peerUserId, peerInfo?.name, peerName]);
 
+  // Main caller effect: only start for caller
   useEffect(() => {
     if (!authChecked || !me?.id) return;
-    
-    // Only start the call process if we're the caller
-    if (role === "caller") {
-      (async () => {
-        await startOrPrep();
-      })();
-    } else {
-      // For callee, get ready immediately and wait for offer
-      console.log('📞 Callee getting ready for incoming call...');
-      
-      // Get media stream and prepare for incoming call
-      (async () => {
-        try {
-          await startOrPrep();
-          console.log('✅ Callee ready and waiting for offer...');
-        } catch (error) {
-          console.error('❌ Callee failed to prepare:', error);
-          setStatus("failed");
-        }
-      })();
-      
-      return () => {};
-    }
+    if (role !== "caller") return;
+    (async () => { await startOrPrep(); })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authChecked, me?.id, role]);
 
-  // Auto-accept incoming calls for callees (when coming from notification)
+  // Callee preparation: prepare immediately when page loads (user accepted from notification)
   useEffect(() => {
-    if (role === "callee" && status === "idle" && authChecked && me?.id) {
-      // Check if this is an incoming call that should be auto-accepted
-      const urlParams = new URLSearchParams(window.location.search);
-      const autoAccept = urlParams.get('autoAccept');
-      
-      if (autoAccept === 'true') {
-        console.log('📞 Auto-accepting incoming call - preparing immediately...');
-        // Don't change status to "connecting" - keep it as "idle" for consistency
-        // The offer handling will change it to "connecting" when needed
-        
-        // Immediately prepare the call without waiting for offer
-        (async () => {
-          try {
-            // Get local stream immediately
-            localStreamRef.current = await getMediaStream();
-            console.log('✅ Local stream acquired for auto-accept:', {
-              audioTracks: localStreamRef.current.getAudioTracks().length,
-              videoTracks: localStreamRef.current.getVideoTracks().length,
-              streamId: localStreamRef.current.id
-            });
-            
-            // Set the video element source with retry
-            setupVideoElementWithRetry(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-            
-            // Add tracks to peer connection
-            const pc = ensurePC();
-            localStreamRef.current.getTracks().forEach((t) => {
-              console.log(`Adding ${t.kind} track to peer connection:`, t.label);
-              pc.addTrack(t, localStreamRef.current!);
-            });
-            
-            console.log('✅ Callee ready for immediate connection');
-          } catch (error) {
-            console.error('❌ Failed to prepare auto-accept call:', error);
-            setStatus("failed");
-            setMediaError("Failed to prepare call. Please try again.");
-          }
-        })();
+    if (!(role === "callee" && status === "idle" && authChecked && me?.id)) return;
+    (async () => {
+      try {
+        // Prepare immediately when the page loads (user accepted from notification)
+        localStreamRef.current = await getMediaStream();
+        setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        const pc = ensurePC();
+        localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
+        console.log('✅ Callee prepared and waiting for offer');
+      } catch (error) {
+        console.error('❌ Callee preparation failed:', error);
+        setStatus("failed");
       }
-    }
-  }, [role, status, authChecked, me?.id, getMediaStream, setupVideoElementWithRetry, ensurePC]);
+    })();
+  }, [role, status, authChecked, me?.id, getMediaStream, ensurePC, setupVideoElement]);
 
   // Cleanup connection timeout on unmount
   useEffect(() => {
