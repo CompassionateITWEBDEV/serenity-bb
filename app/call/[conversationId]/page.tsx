@@ -683,16 +683,27 @@ export default function CallRoomPage() {
     if (authChecked && me?.id) {
       console.log('🚀 Initializing call component...');
       
-      // Initialize video elements with better error handling
+      // Initialize video elements with limited retries
+      let retryCount = 0;
+      const maxRetries = 10;
+      
       const initVideoElements = () => {
+        if (retryCount >= maxRetries) {
+          console.warn('⚠️ Max retries reached for video element initialization');
+          return;
+        }
+        
         if (localVideoRef.current) {
           console.log('✅ Local video element found');
           localVideoRef.current.muted = true;
           localVideoRef.current.playsInline = true;
           localVideoRef.current.autoplay = true;
         } else {
-          console.warn('⚠️ Local video element not found - retrying...');
-          setTimeout(initVideoElements, 100);
+          retryCount++;
+          if (retryCount <= 3) { // Only log first few attempts
+            console.warn(`⚠️ Local video element not found - retrying ${retryCount}/${maxRetries}...`);
+          }
+          setTimeout(initVideoElements, 200);
         }
         
         if (remoteVideoRef.current) {
@@ -701,8 +712,10 @@ export default function CallRoomPage() {
           remoteVideoRef.current.playsInline = true;
           remoteVideoRef.current.autoplay = true;
         } else {
-          console.warn('⚠️ Remote video element not found - retrying...');
-          setTimeout(initVideoElements, 100);
+          if (retryCount <= 3) { // Only log first few attempts
+            console.warn(`⚠️ Remote video element not found - retrying ${retryCount}/${maxRetries}...`);
+          }
+          setTimeout(initVideoElements, 200);
         }
       };
       
@@ -1268,11 +1281,15 @@ export default function CallRoomPage() {
   }, []);
 
   // Helper: wait for a ref to mount before using it
-  const waitForRef = useCallback(async <T,>(ref: React.RefObject<T>, tries = 30, delay = 100): Promise<T | null> => {
+  const waitForRef = useCallback(async <T,>(ref: React.RefObject<T>, tries = 20, delay = 150): Promise<T | null> => {
     for (let i = 0; i < tries; i++) {
       if (ref.current) return ref.current;
+      if (i <= 2) { // Only log first few attempts
+        console.log(`⏳ Waiting for video element (attempt ${i + 1}/${tries})...`);
+      }
       await new Promise((r) => setTimeout(r, delay));
     }
+    console.warn('⚠️ Video element not found within timeout');
     return null;
   }, []);
 
@@ -2019,27 +2036,39 @@ export default function CallRoomPage() {
     }
   }, []);
 
-  // Only refresh video if there are actual issues (no periodic refresh)
+  // Ensure video elements are properly set up when connected
   useEffect(() => {
     if (status !== "connected") return;
     
-    // One-time check after connection to ensure video is working
+    // Wait a bit for video elements to be mounted
     setTimeout(() => {
       const localVideo = localVideoRef.current;
       const remoteVideo = remoteVideoRef.current;
       
-      if (localVideo && localStreamRef.current && !localVideo.srcObject) {
-        console.log('🔄 Setting up local video after connection');
-        localVideo.srcObject = localStreamRef.current;
-        localVideo.play().catch(console.warn);
+      if (localVideo && localStreamRef.current) {
+        if (!localVideo.srcObject) {
+          console.log('🔄 Setting up local video after connection');
+          localVideo.srcObject = localStreamRef.current;
+          localVideo.play().catch(console.warn);
+        } else {
+          console.log('✅ Local video already set up');
+        }
+      } else {
+        console.warn('⚠️ Local video element or stream not available');
       }
       
-      if (remoteVideo && remoteStreamRef.current && !remoteVideo.srcObject) {
-        console.log('🔄 Setting up remote video after connection');
-        remoteVideo.srcObject = remoteStreamRef.current;
-        remoteVideo.play().catch(console.warn);
+      if (remoteVideo && remoteStreamRef.current) {
+        if (!remoteVideo.srcObject) {
+          console.log('🔄 Setting up remote video after connection');
+          remoteVideo.srcObject = remoteStreamRef.current;
+          remoteVideo.play().catch(console.warn);
+        } else {
+          console.log('✅ Remote video already set up');
+        }
+      } else {
+        console.warn('⚠️ Remote video element or stream not available');
       }
-    }, 1000);
+    }, 1500);
   }, [status]);
 
   // Comprehensive media test function
