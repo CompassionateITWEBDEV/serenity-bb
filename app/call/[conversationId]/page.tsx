@@ -589,13 +589,28 @@ export default function CallRoomPage() {
     
     // Force UI update when status changes to connected
     if (status === "connected") {
+      console.log('🔄 Call connected - refreshing video elements');
       // Force re-render of video elements
       if (localVideoRef.current && localStreamRef.current) {
+        console.log('🎥 Setting up local video on connect');
         setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
       }
       if (remoteVideoRef.current && remoteStreamRef.current) {
+        console.log('🎥 Setting up remote video on connect');
         setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
       }
+      
+      // Additional refresh after a short delay to ensure video elements are ready
+      setTimeout(() => {
+        if (localVideoRef.current && localStreamRef.current) {
+          console.log('🔄 Delayed local video setup');
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Delayed remote video setup');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 1000);
     }
   }, [status, setupVideoElement]);
 
@@ -776,10 +791,20 @@ export default function CallRoomPage() {
         audio: remoteStreamRef.current.getAudioTracks().length,
         video: remoteStreamRef.current.getVideoTracks().length
       });
-      // Set the video element once (wait for mount)
+      
+      // Set the video element immediately and with retry
       (async () => {
         const el = await waitForRef(remoteVideoRef);
-        if (!el) return;
+        if (!el) {
+          console.warn('⚠️ Remote video element not ready, retrying...');
+          setTimeout(async () => {
+            const retryEl = await waitForRef(remoteVideoRef);
+            if (retryEl) {
+              setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current!, false);
+            }
+          }, 500);
+          return;
+        }
         setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current!, false);
       })();
     };
@@ -1258,6 +1283,16 @@ export default function CallRoomPage() {
         setStatus("connected");
         callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
         startAudioLevelMonitoring();
+        
+        // Ensure local video is set up for callee
+        if (localStreamRef.current) {
+          (async () => {
+            const el = await waitForRef(localVideoRef);
+            if (el) {
+              setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+            }
+          })();
+        }
         
         // Additional fallback for ICE connection issues
         setTimeout(() => {
