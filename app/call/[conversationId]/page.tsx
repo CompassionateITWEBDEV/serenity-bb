@@ -965,51 +965,66 @@ export default function CallRoomPage() {
         video: remoteStreamRef.current.getVideoTracks().length
       });
       
-      // Comprehensive remote video setup with immediate display
+      // ULTRA-AGGRESSIVE remote video setup for mobile/Vercel
       const setupRemoteVideo = () => {
         const remoteEl = remoteVideoRef.current;
         if (remoteEl) {
-          console.log('🎥 Setting up remote video immediately...');
+          console.log('🎥 ULTRA-AGGRESSIVE remote video setup for mobile...');
           
-          // Clear and set new stream immediately
+          // Force clear everything
           remoteEl.srcObject = null;
           remoteEl.load();
           
-          // Set stream immediately
-          remoteEl.srcObject = remoteStreamRef.current;
-          remoteEl.play().catch(console.warn);
-          console.log(`✅ Remote video set up immediately with ${ev.track.kind} track`);
-          
-          // Force play multiple times to ensure it works
+          // Wait a bit then set stream
           setTimeout(() => {
-            if (remoteEl.paused) {
-              remoteEl.play().catch(console.warn);
-              console.log('🔄 Forced remote video play');
-            }
-          }, 100);
-          
-          setTimeout(() => {
-            if (remoteEl.paused) {
-              remoteEl.play().catch(console.warn);
-              console.log('🔄 Second attempt to play remote video');
-            }
-          }, 500);
-          
-          // Additional retry for stubborn cases
-          setTimeout(() => {
-            if (remoteEl.videoWidth === 0 || remoteEl.paused) {
-              console.log('🔄 Remote video still not working, retrying...');
-              remoteEl.srcObject = null;
-              remoteEl.load();
-              setTimeout(() => {
-                remoteEl.srcObject = remoteStreamRef.current;
+            remoteEl.srcObject = remoteStreamRef.current;
+            remoteEl.muted = false;
+            remoteEl.playsInline = true;
+            remoteEl.autoplay = true;
+            
+            // Force play immediately
+            remoteEl.play().catch(console.warn);
+            console.log(`✅ Remote video stream set with ${ev.track.kind} track`);
+            
+            // Multiple aggressive play attempts
+            const forcePlay = () => {
+              if (remoteEl.paused || remoteEl.videoWidth === 0) {
                 remoteEl.play().catch(console.warn);
-              }, 100);
+                console.log('🔄 Aggressive remote video play attempt');
+              }
+            };
+            
+            // Try every 100ms for 2 seconds
+            for (let i = 0; i < 20; i++) {
+              setTimeout(forcePlay, i * 100);
             }
-          }, 1000);
+            
+            // Additional retry with stream refresh
+            setTimeout(() => {
+              if (remoteEl.videoWidth === 0 || remoteEl.paused) {
+                console.log('🔄 Mobile remote video retry with stream refresh...');
+                remoteEl.srcObject = null;
+                remoteEl.load();
+                setTimeout(() => {
+                  remoteEl.srcObject = remoteStreamRef.current;
+                  remoteEl.play().catch(console.warn);
+                  
+                  // More aggressive play attempts
+                  for (let i = 0; i < 10; i++) {
+                    setTimeout(() => {
+                      if (remoteEl.paused) {
+                        remoteEl.play().catch(console.warn);
+                      }
+                    }, i * 200);
+                  }
+                }, 200);
+              }
+            }, 2000);
+            
+          }, 50);
         } else {
           console.warn('⚠️ Remote video element not ready, retrying...');
-          setTimeout(setupRemoteVideo, 200);
+          setTimeout(setupRemoteVideo, 100);
         }
       };
       
@@ -2202,69 +2217,103 @@ export default function CallRoomPage() {
     }
   }, []);
 
-  // Comprehensive video refresh system for screen time
+  // ULTRA-AGGRESSIVE video refresh system for mobile/Vercel
   useEffect(() => {
     if (status !== "connected") return;
     
-    console.log('🔄 Comprehensive video refresh for screen time...');
+    console.log('🔄 ULTRA-AGGRESSIVE video refresh for mobile/Vercel...');
     
-    // Multiple refresh attempts to ensure video works
-    const refreshVideo = (attempt = 1) => {
+    // Continuous refresh for mobile - runs every 2 seconds
+    const mobileRefreshInterval = setInterval(() => {
       const localVideo = localVideoRef.current;
       const remoteVideo = remoteVideoRef.current;
       
-      console.log(`🔄 Video refresh attempt ${attempt}`);
+      console.log('🔄 Mobile continuous video refresh...');
       
       // Local video refresh
       if (localVideo && localStreamRef.current) {
         if (!localVideo.srcObject || localVideo.videoWidth === 0) {
-          console.log('🔄 Refreshing local video...');
+          console.log('🔄 Mobile: Refreshing local video...');
           localVideo.srcObject = null;
           localVideo.load();
           setTimeout(() => {
             localVideo.srcObject = localStreamRef.current;
             localVideo.play().catch(console.warn);
           }, 100);
-        } else {
-          console.log('✅ Local video is working');
         }
       }
       
-      // Remote video refresh - more aggressive
+      // Remote video refresh - ULTRA-AGGRESSIVE for mobile
       if (remoteVideo && remoteStreamRef.current) {
         if (!remoteVideo.srcObject || remoteVideo.videoWidth === 0) {
-          console.log('🔄 Refreshing remote video...');
+          console.log('🔄 Mobile: ULTRA-AGGRESSIVE remote video refresh...');
           remoteVideo.srcObject = null;
           remoteVideo.load();
           setTimeout(() => {
             remoteVideo.srcObject = remoteStreamRef.current;
+            remoteVideo.muted = false;
+            remoteVideo.playsInline = true;
+            remoteVideo.autoplay = true;
             remoteVideo.play().catch(console.warn);
             
-            // Force play multiple times
-            setTimeout(() => {
-              if (remoteVideo.paused) {
-                remoteVideo.play().catch(console.warn);
-                console.log('🔄 Forced remote video play after refresh');
-              }
-            }, 200);
+            // Multiple aggressive play attempts
+            for (let i = 0; i < 5; i++) {
+              setTimeout(() => {
+                if (remoteVideo.paused) {
+                  remoteVideo.play().catch(console.warn);
+                  console.log(`🔄 Mobile remote video play attempt ${i + 1}`);
+                }
+              }, i * 300);
+            }
           }, 100);
-        } else {
-          console.log('✅ Remote video is working');
+        }
+      }
+    }, 2000); // Every 2 seconds
+    
+    // Initial aggressive refresh sequence
+    const initialRefresh = (attempt = 1) => {
+      const localVideo = localVideoRef.current;
+      const remoteVideo = remoteVideoRef.current;
+      
+      console.log(`🔄 Mobile initial refresh attempt ${attempt}`);
+      
+      // Force setup both videos
+      if (localVideo && localStreamRef.current) {
+        localVideo.srcObject = localStreamRef.current;
+        localVideo.play().catch(console.warn);
+      }
+      
+      if (remoteVideo && remoteStreamRef.current) {
+        remoteVideo.srcObject = remoteStreamRef.current;
+        remoteVideo.muted = false;
+        remoteVideo.playsInline = true;
+        remoteVideo.autoplay = true;
+        remoteVideo.play().catch(console.warn);
+        
+        // Aggressive play attempts
+        for (let i = 0; i < 10; i++) {
+          setTimeout(() => {
+            if (remoteVideo.paused) {
+              remoteVideo.play().catch(console.warn);
+            }
+          }, i * 200);
         }
       }
       
-      // Retry if needed (max 5 attempts for remote video)
-      if (attempt < 5) {
-        setTimeout(() => refreshVideo(attempt + 1), 1000);
+      // Retry up to 10 times
+      if (attempt < 10) {
+        setTimeout(() => initialRefresh(attempt + 1), 1000);
       }
     };
     
-    // Start refresh sequence - more frequent for remote video
-    setTimeout(() => refreshVideo(1), 500);
-    setTimeout(() => refreshVideo(2), 1500);
-    setTimeout(() => refreshVideo(3), 3000);
-    setTimeout(() => refreshVideo(4), 5000);
-    setTimeout(() => refreshVideo(5), 8000);
+    // Start initial refresh sequence
+    setTimeout(() => initialRefresh(1), 500);
+    setTimeout(() => initialRefresh(2), 2000);
+    setTimeout(() => initialRefresh(3), 5000);
+    
+    return () => {
+      clearInterval(mobileRefreshInterval);
+    };
   }, [status]);
 
   // Comprehensive media test function
@@ -2637,6 +2686,55 @@ export default function CallRoomPage() {
               className="w-full"
             >
               🔍 Debug Video
+            </Button>
+            
+            {/* Mobile-specific force video button */}
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                console.log('🚀 MOBILE FORCE VIDEO REFRESH');
+                
+                // Force local video
+                if (localVideoRef.current && localStreamRef.current) {
+                  const localEl = localVideoRef.current;
+                  localEl.srcObject = null;
+                  localEl.load();
+                  setTimeout(() => {
+                    localEl.srcObject = localStreamRef.current;
+                    localEl.play().catch(console.warn);
+                    console.log('✅ Mobile local video forced');
+                  }, 100);
+                }
+                
+                // Force remote video - ULTRA-AGGRESSIVE
+                if (remoteVideoRef.current && remoteStreamRef.current) {
+                  const remoteEl = remoteVideoRef.current;
+                  remoteEl.srcObject = null;
+                  remoteEl.load();
+                  setTimeout(() => {
+                    remoteEl.srcObject = remoteStreamRef.current;
+                    remoteEl.muted = false;
+                    remoteEl.playsInline = true;
+                    remoteEl.autoplay = true;
+                    remoteEl.play().catch(console.warn);
+                    console.log('✅ Mobile remote video forced');
+                    
+                    // Multiple aggressive play attempts
+                    for (let i = 0; i < 20; i++) {
+                      setTimeout(() => {
+                        if (remoteEl.paused) {
+                          remoteEl.play().catch(console.warn);
+                        }
+                      }, i * 100);
+                    }
+                  }, 100);
+                }
+                
+                alert('Mobile video force refresh triggered!');
+              }}
+              className="w-full bg-red-600 text-white hover:bg-red-700"
+            >
+              🚀 MOBILE FORCE VIDEO
             </Button>
             
             {/* Comprehensive test button */}
