@@ -500,8 +500,22 @@ export default function CallRoomPage() {
           const next = encodeURIComponent(location.pathname + location.search);
           router.replace(`/login?next=${next}`);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Authentication error:', error);
+        
+        // Handle specific auth errors
+        if (error?.message?.includes('Invalid Refresh Token') || 
+            error?.message?.includes('Refresh Token Not Found')) {
+          console.log('🔄 Invalid refresh token detected, clearing session and redirecting');
+          try {
+            await supabase.auth.signOut();
+            localStorage.removeItem('sb-app-auth');
+            sessionStorage.clear();
+          } catch (e) {
+            console.warn('Error during signout:', e);
+          }
+        }
+        
         // Redirect to login on any auth error
         const next = encodeURIComponent(location.pathname + location.search);
         router.replace(`/login?next=${next}`);

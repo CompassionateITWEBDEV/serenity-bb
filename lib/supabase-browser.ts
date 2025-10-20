@@ -38,6 +38,30 @@ export const supabase: SupabaseClient<DB> =
   globalThis.__SB_CLIENT__ ?? (globalThis.__SB_CLIENT__ = makeClient());
 export default supabase;
 
+// Global auth error handler
+if (typeof window !== "undefined") {
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+      console.log('🔄 Auth state changed:', event);
+    }
+  });
+  
+  // Catch unhandled auth errors
+  window.addEventListener('unhandledrejection', (event) => {
+    if (event.reason?.message?.includes('Invalid Refresh Token') || 
+        event.reason?.message?.includes('Refresh Token Not Found')) {
+      console.warn('⚠️ Unhandled auth error caught:', event.reason);
+      event.preventDefault();
+      // Clear session and redirect
+      supabase.auth.signOut().then(() => {
+        localStorage.removeItem(STORAGE_KEY);
+        sessionStorage.clear();
+        window.location.href = '/login';
+      });
+    }
+  });
+}
+
 // ── Auth helpers ─────────────────────────────────────────────────────────────
 export async function getAuthSession(): Promise<Session | null> {
   const { data } = await supabase.auth.getSession();
@@ -57,9 +81,12 @@ export async function getAccessToken(): Promise<string | null> {
     const refreshed = await supabase.auth.refreshSession();
     return refreshed.data.session?.access_token ?? null;
   } catch (e: any) {
-    if (typeof e?.message === "string" && /invalid\s+refresh\s+token|not\s+found/i.test(e.message)) {
+    console.warn('⚠️ Auth error in getAccessToken:', e);
+    if (typeof e?.message === "string" && /invalid\s+refresh\s+token|not\s+found|refresh\s+token\s+not\s+found/i.test(e.message)) {
+      console.log('🔄 Invalid refresh token detected, clearing session and redirecting to login');
       try { await supabase.auth.signOut(); } catch {}
       try { localStorage.removeItem(STORAGE_KEY); } catch {}
+      try { sessionStorage.clear(); } catch {}
       if (typeof window !== "undefined") {
         const next = encodeURIComponent(window.location.pathname + window.location.search);
         window.location.href = `/login?next=${next}`;
