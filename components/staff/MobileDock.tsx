@@ -16,16 +16,21 @@ export default function MobileDock() {
   const router = useRouter();
   const pathname = usePathname();
   
-  const isActive = (path: string) => pathname?.startsWith(path);
+  const isActive = (path: string) => {
+    if (path.includes('?view=tests')) {
+      return pathname?.startsWith('/staff/dashboard') && pathname?.includes('view=tests');
+    }
+    return pathname?.startsWith(path);
+  };
   
   const navItems = [
-    { icon: Home, path: "/staff/dashboard", label: "Dashboard" },
-    { icon: Users, path: "/staff/patient-inbox", label: "Patients" },
-    { icon: MessageSquare, path: "/staff/messages", label: "Messages" },
-    { icon: TestTube2, path: "/staff/dashboard", label: "Tests" },
-    { icon: Video, path: "/staff/broadcasts", label: "Calls" },
-    { icon: Bell, path: "/staff/notifications", label: "Alerts" },
-    { icon: Settings, path: "/staff/profile", label: "Settings" },
+    { icon: Home, path: "/staff/dashboard", label: "Dashboard", id: "dashboard" },
+    { icon: Users, path: "/staff/patient-inbox", label: "Patients", id: "patients" },
+    { icon: MessageSquare, path: "/staff/messages", label: "Messages", id: "messages" },
+    { icon: TestTube2, path: "/staff/dashboard?view=tests", label: "Tests", id: "tests" },
+    { icon: Video, path: "/staff/broadcasts", label: "Calls", id: "calls" },
+    { icon: Bell, path: "/staff/notifications", label: "Alerts", id: "alerts" },
+    { icon: Settings, path: "/staff/profile", label: "Settings", id: "settings" },
   ];
 
   return (
@@ -37,7 +42,7 @@ export default function MobileDock() {
           
           return (
             <Button
-              key={item.path}
+              key={item.id}
               type="button"
               variant={active ? "default" : "ghost"}
               size="sm"
