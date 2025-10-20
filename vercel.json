@@ -1,6 +1,6 @@
 {
   "version": 2,
   "buildCommand": "pnpm run build",
-  "installCommand": "pnpm install --no-frozen-lockfile",
+  "installCommand": "pnpm install --no-frozen-lockfile --strict-peer-dependencies=false",
   "outputDirectory": ".next"
 }
