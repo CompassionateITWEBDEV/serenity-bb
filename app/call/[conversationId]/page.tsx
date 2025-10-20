@@ -1059,7 +1059,47 @@ export default function CallRoomPage() {
           return basicStream;
         } catch (basicError: any) {
           console.warn("❌ Basic constraints also failed:", basicError);
-          throw error; // Throw the original error
+
+          // Targeted retry for localhost: iterate devices and try explicit deviceId
+          try {
+            const all = await navigator.mediaDevices.enumerateDevices();
+            const cams = all.filter((d) => d.kind === "videoinput");
+            const mics = all.filter((d) => d.kind === "audioinput");
+
+            for (const cam of cams) {
+              const deviceConstraints: MediaStreamConstraints = {
+                video: { deviceId: { exact: cam.deviceId } },
+                audio: mics.length ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false,
+              };
+              try {
+                console.log('🎯 Trying explicit deviceId for camera:', cam.label || cam.deviceId);
+                const s = await navigator.mediaDevices.getUserMedia(deviceConstraints);
+                console.log('✅ Media stream acquired with explicit deviceId');
+                setIsFallbackStream(false);
+                return s;
+              } catch (perDeviceErr: any) {
+                console.warn('⚠️ Device-specific getUserMedia failed:', perDeviceErr?.name || perDeviceErr?.message || perDeviceErr);
+                // Continue trying other devices
+              }
+            }
+
+            // Final fallback for localhost: canvas stream so the call can proceed
+            console.warn('⚠️ Falling back to canvas video stream');
+            const canvas = document.createElement('canvas');
+            canvas.width = 320; canvas.height = 240;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, 320, 240);
+              ctx.fillStyle = '#ffffff'; ctx.font = '16px Arial'; ctx.textAlign = 'center';
+              ctx.fillText('Camera unavailable', 160, 120);
+            }
+            const fallback = canvas.captureStream(24);
+            setIsFallbackStream(true);
+            return fallback;
+          } catch (retryErr) {
+            console.warn('⚠️ Localhost retry path failed:', retryErr);
+            throw error; // Throw the original error if all retries fail
+          }
         }
       }
     } catch (error: any) {
@@ -1125,6 +1165,17 @@ export default function CallRoomPage() {
         try {
           // Both participants are already ready with streams, just handle the offer
         const pc = ensurePC();
+        // Ensure callee has local media tracks before answering
+        if (!localStreamRef.current) {
+          console.log('🎤 No local stream yet on callee; acquiring now before answering...');
+          try {
+            localStreamRef.current = await getMediaStream();
+            setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+            localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
+          } catch (e) {
+            console.warn('⚠️ Failed to acquire local media before answer:', e);
+          }
+        }
           
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
           const answer = await pc.createAnswer({
