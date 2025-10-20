@@ -723,11 +723,19 @@ export default function CallRoomPage() {
         setStatus("connected");
         callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
         startAudioLevelMonitoring();
+        
+        // Ensure video elements are set up when ICE connects
         if (localStreamRef.current) {
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+          (async () => {
+            const el = await waitForRef(localVideoRef);
+            if (el) setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+          })();
         }
         if (remoteStreamRef.current) {
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+          (async () => {
+            const el = await waitForRef(remoteVideoRef);
+            if (el) setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+          })();
         }
       } else if (iceState === "failed") {
         console.error("❌ ICE connection failed - trying to restart ICE");
@@ -1194,7 +1202,14 @@ export default function CallRoomPage() {
       }
 
       if (msg.kind === "webrtc-offer") {
+        // Prevent redundant processing
+        if (callProcessed) {
+          console.log('⏭️ Call already processed, ignoring duplicate offer');
+          return;
+        }
+        
         console.log('📞 Received offer from peer, answering immediately...');
+        setCallProcessed(true); // Mark as processed
         
         try {
           // Both participants are already ready with streams, just handle the offer
@@ -1205,13 +1220,18 @@ export default function CallRoomPage() {
           setStatus("connecting"); // Show connecting only when actually accepting
           try {
             localStreamRef.current = await getMediaStream();
-            setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+            // Wait for video element to mount before setup
+            const el = await waitForRef(localVideoRef);
+            if (el) {
+              setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+            }
             localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
             console.log('✅ Callee media acquired and tracks added');
           } catch (e) {
             console.warn('⚠️ Failed to acquire local media before answer:', e);
             setStatus("failed");
             setMediaError("Failed to access camera/microphone. Please try again.");
+            setCallProcessed(false); // Reset on error
             return;
           }
         }
@@ -1224,7 +1244,25 @@ export default function CallRoomPage() {
           
         await pc.setLocalDescription(answer);
         sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
-          console.log('✅ Answer sent');
+        console.log('✅ Answer sent');
+        
+        // Fallback: ensure callee transitions to connected after a short delay
+        // This handles cases where ICE connection state changes are missed
+        setTimeout(() => {
+          if (status === "connecting") {
+            console.log('🔄 Callee fallback: transitioning to connected');
+            setStatus("connected");
+            callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+            startAudioLevelMonitoring();
+          }
+        }, 2000);
+        
+        // Prevent further offer processing once connected
+        setTimeout(() => {
+          if (status === "connected") {
+            setCallProcessed(true);
+          }
+        }, 3000);
         } catch (error) {
           console.error('❌ Failed to handle offer:', error);
           setStatus("failed");
@@ -1247,6 +1285,7 @@ export default function CallRoomPage() {
         }
       } else if (msg.kind === "bye") {
         console.log('📞 Received bye from peer');
+        setCallProcessed(false); // Reset for next call
         endCall(true);
       }
     });
@@ -1442,8 +1481,8 @@ export default function CallRoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authChecked, me?.id, role]);
 
-  // Callee preparation: only prepare when offer arrives (not on page load)
-  // This keeps callee in "idle" state until they actually accept
+  // Prevent redundant call processing - track if already handled
+  const [callProcessed, setCallProcessed] = useState(false);
 
   // Cleanup connection timeout on unmount
   useEffect(() => {
@@ -1451,6 +1490,7 @@ export default function CallRoomPage() {
       if (connectionTimeout) {
         clearTimeout(connectionTimeout);
       }
+      setCallProcessed(false); // Reset call state on unmount
     };
   }, [connectionTimeout]);
 
