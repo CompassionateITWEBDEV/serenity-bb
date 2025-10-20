@@ -420,20 +420,20 @@ export default function CallRoomPage() {
     let alive = true;
     (async () => {
       try {
-        const { data: session } = await supabase.auth.getSession();
-        if (!alive) return;
-        if (session.session?.user) {
-          const user = session.session.user;
+      const { data: session } = await supabase.auth.getSession();
+      if (!alive) return;
+      if (session.session?.user) {
+        const user = session.session.user;
           try {
-            const userRole = await determineUserRole(user.id);
-            setMe({ 
-              id: user.id, 
-              email: user.email,
-              name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-              role: userRole
-            });
-            setAuthChecked(true);
-            return;
+        const userRole = await determineUserRole(user.id);
+        setMe({ 
+          id: user.id, 
+          email: user.email,
+          name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+          role: userRole
+        });
+        setAuthChecked(true);
+        return;
           } catch (roleError) {
             console.error('Error determining user role:', roleError);
             // Fallback to patient role
@@ -446,44 +446,44 @@ export default function CallRoomPage() {
             setAuthChecked(true);
             return;
           }
-        }
-        const { data: user } = await supabase.auth.getUser();
-        if (user.user) {
+      }
+      const { data: user } = await supabase.auth.getUser();
+      if (user.user) {
           try {
-            const userRole = await determineUserRole(user.user.id);
+        const userRole = await determineUserRole(user.user.id);
+        setMe({ 
+          id: user.user.id, 
+          email: user.user.email,
+          name: user.user.user_metadata?.name || user.user.email?.split('@')[0] || 'User',
+          role: userRole
+        });
+        setAuthChecked(true);
+        return;
+          } catch (roleError) {
+            console.error('Error determining user role:', roleError);
+            // Fallback to patient role
             setMe({ 
               id: user.user.id, 
               email: user.user.email,
               name: user.user.user_metadata?.name || user.user.email?.split('@')[0] || 'User',
-              role: userRole
-            });
-            setAuthChecked(true);
-            return;
-          } catch (roleError) {
-            console.error('Error determining user role:', roleError);
-            // Fallback to patient role
-            setMe({ 
-              id: user.user.id, 
-              email: user.user.email,
-              name: user.user.user_metadata?.name || user.user.email?.split('@')[0] || 'User',
               role: 'patient'
             });
             setAuthChecked(true);
             return;
           }
-        }
-        const { data: refreshed } = await supabase.auth.refreshSession();
-        if (refreshed.session?.user) {
-          const user = refreshed.session.user;
+      }
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      if (refreshed.session?.user) {
+        const user = refreshed.session.user;
           try {
-            const userRole = await determineUserRole(user.id);
-            setMe({ 
-              id: user.id, 
-              email: user.email,
-              name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-              role: userRole
-            });
-            setAuthChecked(true);
+        const userRole = await determineUserRole(user.id);
+        setMe({ 
+          id: user.id, 
+          email: user.email,
+          name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+          role: userRole
+        });
+        setAuthChecked(true);
           } catch (roleError) {
             console.error('Error determining user role:', roleError);
             // Fallback to patient role
@@ -495,8 +495,8 @@ export default function CallRoomPage() {
             });
             setAuthChecked(true);
           }
-        } else {
-          // Keep next so user returns straight to the call if they log in
+      } else {
+        // Keep next so user returns straight to the call if they log in
           const next = encodeURIComponent(location.pathname + location.search);
           router.replace(`/login?next=${next}`);
         }
@@ -605,7 +605,7 @@ export default function CallRoomPage() {
   // Function to setup video element with retry
   const setupVideoElementWithRetry = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream | null, isLocal: boolean, maxRetries = 10, delayMs = 150) => {
     let retries = 0;
-
+    
     const trySetup = () => {
       const ok = setupVideoElement(videoRef, stream, isLocal);
       if (ok) return true;
@@ -614,12 +614,12 @@ export default function CallRoomPage() {
         console.warn(`❌ Failed to setup video element after ${maxRetries} retries`);
         return false;
       }
-      retries++;
-      console.log(`🔄 Retrying video setup (${retries}/${maxRetries})...`);
+        retries++;
+        console.log(`🔄 Retrying video setup (${retries}/${maxRetries})...`);
       setTimeout(trySetup, delayMs);
-      return false;
+        return false;
     };
-
+    
     return trySetup();
   }, [setupVideoElement]);
 
@@ -772,17 +772,17 @@ export default function CallRoomPage() {
     initVideoElements();
     setTimeout(initVideoElements, 100);
     setTimeout(initVideoElements, 500);
-    
-    getAvailableDevices();
-    
+      
+      getAvailableDevices();
+      
     // Request permissions and prepare for call
     const prepareCall = async () => {
-      try {
+        try {
         console.log('🔐 Preparing call permissions...');
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: true, 
-          video: mode === "video" 
-        });
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: true, 
+            video: mode === "video" 
+          });
         console.log('✅ Call permissions granted');
         
         // Store the stream for immediate use
@@ -797,7 +797,7 @@ export default function CallRoomPage() {
         }
         
         // Don't stop the stream - keep it for the call
-      } catch (error) {
+        } catch (error) {
         console.warn("⚠️ Permission request failed:", error);
         setMediaError("Camera/microphone access denied. Please allow access and refresh the page.");
       }
@@ -830,8 +830,8 @@ export default function CallRoomPage() {
   // ---------- WebRTC core ----------
   const ensurePC = useCallback(() => {
     try {
-      if (pcRef.current) return pcRef.current;
-      const pc = new RTCPeerConnection({ iceServers: buildIceServers() });
+    if (pcRef.current) return pcRef.current;
+    const pc = new RTCPeerConnection({ iceServers: buildIceServers() });
 
     pc.onicecandidate = (ev) => {
       if (ev.candidate && me?.id) {
@@ -869,9 +869,9 @@ export default function CallRoomPage() {
       
       if (iceState === "connected" || iceState === "completed") {
         console.log("✅ ICE connection established");
-        setStatus("connected");
-        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-        startAudioLevelMonitoring();
+          setStatus("connected");
+          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+          startAudioLevelMonitoring();
         
         // Ensure video elements are set up when ICE connects
         if (localStreamRef.current) {
@@ -944,18 +944,18 @@ export default function CallRoomPage() {
       } else {
         console.warn('⚠️ Remote video element or stream not ready');
         // Retry after a short delay
-        setTimeout(() => {
-          if (remoteVideoRef.current && remoteStreamRef.current) {
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
             remoteVideoRef.current.srcObject = remoteStreamRef.current;
             remoteVideoRef.current.play().catch(console.warn);
             console.log('✅ Remote video set up on retry');
-          }
+        }
         }, 200);
       }
     };
 
-      pcRef.current = pc;
-      return pc;
+    pcRef.current = pc;
+    return pc;
     } catch (error) {
       console.warn('⚠️ ensurePC error:', error);
       // Return a dummy PC to prevent further errors
@@ -1335,16 +1335,16 @@ export default function CallRoomPage() {
 
   const sendSignal = useCallback((payload: SigPayload) => {
     try {
-      if (!threadChanRef.current) {
+    if (!threadChanRef.current) {
         console.warn('⚠️ Cannot send signal: channel not available');
-        return;
-      }
-      console.log(`📤 Sending signal:`, payload);
-      threadChanRef.current.send({ type: "broadcast", event: "signal", payload })
-        .then(() => {
-          console.log(`✅ Signal sent successfully:`, payload.kind);
-        })
-        .catch((error) => {
+      return;
+    }
+    console.log(`📤 Sending signal:`, payload);
+    threadChanRef.current.send({ type: "broadcast", event: "signal", payload })
+      .then(() => {
+        console.log(`✅ Signal sent successfully:`, payload.kind);
+      })
+      .catch((error) => {
           console.warn(`⚠️ Failed to send signal:`, error);
         });
     } catch (error) {
@@ -1425,13 +1425,13 @@ export default function CallRoomPage() {
         await pc.setLocalDescription(answer);
         sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
         console.log('✅ Answer sent');
-        
+          
         // Immediately transition to connected after sending answer
         console.log('🔄 Callee: transitioning to connected after answer sent');
-        setStatus("connected");
-        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-        startAudioLevelMonitoring();
-        
+          setStatus("connected");
+          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+          startAudioLevelMonitoring();
+          
         // Force video refresh for both participants
         setTimeout(() => {
           console.log('🔄 Forcing video refresh after answer sent');
@@ -1473,7 +1473,7 @@ export default function CallRoomPage() {
         setTimeout(setupCalleeVideo, 500);
         
         // Additional fallback for ICE connection issues
-        setTimeout(() => {
+          setTimeout(() => {
           if (status !== "connected") {
             console.log('🔄 Callee fallback: forcing connected status');
             setStatus("connected");
@@ -1630,7 +1630,7 @@ export default function CallRoomPage() {
       // Callee shows idle and waits
       setMediaError(null);
     } else {
-      setStatus("connecting");
+    setStatus("connecting");
       setMediaError(null);
     }
     setMediaError(null);

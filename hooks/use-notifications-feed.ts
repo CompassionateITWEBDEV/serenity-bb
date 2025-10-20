@@ -165,5 +165,3 @@ export function useNotificationsFeed(pageSize = 12) {
 
   return { items, unreadCount, loading, loadingMore, error, hasMore, loadMore, refresh, markRead, markAllRead };
 }
-tsx
-Copy code
