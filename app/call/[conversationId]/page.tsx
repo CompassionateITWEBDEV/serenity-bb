@@ -508,26 +508,51 @@ export default function CallRoomPage() {
     // Safe play with proper error handling
     const playVideo = async () => {
       try {
+        console.log(`🎬 Attempting to play ${isLocal ? 'local' : 'remote'} video:`, {
+          readyState: video.readyState,
+          paused: video.paused,
+          srcObject: !!video.srcObject,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight
+        });
+        
         if (video.readyState < 2) {
+          console.log(`⏳ Waiting for video metadata to load...`);
           await new Promise((resolve) => {
             video.addEventListener('loadedmetadata', resolve, { once: true });
-            setTimeout(resolve, 1000);
+            setTimeout(resolve, 2000); // Increased timeout
           });
         }
+        
         if (video.paused) {
           await video.play();
           console.log(`✅ Video started playing for ${isLocal ? 'local' : 'remote'}`);
+        } else {
+          console.log(`▶️ Video already playing for ${isLocal ? 'local' : 'remote'}`);
         }
       } catch (err) {
         console.warn(`Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
+        // Try again after a short delay
+        setTimeout(async () => {
+          try {
+            await video.play();
+            console.log(`✅ Video started playing on retry for ${isLocal ? 'local' : 'remote'}`);
+          } catch (retryErr) {
+            console.warn(`Failed to play video on retry:`, retryErr);
+          }
+        }, 500);
       }
     };
 
-    // Slight delay improves stability across browsers
+    // Immediate setup and delayed play
+    try { video.load(); } catch {}
+    void playVideo();
+    
+    // Additional retry after delay
     setTimeout(() => {
       try { video.load(); } catch {}
       void playVideo();
-    }, 100);
+    }, 500);
 
     return true;
   }, []);
@@ -611,6 +636,29 @@ export default function CallRoomPage() {
           setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
         }
       }, 1000);
+      
+      // Force video refresh to fix black screen issues
+      setTimeout(() => {
+        console.log('🔄 Force refreshing video elements to fix black screen');
+        if (localVideoRef.current && localStreamRef.current) {
+          const video = localVideoRef.current;
+          video.srcObject = null;
+          video.load();
+          setTimeout(() => {
+            video.srcObject = localStreamRef.current;
+            video.play().catch(console.warn);
+          }, 100);
+        }
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          const video = remoteVideoRef.current;
+          video.srcObject = null;
+          video.load();
+          setTimeout(() => {
+            video.srcObject = remoteStreamRef.current;
+            video.play().catch(console.warn);
+          }, 100);
+        }
+      }, 2000);
     }
   }, [status, setupVideoElement]);
 
@@ -1904,6 +1952,33 @@ export default function CallRoomPage() {
     }
   }, []);
 
+  // Debug function to refresh video streams
+  const refreshVideoStreams = useCallback(() => {
+    console.log('🔄 Manually refreshing video streams...');
+    
+    if (localVideoRef.current && localStreamRef.current) {
+      console.log('🔄 Refreshing local video');
+      const video = localVideoRef.current;
+      video.srcObject = null;
+      video.load();
+      setTimeout(() => {
+        video.srcObject = localStreamRef.current;
+        video.play().catch(console.warn);
+      }, 100);
+    }
+    
+    if (remoteVideoRef.current && remoteStreamRef.current) {
+      console.log('🔄 Refreshing remote video');
+      const video = remoteVideoRef.current;
+      video.srcObject = null;
+      video.load();
+      setTimeout(() => {
+        video.srcObject = remoteStreamRef.current;
+        video.play().catch(console.warn);
+      }, 100);
+    }
+  }, []);
+
   // Comprehensive media test function
   const testAllMedia = useCallback(async () => {
     console.log('=== COMPREHENSIVE MEDIA TEST ===');
@@ -2189,6 +2264,15 @@ export default function CallRoomPage() {
               className="w-full"
             >
               📹 Test Video
+            </Button>
+            
+            {/* Refresh video streams button */}
+            <Button 
+              variant="outline" 
+              onClick={refreshVideoStreams}
+              className="w-full"
+            >
+              🔄 Refresh Video
             </Button>
             
             {/* Comprehensive test button */}
