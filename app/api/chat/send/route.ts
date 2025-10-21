@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   const me = au.user;
   if (!me) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const { conversationId, content } = await req.json();
+  const { conversationId, content, sessionId, messageType = "text", metadata = {} } = await req.json();
   if (!conversationId || !content?.trim())
     return NextResponse.json({ error: "invalid" }, { status: 400 });
 
@@ -30,17 +30,20 @@ export async function POST(req: Request) {
   const sender_role = role.includes("doc") ? "doctor" : role.includes("counsel") ? "counselor" : "nurse";
   const sender_name = (me.user_metadata?.full_name as string) || me.email || "Staff";
 
+  const messageData = {
+    conversation_id: conversationId,
+    patient_id: conv.patient_id,
+    sender_id: me.id,
+    sender_name,
+    sender_role,
+    content: String(content).trim(),
+    read: false,
+    ...(sessionId && { metadata: { ...metadata, session_id: sessionId, message_type: messageType } })
+  };
+
   const { data: msg, error } = await supabase
     .from("messages")
-    .insert({
-      conversation_id: conversationId,
-      patient_id: conv.patient_id,
-      sender_id: me.id,
-      sender_name,
-      sender_role,
-      content: String(content).trim(),
-      read: false
-    })
+    .insert(messageData)
     .select("*")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

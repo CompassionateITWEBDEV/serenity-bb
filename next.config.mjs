@@ -15,7 +15,7 @@ const nextConfig = {
       rules: {}
     },
   },
-  // Webpack configuration to fix chunk loading issues
+  // Webpack configuration to fix module compatibility issues
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {
@@ -26,26 +26,22 @@ const nextConfig = {
       };
     }
     
-    // Fix chunk loading issues
-    config.optimization = {
-      ...config.optimization,
-      splitChunks: {
-        chunks: 'all',
-        cacheGroups: {
-          default: {
-            minChunks: 1,
-            priority: -20,
-            reuseExistingChunk: true,
-          },
-          vendor: {
-            test: /[\\/]node_modules[\\/]/,
-            name: 'vendors',
-            priority: -10,
-            chunks: 'all',
-          },
-        },
-      },
+    // Fix CommonJS/ESM compatibility issues
+    config.resolve.extensionAlias = {
+      '.js': ['.js', '.ts', '.tsx'],
+      '.jsx': ['.jsx', '.tsx'],
     };
+    
+    // Fix exports issue
+    config.module.rules.push({
+      test: /\.m?js$/,
+      resolve: {
+        fullySpecified: false,
+      },
+    });
+    
+    // Fix for vendors.js exports issue
+    config.resolve.mainFields = ['browser', 'module', 'main'];
     
     return config;
   },

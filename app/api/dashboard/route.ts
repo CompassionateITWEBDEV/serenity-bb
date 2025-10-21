@@ -15,7 +15,7 @@ export async function GET() {
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
   if (!url || !anon) return json({ error: "Supabase env missing" }, 500);
 
-  const store = cookies();
+  const store = await cookies();
   const supabase = createServerClient(url, anon, {
     cookies: {
       get: (k) => store.get(k)?.value,
