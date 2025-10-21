@@ -84,19 +84,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
-    // Update call session if accepted
+    // Update call session if accepted - automatically connect
     let updatedSession = null;
     if (response === "accepted") {
       const { data: session, error: sessionError } = await supabase
         .from("call_sessions")
         .update({
-          status: "ringing",
+          status: "connected", // Directly set to connected instead of ringing
           metadata: {
             ...invitation.metadata,
             staff_accepted: true,
             staff_id: au.user.id,
             staff_name: staffName,
-            accepted_at: new Date().toISOString()
+            accepted_at: new Date().toISOString(),
+            auto_connect: true // Flag to trigger automatic connection
           }
         })
         .eq("conversation_id", invitation.conversation_id)
@@ -116,12 +117,13 @@ export async function POST(req: NextRequest) {
       await supabase
         .from("call_history")
         .update({
-          status: "ringing",
+          status: "connected", // Directly set to connected
           metadata: {
             staff_accepted: true,
             staff_id: au.user.id,
             staff_name: staffName,
-            accepted_at: new Date().toISOString()
+            accepted_at: new Date().toISOString(),
+            auto_connect: true
           }
         })
         .eq("conversation_id", invitation.conversation_id)
@@ -177,7 +179,7 @@ export async function POST(req: NextRequest) {
 
     await patientChannel.send({
       type: "broadcast",
-      event: "video-call-response",
+      event: response === "accepted" ? "call-accepted" : "video-call-response",
       payload: {
         invitation_id: invitationId,
         conversation_id: invitation.conversation_id,
@@ -187,6 +189,7 @@ export async function POST(req: NextRequest) {
         message,
         call_type: invitation.call_type,
         session: updatedSession,
+        auto_connect: response === "accepted", // Signal to auto-connect
         timestamp: new Date().toISOString(),
         metadata
       },

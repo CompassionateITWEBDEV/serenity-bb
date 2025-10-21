@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
 
     // If autoInitiateCall is true, automatically create video call session and invitation
     if (autoInitiateCall) {
-      // Create call session
+      // Create call session with improved flow
       const { data: session, error: sessionError } = await supabase
         .from("call_sessions")
         .insert({
@@ -96,11 +96,12 @@ export async function POST(req: NextRequest) {
           caller_id: au.user.id,
           callee_id: conversation.provider_id,
           call_type: callType,
-          status: "initiated",
+          status: "initiated", // Start as initiated, will change to ringing when staff accepts
           started_at: new Date().toISOString(),
           metadata: {
             auto_initiated: true,
             message_id: chatMessage.id,
+            systematic_flow: true, // Flag for improved flow
             ...metadata
           }
         })
