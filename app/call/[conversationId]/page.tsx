@@ -125,14 +125,71 @@ function VideoTile({
       video.load(); // Force reload
     }
     
+    // Periodic check for video stream detection (fallback)
+    const checkVideoStream = () => {
+      if (video.srcObject && video.readyState >= 2 && !hasVideoStream) {
+        console.log(`🔄 Periodic check: Video stream detected for ${label}`);
+        setShowVideo(true);
+        setHasVideoStream(true);
+      }
+    };
+    
+    // Check immediately and then periodically
+    checkVideoStream();
+    const interval = setInterval(checkVideoStream, 1000);
+    
+    // Cleanup interval after 30 seconds
+    const timeout = setTimeout(() => clearInterval(interval), 30000);
+    
     return () => {
       video.removeEventListener('loadstart', handleLoadStart);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('error', handleError);
+      clearInterval(interval);
+      clearTimeout(timeout);
     };
   }, [videoRef, label]);
+
+  // Additional effect to detect video stream changes
+  useEffect(() => {
+    if (!videoRef.current) return;
+    
+    const video = videoRef.current;
+    
+    // Check for video stream immediately when component mounts or updates
+    const checkForStream = () => {
+      if (video.srcObject && video.readyState >= 2 && !hasVideoStream) {
+        console.log(`🔄 Stream change detected for ${label}:`, {
+          srcObject: !!video.srcObject,
+          readyState: video.readyState,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight
+        });
+        setShowVideo(true);
+        setHasVideoStream(true);
+      }
+    };
+    
+    // Check immediately
+    checkForStream();
+    
+    // Set up a MutationObserver to watch for srcObject changes
+    const observer = new MutationObserver(checkForStream);
+    observer.observe(video, { 
+      attributes: true, 
+      attributeFilter: ['src', 'srcObject'] 
+    });
+    
+    // Also check on any property changes
+    const checkInterval = setInterval(checkForStream, 500);
+    
+    return () => {
+      observer.disconnect();
+      clearInterval(checkInterval);
+    };
+  }, [videoRef, label, hasVideoStream]);
 
   return (
     <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-gray-900 shadow-2xl">
@@ -612,6 +669,16 @@ export default function CallRoomPage() {
       try { video.load(); } catch {}
       void playVideo();
     }, 500);
+    
+    // Force trigger video detection events
+    setTimeout(() => {
+      if (video.srcObject && video.readyState >= 2) {
+        console.log(`🔄 Force triggering video detection for ${isLocal ? 'local' : 'remote'}`);
+        // Trigger custom event to notify VideoTile components
+        video.dispatchEvent(new Event('loadedmetadata'));
+        video.dispatchEvent(new Event('canplay'));
+      }
+    }, 100);
 
     return true;
   }, []);
