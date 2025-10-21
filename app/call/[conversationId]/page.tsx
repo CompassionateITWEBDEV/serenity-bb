@@ -2351,6 +2351,21 @@ export default function CallRoomPage() {
   if (status === "connecting") {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        {/* Hidden video elements for setup */}
+        <div className="hidden">
+          <VideoTile
+            videoRef={localVideoRef}
+            label="Local"
+            isLocal
+            isConnected={false}
+          />
+          <VideoTile
+            videoRef={remoteVideoRef}
+            label="Remote"
+            isConnected={false}
+          />
+        </div>
+        
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
           <p className="text-white text-lg">Connecting...</p>
@@ -2363,6 +2378,21 @@ export default function CallRoomPage() {
   if (status === "idle") {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        {/* Hidden video elements for setup */}
+        <div className="hidden">
+          <VideoTile
+            videoRef={localVideoRef}
+            label="Local"
+            isLocal
+            isConnected={false}
+          />
+          <VideoTile
+            videoRef={remoteVideoRef}
+            label="Remote"
+            isConnected={false}
+          />
+        </div>
+        
         <div className="text-center">
           <div className="animate-pulse rounded-full h-12 w-12 border-2 border-blue-400 mx-auto mb-4"></div>
           <p className="text-white text-lg">Preparing call...</p>
@@ -2730,6 +2760,21 @@ export default function CallRoomPage() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
+      {/* Hidden video elements for setup - always rendered */}
+      <div className="hidden">
+        <VideoTile
+          videoRef={localVideoRef}
+          label="Local"
+          isLocal
+          isConnected={false}
+        />
+        <VideoTile
+          videoRef={remoteVideoRef}
+          label="Remote"
+          isConnected={false}
+        />
+      </div>
+
       {/* Header */}
       <div className="bg-black/20 backdrop-blur-sm border-b border-gray-700 px-6 py-4">
         <div className="flex items-center justify-between">
