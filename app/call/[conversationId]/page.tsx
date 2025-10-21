@@ -1432,13 +1432,15 @@ export default function CallRoomPage() {
         console.log('📞 Received offer from peer, answering immediately...');
         setCallProcessed(true); // Mark as processed
         
+        // Always show connecting status when receiving an offer
+        setStatus("connecting");
+        
         try {
           // Both participants are already ready with streams, just handle the offer
         const pc = ensurePC();
         // Ensure callee has local media tracks before answering
         if (!localStreamRef.current) {
           console.log('🎤 Callee acquiring media now (call accepted)...');
-          setStatus("connecting"); // Show connecting only when actually accepting
           try {
             localStreamRef.current = await getMediaStream();
             // Wait for video element to mount before setup
@@ -1680,9 +1682,10 @@ export default function CallRoomPage() {
   const startOrPrep = useCallback(async () => {
     if (!me?.id) return;
 
-    // Caller shows ringing until callee answers; callee stays idle and prepares
+    // Caller shows connecting, callee shows ringing and prepares
     if (role !== "caller") {
-      // Callee shows idle and waits
+      // Callee shows ringing and waits for incoming call
+      setStatus("ringing");
       setMediaError(null);
     } else {
     setStatus("connecting");
@@ -1762,7 +1765,8 @@ export default function CallRoomPage() {
         
         console.log('✅ Caller sent offer, waiting for answer...');
       } else {
-        // Callee shows idle and waits
+        // Callee shows ringing and waits for incoming call
+        setStatus("ringing");
         console.log('📞 Callee ready and waiting for offer...');
     }
     } catch (error) {
