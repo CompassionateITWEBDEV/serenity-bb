@@ -1693,18 +1693,44 @@ export default function CallRoomPage() {
         console.warn('⚠️ Cannot send signal: channel not available');
       return;
     }
-    console.log(`📤 Sending signal:`, payload);
+    
+    // Enhanced logging for HTTP requests and signaling
+    console.log(`📤 [HTTP REQUEST] Sending signal:`, {
+      kind: payload.kind,
+      from: payload.from,
+      timestamp: new Date().toISOString(),
+      channel: threadChannel,
+      conversationId: conversationId,
+      hasSDP: 'sdp' in payload ? !!payload.sdp : false,
+      hasCandidate: 'candidate' in payload ? !!payload.candidate : false,
+      sdpType: 'sdp' in payload ? payload.sdp?.type : undefined,
+      candidateType: 'candidate' in payload ? payload.candidate?.candidate?.substring(0, 50) + '...' : undefined
+    });
+    
     threadChanRef.current.send({ type: "broadcast", event: "signal", payload })
       .then(() => {
-        console.log(`✅ Signal sent successfully:`, payload.kind);
+        console.log(`✅ [HTTP SUCCESS] Signal sent successfully:`, {
+          kind: payload.kind,
+          timestamp: new Date().toISOString(),
+          channel: threadChannel
+        });
       })
       .catch((error) => {
-          console.warn(`⚠️ Failed to send signal:`, error);
+          console.warn(`⚠️ [HTTP ERROR] Failed to send signal:`, {
+            error: error instanceof Error ? error.message : String(error),
+            kind: payload.kind,
+            timestamp: new Date().toISOString(),
+            channel: threadChannel
+          });
         });
     } catch (error) {
-      console.warn('⚠️ sendSignal error:', error);
+      console.warn('⚠️ [HTTP ERROR] sendSignal error:', {
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString(),
+        channel: threadChannel
+      });
     }
-  }, []);
+  }, [threadChannel, conversationId]);
 
   // Helper: wait for a ref to mount before using it
   const waitForRef = useCallback(async <T,>(ref: React.RefObject<T>, tries = 20, delay = 150): Promise<T | null> => {
@@ -1728,7 +1754,20 @@ export default function CallRoomPage() {
 
     ch.on("broadcast", { event: "signal" }, async (e) => {
       const msg = (e.payload || {}) as SigPayload;
-      console.log(`📨 Received signal:`, msg);
+      
+      // Enhanced logging for signal reception
+      console.log(`📥 [HTTP RESPONSE] Received signal:`, {
+        kind: msg.kind,
+        from: msg.from,
+        timestamp: new Date().toISOString(),
+        channel: threadChannel,
+        conversationId: conversationId,
+        hasSDP: 'sdp' in msg ? !!msg.sdp : false,
+        hasCandidate: 'candidate' in msg ? !!msg.candidate : false,
+        sdpType: 'sdp' in msg ? msg.sdp?.type : undefined,
+        candidateType: 'candidate' in msg ? msg.candidate?.candidate?.substring(0, 50) + '...' : undefined,
+        payloadSize: JSON.stringify(msg).length
+      });
       
       if (!msg || msg.from === me.id) {
         console.log(`⏭️ Ignoring signal from self or invalid message`);
@@ -1742,11 +1781,20 @@ export default function CallRoomPage() {
           return;
         }
         
-        console.log('📞 Received offer from peer, answering immediately...');
+        console.log('📞 [CALL RECEPTION] Received offer from peer, answering immediately...', {
+          from: msg.from,
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId,
+          currentStatus: status,
+          role: role,
+          sdpType: msg.sdp?.type,
+          sdpSize: msg.sdp?.sdp?.length || 0
+        });
         setCallProcessed(true); // Mark as processed
         
         // Always show connecting status when receiving an offer
         setStatus("connecting");
+        console.log('🔄 [CALL STATUS] Status changed to connecting for offer reception');
         
         try {
           // Both participants are already ready with streams, just handle the offer
@@ -1880,7 +1928,15 @@ export default function CallRoomPage() {
           setMediaError("Failed to establish connection. Please try again.");
         }
       } else if (msg.kind === "webrtc-answer") {
-        console.log('📞 Received answer from peer');
+        console.log('📞 [CALL RESPONSE] Received answer from peer:', {
+          from: msg.from,
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId,
+          currentStatus: status,
+          role: role,
+          sdpType: msg.sdp?.type,
+          sdpSize: msg.sdp?.sdp?.length || 0
+        });
         const pc = ensurePC();
         
         console.log('📋 Setting remote description for answer...');
@@ -1899,11 +1955,22 @@ export default function CallRoomPage() {
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
-          console.log(`🧊 Adding ICE candidate:`, msg.candidate);
+          console.log(`🧊 [ICE CANDIDATE] Adding ICE candidate:`, {
+            from: msg.from,
+            timestamp: new Date().toISOString(),
+            conversationId: conversationId,
+            candidate: msg.candidate?.candidate?.substring(0, 50) + '...',
+            sdpMLineIndex: msg.candidate?.sdpMLineIndex,
+            sdpMid: msg.candidate?.sdpMid
+          });
           await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-          console.log(`✅ ICE candidate added successfully`);
+          console.log(`✅ [ICE SUCCESS] ICE candidate added successfully`);
         } catch (error) {
-          console.warn(`⚠️ Failed to add ICE candidate:`, error);
+          console.warn(`⚠️ [ICE ERROR] Failed to add ICE candidate:`, {
+            error: error instanceof Error ? error.message : String(error),
+            candidate: msg.candidate?.candidate?.substring(0, 50) + '...',
+            timestamp: new Date().toISOString()
+          });
           // Don't ignore - this might be important for connection
         }
       } else if (msg.kind === "bye") {
@@ -1915,11 +1982,23 @@ export default function CallRoomPage() {
 
     // Add subscription status monitoring
     ch.subscribe((status) => {
-      console.log(`📡 Channel subscription status: ${status}`);
+      console.log(`📡 [CHANNEL STATUS] Channel subscription status: ${status}`, {
+        channel: threadChannel,
+        timestamp: new Date().toISOString(),
+        conversationId: conversationId,
+        userId: me.id
+      });
       if (status === "SUBSCRIBED") {
-        console.log(`✅ Successfully subscribed to channel: ${threadChannel}`);
+        console.log(`✅ [CHANNEL SUCCESS] Successfully subscribed to channel: ${threadChannel}`, {
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId
+        });
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        console.error(`❌ Channel subscription failed: ${status}`);
+        console.error(`❌ [CHANNEL ERROR] Channel subscription failed: ${status}`, {
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId,
+          channel: threadChannel
+        });
         setStatus("failed");
         setMediaError("Failed to establish signaling connection. Please try again.");
       }
@@ -2094,25 +2173,36 @@ export default function CallRoomPage() {
       setStatus("ringing");
       callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
       
-        console.log('🎯 Creating WebRTC offer...');
+        console.log('🎯 [CALL INITIATION] Creating WebRTC offer...', {
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId,
+          role: role,
+          mode: mode,
+          peerUserId: peerUserId
+        });
       const offer = await pc.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: mode === "video",
         iceRestart: false
       });
       
-      console.log('📋 Offer created:', {
+      console.log('📋 [OFFER CREATED] Offer created:', {
         type: offer.type,
-        sdp: offer.sdp?.substring(0, 100) + '...'
+        sdp: offer.sdp?.substring(0, 100) + '...',
+        sdpSize: offer.sdp?.length || 0,
+        timestamp: new Date().toISOString()
       });
         
       await pc.setLocalDescription(offer);
-      console.log('✅ Local description set for offer');
+      console.log('✅ [OFFER SETUP] Local description set for offer');
       
       sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
       await ringPeer(); // show IncomingCallBanner on the peer
         
-        console.log('✅ Caller sent offer, waiting for answer...');
+        console.log('✅ [CALL SENT] Caller sent offer, waiting for answer...', {
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId
+        });
       } else {
         // Callee shows ringing and waits for incoming call
         setStatus("ringing");
@@ -2687,6 +2777,37 @@ export default function CallRoomPage() {
       clearInterval(blackScreenCheck);
     };
   }, [status, fixBlackScreen]);
+
+  // Periodic call flow monitoring
+  useEffect(() => {
+    if (status === "connected") {
+      const logCallFlowSummary = () => {
+        console.log('📊 [CALL FLOW SUMMARY] Current call state:', {
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId,
+          status: status,
+          role: role,
+          mode: mode,
+          peerUserId: peerUserId,
+          hasLocalStream: !!localStreamRef.current,
+          hasRemoteStream: !!remoteStreamRef.current,
+          localTracks: localStreamRef.current?.getTracks().length || 0,
+          remoteTracks: remoteStreamRef.current?.getTracks().length || 0,
+          channelConnected: !!threadChanRef.current,
+          pcConnected: !!pcRef.current,
+          callProcessed: callProcessed
+        });
+      };
+      
+      const callFlowMonitor = setInterval(() => {
+        logCallFlowSummary();
+      }, 10000); // Log every 10 seconds when connected
+      
+      return () => {
+        clearInterval(callFlowMonitor);
+      };
+    }
+  }, [conversationId, status, role, mode, peerUserId, callProcessed]);
 
   // Comprehensive media test function
   const testAllMedia = useCallback(async () => {
