@@ -6,6 +6,7 @@ import Script from "next/script"
 import { Playfair_Display, Source_Sans_3 as Source_Sans_Pro } from "next/font/google"
 import "./globals.css"
 import Analytics from "./analytics"
+import { OrganizationStructuredData } from "@/components/seo/StructuredData"
 
 const SITE_URL = "https://serenity-b9.onrender.com"
 const ORG_NAME = "Serenity Rehabilitation Center"
@@ -50,7 +51,7 @@ export const metadata: Metadata = {
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const GA_ID = process.env.NEXT_PUBLIC_GA_ID
+  const GA_ID = process.env.NEXT_PUBLIC_GA_ID || "G-MPEKC1KKWR"
   const GSC_VERIFICATION = process.env.NEXT_PUBLIC_GSC_VERIFICATION
 
   return (
@@ -63,9 +64,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
         
         {/* Google Search Console Verification */}
-        {GSC_VERIFICATION && (
-          <meta name="google-site-verification" content={GSC_VERIFICATION} />
-        )}
+        <meta name="google-site-verification" content="3wLCsRN_MCI2FWekCWp7iLaunpjHTbLmMKwN1HQq9vM" />
         
         {/* Enhanced SEO Meta Tags */}
         <meta name="robots" content="index, follow" />
@@ -97,6 +96,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Suspense fallback={null}>
           <Analytics />
         </Suspense>
+
+        <OrganizationStructuredData />
 
         {children}
       </body>
