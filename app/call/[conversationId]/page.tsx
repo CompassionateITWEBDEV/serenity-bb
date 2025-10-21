@@ -604,12 +604,28 @@ export default function CallRoomPage() {
       videoElement: !!video
     });
 
-    // Ensure recommended flags for autoplay
-    try { video.muted = isLocal || video.muted; } catch {}
+    // Ensure recommended flags for autoplay and prevent black screens
+    try { video.muted = isLocal; } catch {} // Only mute local video
     try { video.playsInline = true; } catch {}
     try { (video as any).webkitPlaysInline = true; } catch {}
     try { video.autoplay = true; } catch {}
     try { video.controls = false; } catch {}
+    
+    // Additional attributes to prevent black screens
+    try { video.setAttribute('playsinline', 'true'); } catch {}
+    try { video.setAttribute('webkit-playsinline', 'true'); } catch {}
+    try { video.setAttribute('x5-playsinline', 'true'); } catch {} // For mobile browsers
+    
+    // Ensure video is visible
+    try { video.style.opacity = '1'; } catch {}
+    try { video.style.visibility = 'visible'; } catch {}
+    try { video.style.display = 'block'; } catch {}
+    
+    // Force video to not be muted for remote streams
+    if (!isLocal) {
+      try { video.muted = false; } catch {}
+      try { video.volume = 1.0; } catch {}
+    }
 
     // Clear existing source to prevent conflicts
     try { (video as any).srcObject = null; } catch {}
@@ -621,7 +637,7 @@ export default function CallRoomPage() {
       return false;
     }
 
-    // Safe play with proper error handling
+    // Safe play with proper error handling and black screen fixes
     const playVideo = async () => {
       try {
         console.log(`🎬 Attempting to play ${isLocal ? 'local' : 'remote'} video:`, {
@@ -629,32 +645,70 @@ export default function CallRoomPage() {
           paused: video.paused,
           srcObject: !!video.srcObject,
           videoWidth: video.videoWidth,
-          videoHeight: video.videoHeight
+          videoHeight: video.videoHeight,
+          muted: video.muted,
+          volume: video.volume
         });
+        
+        // Ensure video is not muted for remote video
+        if (!isLocal) {
+          video.muted = false;
+          video.volume = 1.0;
+        }
+        
+        // Force video to be visible
+        video.style.opacity = '1';
+        video.style.visibility = 'visible';
         
         if (video.readyState < 2) {
           console.log(`⏳ Waiting for video metadata to load...`);
           await new Promise((resolve) => {
             video.addEventListener('loadedmetadata', resolve, { once: true });
-            setTimeout(resolve, 2000); // Increased timeout
+            setTimeout(resolve, 3000); // Increased timeout for better reliability
           });
         }
         
+        // Force video to load and play
         if (video.paused) {
-          await video.play();
-          console.log(`✅ Video started playing for ${isLocal ? 'local' : 'remote'}`);
+          // Multiple play attempts for better reliability
+          try {
+            await video.play();
+            console.log(`✅ Video started playing for ${isLocal ? 'local' : 'remote'}`);
+          } catch (playError) {
+            console.warn(`First play attempt failed, trying again:`, playError);
+            // Force load and try again
+            video.load();
+            await new Promise(resolve => setTimeout(resolve, 100));
+            await video.play();
+            console.log(`✅ Video started playing on second attempt for ${isLocal ? 'local' : 'remote'}`);
+          }
         } else {
           console.log(`▶️ Video already playing for ${isLocal ? 'local' : 'remote'}`);
         }
+        
+        // Verify video is actually showing content
+        setTimeout(() => {
+          if (video.videoWidth === 0 || video.videoHeight === 0) {
+            console.warn(`⚠️ Video dimensions are 0x0, attempting to fix...`);
+            video.load();
+            video.play().catch(console.warn);
+          }
+        }, 1000);
+        
       } catch (err) {
         console.warn(`Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
-        // Try again after a short delay
+        // Try again after a short delay with more aggressive approach
         setTimeout(async () => {
           try {
+            video.load();
+            await new Promise(resolve => setTimeout(resolve, 200));
             await video.play();
             console.log(`✅ Video started playing on retry for ${isLocal ? 'local' : 'remote'}`);
           } catch (retryErr) {
             console.warn(`Failed to play video on retry:`, retryErr);
+            // Last resort: force video to be visible even if play fails
+            video.style.opacity = '1';
+            video.style.visibility = 'visible';
           }
         }, 500);
       }
@@ -692,13 +746,56 @@ export default function CallRoomPage() {
     return true;
   }, []);
 
+  // Function to detect and fix black screen issues
+  const fixBlackScreen = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream | null, isLocal: boolean) => {
+    const video = videoRef.current;
+    if (!video || !stream) return false;
+    
+    console.log(`🔍 Checking for black screen issues:`, {
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      readyState: video.readyState,
+      paused: video.paused,
+      muted: video.muted,
+      volume: video.volume,
+      srcObject: !!video.srcObject
+    });
+    
+    // Check if video has dimensions (not black)
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      console.log(`⚠️ Black screen detected - video dimensions are 0x0`);
+      
+      // Force video to reload and play
+      video.load();
+      video.srcObject = stream;
+      
+      // Ensure proper attributes
+      video.muted = isLocal;
+      video.playsInline = true;
+      video.autoplay = true;
+      
+      // Force play
+      video.play().catch(console.warn);
+      
+      return true;
+    }
+    
+    return false;
+  }, []);
+
   // Function to setup video element with retry
   const setupVideoElementWithRetry = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream | null, isLocal: boolean, maxRetries = 10, delayMs = 150) => {
     let retries = 0;
     
     const trySetup = () => {
       const ok = setupVideoElement(videoRef, stream, isLocal);
-      if (ok) return true;
+      if (ok) {
+        // Check for black screen after setup
+        setTimeout(() => {
+          fixBlackScreen(videoRef, stream, isLocal);
+        }, 1000);
+        return true;
+      }
       if (retries >= maxRetries) {
         // Use warn instead of error to avoid Next.js intercepting as unhandled error
         console.warn(`❌ Failed to setup video element after ${maxRetries} retries`);
@@ -711,7 +808,7 @@ export default function CallRoomPage() {
     };
     
     return trySetup();
-  }, [setupVideoElement]);
+  }, [setupVideoElement, fixBlackScreen]);
 
   // Ensure video elements are updated when streams change
   useEffect(() => {
@@ -2561,6 +2658,35 @@ export default function CallRoomPage() {
       clearInterval(connectionCheck);
     };
   }, [status, validateConnection, startOrPrep]);
+
+  // Periodic black screen detection and fix
+  useEffect(() => {
+    if (status !== "connected") return;
+    
+    const blackScreenCheck = setInterval(() => {
+      // Check local video
+      if (localVideoRef.current && localStreamRef.current) {
+        const localVideo = localVideoRef.current;
+        if (localVideo.videoWidth === 0 || localVideo.videoHeight === 0) {
+          console.log('🔍 Black screen detected on local video, attempting fix...');
+          fixBlackScreen(localVideoRef, localStreamRef.current, true);
+        }
+      }
+      
+      // Check remote video
+      if (remoteVideoRef.current && remoteStreamRef.current) {
+        const remoteVideo = remoteVideoRef.current;
+        if (remoteVideo.videoWidth === 0 || remoteVideo.videoHeight === 0) {
+          console.log('🔍 Black screen detected on remote video, attempting fix...');
+          fixBlackScreen(remoteVideoRef, remoteStreamRef.current, false);
+        }
+      }
+    }, 5000); // Check every 5 seconds
+    
+    return () => {
+      clearInterval(blackScreenCheck);
+    };
+  }, [status, fixBlackScreen]);
 
   // Comprehensive media test function
   const testAllMedia = useCallback(async () => {
