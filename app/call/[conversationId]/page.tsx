@@ -664,13 +664,13 @@ export default function CallRoomPage() {
     try { video.load(); } catch {}
     void playVideo();
     
-    // Additional retry after delay
+    // Additional retry after shorter delay for better responsiveness
     setTimeout(() => {
       try { video.load(); } catch {}
       void playVideo();
-    }, 500);
+    }, 200);
     
-    // Force trigger video detection events
+    // Force trigger video detection events - more immediate
     setTimeout(() => {
       if (video.srcObject && video.readyState >= 2) {
         console.log(`🔄 Force triggering video detection for ${isLocal ? 'local' : 'remote'}`);
@@ -678,7 +678,16 @@ export default function CallRoomPage() {
         video.dispatchEvent(new Event('loadedmetadata'));
         video.dispatchEvent(new Event('canplay'));
       }
-    }, 100);
+    }, 50);
+    
+    // Additional immediate trigger for better responsiveness
+    setTimeout(() => {
+      if (video.srcObject) {
+        console.log(`🔄 Immediate video trigger for ${isLocal ? 'local' : 'remote'}`);
+        video.dispatchEvent(new Event('loadedmetadata'));
+        video.dispatchEvent(new Event('canplay'));
+      }
+    }, 10);
 
     return true;
   }, []);
@@ -992,6 +1001,27 @@ export default function CallRoomPage() {
         if (remoteStreamRef.current) {
           setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
         }
+        
+        // Immediate responsiveness check and setup
+        setTimeout(() => {
+          console.log('🚀 Immediate responsiveness check for connected call');
+          if (localVideoRef.current && localStreamRef.current) {
+            const localVideo = localVideoRef.current;
+            if (!localVideo.srcObject || localVideo.videoWidth === 0) {
+              console.log('🔄 Immediate local video fix');
+              localVideo.srcObject = localStreamRef.current;
+              localVideo.play().catch(console.warn);
+            }
+          }
+          if (remoteVideoRef.current && remoteStreamRef.current) {
+            const remoteVideo = remoteVideoRef.current;
+            if (!remoteVideo.srcObject || remoteVideo.videoWidth === 0) {
+              console.log('🔄 Immediate remote video fix');
+              remoteVideo.srcObject = remoteStreamRef.current;
+              remoteVideo.play().catch(console.warn);
+            }
+          }
+        }, 100);
       } else if (s === "failed" || s === "closed") {
         console.error("❌ PeerConnection failed or closed, attempting to reconnect...");
         setStatus("failed");
@@ -1109,7 +1139,7 @@ export default function CallRoomPage() {
       // Mobile-optimized remote video setup
       const setupMobileVideo = () => {
         const remoteEl = remoteVideoRef.current;
-        if (remoteEl && remoteStreamRef.current) {
+        if (remoteEl) {
           console.log('🎯 Setting up remote video for mobile');
           
           // Mobile-specific attributes
@@ -1121,26 +1151,32 @@ export default function CallRoomPage() {
           // Clear any existing stream first
           remoteEl.srcObject = null;
           
-          // Set new stream
-          remoteEl.srcObject = remoteStreamRef.current;
-          
-          // Force play with mobile-specific handling
-          const playPromise = remoteEl.play();
-          if (playPromise !== undefined) {
-            playPromise.then(() => {
-              console.log('✅ Remote video playing successfully on mobile');
-            }).catch(error => {
-              console.warn('⚠️ Mobile video play failed, retrying:', error);
-              // Retry with user interaction simulation
-              setTimeout(() => {
-                remoteEl.play().catch(console.warn);
-              }, 500);
-            });
+          // Set new stream if available
+          if (remoteStreamRef.current) {
+            remoteEl.srcObject = remoteStreamRef.current;
+            
+            // Force play with mobile-specific handling
+            const playPromise = remoteEl.play();
+            if (playPromise !== undefined) {
+              playPromise.then(() => {
+                console.log('✅ Remote video playing successfully on mobile');
+              }).catch(error => {
+                console.warn('⚠️ Mobile video play failed, retrying:', error);
+                // Retry with user interaction simulation
+                setTimeout(() => {
+                  remoteEl.play().catch(console.warn);
+                }, 500);
+              });
+            }
+            
+            console.log(`✅ Remote video set up for mobile with ${ev.track.kind} track`);
+          } else {
+            console.log('⏳ Remote stream not ready yet, will retry...');
+            // Retry when stream becomes available
+            setTimeout(setupMobileVideo, 1000);
           }
-          
-          console.log(`✅ Remote video set up for mobile with ${ev.track.kind} track`);
         } else {
-          console.warn('⚠️ Remote video element or stream not ready for mobile');
+          console.warn('⚠️ Remote video element not found for mobile setup');
         }
       };
       
@@ -1153,18 +1189,26 @@ export default function CallRoomPage() {
         setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
       }
       
-      // Mobile retry mechanism
-      setTimeout(setupMobileVideo, 200);
+      // Mobile retry mechanism - more aggressive for better responsiveness
+      setTimeout(setupMobileVideo, 100);
+      setTimeout(setupMobileVideo, 500);
       setTimeout(setupMobileVideo, 1000);
-      setTimeout(setupMobileVideo, 3000);
+      setTimeout(setupMobileVideo, 2000);
       
-      // Regular video retry mechanism
+      // Regular video retry mechanism - more frequent for better responsiveness
       setTimeout(() => {
         if (remoteVideoRef.current && remoteStreamRef.current) {
           console.log('🔄 Retrying regular remote video setup');
           setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
         }
-      }, 500);
+      }, 200);
+      
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Second retry for regular remote video setup');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 1000);
     };
 
     pcRef.current = pc;
@@ -2478,7 +2522,7 @@ export default function CallRoomPage() {
     setTimeout(() => refreshVideo(3), 4000);
   }, [status]);
 
-  // Periodic remote video check to ensure it stays connected
+  // Periodic remote video check to ensure it stays connected - more responsive
   useEffect(() => {
     if (status !== "connected") return;
     
@@ -2491,7 +2535,7 @@ export default function CallRoomPage() {
           video.play().catch(console.warn);
         }
       }
-    }, 5000);
+    }, 2000); // More frequent checks for better responsiveness
     
     return () => {
       clearInterval(remoteVideoCheck);
