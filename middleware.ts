@@ -10,6 +10,15 @@ export async function middleware(req: NextRequest) {
   // Always create a response we can mutate (so refreshed cookies are set)
   const res = NextResponse.next();
 
+  // Handle Cloudflare cookies properly
+  res.headers.set('X-Frame-Options', 'DENY');
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('Referrer-Policy', 'origin-when-cross-origin');
+  
+  // Set proper domain for cookies
+  const domain = process.env.NODE_ENV === 'production' ? '.src.health' : 'localhost';
+  res.headers.set('Set-Cookie', `__cf_bm=; Domain=${domain}; Path=/; HttpOnly; Secure; SameSite=Lax`);
+
   // ⚠️ DO NOT skip /api — API needs refreshed auth cookies
   // Skip only static assets and Next internals
   const isStatic =

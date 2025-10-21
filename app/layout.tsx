@@ -16,7 +16,13 @@ const OG_IMAGE = "/og-image.jpg"
 const playfair = Playfair_Display({ subsets: ["latin"], display: "swap", variable: "--font-playfair" })
 const sourceSans = Source_Sans_Pro({ subsets: ["latin"], weight: ["400", "600"], display: "swap", variable: "--font-source-sans" })
 
-export const viewport: Viewport = { themeColor: "#0ea5e9", width: "device-width", initialScale: 1 }
+export const viewport: Viewport = { 
+  themeColor: "#0ea5e9", 
+  width: "device-width", 
+  initialScale: 1,
+  // Cookie configuration for Cloudflare
+  colorScheme: "light dark"
+}
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
