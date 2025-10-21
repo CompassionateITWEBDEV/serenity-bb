@@ -943,11 +943,27 @@ export default function CallRoomPage() {
           setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
         }
       } else if (s === "failed" || s === "closed") {
-        setStatus("ended");
-        callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
+        console.error("❌ PeerConnection failed or closed, attempting to reconnect...");
+        setStatus("failed");
+        
+        // Try to restart the connection instead of immediately ending
+        setTimeout(() => {
+          if (status !== "connected") {
+            console.log("🔄 Attempting to restart call after failure...");
+            startOrPrep().catch(console.error);
+          }
+        }, 2000);
+        
         stopAudioLevelMonitoring();
       } else if (s === "disconnected") {
-        console.warn("⚠️ PeerConnection disconnected");
+        console.warn("⚠️ PeerConnection disconnected, attempting to reconnect...");
+        // Don't immediately fail on disconnection, try to reconnect
+        setTimeout(() => {
+          if (status !== "connected") {
+            console.log("🔄 Attempting to restart call after disconnection...");
+            startOrPrep().catch(console.error);
+          }
+        }, 1000);
       }
     };
 
@@ -959,7 +975,7 @@ export default function CallRoomPage() {
       if (iceState === "connected" || iceState === "completed") {
         console.log("✅ ICE connection established");
           setStatus("connected");
-          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+          callTracker.handleConnectionRecovery(conversationId!).catch(console.warn);
           startAudioLevelMonitoring();
         
         // Ensure video elements are set up when ICE connects
@@ -979,14 +995,33 @@ export default function CallRoomPage() {
         // Also set connected when ICE is checking (more aggressive)
         console.log("🔄 ICE checking - setting connected status");
         setStatus("connected");
-        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+        callTracker.handleConnectionRecovery(conversationId!).catch(console.warn);
         startAudioLevelMonitoring();
       } else if (iceState === "failed") {
         console.error("❌ ICE connection failed - trying to restart ICE");
         // Try to restart ICE gathering
-        pc.restartIce();
+        try {
+          pc.restartIce();
+        } catch (error) {
+          console.warn("Failed to restart ICE:", error);
+        }
+        
+        // Also try to restart the entire connection
+        setTimeout(() => {
+          if (status !== "connected") {
+            console.log("🔄 Attempting to restart call after ICE failure...");
+            startOrPrep().catch(console.error);
+          }
+        }, 3000);
       } else if (iceState === "disconnected") {
-        console.warn("⚠️ ICE disconnected");
+        console.warn("⚠️ ICE disconnected - attempting to reconnect");
+        // Try to restart the connection
+        setTimeout(() => {
+          if (status !== "connected") {
+            console.log("🔄 Attempting to restart call after ICE disconnection...");
+            startOrPrep().catch(console.error);
+          }
+        }, 2000);
       }
     };
 

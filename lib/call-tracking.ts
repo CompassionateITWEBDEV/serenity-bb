@@ -53,15 +53,32 @@ export class CallTracker {
         return; // Don't throw, just log and continue
       }
 
-      // Track active calls
+      // Track active calls - only delete on explicit end states
       if (event.status === "initiated" || event.status === "ringing" || event.status === "connected") {
         this.activeCalls.set(event.conversationId, event);
-      } else {
+      } else if (event.status === "ended" || event.status === "missed" || event.status === "declined") {
+        // Only delete on explicit end states, not on temporary failures
         this.activeCalls.delete(event.conversationId);
       }
     } catch (error) {
       console.warn("Call tracking error (table may not exist):", error);
       // Don't throw error, just continue without tracking
+    }
+  }
+
+  // Method to handle connection recovery
+  async handleConnectionRecovery(conversationId: string): Promise<void> {
+    try {
+      const activeCall = this.activeCalls.get(conversationId);
+      if (activeCall) {
+        console.log("🔄 Connection recovery detected for call:", conversationId);
+        // Update status to connected if it was in a failed state
+        if (activeCall.status === "failed" || activeCall.status === "disconnected") {
+          await this.updateCallStatus(conversationId, "connected");
+        }
+      }
+    } catch (error) {
+      console.warn("Connection recovery handling failed:", error);
     }
   }
 
@@ -74,6 +91,11 @@ export class CallTracker {
       const activeCall = this.activeCalls.get(conversationId);
       if (!activeCall) {
         console.warn("No active call found for conversation:", conversationId);
+        // If it's a temporary failure, don't log as error
+        if (status === "failed" || status === "disconnected") {
+          console.log("Temporary failure detected, call may still be active");
+          return;
+        }
         return;
       }
 
