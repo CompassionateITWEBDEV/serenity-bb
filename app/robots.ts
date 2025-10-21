@@ -3,6 +3,6 @@ import type { MetadataRoute } from "next"
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: { userAgent: "*", allow: "/" },
-    sitemap: "https://serenity-b9.vercel.app/sitemap.xml",
+    sitemap: "https://serenity-b9.onrender.com/sitemap.xml",
   }
 }

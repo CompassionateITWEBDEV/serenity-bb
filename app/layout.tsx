@@ -51,6 +51,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const GA_ID = process.env.NEXT_PUBLIC_GA_ID
+  const GSC_VERIFICATION = process.env.NEXT_PUBLIC_GSC_VERIFICATION
 
   return (
     <html lang="en" className={`${playfair.variable} ${sourceSans.variable} antialiased`}>
@@ -60,6 +61,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
           href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css"
         />
+        
+        {/* Google Search Console Verification */}
+        {GSC_VERIFICATION && (
+          <meta name="google-site-verification" content={GSC_VERIFICATION} />
+        )}
+        
+        {/* Enhanced SEO Meta Tags */}
+        <meta name="robots" content="index, follow" />
+        <meta name="googlebot" content="index, follow" />
+        <link rel="canonical" href="https://serenity-b9.onrender.com" />
       </head>
       <body>
         {/* Google Analytics (only inject if configured) */}

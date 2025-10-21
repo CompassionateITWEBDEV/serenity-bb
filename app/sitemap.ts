@@ -1,8 +1,8 @@
 // app/sitemap.ts
 import type { MetadataRoute } from "next"
 
-// Change this to your final production domain later if using a custom one
-const SITE_URL = "https://serenity-b9.vercel.app"
+// Production domain for Serenity Rehabilitation Center
+const SITE_URL = "https://serenity-b9.onrender.com"
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return [
