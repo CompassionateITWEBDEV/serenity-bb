@@ -343,22 +343,31 @@ function ChatBoxInner(props: {
   }, [ensureConversation]);
 
   // initial load
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!conversationId || !me) return;
-    (async () => {
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true });
-      if (error) {
-        console.error(error);
-        return;
+    
+    const loadMessages = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("messages")
+          .select("*")
+          .eq("conversation_id", conversationId)
+          .order("created_at", { ascending: true });
+        
+        if (error) {
+          console.error("Error loading messages:", error);
+          return;
+        }
+        
+        setMsgs((data as MessageRow[]) ?? []);
+        scrollToBottom(false);
+        await markReadHelper(conversationId, me.role);
+      } catch (err) {
+        console.error("Error in loadMessages:", err);
       }
-      setMsgs((data as MessageRow[]) ?? []);
-      scrollToBottom(false);
-      await markReadHelper(conversationId, me.role);
-    })();
+    };
+
+    loadMessages();
   }, [conversationId, me, scrollToBottom]);
 
   // live updates + typing
