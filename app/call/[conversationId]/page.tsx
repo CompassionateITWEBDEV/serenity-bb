@@ -917,14 +917,65 @@ export default function CallRoomPage() {
   }, [status]);
 
   // ---------- WebRTC core ----------
+  
+  // Connection validation function
+  const validateConnection = useCallback((pc: RTCPeerConnection) => {
+    const connectionState = pc.connectionState;
+    const iceConnectionState = pc.iceConnectionState;
+    const iceGatheringState = pc.iceGatheringState;
+    
+    console.log('🔍 Connection validation:', {
+      connectionState,
+      iceConnectionState,
+      iceGatheringState,
+      localStream: !!localStreamRef.current,
+      remoteStream: !!remoteStreamRef.current,
+      localTracks: localStreamRef.current?.getTracks().length || 0,
+      remoteTracks: remoteStreamRef.current?.getTracks().length || 0
+    });
+    
+    // Check if connection is established
+    const isConnected = connectionState === 'connected' && 
+                       (iceConnectionState === 'connected' || iceConnectionState === 'completed');
+    
+    if (isConnected) {
+      console.log('✅ Connection validated - both participants should be connected');
+    } else {
+      console.log('⚠️ Connection not fully established yet');
+    }
+    
+    return isConnected;
+  }, []);
+  
   const ensurePC = useCallback(() => {
     try {
     if (pcRef.current) return pcRef.current;
-    const pc = new RTCPeerConnection({ iceServers: buildIceServers() });
+    
+    console.log('🔄 Creating new RTCPeerConnection...');
+    const pc = new RTCPeerConnection({ 
+      iceServers: buildIceServers(),
+      iceCandidatePoolSize: 10,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require'
+    });
+    
+    console.log('✅ RTCPeerConnection created with configuration:', {
+      iceServers: buildIceServers().length,
+      iceCandidatePoolSize: 10,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require'
+    });
 
     pc.onicecandidate = (ev) => {
       if (ev.candidate && me?.id) {
+        console.log('🧊 ICE candidate generated:', {
+          candidate: ev.candidate.candidate,
+          sdpMLineIndex: ev.candidate.sdpMLineIndex,
+          sdpMid: ev.candidate.sdpMid
+        });
         sendSignal({ kind: "webrtc-ice", from: me.id, candidate: ev.candidate.toJSON() });
+      } else if (ev.candidate === null) {
+        console.log('🧊 ICE gathering completed');
       }
     };
     pc.onconnectionstatechange = () => {
@@ -939,7 +990,6 @@ export default function CallRoomPage() {
           setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
         }
         if (remoteStreamRef.current) {
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
           setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
         }
       } else if (s === "failed" || s === "closed") {
@@ -1581,13 +1631,24 @@ export default function CallRoomPage() {
           }
         }
           
+        console.log('📋 Setting remote description for offer...');
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-          const answer = await pc.createAnswer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: mode === "video",
-          });
+        console.log('✅ Remote description set for offer');
+        
+        console.log('🎯 Creating WebRTC answer...');
+        const answer = await pc.createAnswer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: mode === "video"
+        });
+        
+        console.log('📋 Answer created:', {
+          type: answer.type,
+          sdp: answer.sdp?.substring(0, 100) + '...'
+        });
           
         await pc.setLocalDescription(answer);
+        console.log('✅ Local description set for answer');
+        
         sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
         console.log('✅ Answer sent');
           
@@ -1596,6 +1657,11 @@ export default function CallRoomPage() {
           setStatus("connected");
           callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
           startAudioLevelMonitoring();
+          
+          // Validate connection after answer
+          setTimeout(() => {
+            validateConnection(pc);
+          }, 1000);
           
         // Force video refresh for both participants with mobile optimization
         setTimeout(() => {
@@ -1675,8 +1741,20 @@ export default function CallRoomPage() {
       } else if (msg.kind === "webrtc-answer") {
         console.log('📞 Received answer from peer');
         const pc = ensurePC();
+        
+        console.log('📋 Setting remote description for answer...');
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        console.log('✅ Remote description set');
+        console.log('✅ Remote description set for answer');
+        
+        // Validate connection state
+        console.log('🔍 Connection state after answer:', {
+          connectionState: pc.connectionState,
+          iceConnectionState: pc.iceConnectionState,
+          iceGatheringState: pc.iceGatheringState
+        });
+        
+        // Validate the connection
+        validateConnection(pc);
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
@@ -1879,9 +1957,17 @@ export default function CallRoomPage() {
       const offer = await pc.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: mode === "video",
+        iceRestart: false
+      });
+      
+      console.log('📋 Offer created:', {
+        type: offer.type,
+        sdp: offer.sdp?.substring(0, 100) + '...'
       });
         
       await pc.setLocalDescription(offer);
+      console.log('✅ Local description set for offer');
+      
       sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
       await ringPeer(); // show IncomingCallBanner on the peer
         
@@ -2411,6 +2497,26 @@ export default function CallRoomPage() {
       clearInterval(remoteVideoCheck);
     };
   }, [status]);
+
+  // Periodic connection validation
+  useEffect(() => {
+    if (status !== "connected" || !pcRef.current) return;
+    
+    const connectionCheck = setInterval(() => {
+      if (pcRef.current) {
+        const isValid = validateConnection(pcRef.current);
+        if (!isValid) {
+          console.log('⚠️ Connection validation failed - attempting to reconnect...');
+          // Try to restart the connection
+          startOrPrep().catch(console.error);
+        }
+      }
+    }, 10000); // Check every 10 seconds
+    
+    return () => {
+      clearInterval(connectionCheck);
+    };
+  }, [status, validateConnection, startOrPrep]);
 
   // Comprehensive media test function
   const testAllMedia = useCallback(async () => {
