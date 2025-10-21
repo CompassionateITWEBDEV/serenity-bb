@@ -1050,6 +1050,12 @@ export default function CallRoomPage() {
         video: remoteStreamRef.current.getVideoTracks().length
       });
       
+      // Immediately set up remote video when track is received
+      if (ev.track.kind === 'video' && remoteVideoRef.current) {
+        console.log('🎥 Setting up remote video immediately on track received');
+        setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      }
+      
       // Mobile-optimized remote video setup
       const setupMobileVideo = () => {
         const remoteEl = remoteVideoRef.current;
@@ -1091,10 +1097,24 @@ export default function CallRoomPage() {
       // Immediate setup
       setupMobileVideo();
       
+      // Also set up regular remote video (not just mobile)
+      if (remoteVideoRef.current && remoteStreamRef.current) {
+        console.log('🎥 Setting up regular remote video');
+        setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      }
+      
       // Mobile retry mechanism
       setTimeout(setupMobileVideo, 200);
       setTimeout(setupMobileVideo, 1000);
       setTimeout(setupMobileVideo, 3000);
+      
+      // Regular video retry mechanism
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Retrying regular remote video setup');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 500);
     };
 
     pcRef.current = pc;
@@ -2066,6 +2086,20 @@ export default function CallRoomPage() {
         screenStreamRef.current?.getTracks().forEach((t) => t.stop());
       } catch {}
       screenStreamRef.current = null;
+      
+      // Clean up remote stream
+      try {
+        remoteStreamRef.current?.getTracks().forEach((t) => t.stop());
+      } catch {}
+      remoteStreamRef.current = null;
+      
+      // Reset video elements
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = null;
+      }
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = null;
+      }
 
       // notify via thread + user channel
       if (!remote && me?.id) {
@@ -2356,6 +2390,26 @@ export default function CallRoomPage() {
     setTimeout(() => refreshVideo(1), 500);
     setTimeout(() => refreshVideo(2), 2000);
     setTimeout(() => refreshVideo(3), 4000);
+  }, [status]);
+
+  // Periodic remote video check to ensure it stays connected
+  useEffect(() => {
+    if (status !== "connected") return;
+    
+    const remoteVideoCheck = setInterval(() => {
+      if (remoteVideoRef.current && remoteStreamRef.current) {
+        const video = remoteVideoRef.current;
+        if (!video.srcObject || video.videoWidth === 0) {
+          console.log('🔄 Periodic remote video check - reconnecting...');
+          video.srcObject = remoteStreamRef.current;
+          video.play().catch(console.warn);
+        }
+      }
+    }, 5000);
+    
+    return () => {
+      clearInterval(remoteVideoCheck);
+    };
   }, [status]);
 
   // Comprehensive media test function
