@@ -1,13 +1,13 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, Suspense } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 
 interface GoogleAnalyticsProps {
   gaId: string
 }
 
-export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
+function GoogleAnalyticsInner({ gaId }: GoogleAnalyticsProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
@@ -33,6 +33,14 @@ export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
   }, [pathname, searchParams, gaId])
 
   return null
+}
+
+export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
+  return (
+    <Suspense fallback={null}>
+      <GoogleAnalyticsInner gaId={gaId} />
+    </Suspense>
+  )
 }
 
 // Declare gtag function for TypeScript
