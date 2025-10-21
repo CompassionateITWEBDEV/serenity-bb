@@ -69,7 +69,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Enhanced SEO Meta Tags */}
         <meta name="robots" content="index, follow" />
         <meta name="googlebot" content="index, follow" />
-        <link rel="canonical" href="https://serenity-b9.onrender.com" />
+        <link rel="canonical" href="https://src.health" />
       </head>
       <body>
         {/* Google Analytics (only inject if configured) */}

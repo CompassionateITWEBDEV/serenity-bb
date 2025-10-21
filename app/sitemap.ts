@@ -2,7 +2,7 @@
 import type { MetadataRoute } from "next"
 
 // Production domain for Serenity Rehabilitation Center
-const SITE_URL = "https://serenity-b9.onrender.com"
+const SITE_URL = "https://src.health"
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date()
