@@ -7,8 +7,9 @@ import { Playfair_Display, Source_Sans_3 as Source_Sans_Pro } from "next/font/go
 import "./globals.css"
 import Analytics from "./analytics"
 import { OrganizationStructuredData } from "@/components/seo/StructuredData"
+import GoogleAnalytics from "@/components/seo/GoogleAnalytics"
 
-const SITE_URL = "https://serenity-b9.onrender.com"
+const SITE_URL = "https://src.health"
 const ORG_NAME = "Serenity Rehabilitation Center"
 const OG_IMAGE = "/og-image.jpg"
 
@@ -76,12 +77,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {GA_ID && (
           <>
             <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`} strategy="afterInteractive" />
-            <Script id="ga-init" strategy="afterInteractive">
+            <Script id="google-analytics" strategy="afterInteractive">
               {`
                 window.dataLayer = window.dataLayer || [];
                 function gtag(){dataLayer.push(arguments);}
                 gtag('js', new Date());
-                gtag('config', '${GA_ID}', { anonymize_ip: true });
+                gtag('config', '${GA_ID}', {
+                  anonymize_ip: true,
+                  send_page_view: true,
+                  page_title: document.title,
+                  page_location: window.location.href
+                });
               `}
             </Script>
           </>
@@ -93,11 +99,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           strategy="beforeInteractive" /* why: allow early usage in client components */
         />
 
-        <Suspense fallback={null}>
-          <Analytics />
-        </Suspense>
-
         <OrganizationStructuredData />
+
+        {/* Google Analytics Page Tracking */}
+        {GA_ID && <GoogleAnalytics gaId={GA_ID} />}
 
         {children}
       </body>

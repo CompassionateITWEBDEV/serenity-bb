@@ -1,42 +1,38 @@
 "use client"
 
-import Script from "next/script"
 import { useEffect } from "react"
+import { usePathname, useSearchParams } from "next/navigation"
 
 interface GoogleAnalyticsProps {
   gaId: string
 }
 
 export default function GoogleAnalytics({ gaId }: GoogleAnalyticsProps) {
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
   useEffect(() => {
-    // Track page views
     if (typeof window !== "undefined" && window.gtag) {
+      const query = searchParams?.toString()
+      const page_path = query ? `${pathname}?${query}` : pathname
+      
+      // Track page view
       window.gtag("config", gaId, {
+        page_path,
+        page_title: document.title,
+        page_location: window.location.href,
+      })
+      
+      // Send page view event
+      window.gtag("event", "page_view", {
+        page_path,
         page_title: document.title,
         page_location: window.location.href,
       })
     }
-  }, [gaId])
+  }, [pathname, searchParams, gaId])
 
-  return (
-    <>
-      <Script
-        src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
-        strategy="afterInteractive"
-      />
-      <Script id="google-analytics" strategy="afterInteractive">
-        {`
-          window.dataLayer = window.dataLayer || [];
-          function gtag(){dataLayer.push(arguments);}
-          gtag('js', new Date());
-          gtag('config', '${gaId}', {
-            anonymize_ip: true,
-            send_page_view: false
-          });
-        `}
-      </Script>
-    </>
-  )
+  return null
 }
 
 // Declare gtag function for TypeScript
