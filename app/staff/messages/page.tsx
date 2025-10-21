@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import {
   LogOut, Plus, Search, Settings as SettingsIcon,
   Pin, PinOff, Archive, ArchiveRestore, CheckCheck, ArrowLeft, ChevronDown,
+  MessageSquare, Users, Bell, Filter, MoreVertical, Star, StarOff,
+  Clock, CheckCircle2, AlertCircle, User, Mail, Phone, Calendar,
+  Send, Paperclip, Smile, MoreHorizontal, RefreshCw, X
 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import IncomingCallNotification from "@/components/call/IncomingCallNotification";
@@ -13,6 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -69,9 +74,28 @@ function mapStaffRole(role?: string | null, dept?: string | null): ProviderRole 
 
 function formatTime(iso: string) {
   try {
-    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const date = new Date(iso);
+    const now = new Date();
+    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+    
+    if (diffInHours < 24) {
+      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } else if (diffInHours < 168) { // 7 days
+      return date.toLocaleDateString([], { weekday: "short" });
+    } else {
+      return date.toLocaleDateString([], { month: "short", day: "numeric" });
+    }
   } catch {
     return "";
+  }
+}
+
+function getStatusColor(status: string) {
+  switch (status.toLowerCase()) {
+    case "online": return "bg-green-500";
+    case "away": return "bg-yellow-500";
+    case "busy": return "bg-red-500";
+    default: return "bg-gray-400";
   }
 }
 
@@ -117,7 +141,6 @@ function useSystemThemeSync(theme: UiSettings["theme"]) {
     if (typeof window === "undefined") return;
 
     const apply = (mode: "dark" | "light") => {
-      // Only toggle class when effective theme changes
       if (mode === "dark") document.documentElement.classList.add("dark");
       else document.documentElement.classList.remove("dark");
     };
@@ -550,259 +573,339 @@ export default function StaffMessagesPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-7xl p-6 space-y-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-900 dark:to-slate-800">
       {/* notifier */}
       {notice && (
         <div
           role="status"
           aria-live="polite"
           className={clsx(
-            "fixed right-6 top-6 z-50 rounded-lg px-3 py-2 text-sm shadow",
-            notice.tone === "err" && "bg-red-600 text-white",
-            notice.tone === "warn" && "bg-amber-500 text-black",
-            (!notice.tone || notice.tone === "ok") && "bg-gray-900 text-white"
+            "fixed right-6 top-6 z-50 rounded-lg px-4 py-3 text-sm shadow-lg backdrop-blur-sm",
+            notice.tone === "err" && "bg-red-500/90 text-white",
+            notice.tone === "warn" && "bg-amber-500/90 text-black",
+            (!notice.tone || notice.tone === "ok") && "bg-emerald-500/90 text-white"
           )}
         >
           {notice.text}
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleBack}
-            className="gap-1"
-            aria-label="Back to dashboard"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-            Messages
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2" aria-label="Open settings">
-                <SettingsIcon className="h-4 w-4" /> Settings
+      {/* Header */}
+      <div className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur-sm dark:bg-slate-900/80">
+        <div className="mx-auto max-w-7xl px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleBack}
+                className="gap-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+                aria-label="Back to dashboard"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
               </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>Chat settings</DialogTitle>
-              </DialogHeader>
-
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm font-medium">Theme</p>
-                  <div className="mt-2 flex gap-2">
-                    {(["light", "dark", "system"] as const).map((v) => (
-                      <Button
-                        key={v}
-                        variant={settings.theme === v ? "default" : "outline"}
-                        onClick={() => setSettings((s) => ({ ...s, theme: v }))}
-                        aria-pressed={settings.theme === v}
-                      >
-                        {v}
-                      </Button>
-                    ))}
-                  </div>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-purple-600">
+                  <MessageSquare className="h-5 w-5 text-white" />
                 </div>
-
                 <div>
-                  <p className="text-sm font-medium">Density</p>
-                  <div className="mt-2 flex gap-2">
-                    {(["comfortable", "compact"] as const).map((v) => (
-                      <Button
-                        key={v}
-                        variant={settings.density === v ? "default" : "outline"}
-                        onClick={() => setSettings((s) => ({ ...s, density: v }))}
-                        aria-pressed={settings.density === v}
-                      >
-                        {v}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-sm font-medium">Bubble roundness</p>
-                  <div className="mt-2 flex gap-2">
-                    {(["rounded-lg", "rounded-xl", "rounded-2xl"] as const).map((v) => (
-                      <Button
-                        key={v}
-                        variant={settings.bubbleRadius === v ? "default" : "outline"}
-                        onClick={() => setSettings((s) => ({ ...s, bubbleRadius: v }))}
-                        aria-pressed={settings.bubbleRadius === v}
-                      >
-                        {v.replace("rounded-", "")}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant={settings.enterToSend ? "default" : "outline"}
-                    onClick={() =>
-                      setSettings((s) => ({ ...s, enterToSend: !s.enterToSend }))
-                    }
-                  >
-                    {settings.enterToSend ? "Enter sends" : "Enter adds line"}
-                  </Button>
-                  <Button
-                    variant={settings.sound ? "default" : "outline"}
-                    onClick={() => setSettings((s) => ({ ...s, sound: !s.sound }))}
-                  >
-                    {settings.sound ? "Sounds on" : "Sounds off"}
-                  </Button>
+                  <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+                    Messages
+                  </h1>
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    Communicate with your patients
+                  </p>
                 </div>
               </div>
-            </DialogContent>
-          </Dialog>
+            </div>
 
-          <Button
-            size="sm"
-            className="gap-2"
-            onClick={() => setModalOpen(true)}
-            aria-label="Start new message"
-          >
-            <Plus className="h-4 w-4" /> New message
-          </Button>
+            <div className="flex items-center gap-3">
+              {/* Quick Stats */}
+              <div className="hidden md:flex items-center gap-4 text-sm">
+                <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                  <Users className="h-4 w-4" />
+                  <span>{convs.length} conversations</span>
+                </div>
+                {counts.newCount > 0 && (
+                  <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                    <Bell className="h-4 w-4" />
+                    <span>{counts.newCount} unread</span>
+                  </div>
+                )}
+              </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={async () => {
-              await supabase.auth.signOut();
-              router.refresh();
-            }}
-            aria-label="Logout"
-          >
-            <LogOut className="h-4 w-4" /> Logout
-          </Button>
+              <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2" aria-label="Open settings">
+                    <SettingsIcon className="h-4 w-4" /> Settings
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Chat Settings</DialogTitle>
+                  </DialogHeader>
+
+                  <div className="space-y-6">
+                    <div>
+                      <p className="text-sm font-medium mb-3">Theme</p>
+                      <div className="flex gap-2">
+                        {(["light", "dark", "system"] as const).map((v) => (
+                          <Button
+                            key={v}
+                            variant={settings.theme === v ? "default" : "outline"}
+                            onClick={() => setSettings((s) => ({ ...s, theme: v }))}
+                            className="flex-1"
+                            aria-pressed={settings.theme === v}
+                          >
+                            {v}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-medium mb-3">Density</p>
+                      <div className="flex gap-2">
+                        {(["comfortable", "compact"] as const).map((v) => (
+                          <Button
+                            key={v}
+                            variant={settings.density === v ? "default" : "outline"}
+                            onClick={() => setSettings((s) => ({ ...s, density: v }))}
+                            className="flex-1"
+                            aria-pressed={settings.density === v}
+                          >
+                            {v}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-medium mb-3">Bubble Style</p>
+                      <div className="flex gap-2">
+                        {(["rounded-lg", "rounded-xl", "rounded-2xl"] as const).map((v) => (
+                          <Button
+                            key={v}
+                            variant={settings.bubbleRadius === v ? "default" : "outline"}
+                            onClick={() => setSettings((s) => ({ ...s, bubbleRadius: v }))}
+                            className="flex-1"
+                            aria-pressed={settings.bubbleRadius === v}
+                          >
+                            {v.replace("rounded-", "")}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">Enter to send</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400">Press Enter to send messages</p>
+                      </div>
+                      <Button
+                        variant={settings.enterToSend ? "default" : "outline"}
+                        size="sm"
+                        onClick={() =>
+                          setSettings((s) => ({ ...s, enterToSend: !s.enterToSend }))
+                        }
+                      >
+                        {settings.enterToSend ? "On" : "Off"}
+                      </Button>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">Sound notifications</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400">Play sounds for new messages</p>
+                      </div>
+                      <Button
+                        variant={settings.sound ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setSettings((s) => ({ ...s, sound: !s.sound }))}
+                      >
+                        {settings.sound ? "On" : "Off"}
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              <Button
+                size="sm"
+                className="gap-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
+                onClick={() => setModalOpen(true)}
+                aria-label="Start new message"
+              >
+                <Plus className="h-4 w-4" /> New Message
+              </Button>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" aria-label="More options">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Account</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={async () => {
+                    await supabase.auth.signOut();
+                    router.refresh();
+                  }}>
+                    <LogOut className="mr-2 h-4 w-4" /> Logout
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Conversations */}
-        <Card className="lg:col-span-1 overflow-hidden" aria-label="Conversations list">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center justify-between">
-              <span>Conversations</span>
+      {/* Main Content */}
+      <div className="mx-auto max-w-7xl p-6">
+        <div className="grid h-[calc(100vh-200px)] grid-cols-1 gap-6 lg:grid-cols-3">
+          {/* Conversations Sidebar */}
+          <Card className="lg:col-span-1 overflow-hidden shadow-lg border-0 bg-white/70 backdrop-blur-sm dark:bg-slate-900/70">
+            <CardHeader className="pb-4 bg-gradient-to-r from-slate-50 to-blue-50 dark:from-slate-800 dark:to-slate-700">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  Conversations
+                </CardTitle>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => window.location.reload()}
+                    className="h-8 w-8 p-0"
+                    aria-label="Refresh"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
 
-              <div className="flex items-center gap-1 text-xs">
-                <Button
-                  variant={tab === "all" ? "default" : "outline"}
-                  size="xs"
-                  onClick={() => setTab("all")}
-                >
-                  All
-                </Button>
+              {/* Filter Tabs */}
+              <Tabs value={tab} onValueChange={(value) => setTab(value as any)} className="w-full">
+                <TabsList className="grid w-full grid-cols-4 bg-slate-100 dark:bg-slate-800">
+                  <TabsTrigger value="all" className="text-xs">
+                    All
+                    {convs.length > 0 && (
+                      <Badge variant="secondary" className="ml-1 h-5 w-5 rounded-full p-0 text-xs">
+                        {convs.length}
+                      </Badge>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="new" className="text-xs">
+                    New
+                    {counts.newCount > 0 && (
+                      <Badge className="ml-1 h-5 w-5 rounded-full p-0 text-xs bg-amber-500">
+                        {counts.newCount}
+                      </Badge>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="pinned" className="text-xs">
+                    Pinned
+                    {counts.pinned > 0 && (
+                      <Badge variant="secondary" className="ml-1 h-5 w-5 rounded-full p-0 text-xs">
+                        {counts.pinned}
+                      </Badge>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="archived" className="text-xs">
+                    Archived
+                    {counts.archived > 0 && (
+                      <Badge variant="secondary" className="ml-1 h-5 w-5 rounded-full p-0 text-xs">
+                        {counts.archived}
+                      </Badge>
+                    )}
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
 
-                <Button
-                  variant={tab === "new" ? "default" : "outline"}
-                  size="xs"
-                  onClick={() => setTab("new")}
-                >
-                  New
-                  {counts.newCount ? <Badge className="ml-1">{counts.newCount}</Badge> : null}
-                </Button>
+              {/* Search */}
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4" />
+                <Input
+                  ref={searchRef}
+                  placeholder="Search conversations… (Press / to focus)"
+                  aria-label="Search conversations"
+                  className="pl-10 bg-white/50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                />
+              </div>
 
-                <Button
-                  variant={tab === "pinned" ? "default" : "outline"}
-                  size="xs"
-                  onClick={() => setTab("pinned")}
-                >
-                  Pinned
-                  {counts.pinned ? <Badge className="ml-1">{counts.pinned}</Badge> : null}
-                </Button>
-
-                <Button
-                  variant={tab === "archived" ? "default" : "outline"}
-                  size="xs"
-                  onClick={() => setTab("archived")}
-                >
-                  Archived
-                  {counts.archived ? <Badge className="ml-1">{counts.archived}</Badge> : null}
-                </Button>
-
-                {/* Bulk actions */}
+              {/* Bulk Actions */}
+              <div className="flex items-center justify-between">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="xs" className="ml-2 gap-1" aria-label="Bulk actions">
-                      Bulk <ChevronDown className="h-3.5 w-3.5" />
+                    <Button variant="outline" size="sm" className="gap-1 text-xs">
+                      <Filter className="h-3 w-3" />
+                      Actions
+                      <ChevronDown className="h-3 w-3" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-40">
-                    <DropdownMenuLabel>Bulk actions</DropdownMenuLabel>
+                  <DropdownMenuContent align="start" className="w-48">
+                    <DropdownMenuLabel>Bulk Actions</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={bulkArchive}>
-                      <Archive className="mr-2 h-4 w-4" /> Archive all
+                      <Archive className="mr-2 h-4 w-4" /> Archive All
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={bulkUnarchive}>
-                      <ArchiveRestore className="mr-2 h-4 w-4" /> Unarchive all
+                      <ArchiveRestore className="mr-2 h-4 w-4" /> Unarchive All
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-            </CardTitle>
+            </CardHeader>
 
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                ref={searchRef}
-                placeholder="Search patients… ( / )"
-                aria-label="Search patients"
-                className="pl-10"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-            </div>
-          </CardHeader>
-
-          <CardContent className="p-0">
-            <div ref={listRef} className={clsx(
-              "overflow-y-auto",
-              settings.density === "compact" ? "max-h-[calc(100vh-300px)]" : "max-h-[calc(100vh-320px)]"
-            )}>
-              {loading && (
-                <div className="space-y-2 p-4" aria-live="polite">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="animate-pulse rounded-xl border p-3">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-gray-200" />
-                        <div className="flex-1 space-y-2">
-                          <div className="h-3 w-1/3 rounded bg-gray-200" />
-                          <div className="h-3 w-2/3 rounded bg-gray-200" />
+            <CardContent className="p-0">
+              <div ref={listRef} className={clsx(
+                "overflow-y-auto",
+                settings.density === "compact" ? "max-h-[calc(100vh-300px)]" : "max-h-[calc(100vh-320px)]"
+              )}>
+                {loading && (
+                  <div className="space-y-3 p-4" aria-live="polite">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <div key={i} className="animate-pulse rounded-xl border p-4 bg-slate-50 dark:bg-slate-800">
+                        <div className="flex items-center gap-3">
+                          <div className="h-12 w-12 rounded-full bg-slate-200 dark:bg-slate-700" />
+                          <div className="flex-1 space-y-2">
+                            <div className="h-4 w-1/3 rounded bg-slate-200 dark:bg-slate-700" />
+                            <div className="h-3 w-2/3 rounded bg-slate-200 dark:bg-slate-700" />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
 
-              {!loading && filteredConvs.length === 0 && (
-                <div className="p-8 text-center text-sm text-gray-500">No conversations to show.</div>
-              )}
+                {!loading && filteredConvs.length === 0 && (
+                  <div className="p-8 text-center">
+                    <MessageSquare className="mx-auto h-12 w-12 text-slate-400 mb-4" />
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      {tab === "new" ? "No new messages" : 
+                       tab === "pinned" ? "No pinned conversations" :
+                       tab === "archived" ? "No archived conversations" :
+                       "No conversations found"}
+                    </p>
+                  </div>
+                )}
 
-              <ul className="space-y-1 p-2">
-                {filteredConvs.map((c) => {
-                  const active = selectedId === c.id;
-                  const un = unreadMap[c.id] ?? 0;
-                  return (
-                    <li key={c.id}>
+                <div className="space-y-2 p-3">
+                  {filteredConvs.map((c) => {
+                    const active = selectedId === c.id;
+                    const un = unreadMap[c.id] ?? 0;
+                    return (
                       <div
+                        key={c.id}
                         onClick={() => openConversation(c.id)}
                         className={clsx(
-                          "group relative flex w-full items-center gap-3 rounded-xl border p-3 text-left transition cursor-pointer",
+                          "group relative flex w-full items-center gap-3 rounded-xl p-4 text-left transition-all cursor-pointer",
                           active
-                            ? "border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20"
-                            : "hover:bg-gray-50 dark:hover:bg-gray-900"
+                            ? "bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border border-blue-200 dark:border-blue-800 shadow-md"
+                            : "hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
                         )}
                         aria-current={active ? "true" : "false"}
                         role="button"
@@ -814,45 +917,49 @@ export default function StaffMessagesPage() {
                           }
                         }}
                       >
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage src={c.patient_avatar ?? undefined} />
-                          <AvatarFallback>
-                            {initials(c.patient_name || c.patient_email || "Patient")}
-                          </AvatarFallback>
-                        </Avatar>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between">
-                            <p className="truncate font-medium text-gray-900 dark:text-gray-100">
-                              {c.patient_name ?? c.patient_email ?? "Patient"}
-                            </p>
-                            <span className="ml-2 shrink-0 text-[11px] text-gray-500">
-                              {formatTime(c.updated_at)}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
-                            {un > 0 && (
-                              <Badge aria-label={`${un} unread`} className="ml-auto">
-                                {un}
-                              </Badge>
-                            )}
-                            {c.pinned && !c.archived_at && (
-                              <Pin className="h-3.5 w-3.5 text-cyan-500" aria-hidden="true" />
-                            )}
-                          </div>
+                        <div className="relative">
+                          <Avatar className="h-12 w-12 ring-2 ring-white dark:ring-slate-800">
+                            <AvatarImage src={c.patient_avatar ?? undefined} />
+                            <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white font-semibold">
+                              {initials(c.patient_name || c.patient_email || "Patient")}
+                            </AvatarFallback>
+                          </Avatar>
+                          {un > 0 && (
+                            <div className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 flex items-center justify-center">
+                              <span className="text-xs font-bold text-white">{un}</span>
+                            </div>
+                          )}
                         </div>
 
-                        {/* row actions */}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="truncate font-semibold text-slate-900 dark:text-slate-100">
+                              {c.patient_name ?? c.patient_email ?? "Patient"}
+                            </p>
+                            <div className="flex items-center gap-2">
+                              {c.pinned && !c.archived_at && (
+                                <Star className="h-4 w-4 text-amber-500 fill-current" aria-hidden="true" />
+                              )}
+                              <span className="text-xs text-slate-500 dark:text-slate-400 shrink-0">
+                                {formatTime(c.updated_at)}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="truncate text-sm text-slate-600 dark:text-slate-400">
+                            {c.last_message ?? "No messages yet"}
+                          </p>
+                        </div>
+
+                        {/* Row actions */}
                         <div className="absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-1 group-hover:flex">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button size="sm" variant="ghost" className="h-8 px-2" aria-label="Conversation actions">
-                                •••
+                              <Button size="sm" variant="ghost" className="h-8 w-8 p-0" aria-label="Conversation actions">
+                                <MoreHorizontal className="h-4 w-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
-                              <DropdownMenuLabel>Quick actions</DropdownMenuLabel>
+                            <DropdownMenuContent align="end" className="w-48">
+                              <DropdownMenuLabel>Quick Actions</DropdownMenuLabel>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 onClick={(e) => {
@@ -862,11 +969,11 @@ export default function StaffMessagesPage() {
                               >
                                 {c.pinned ? (
                                   <>
-                                    <PinOff className="mr-2 h-4 w-4" /> Unpin
+                                    <StarOff className="mr-2 h-4 w-4" /> Unpin
                                   </>
                                 ) : (
                                   <>
-                                    <Pin className="mr-2 h-4 w-4" /> Pin
+                                    <Star className="mr-2 h-4 w-4" /> Pin
                                   </>
                                 )}
                               </DropdownMenuItem>
@@ -876,7 +983,7 @@ export default function StaffMessagesPage() {
                                   markRead(c.id);
                                 }}
                               >
-                                <CheckCheck className="mr-2 h-4 w-4" /> Mark read
+                                <CheckCircle2 className="mr-2 h-4 w-4" /> Mark as Read
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={(e) => {
@@ -898,81 +1005,115 @@ export default function StaffMessagesPage() {
                           </DropdownMenu>
                         </div>
                       </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          </CardContent>
-        </Card>
+                    );
+                  })}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-        {/* Thread */}
-        <div className="lg:col-span-2">
-          {!selectedConv ? (
-            <Card className="h-[540px] w-full">
-              <CardContent className="h-full grid place-items-center text-sm text-gray-500">
-                Select a conversation
-              </CardContent>
-            </Card>
-          ) : (
-            <ChatBox
-              mode="staff"
-              patientId={selectedConv.patient_id}
-              providerId={meId!}
-              providerName={meName}
-              providerRole={meRole}
-              settings={settings}
-              conversationId={selectedConv.id}
-            />
-          )}
+          {/* Chat Area */}
+          <div className="lg:col-span-2">
+            {!selectedConv ? (
+              <Card className="h-full shadow-lg border-0 bg-white/70 backdrop-blur-sm dark:bg-slate-900/70">
+                <CardContent className="h-full flex flex-col items-center justify-center text-center p-8">
+                  <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/20 dark:to-purple-900/20 flex items-center justify-center mb-6">
+                    <MessageSquare className="h-12 w-12 text-blue-500 dark:text-blue-400" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-2">
+                    Select a conversation
+                  </h3>
+                  <p className="text-slate-600 dark:text-slate-400 mb-6 max-w-md">
+                    Choose a conversation from the sidebar to start messaging with your patients
+                  </p>
+                  <Button
+                    onClick={() => setModalOpen(true)}
+                    className="gap-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Start New Conversation
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="h-full rounded-xl overflow-hidden shadow-lg border-0 bg-white/70 backdrop-blur-sm dark:bg-slate-900/70">
+                <ChatBox
+                  mode="staff"
+                  patientId={selectedConv.patient_id}
+                  providerId={meId!}
+                  providerName={meName}
+                  providerRole={meRole}
+                  settings={settings}
+                  conversationId={selectedConv.id}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* New Message Modal (simple, fast) */}
+      {/* New Message Modal */}
       {modalOpen && (
         <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-4"
           role="dialog"
           aria-modal="true"
           aria-label="Start new message"
         >
-          <div className="w-full max-w-lg rounded-2xl border bg-white shadow-xl dark:bg-gray-950">
-            <div className="flex items-center justify-between border-b p-4">
-              <h3 className="font-semibold">New message</h3>
+          <div className="w-full max-w-2xl rounded-2xl border bg-white shadow-2xl dark:bg-slate-900">
+            <div className="flex items-center justify-between border-b p-6">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-900 dark:text-slate-100">New Message</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Start a conversation with a patient</p>
+              </div>
               <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)} aria-label="Close">
-                Close
+                <X className="h-4 w-4" />
               </Button>
             </div>
-            <div className="p-4">
-              <div className="relative mb-3">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <div className="p-6">
+              <div className="relative mb-6">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <Input
-                  placeholder="Search patients…"
-                  className="pl-9"
+                  placeholder="Search patients by name or email…"
+                  className="pl-10 bg-slate-50 dark:bg-slate-800"
                   value={pSearch}
                   onChange={(e) => setPSearch(e.target.value)}
                   autoFocus
                   aria-label="Search patients to start a message"
                 />
               </div>
-              <div className="max-h-80 overflow-y-auto divide-y">
+              <div className="max-h-96 overflow-y-auto space-y-2">
                 {filteredPatients.length === 0 && (
-                  <div className="p-6 text-sm text-gray-500">No matches.</div>
+                  <div className="p-8 text-center">
+                    <User className="mx-auto h-12 w-12 text-slate-400 mb-4" />
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      {pSearch ? "No patients found matching your search" : "No patients available"}
+                    </p>
+                  </div>
                 )}
                 {filteredPatients.map((p) => (
                   <button
                     key={p.user_id}
-                    className="w-full text-left p-3 hover:bg-gray-50 dark:hover:bg-gray-900 flex items-center gap-3"
+                    className="w-full text-left p-4 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl flex items-center gap-4 transition-colors"
                     onClick={() => startNewMessage(p)}
                     aria-label={`Message ${p.full_name ?? p.email ?? "patient"}`}
                   >
-                    <Avatar>
+                    <Avatar className="h-12 w-12">
                       <AvatarImage src={p.avatar ?? undefined} />
-                      <AvatarFallback>{initials(p.full_name)}</AvatarFallback>
+                      <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white font-semibold">
+                        {initials(p.full_name)}
+                      </AvatarFallback>
                     </Avatar>
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{p.full_name ?? "Patient"}</div>
-                      <div className="text-xs text-gray-500 truncate">{p.email ?? ""}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                        {p.full_name ?? "Patient"}
+                      </div>
+                      <div className="text-sm text-slate-600 dark:text-slate-400 truncate">
+                        {p.email ?? ""}
+                      </div>
+                    </div>
+                    <div className="text-slate-400">
+                      <Send className="h-4 w-4" />
                     </div>
                   </button>
                 ))}
