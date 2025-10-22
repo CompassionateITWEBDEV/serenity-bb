@@ -131,19 +131,27 @@ function VideoTile({
       const hasValidDimensions = video.videoWidth > 0 && video.videoHeight > 0;
       const isReady = video.readyState >= 2; // HAVE_CURRENT_DATA
       const isPlaying = !video.paused && !video.ended;
+      const hasVideoTracks = video.srcObject && (video.srcObject as MediaStream).getVideoTracks().length > 0;
       
       console.log(`🔍 Video check for ${label}:`, {
         hasSrcObject,
         hasValidDimensions,
         isReady,
         isPlaying,
+        hasVideoTracks,
         readyState: video.readyState,
         videoWidth: video.videoWidth,
         videoHeight: video.videoHeight,
-        currentHasVideoStream: hasVideoStream
+        currentHasVideoStream: hasVideoStream,
+        streamActive: video.srcObject ? (video.srcObject as MediaStream).active : false
       });
 
-      if (hasSrcObject && (hasValidDimensions || isReady) && !hasVideoStream) {
+      // More aggressive detection - if we have a stream with video tracks, consider it valid
+      if (hasSrcObject && hasVideoTracks && !hasVideoStream) {
+        console.log(`✅ Video stream detected for ${label} (has video tracks)`);
+        setShowVideo(true);
+        setHasVideoStream(true);
+      } else if (hasSrcObject && (hasValidDimensions || isReady) && !hasVideoStream) {
         console.log(`✅ Video stream detected for ${label}: ${video.videoWidth}x${video.videoHeight}`);
         setShowVideo(true);
         setHasVideoStream(true);
@@ -151,12 +159,22 @@ function VideoTile({
         // Stream exists but dimensions not yet available, try to play
         console.log(`🔄 Attempting to play video for ${label} to get dimensions`);
         video.play().catch(console.warn);
+      } else if (hasSrcObject && hasVideoTracks && !isPlaying) {
+        // Force play if we have video tracks but video isn't playing
+        console.log(`🔄 Force playing video for ${label} with video tracks`);
+        video.play().catch(console.warn);
       }
     };
     
     // Check immediately and then periodically
     checkVideoStream();
-    const interval = setInterval(checkVideoStream, 500); // More frequent checks
+    const interval = setInterval(checkVideoStream, 300); // Even more frequent checks for mobile
+    
+    // Additional immediate checks for mobile devices
+    setTimeout(checkVideoStream, 100);
+    setTimeout(checkVideoStream, 500);
+    setTimeout(checkVideoStream, 1000);
+    setTimeout(checkVideoStream, 2000);
     
     // Cleanup interval after 30 seconds
     const timeout = setTimeout(() => clearInterval(interval), 30000);
@@ -229,6 +247,21 @@ function VideoTile({
           setShowVideo(true);
           setHasVideoStream(true);
         }}
+        onLoadedData={() => {
+          console.log(`📊 Video data loaded for ${label}`);
+          setShowVideo(true);
+          setHasVideoStream(true);
+        }}
+        onCanPlay={() => {
+          console.log(`▶️ Video can play for ${label}`);
+          setShowVideo(true);
+          setHasVideoStream(true);
+        }}
+        onCanPlayThrough={() => {
+          console.log(`🎯 Video can play through for ${label}`);
+          setShowVideo(true);
+          setHasVideoStream(true);
+        }}
         onError={(e) => {
           console.error(`❌ Video error for ${label}:`, e);
           setShowVideo(false);
@@ -236,6 +269,11 @@ function VideoTile({
         }}
         onPlay={() => {
           console.log(`▶️ Video playing for ${label}`);
+          setShowVideo(true);
+          setHasVideoStream(true);
+        }}
+        onPlaying={() => {
+          console.log(`🎬 Video is playing for ${label}`);
           setShowVideo(true);
           setHasVideoStream(true);
         }}
@@ -256,7 +294,12 @@ function VideoTile({
               <p className="text-gray-400 text-xs mt-1">Connecting media...</p>
             )}
             {isConnected && !hasVideoStream && (
-              <p className="text-yellow-400 text-xs mt-1">Waiting for video...</p>
+              <p className="text-yellow-400 text-xs mt-1">
+                {video.srcObject && (video.srcObject as MediaStream).getVideoTracks().length > 0 
+                  ? "Video loading..." 
+                  : "Waiting for video..."
+                }
+              </p>
             )}
             {isConnected && hasVideoStream && !showVideo && (
               <p className="text-orange-400 text-xs mt-1">Video loading...</p>
@@ -671,6 +714,11 @@ export default function CallRoomPage() {
 
     // Force immediate load and play
     try { video.load(); } catch {}
+
+    // Force video to be visible and ready
+    try { video.style.display = 'block'; } catch {}
+    try { video.style.visibility = 'visible'; } catch {}
+    try { video.style.opacity = '1'; } catch {}
 
     // Safe play with proper error handling and black screen fixes
     const playVideo = async () => {
@@ -2239,8 +2287,11 @@ export default function CallRoomPage() {
       
       // Multiple setup attempts for better reliability
       setupCallerVideo();
+      setTimeout(setupCallerVideo, 100);
       setTimeout(setupCallerVideo, 300);
+      setTimeout(setupCallerVideo, 500);
       setTimeout(setupCallerVideo, 1000);
+      setTimeout(setupCallerVideo, 2000);
 
       // 3) Simple call flow like Messenger/Zoom
     if (role === "caller") {
