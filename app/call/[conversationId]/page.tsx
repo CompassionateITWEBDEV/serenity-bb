@@ -125,59 +125,28 @@ function VideoTile({
       video.load(); // Force reload
     }
     
-    // Enhanced periodic check for video stream detection
+    // Periodic check for video stream detection (fallback)
     const checkVideoStream = () => {
-      const hasSrcObject = !!video.srcObject;
-      const hasValidDimensions = video.videoWidth > 0 && video.videoHeight > 0;
-      const isReady = video.readyState >= 2; // HAVE_CURRENT_DATA
-      const isPlaying = !video.paused && !video.ended;
-      const hasVideoTracks = video.srcObject && (video.srcObject as MediaStream).getVideoTracks().length > 0;
+      if (video.srcObject && video.readyState >= 2 && !hasVideoStream) {
+        console.log(`🔄 Periodic check: Video stream detected for ${label}`);
+        setShowVideo(true);
+        setHasVideoStream(true);
+      }
       
-      console.log(`🔍 Video check for ${label}:`, {
-        hasSrcObject,
-        hasValidDimensions,
-        isReady,
-        isPlaying,
-        hasVideoTracks,
-        readyState: video.readyState,
-        videoWidth: video.videoWidth,
-        videoHeight: video.videoHeight,
-        currentHasVideoStream: hasVideoStream,
-        streamActive: video.srcObject ? (video.srcObject as MediaStream).active : false
-      });
-
-      // More aggressive detection - if we have a stream with video tracks, consider it valid
-      if (hasSrcObject && hasVideoTracks && !hasVideoStream) {
-        console.log(`✅ Video stream detected for ${label} (has video tracks)`);
+      // Also check for video dimensions as an additional indicator
+      if (video.videoWidth > 0 && video.videoHeight > 0 && !hasVideoStream) {
+        console.log(`🔄 Video dimensions detected for ${label}: ${video.videoWidth}x${video.videoHeight}`);
         setShowVideo(true);
         setHasVideoStream(true);
-      } else if (hasSrcObject && (hasValidDimensions || isReady) && !hasVideoStream) {
-        console.log(`✅ Video stream detected for ${label}: ${video.videoWidth}x${video.videoHeight}`);
-        setShowVideo(true);
-        setHasVideoStream(true);
-      } else if (hasSrcObject && !hasValidDimensions && video.readyState >= 1 && !isPlaying) {
-        // Stream exists but dimensions not yet available, try to play
-        console.log(`🔄 Attempting to play video for ${label} to get dimensions`);
-        video.play().catch(console.warn);
-      } else if (hasSrcObject && hasVideoTracks && !isPlaying) {
-        // Force play if we have video tracks but video isn't playing
-        console.log(`🔄 Force playing video for ${label} with video tracks`);
-        video.play().catch(console.warn);
       }
     };
     
     // Check immediately and then periodically
     checkVideoStream();
-    const interval = setInterval(checkVideoStream, 300); // Even more frequent checks for mobile
+    const interval = setInterval(checkVideoStream, 500); // Check more frequently
     
-    // Additional immediate checks for mobile devices
-    setTimeout(checkVideoStream, 100);
-    setTimeout(checkVideoStream, 500);
-    setTimeout(checkVideoStream, 1000);
-    setTimeout(checkVideoStream, 2000);
-    
-    // Cleanup interval after 30 seconds
-    const timeout = setTimeout(() => clearInterval(interval), 30000);
+    // Cleanup interval after 60 seconds (increased timeout)
+    const timeout = setTimeout(() => clearInterval(interval), 60000);
     
     return () => {
       video.removeEventListener('loadstart', handleLoadStart);
@@ -205,6 +174,13 @@ function VideoTile({
           videoWidth: video.videoWidth,
           videoHeight: video.videoHeight
         });
+        setShowVideo(true);
+        setHasVideoStream(true);
+      }
+      
+      // Also check for video dimensions
+      if (video.videoWidth > 0 && video.videoHeight > 0 && !hasVideoStream) {
+        console.log(`🔄 Video dimensions change detected for ${label}: ${video.videoWidth}x${video.videoHeight}`);
         setShowVideo(true);
         setHasVideoStream(true);
       }
@@ -247,21 +223,6 @@ function VideoTile({
           setShowVideo(true);
           setHasVideoStream(true);
         }}
-        onLoadedData={() => {
-          console.log(`📊 Video data loaded for ${label}`);
-          setShowVideo(true);
-          setHasVideoStream(true);
-        }}
-        onCanPlay={() => {
-          console.log(`▶️ Video can play for ${label}`);
-          setShowVideo(true);
-          setHasVideoStream(true);
-        }}
-        onCanPlayThrough={() => {
-          console.log(`🎯 Video can play through for ${label}`);
-          setShowVideo(true);
-          setHasVideoStream(true);
-        }}
         onError={(e) => {
           console.error(`❌ Video error for ${label}:`, e);
           setShowVideo(false);
@@ -269,11 +230,6 @@ function VideoTile({
         }}
         onPlay={() => {
           console.log(`▶️ Video playing for ${label}`);
-          setShowVideo(true);
-          setHasVideoStream(true);
-        }}
-        onPlaying={() => {
-          console.log(`🎬 Video is playing for ${label}`);
           setShowVideo(true);
           setHasVideoStream(true);
         }}
@@ -294,12 +250,7 @@ function VideoTile({
               <p className="text-gray-400 text-xs mt-1">Connecting media...</p>
             )}
             {isConnected && !hasVideoStream && (
-              <p className="text-yellow-400 text-xs mt-1">
-                {video.srcObject && (video.srcObject as MediaStream).getVideoTracks().length > 0 
-                  ? "Video loading..." 
-                  : "Waiting for video..."
-                }
-              </p>
+              <p className="text-yellow-400 text-xs mt-1">Waiting for video...</p>
             )}
             {isConnected && hasVideoStream && !showVideo && (
               <p className="text-orange-400 text-xs mt-1">Video loading...</p>
@@ -664,20 +615,8 @@ export default function CallRoomPage() {
       audioTracks: stream.getAudioTracks().length,
       videoTracks: stream.getVideoTracks().length,
       streamId: stream.id,
-      videoElement: !!video,
-      streamActive: stream.active
+      videoElement: !!video
     });
-
-    // Ensure stream is active before proceeding
-    if (!stream.active) {
-      console.warn(`⚠️ Stream is not active, attempting to reactivate`);
-      stream.getTracks().forEach(track => {
-        if (track.readyState === 'ended') {
-          console.log(`🔄 Reactivating ${track.kind} track`);
-          track.enabled = true;
-        }
-      });
-    }
 
     // Ensure recommended flags for autoplay and prevent black screens
     try { video.muted = isLocal; } catch {} // Only mute local video
@@ -711,14 +650,6 @@ export default function CallRoomPage() {
       console.warn("Failed to attach MediaStream to video element:", err);
       return false;
     }
-
-    // Force immediate load and play
-    try { video.load(); } catch {}
-
-    // Force video to be visible and ready
-    try { video.style.display = 'block'; } catch {}
-    try { video.style.visibility = 'visible'; } catch {}
-    try { video.style.opacity = '1'; } catch {}
 
     // Safe play with proper error handling and black screen fixes
     const playVideo = async () => {
@@ -1313,29 +1244,6 @@ export default function CallRoomPage() {
       // Immediately set up remote video when track is received
       if (ev.track.kind === 'video' && remoteVideoRef.current) {
         console.log('🎥 Setting up remote video immediately on track received');
-        
-        // Force immediate setup with enhanced error handling
-        const setupRemoteVideoImmediately = async () => {
-          try {
-            const remoteEl = remoteVideoRef.current;
-            if (remoteEl && remoteStreamRef.current) {
-              // Clear any existing stream
-              remoteEl.srcObject = null;
-              remoteEl.load();
-              
-              // Set new stream
-              remoteEl.srcObject = remoteStreamRef.current;
-              
-              // Force play
-              await remoteEl.play();
-              console.log('✅ Remote video playing immediately');
-            }
-          } catch (error) {
-            console.warn('⚠️ Immediate remote video setup failed:', error);
-          }
-        };
-        
-        setupRemoteVideoImmediately();
         setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
       }
       
@@ -2250,48 +2158,28 @@ export default function CallRoomPage() {
       pc.addTrack(t, localStreamRef.current!);
     });
 
-      // Enhanced caller video setup with retry logic
+      // Comprehensive caller video setup
       console.log('🎯 Setting up caller video system...');
-      const setupCallerVideo = async () => {
+      const setupCallerVideo = () => {
         const localEl = localVideoRef.current;
         if (localEl && localStreamRef.current) {
-          try {
-            localEl.srcObject = localStreamRef.current;
-            await localEl.play();
-            console.log('✅ Caller local video set up and playing');
-          } catch (error) {
-            console.warn('⚠️ Local video play failed, retrying:', error);
-            setTimeout(async () => {
-              try {
-                await localEl.play();
-                console.log('✅ Caller local video playing on retry');
-              } catch (retryError) {
-                console.error('❌ Local video play failed on retry:', retryError);
-              }
-            }, 100);
-          }
+          localEl.srcObject = localStreamRef.current;
+          localEl.play().catch(console.warn);
+          console.log('✅ Caller local video set up immediately');
         }
         
         // Also prepare for remote video
         const remoteEl = remoteVideoRef.current;
         if (remoteEl && remoteStreamRef.current) {
-          try {
-            remoteEl.srcObject = remoteStreamRef.current;
-            await remoteEl.play();
-            console.log('✅ Caller remote video set up and playing');
-          } catch (error) {
-            console.warn('⚠️ Remote video play failed:', error);
-          }
+          remoteEl.srcObject = remoteStreamRef.current;
+          remoteEl.play().catch(console.warn);
+          console.log('✅ Caller remote video set up immediately');
         }
       };
       
-      // Multiple setup attempts for better reliability
       setupCallerVideo();
-      setTimeout(setupCallerVideo, 100);
+      // Retry to ensure video elements are ready
       setTimeout(setupCallerVideo, 300);
-      setTimeout(setupCallerVideo, 500);
-      setTimeout(setupCallerVideo, 1000);
-      setTimeout(setupCallerVideo, 2000);
 
       // 3) Simple call flow like Messenger/Zoom
     if (role === "caller") {

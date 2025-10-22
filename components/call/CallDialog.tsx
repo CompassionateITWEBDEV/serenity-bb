@@ -145,7 +145,9 @@ export default function CallDialog({
                   ? "Ringing…"
                   : state.status === "connecting"
                   ? "Connecting…"
-                  : "Waiting…"}
+                  : state.status === "failed"
+                  ? "Connection failed"
+                  : "Waiting for video…"}
               </div>
             )}
             {state.status === "ended" && (
