@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 
-export type CallStatus = "initiated" | "ringing" | "connected" | "ended" | "missed" | "declined";
+export type CallStatus = "initiated" | "ringing" | "connected" | "ended" | "missed" | "declined" | "failed" | "disconnected";
 
 export type CallEvent = {
   conversationId: string;

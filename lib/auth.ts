@@ -197,7 +197,7 @@ export class AuthService {
         if (error || !data?.user) throw new Error(error?.message || "Invalid credentials");
 
         // Fetch patient row (RLS: user must see own row)
-        const { data: row } = await supabase
+        const { data: row } = await (supabase as any)
           .from("patients")
           .select(
             "user_id, first_name, last_name, full_name, email, phone_number, date_of_birth, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, treatment_program, created_at, avatar"
@@ -282,7 +282,7 @@ export class AuthService {
           return { success: true };
         }
 
-        await supabase
+        await (supabase as any)
           .from("patients")
           .upsert({
             user_id: data.user.id,
@@ -375,7 +375,7 @@ export class AuthService {
         const session: Session | null = data.session;
 
         if (session?.user) {
-          const { data: row } = await supabase
+          const { data: row } = await (supabase as any)
             .from("patients")
             .select(
               "user_id, first_name, last_name, full_name, email, phone_number, date_of_birth, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, treatment_program, created_at, avatar"

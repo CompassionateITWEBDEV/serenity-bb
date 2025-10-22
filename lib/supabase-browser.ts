@@ -9,10 +9,13 @@ import {
 
 type DB = any;
 
-const URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const STORAGE_KEY = process.env.NEXT_PUBLIC_SUPABASE_STORAGE_KEY || "sb-app-auth";
 const DEBUG = Boolean(process.env.NEXT_PUBLIC_SUPABASE_DEBUG);
+
+// Check if Supabase is properly configured
+const isSupabaseConfigured = URL && ANON;
 
 declare global {
   // eslint-disable-next-line no-var
@@ -20,7 +23,20 @@ declare global {
 }
 
 function makeClient(): SupabaseClient<DB> {
-  return createClient<DB>(URL, ANON, {
+  if (!isSupabaseConfigured) {
+    console.warn('⚠️ Supabase not configured - using fallback client');
+    // Return a minimal client that won't cause errors
+    return createClient<DB>('https://placeholder.supabase.co', 'placeholder-key', {
+      auth: {
+        storageKey: STORAGE_KEY,
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
+  }
+
+  return createClient<DB>(URL!, ANON!, {
     auth: {
       storageKey: STORAGE_KEY,
       persistSession: true,
@@ -39,27 +55,31 @@ export const supabase: SupabaseClient<DB> =
 export default supabase;
 
 // Global auth error handler
-if (typeof window !== "undefined") {
-  supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
-      console.log('🔄 Auth state changed:', event);
-    }
-  });
-  
-  // Catch unhandled auth errors
-  window.addEventListener('unhandledrejection', (event) => {
-    if (event.reason?.message?.includes('Invalid Refresh Token') || 
-        event.reason?.message?.includes('Refresh Token Not Found')) {
-      console.warn('⚠️ Unhandled auth error caught:', event.reason);
-      event.preventDefault();
-      // Clear session and redirect
-      supabase.auth.signOut().then(() => {
-        localStorage.removeItem(STORAGE_KEY);
-        sessionStorage.clear();
-        window.location.href = '/login';
-      });
-    }
-  });
+if (typeof window !== "undefined" && isSupabaseConfigured) {
+  try {
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+        console.log('🔄 Auth state changed:', event);
+      }
+    });
+    
+    // Catch unhandled auth errors
+    window.addEventListener('unhandledrejection', (event) => {
+      if (event.reason?.message?.includes('Invalid Refresh Token') || 
+          event.reason?.message?.includes('Refresh Token Not Found')) {
+        console.warn('⚠️ Unhandled auth error caught:', event.reason);
+        event.preventDefault();
+        // Clear session and redirect
+        supabase.auth.signOut().then(() => {
+          localStorage.removeItem(STORAGE_KEY);
+          sessionStorage.clear();
+          window.location.href = '/login';
+        });
+      }
+    });
+  } catch (error) {
+    console.warn('⚠️ Failed to initialize auth handlers:', error);
+  }
 }
 
 // ── Auth helpers ─────────────────────────────────────────────────────────────
@@ -157,7 +177,7 @@ export function subscribeToTable<T = unknown>(opts: {
 
   const ch = supabase
     .channel(`realtime:${schema}.${table}${filter ? `?${filter}` : ""}`)
-    .on("postgres_changes", { schema, table, event, filter }, (p: any) => {
+    .on("postgres_changes" as any, { schema, table, event, filter }, (p: any) => {
       if (p.eventType === "INSERT") onInsert?.(p.new as T);
       else if (p.eventType === "UPDATE") onUpdate?.(p.new as T);
       else if (p.eventType === "DELETE") onDelete?.(p.old as T);

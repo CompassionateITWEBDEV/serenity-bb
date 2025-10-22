@@ -40,13 +40,14 @@ export async function safeSetLocalDescription(
   pc: RTCPeerConnection,
   description: RTCSessionDescriptionInit
 ): Promise<void> {
+  // Fix SDP before setting - declare outside try block for catch block access
+  const fixedSdp = fixSDP(description.sdp || '');
+  
   try {
     console.log('🔧 Setting local description with fixed SDP');
     console.log('📊 Original SDP length:', description.sdp?.length || 0);
     console.log('📊 Description type:', description.type);
     
-    // Fix SDP before setting
-    const fixedSdp = fixSDP(description.sdp || '');
     console.log('📊 Fixed SDP length:', fixedSdp.length);
     
     // Validate SDP structure

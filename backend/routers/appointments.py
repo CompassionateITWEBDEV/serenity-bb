@@ -30,8 +30,9 @@ async def create_appointment(
     provide a `patient_id` to schedule on behalf of a patient.
     """
     # Get patient from current user if they're a patient, or from appointment data if staff
-    if current_user.role == models.UserRole.PATIENT:
-        patient = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
+    user_role: models.UserRole = current_user.role  # type: ignore
+    if user_role == models.UserRole.PATIENT:
+        patient: Optional[models.Patient] = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
         if not patient:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -76,14 +77,16 @@ async def get_my_appointments(
     """Get current user's appointments."""
     query = db.query(models.Appointment)
     
-    if current_user.role == models.UserRole.PATIENT:
-        patient = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
+    user_role: models.UserRole = current_user.role  # type: ignore
+    if user_role == models.UserRole.PATIENT:
+        patient: Optional[models.Patient] = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
         if not patient:
             return []
-        query = query.filter(models.Appointment.patient_id == patient.id)
+        patient_id: int = patient.id  # type: ignore
+        query = query.filter(models.Appointment.patient_id == patient_id)
     else:
         # For staff, get appointments they're assigned to
-        staff = db.query(models.Staff).filter(models.Staff.user_id == current_user.id).first()
+        staff: Optional[models.Staff] = db.query(models.Staff).filter(models.Staff.user_id == current_user.id).first()
         if not staff:
             return []
         query = query.filter(models.Appointment.staff_id == staff.id)
@@ -99,12 +102,12 @@ async def get_my_appointments(
 @router.put("/{appointment_id}/status")
 async def update_appointment_status(
     appointment_id: int,
-    status: models.AppointmentStatus,
+    appointment_status: models.AppointmentStatus,
     current_user: models.User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Update appointment status."""
-    appointment = db.query(models.Appointment).filter(models.Appointment.id == appointment_id).first()
+    appointment: Optional[models.Appointment] = db.query(models.Appointment).filter(models.Appointment.id == appointment_id).first()
     if not appointment:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -112,14 +115,16 @@ async def update_appointment_status(
         )
     
     # Check permissions
-    if current_user.role == models.UserRole.PATIENT:
-        patient = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
-        if not patient or appointment.patient_id != patient.id:
+    user_role: models.UserRole = current_user.role  # type: ignore
+    if user_role == models.UserRole.PATIENT:
+        patient: Optional[models.Patient] = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
+        patient_id: int = appointment.patient_id  # type: ignore
+        if not patient or patient_id != patient.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to update this appointment"
             )
     
-    appointment.status = status
+    setattr(appointment, 'status', appointment_status)
     db.commit()
     return {"message": "Appointment status updated successfully"}

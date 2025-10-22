@@ -13,8 +13,8 @@ export type PatientCounts = {
 };
 
 export function usePatientStatus() {
-  const { isAuthenticated, loading, patient, user } = useAuth();
-  const patientId = isAuthenticated ? (patient?.user_id || patient?.id || user?.id) : null;
+  const { isAuthenticated, loading, patient } = useAuth();
+  const patientId = isAuthenticated ? patient?.id : null;
 
   const [counts, setCounts] = useState<PatientCounts>({ appts: 0, videos: 0, milestones: 0, goals: 0 });
   const [busy, setBusy] = useState(false);

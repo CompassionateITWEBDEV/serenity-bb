@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "serenity-backend"
+version = "0.1.0"
+description = "Serenity Rehab Backend API"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi==0.104.1",
+    "uvicorn[standard]==0.24.0",
+    "sqlalchemy==2.0.44",
+    "pydantic==2.12.3",
+    "pydantic-settings==2.11.0",
+    "python-jose[cryptography]==3.5.0",
+    "passlib[bcrypt]==1.7.4",
+    "python-multipart==0.0.20",
+    "pillow==12.0.0",
+    "aiofiles==25.1.0",
+    "requests==2.32.5"
+]
+
+[tool.pyright]
+include = ["."]
+exclude = ["**/node_modules", "**/__pycache__"]
+venvPath = "."
+venv = "venv"
+pythonVersion = "3.14"
+pythonPlatform = "Windows"
+typeCheckingMode = "basic"
+useLibraryCodeForTypes = true
+extraPaths = [
+    "C:\\Users\\ejohn\\serenity-b9\\serenity-b9\\backend\\venv\\Lib\\site-packages"
+]

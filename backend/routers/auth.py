@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -15,7 +16,7 @@ router = APIRouter()
 async def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     """Register a new user with Supabase integration."""
     # Check if user already exists in local database
-    db_user = db.query(models.User).filter(models.User.email == user.email).first()
+    db_user: Optional[models.User] = db.query(models.User).filter(models.User.email == user.email).first()
     if db_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -53,7 +54,8 @@ async def register_user(user: schemas.UserCreate, db: Session = Depends(get_db))
     db.refresh(db_user)
     
     # Create patient profile if user is a patient
-    if user.role == models.UserRole.PATIENT:
+    user_role: models.UserRole = user.role  # type: ignore
+    if user_role == models.UserRole.PATIENT:
         patient_id = f"PAT{db_user.id:06d}"
         db_patient = models.Patient(
             user_id=db_user.id,
@@ -63,7 +65,7 @@ async def register_user(user: schemas.UserCreate, db: Session = Depends(get_db))
         db.commit()
     
     # Create staff profile if user is staff
-    elif user.role in [models.UserRole.DOCTOR, models.UserRole.NURSE, models.UserRole.COUNSELOR]:
+    elif user_role in [models.UserRole.DOCTOR, models.UserRole.NURSE, models.UserRole.COUNSELOR]:
         staff_id = f"STF{db_user.id:06d}"
         db_staff = models.Staff(
             user_id=db_user.id,
@@ -151,11 +153,11 @@ async def update_user_me(
 ):
     """Update current user information."""
     if user_update.first_name is not None:
-        current_user.first_name = user_update.first_name
+        setattr(current_user, 'first_name', user_update.first_name)
     if user_update.last_name is not None:
-        current_user.last_name = user_update.last_name
+        setattr(current_user, 'last_name', user_update.last_name)
     if user_update.phone is not None:
-        current_user.phone = user_update.phone
+        setattr(current_user, 'phone', user_update.phone)
     
     db.commit()
     db.refresh(current_user)
@@ -171,13 +173,14 @@ async def change_password(
     """Change user password."""
     from auth import verify_password
     
-    if not verify_password(current_password, current_user.hashed_password):
+    hashed_password: str = current_user.hashed_password  # type: ignore
+    if not verify_password(current_password, hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Incorrect current password"
         )
     
-    current_user.hashed_password = get_password_hash(new_password)
+    setattr(current_user, 'hashed_password', get_password_hash(new_password))
     db.commit()
     
     return {"message": "Password changed successfully"}

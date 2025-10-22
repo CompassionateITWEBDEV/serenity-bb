@@ -1,0 +1,30 @@
+{
+  "python.pythonPath": "C:\\Users\\ejohn\\serenity-b9\\serenity-b9\\backend\\venv\\Scripts\\python.exe",
+  "python.analysis.extraPaths": [
+    "C:\\Users\\ejohn\\serenity-b9\\serenity-b9\\backend\\venv\\Lib\\site-packages"
+  ],
+  "python.analysis.completeFunctionParens": true,
+  "python.analysis.autoImportCompletions": true,
+  "css.validate": true,
+  "scss.validate": true,
+  "less.validate": true,
+  "css.customData": [".vscode/css_custom_data.json"],
+  "css.lint.unknownProperties": "ignore",
+  "css.lint.unknownAtRules": "ignore",
+  "css.lint.unknownVendorSpecificProperties": "ignore",
+  "css.lint.unknownPseudoSelectors": "ignore",
+  "css.lint.unknownPseudoClasses": "ignore",
+  "css.lint.unknownPseudoElements": "ignore",
+  "css.lint.unknownMediaFeatureNames": "ignore",
+  "css.lint.unknownFunctionNames": "ignore",
+  "css.lint.unknownUnits": "ignore",
+  "css.lint.unknownIdentifiers": "ignore",
+  "tailwindCSS.includeLanguages": {
+    "typescript": "javascript",
+    "typescriptreact": "javascript"
+  },
+  "tailwindCSS.experimental.classRegex": [
+    ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
+    ["cx\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"]
+  ]
+}

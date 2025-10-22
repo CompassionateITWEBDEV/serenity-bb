@@ -42,32 +42,39 @@ async def schedule_appointment_reminders(
 
     for appointment in upcoming_appointments:
         # Get patient's reminder settings
-        settings = get_reminder_settings(db, current_patient.id)
+        patient_id: int = current_patient.id  # type: ignore
+        settings = get_reminder_settings(db, patient_id)
 
         for days_before in settings.days_before:
+            days_before_value: float = days_before  # type: ignore
             reminder_date = (
-                appointment.scheduled_datetime - timedelta(days=days_before)
+                appointment.scheduled_datetime - timedelta(days=days_before_value)
             ).date()
+            time_of_day: str = settings.time_of_day  # type: ignore
             reminder_datetime = datetime.combine(
-                reminder_date, datetime.strptime(settings.time_of_day, "%H:%M").time()
+                reminder_date, datetime.strptime(time_of_day, "%H:%M").time()
             )
 
             # Only schedule future reminders
             if reminder_datetime > datetime.now():
                 # Schedule email reminder
-                if settings.email_enabled:
+                email_enabled: bool = settings.email_enabled  # type: ignore
+                if email_enabled:
+                    appointment_id: int = appointment.id  # type: ignore
                     background_tasks.add_task(
                         schedule_email_reminder,
-                        appointment.id,
+                        appointment_id,
                         current_patient.email,
                         reminder_datetime,
                     )
 
                 # Schedule SMS reminder
-                if settings.sms_enabled:
+                sms_enabled: bool = settings.sms_enabled  # type: ignore
+                if sms_enabled:
+                    appointment_id: int = appointment.id  # type: ignore
                     background_tasks.add_task(
                         schedule_sms_reminder,
-                        appointment.id,
+                        appointment_id,
                         current_patient.phone,
                         reminder_datetime,
                     )
@@ -83,10 +90,11 @@ async def get_active_reminders(
     current_patient: Patient = Depends(get_current_patient),
 ):
     """Get all active reminders for the current patient"""
-    reminders = (
+    patient_id: int = current_patient.id  # type: ignore
+    reminders: List[Reminder] = (
         db.query(Reminder)
         .filter(
-            Reminder.patient_id == current_patient.id, Reminder.status == "scheduled"
+            Reminder.patient_id == patient_id, Reminder.status == "scheduled"
         )
         .all()
     )
@@ -103,9 +111,10 @@ async def update_reminder_settings(
     """Update patient's reminder preferences"""
 
     # Update or create reminder settings
-    existing_settings = (
+    patient_id: int = current_patient.id  # type: ignore
+    existing_settings: Optional[ReminderSettingsModel] = (
         db.query(ReminderSettingsModel)
-        .filter(ReminderSettingsModel.patient_id == current_patient.id)
+        .filter(ReminderSettingsModel.patient_id == patient_id)
         .first()
     )
 
@@ -114,7 +123,7 @@ async def update_reminder_settings(
             setattr(existing_settings, key, value)
     else:
         new_settings = ReminderSettingsModel(
-            patient_id=current_patient.id, **settings.dict()
+            patient_id=patient_id, **settings.dict()
         )
         db.add(new_settings)
 
@@ -150,7 +159,7 @@ async def schedule_sms_reminder(appointment_id: int, phone: str, send_time: date
 
 def get_reminder_settings(db: Session, patient_id: int):
     """Get patient's reminder settings with defaults"""
-    settings = (
+    settings: Optional[ReminderSettingsModel] = (
         db.query(ReminderSettingsModel)
         .filter(ReminderSettingsModel.patient_id == patient_id)
         .first()

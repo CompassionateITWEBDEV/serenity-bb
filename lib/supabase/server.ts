@@ -6,8 +6,8 @@ import { createClient as createSbClient, type SupabaseClient } from "@supabase/s
 type Db = unknown;
 
 /** Default server-bound client (cookie-based auth) */
-export default function supabaseServer(): SupabaseClient<Db> {
-  const cookieStore = cookies();
+export default async function supabaseServer(): Promise<SupabaseClient<Db>> {
+  const cookieStore = await cookies();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anon) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL/ANON_KEY");
@@ -29,14 +29,13 @@ export default function supabaseServer(): SupabaseClient<Db> {
           /* ignore */
         }
       },
-    },
-    db: { schema: "public" },
-  });
+    } as any,
+  } as any);
 }
 
 /** Named export expected by your route handlers */
-export function getServerSupabase(): SupabaseClient<Db> {
-  return supabaseServer();
+export async function getServerSupabase(): Promise<SupabaseClient<Db>> {
+  return await supabaseServer();
 }
 
 /** Create a client bound to a bearer token (e.g. webhooks, server fetch with user JWT) */

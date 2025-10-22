@@ -90,8 +90,8 @@ export function HeroSection() {
                     <span>✓</span>
                   </div>
                   <div className="card-content">
-                    <p className="card-title"> </p>
-                    <p className="card-subtitle">Proven results</p>
+                    <p className="card-title">Proven Results</p>
+                    <p className="card-subtitle">Evidence-based care</p>
                   </div>
                 </div>
 
@@ -246,6 +246,10 @@ export function HeroSection() {
           line-height: 1.1;
           margin-bottom: 2rem;
           font-family: 'Georgia', 'Times New Roman', serif;
+          text-rendering: optimizeLegibility;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          font-feature-settings: "kern" 1, "liga" 1;
         }
 
         .title-highlight {
@@ -263,10 +267,14 @@ export function HeroSection() {
 
         .hero-description {
           font-size: 1.25rem;
-          line-height: 1.8;
+          line-height: 1.7;
           color: #6b7280;
           margin-bottom: 2.5rem;
           max-width: 500px;
+          text-rendering: optimizeLegibility;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          font-feature-settings: "kern" 1, "liga" 1;
         }
 
         /* Stats Section */
@@ -486,11 +494,19 @@ export function HeroSection() {
           color: #1f2937;
           margin-bottom: 0.25rem;
           font-size: 0.95rem;
+          text-rendering: optimizeLegibility;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          font-feature-settings: "kern" 1, "liga" 1;
         }
 
         .card-subtitle {
           font-size: 0.8rem;
           color: #6b7280;
+          text-rendering: optimizeLegibility;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          font-feature-settings: "kern" 1, "liga" 1;
         }
 
         .card-pulse {

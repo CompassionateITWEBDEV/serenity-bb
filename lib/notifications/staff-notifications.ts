@@ -1,5 +1,6 @@
 // Staff notification system for real-time alerts
 import { createClient } from '@/lib/supabase/client';
+import { createClient as createClientBrowser } from '@/lib/supabase/client';
 
 export interface StaffNotification {
   id: string;
@@ -57,7 +58,7 @@ export async function createSubmissionNotification(
       message: `${patientName} has submitted a new ${submissionType} entry. Review and respond as needed.`,
       patient_id: patientId,
       patient_name: patientName,
-      staff_id: staff.user_id,
+      staff_id: (staff as any).user_id,
       read: false,
       metadata: {
         submission_id: submissionId,
@@ -66,7 +67,7 @@ export async function createSubmissionNotification(
     })) || [];
 
     if (notifications.length > 0) {
-      const { error: insertError } = await supabase
+      const { error: insertError } = await (supabase as any)
         .from('staff_notifications')
         .insert(notifications);
 
@@ -110,7 +111,7 @@ export async function createMessageNotification(
       message: messagePreview.length > 100 ? `${messagePreview.substring(0, 100)}...` : messagePreview,
       patient_id: patientId,
       patient_name: patientName,
-      staff_id: staff.user_id,
+      staff_id: (staff as any).user_id,
       read: false,
       metadata: {
         message_id: messageId,
@@ -120,7 +121,7 @@ export async function createMessageNotification(
     })) || [];
 
     if (notifications.length > 0) {
-      const { error: insertError } = await supabase
+      const { error: insertError } = await (supabase as any)
         .from('staff_notifications')
         .insert(notifications);
 
@@ -164,7 +165,7 @@ export async function markNotificationAsRead(notificationId: string, staffId: st
   const supabase = createClient();
   
   try {
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('staff_notifications')
       .update({ read: true })
       .eq('id', notificationId)
@@ -187,7 +188,7 @@ export async function markAllNotificationsAsRead(staffId: string) {
   const supabase = createClient();
   
   try {
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('staff_notifications')
       .update({ read: true })
       .eq('staff_id', staffId)
@@ -245,7 +246,7 @@ export function useStaffNotifications(staffId: string) {
             table: 'staff_notifications',
             filter: `staff_id=eq.${staffId}`,
           },
-          (payload) => {
+          (payload: any) => {
             callback(payload.new as StaffNotification);
           }
         )

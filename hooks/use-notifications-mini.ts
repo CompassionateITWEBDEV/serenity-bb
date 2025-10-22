@@ -25,7 +25,7 @@ export function useNotificationsMini(pageSize = 8) {
     if (!uid) return;
     setLoading(true);
     const { data, error } = await supabase
-      .from<MiniNotification>("notifications")
+      .from("notifications")
       .select("*")
       .eq("patient_id", uid)
       .order("created_at", { ascending: false })

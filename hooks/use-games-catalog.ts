@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase, supaEnvOk } from "@/lib/supabase-browser";
+import { supabase } from "@/lib/supabase-browser";
+
+// Check if Supabase environment variables are available
+const supaEnvOk = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
 export type GameCatalogRow = {
   id: string;

@@ -6,10 +6,19 @@ Run this script to set up the database schema and seed data
 
 import os
 import sys
-import psycopg2
-from psycopg2 import sql
 import logging
 from pathlib import Path
+from typing import Optional
+
+# Try to import psycopg2, fall back to sqlite if not available
+try:
+    import psycopg2  # type: ignore
+    from psycopg2 import sql  # type: ignore
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    PSYCOPG2_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("psycopg2 not available. This script requires PostgreSQL.")
 
 # Add the backend directory to the Python path
 backend_dir = Path(__file__).parent.parent
@@ -21,7 +30,7 @@ from config import settings
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def run_sql_file(connection, file_path):
+def run_sql_file(connection, file_path: Path) -> bool:
     """Execute SQL commands from a file"""
     try:
         with open(file_path, 'r') as file:
@@ -38,11 +47,15 @@ def run_sql_file(connection, file_path):
         connection.rollback()
         return False
 
-def create_database_if_not_exists():
+def create_database_if_not_exists() -> bool:
     """Create the database if it doesn't exist"""
+    if not PSYCOPG2_AVAILABLE:
+        logger.error("psycopg2 is required for database operations")
+        return False
+    
     try:
         # Parse the database URL to get connection parameters
-        db_url = settings.DATABASE_URL
+        db_url = settings.database_url
         if db_url.startswith('postgresql://'):
             db_url = db_url.replace('postgresql://', 'postgres://', 1)
         
@@ -79,15 +92,19 @@ def create_database_if_not_exists():
         logger.error(f"Error creating database: {str(e)}")
         return False
 
-def run_migrations():
+def run_migrations() -> bool:
     """Run all migration scripts"""
+    if not PSYCOPG2_AVAILABLE:
+        logger.error("psycopg2 is required for database operations")
+        return False
+    
     try:
         # Create database if it doesn't exist
         if not create_database_if_not_exists():
             return False
         
         # Connect to the application database
-        connection = psycopg2.connect(settings.DATABASE_URL)
+        connection = psycopg2.connect(settings.database_url)
         
         # Get migration files directory
         migrations_dir = backend_dir / 'migrations'
@@ -116,10 +133,14 @@ def run_migrations():
         logger.error(f"Migration failed: {str(e)}")
         return False
 
-def reset_database():
+def reset_database() -> bool:
     """Drop all tables and recreate them (USE WITH CAUTION)"""
+    if not PSYCOPG2_AVAILABLE:
+        logger.error("psycopg2 is required for database operations")
+        return False
+    
     try:
-        connection = psycopg2.connect(settings.DATABASE_URL)
+        connection = psycopg2.connect(settings.database_url)
         cursor = connection.cursor()
         
         # Drop all tables

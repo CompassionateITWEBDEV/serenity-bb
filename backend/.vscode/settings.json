@@ -1,0 +1,20 @@
+{
+    "python.pythonPath": "C:\\Users\\ejohn\\serenity-b9\\serenity-b9\\backend\\venv\\Scripts\\python.exe",
+    "python.defaultInterpreterPath": "C:\\Users\\ejohn\\serenity-b9\\serenity-b9\\backend\\venv\\Scripts\\python.exe",
+    "python.analysis.extraPaths": [
+        "C:\\Users\\ejohn\\serenity-b9\\serenity-b9\\backend\\venv\\Lib\\site-packages",
+        "C:\\Users\\ejohn\\serenity-b9\\serenity-b9\\backend"
+    ],
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.autoSearchPaths": true,
+    "python.analysis.diagnosticMode": "workspace",
+    "python.analysis.stubPath": "C:\\Users\\ejohn\\serenity-b9\\serenity-b9\\backend\\venv\\Lib\\site-packages",
+    "python.analysis.include": [
+        "**/*.py"
+    ],
+    "python.analysis.exclude": [
+        "**/node_modules",
+        "**/__pycache__"
+    ]
+}

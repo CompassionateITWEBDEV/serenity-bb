@@ -8,6 +8,9 @@ import "./globals.css"
 import Analytics from "./analytics"
 import { OrganizationStructuredData } from "@/components/seo/StructuredData"
 import GoogleAnalytics from "@/components/seo/GoogleAnalytics"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
+import ClientErrorHandler from "@/components/ClientErrorHandler"
+import EnvironmentCheck from "@/components/EnvironmentCheck"
 
 const SITE_URL = "https://src.health"
 const ORG_NAME = "Serenity Rehabilitation Center"
@@ -110,7 +113,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Google Analytics Page Tracking */}
         {GA_ID && <GoogleAnalytics gaId={GA_ID} />}
 
-        {children}
+        <ErrorBoundary>
+          <ClientErrorHandler />
+          {children}
+        </ErrorBoundary>
+        
+        <EnvironmentCheck />
       </body>
     </html>
   )

@@ -1,0 +1,81 @@
+{
+  "version": 1.1,
+  "atDirectives": [
+    {
+      "name": "@apply",
+      "description": "Use @apply to inline any existing utility classes into your own custom CSS."
+    },
+    {
+      "name": "@layer",
+      "description": "Use the @layer directive to tell Tailwind which \"bucket\" a set of custom styles belong to."
+    },
+    {
+      "name": "@tailwind",
+      "description": "Use the @tailwind directive to insert Tailwind's base, components, utilities and variants styles into your CSS."
+    },
+    {
+      "name": "@-webkit-keyframes",
+      "description": "WebKit-specific keyframes animation."
+    },
+    {
+      "name": "@-moz-keyframes",
+      "description": "Mozilla-specific keyframes animation."
+    },
+    {
+      "name": "@-o-keyframes",
+      "description": "Opera-specific keyframes animation."
+    }
+  ],
+  "properties": [
+    {
+      "name": "-webkit-text-size-adjust",
+      "description": "Controls the text inflation algorithm used on some smartphones and tablets."
+    },
+    {
+      "name": "-moz-border-radius",
+      "description": "Mozilla-specific border radius property."
+    },
+    {
+      "name": "-moz-box-shadow",
+      "description": "Mozilla-specific box shadow property."
+    },
+    {
+      "name": "-webkit-appearance",
+      "description": "WebKit-specific appearance property."
+    },
+    {
+      "name": "-webkit-tap-highlight-color",
+      "description": "WebKit-specific tap highlight color."
+    }
+  ],
+  "pseudoClasses": [
+    {
+      "name": "-moz-focus-inner",
+      "description": "Mozilla-specific pseudo-class for inner focus elements."
+    },
+    {
+      "name": "global",
+      "description": "Global pseudo-class for scoped styles."
+    }
+  ],
+  "pseudoElements": [
+    {
+      "name": "-webkit-scrollbar",
+      "description": "WebKit-specific scrollbar pseudo-element."
+    },
+    {
+      "name": "-webkit-scrollbar-thumb",
+      "description": "WebKit-specific scrollbar thumb pseudo-element."
+    },
+    {
+      "name": "-webkit-scrollbar-track",
+      "description": "WebKit-specific scrollbar track pseudo-element."
+    }
+  ],
+  "functions": [
+    {
+      "name": "style",
+      "description": "CSS style() function for container queries."
+    }
+  ]
+}

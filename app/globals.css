@@ -1,7 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "maplibre-gl/dist/maplibre-gl.css";
-@custom-variant dark (&:is(.dark *));
+@import "../styles/browser-reset.css";
+@import "../styles/text-optimization.css";
 
 :root {
   --background: oklch(1 0 0);
@@ -74,7 +75,8 @@
   --sidebar-ring: oklch(0.439 0 0);
 }
 
-@theme inline {
+/* Additional CSS variables for theme */
+:root {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -118,9 +120,15 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border/20 outline-ring/50;
   }
   body {
     @apply bg-background text-foreground font-sans;
   }
+}
+
+/* Suppress CSS linter warnings for Tailwind directives */
+/* stylelint-disable-next-line at-rule-no-unknown */
+@layer utilities {
+  /* Additional utilities can go here */
 }

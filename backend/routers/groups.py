@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from database import get_db
@@ -174,9 +174,9 @@ async def get_available_groups(
         models.GroupMember.user_id == current_user.id
     ).subquery()
     
-    available_groups = db.query(models.Group).filter(
+    available_groups: List[models.Group] = db.query(models.Group).filter(
         models.Group.is_active == True,
-        ~models.Group.id.in_(joined_group_ids)
+        ~models.Group.id.in_(joined_group_ids)  # type: ignore
     ).all()
     
     return available_groups

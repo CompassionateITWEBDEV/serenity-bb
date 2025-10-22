@@ -8,7 +8,7 @@ export async function safeSelect<T = any>(
   from: string,
   // IMPORTANT: never request non-existent columns; use "*" or known-safe fields
   selectStr: string = "*",
-  filter?: (q: ReturnType<typeof supabase["from"]>) => any
+  filter?: (q: any) => any
 ): Promise<SafeResult<T>> {
   try {
     let q = supabase.from(from).select(selectStr);

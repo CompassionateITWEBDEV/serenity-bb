@@ -1,0 +1,60 @@
+/* Browser-specific CSS reset and normalization */
+
+/* Suppress CSS warnings for third-party libraries */
+/* stylelint-disable */
+
+/* WebKit-specific properties */
+* {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Mozilla-specific properties */
+button::-moz-focus-inner {
+  border: 0;
+}
+
+/* Opera-specific keyframes */
+@-o-keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* WebKit-specific keyframes */
+@-webkit-keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Mozilla-specific keyframes */
+@-moz-keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Global pseudo-class for scoped styles */
+:global(.global-class) {
+  /* Global styles */
+}
+
+/* WebKit scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* stylelint-enable */
+
+

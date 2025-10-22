@@ -1,171 +1,110 @@
-# 📱 Patient Video Call Messaging API Documentation
+# 📞 Patient Video Call API Documentation
 
 ## Overview
-This document describes the specialized API endpoints for patient-initiated video call messaging, allowing patients to automatically direct messages to video calls with healthcare staff.
+This document describes the specialized video call messaging APIs designed specifically for patients to easily initiate and manage video calls with healthcare providers.
 
 ## 🎯 Key Features
 
-- ✅ **Automatic Video Call Initiation** - Messages can automatically trigger video call requests
-- ✅ **Real-time Notifications** - Staff receive instant notifications of video call requests
-- ✅ **Call Status Tracking** - Patients can monitor their call request status
-- ✅ **Message Integration** - Seamless integration with existing chat system
-- ✅ **Call Management** - Cancel, resend, or update call requests
+- **Automatic Video Call Detection** - Detects video call keywords in messages
+- **One-Click Call Initiation** - Easy call starting from messaging interface
+- **Real-time Notifications** - Instant updates to healthcare providers
+- **Call Status Management** - Track and manage call states
+- **Patient-Specific Security** - Ensures only patients can access these endpoints
 
 ## 🚀 API Endpoints
 
-### 1. Patient Video Call Message
+### 1. Patient Video Call Message API
 
 #### `POST /api/patient/video-call-message`
-Send a message that automatically initiates a video call request.
+Send a message that can automatically initiate a video call.
 
 **Request Body:**
 ```json
 {
   "conversationId": "string",
-  "message": "I'd like to schedule a video call to discuss my treatment",
-  "callType": "video" | "audio",
-  "autoInitiateCall": true,
-  "metadata": {
-    "priority": "high",
-    "reason": "treatment_discussion"
-  }
+  "content": "I would like to have a video call",
+  "messageType": "text",
+  "autoInitiateCall": false,
+  "callType": "video",
+  "metadata": {}
 }
 ```
+
+**Auto-Detection Keywords:**
+- "video call", "video chat", "video meeting"
+- "call me", "video", "face to face"
+- "meet online", "video session"
+- "video consultation", "video appointment"
 
 **Response:**
 ```json
 {
-  "message": {
-    "id": "uuid",
-    "conversation_id": "string",
-    "sender_id": "string",
-    "sender_name": "string",
-    "sender_role": "patient",
-    "content": "string",
-    "metadata": {
-      "video_call_related": true,
-      "call_type": "video"
-    },
-    "created_at": "timestamp"
-  },
-  "callSession": {
-    "id": "uuid",
-    "conversation_id": "string",
-    "caller_id": "string",
-    "callee_id": "string",
-    "call_type": "video",
-    "status": "initiated",
-    "started_at": "timestamp"
-  },
-  "invitation": {
-    "id": "uuid",
-    "conversation_id": "string",
-    "caller_id": "string",
-    "callee_id": "string",
-    "caller_name": "string",
-    "call_type": "video",
-    "message": "string",
-    "status": "pending",
-    "expires_at": "timestamp"
-  },
-  "autoInitiated": true
+  "message": { /* regular message */ },
+  "videoCallMessage": { /* video call message */ },
+  "callSession": { /* call session if initiated */ },
+  "callInvitation": { /* invitation if sent */ },
+  "videoCallInitiated": true,
+  "callType": "video"
 }
 ```
 
 #### `GET /api/patient/video-call-message`
-Get patient's video call related messages and history.
+Get messages with optional video call data.
 
 **Query Parameters:**
 - `conversationId` (required) - Conversation ID
-- `includeCallHistory` (optional) - Include call history (default: false)
+- `includeVideoCalls` (optional) - Include video call sessions
+- `limit` (optional) - Number of results (default: 50)
+- `before` (optional) - Get messages before timestamp
 
-**Response:**
-```json
-{
-  "messages": [/* video call related messages */],
-  "callHistory": [/* call history records */],
-  "conversation": {
-    "id": "string",
-    "provider_id": "string"
-  }
-}
-```
+### 2. Patient Video Call Initiation API
 
-### 2. Staff Video Call Response
-
-#### `POST /api/staff/video-call-response`
-Staff responds to patient's video call request.
+#### `POST /api/patient/initiate-video-call`
+Directly initiate a video call with a healthcare provider.
 
 **Request Body:**
 ```json
 {
-  "invitationId": "uuid",
-  "response": "accepted" | "declined",
-  "message": "I'll be available in 5 minutes",
-  "metadata": {
-    "availability": "5_minutes"
+  "conversationId": "string",
+  "callType": "video",
+  "message": "I would like to start a video call",
+  "priority": "normal",
+  "metadata": {}
+}
+```
+
+**Priority Levels:**
+- `"normal"` - Standard call request
+- `"urgent"` - High priority call
+- `"emergency"` - Emergency call (if supported)
+
+**Response:**
+```json
+{
+  "callSession": { /* call session */ },
+  "callInvitation": { /* invitation sent to provider */ },
+  "callHistory": { /* history record */ },
+  "message": { /* conversation message */ },
+  "videoCallMessage": { /* video call message */ },
+  "notification": {
+    "sent": true,
+    "channels": ["user", "staff"]
   }
 }
 ```
 
-**Response:**
-```json
-{
-  "invitation": {
-    "id": "uuid",
-    "status": "accepted",
-    "responded_at": "timestamp",
-    "metadata": {
-      "staff_response": {
-        "staff_id": "string",
-        "staff_name": "string",
-        "response": "accepted",
-        "message": "string",
-        "timestamp": "timestamp"
-      }
-    }
-  },
-  "session": {
-    "id": "uuid",
-    "status": "ringing",
-    "metadata": {
-      "staff_accepted": true,
-      "staff_id": "string",
-      "staff_name": "string",
-      "accepted_at": "timestamp"
-    }
-  },
-  "message": {
-    "id": "uuid",
-    "content": "Staff John Doe accepted your video call request. I'll be available in 5 minutes",
-    "metadata": {
-      "video_call_response": true,
-      "response": "accepted"
-    }
-  },
-  "response": "accepted"
-}
-```
-
-#### `GET /api/staff/video-call-response`
-Get pending video call invitations for staff.
+#### `GET /api/patient/initiate-video-call`
+Get call sessions and invitations for a conversation.
 
 **Query Parameters:**
-- `status` (optional) - Filter by status (default: "pending")
-- `limit` (optional) - Number of results (default: 20)
+- `conversationId` (required) - Conversation ID
+- `status` (optional) - Filter by status
+- `limit` (optional) - Number of results (default: 10)
 
-**Response:**
-```json
-{
-  "invitations": [/* pending invitations */],
-  "count": 5
-}
-```
-
-### 3. Patient Video Call Status
+### 3. Patient Video Call Status API
 
 #### `GET /api/patient/video-call-status`
-Get comprehensive video call status for a patient.
+Get current call status and statistics.
 
 **Query Parameters:**
 - `conversationId` (required) - Conversation ID
@@ -173,139 +112,224 @@ Get comprehensive video call status for a patient.
 **Response:**
 ```json
 {
-  "conversation": {
-    "id": "string",
-    "provider_id": "string",
-    "provider_name": "string",
-    "provider_role": "string"
-  },
-  "activeSession": {
-    "id": "uuid",
-    "status": "ringing",
-    "call_type": "video",
-    "started_at": "timestamp"
-  },
+  "activeSession": { /* active call or null */ },
   "pendingInvitations": [/* pending invitations */],
   "recentCalls": [/* recent call history */],
-  "videoMessages": [/* video call related messages */],
   "statistics": {
     "total_calls": 15,
     "video_calls": 10,
     "audio_calls": 5,
     "completed_calls": 12,
     "missed_calls": 2,
-    "declined_calls": 1,
     "total_duration": 3600,
     "average_duration": 300
   },
-  "timestamp": "timestamp"
+  "canInitiateCall": true,
+  "provider": {
+    "id": "provider_id",
+    "name": "Dr. Smith",
+    "role": "doctor"
+  }
 }
 ```
 
 #### `POST /api/patient/video-call-status`
-Manage video call requests (cancel, resend, update).
+Update call status or perform actions.
 
 **Request Body:**
 ```json
 {
   "conversationId": "string",
-  "action": "cancel_request" | "resend_invitation" | "update_message",
-  "invitationId": "uuid",
-  "message": "Updated message",
+  "action": "request_call" | "cancel_request" | "join_call" | "leave_call" | "mute" | "unmute" | "camera_on" | "camera_off",
   "metadata": {}
+}
+```
+
+### 4. Patient Video Call Response API
+
+#### `POST /api/patient/video-call-response`
+Respond to incoming video call invitations.
+
+**Request Body:**
+```json
+{
+  "invitationId": "uuid",
+  "response": "accepted" | "declined" | "busy",
+  "message": "Optional response message"
 }
 ```
 
 **Response:**
 ```json
 {
-  "success": true,
-  "action": "cancel_request",
-  "cancelledInvitation": { /* invitation details */ },
-  "timestamp": "timestamp"
+  "invitation": { /* updated invitation */ },
+  "session": { /* call session if accepted */ },
+  "message": { /* conversation message */ },
+  "response": "accepted",
+  "timestamp": "2024-01-01T00:00:00Z"
 }
 ```
 
+#### `GET /api/patient/video-call-response`
+Get incoming call invitations.
+
+**Query Parameters:**
+- `conversationId` (optional) - Filter by conversation
+- `status` (optional) - Filter by status
+- `limit` (optional) - Number of results (default: 10)
+
 ## 🔄 Real-time Events
 
-### Patient Events:
-- `patient-video-call-request` - New video call request sent
-- `video-call-response` - Staff response to call request
+### Patient-Specific Events:
+- `patient-video-request` - Patient requests video call
+- `incoming-patient-video-call` - Staff receives patient call request
+- `video-call-accepted` - Call accepted by patient
+- `video-call-response` - Patient responds to call
+- `patient-call-action` - Patient performs call action
 
-### Staff Events:
-- `incoming-video-call` - New video call request received
-- `patient-video-call-request` - Patient initiated video call
+### Event Payload Example:
+```json
+{
+  "type": "patient_video_call_request",
+  "conversation_id": "uuid",
+  "patient_id": "uuid",
+  "patient_name": "John Doe",
+  "call_type": "video",
+  "message": "I need to discuss my treatment",
+  "session_id": "uuid",
+  "invitation_id": "uuid",
+  "priority": "normal",
+  "timestamp": "2024-01-01T00:00:00Z"
+}
+```
 
-## 📱 Usage Examples
+## 🎯 Usage Examples
 
-### Patient Initiating Video Call:
+### 1. Automatic Video Call Detection
 ```javascript
-// Send message that automatically initiates video call
+// Send a message that will auto-detect video call intent
 const response = await fetch('/api/patient/video-call-message', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     conversationId: 'conv-123',
-    message: 'I need to discuss my medication with you',
-    callType: 'video',
-    autoInitiateCall: true
+    content: 'Can we have a video call to discuss my progress?',
+    messageType: 'text'
   })
 });
 
-const { message, callSession, invitation } = await response.json();
+const data = await response.json();
+if (data.videoCallInitiated) {
+  console.log('Video call automatically initiated!');
+  console.log('Session ID:', data.callSession.id);
+}
 ```
 
-### Staff Responding to Call:
+### 2. Direct Video Call Initiation
 ```javascript
-// Staff accepts the video call request
-const response = await fetch('/api/staff/video-call-response', {
+// Directly initiate a video call
+const response = await fetch('/api/patient/initiate-video-call', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    conversationId: 'conv-123',
+    callType: 'video',
+    message: 'I need immediate assistance',
+    priority: 'urgent'
+  })
+});
+
+const data = await response.json();
+console.log('Call initiated:', data.callSession.id);
+```
+
+### 3. Respond to Incoming Call
+```javascript
+// Accept an incoming call
+const response = await fetch('/api/patient/video-call-response', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     invitationId: 'inv-123',
     response: 'accepted',
-    message: 'I can call you in 5 minutes'
+    message: 'I\'m ready for the call'
   })
 });
 
-const { invitation, session, message } = await response.json();
+const data = await response.json();
+if (data.response === 'accepted') {
+  console.log('Call accepted! Session:', data.session.id);
+}
 ```
 
-### Patient Checking Status:
+### 4. Check Call Status
 ```javascript
-// Check video call status
+// Get current call status
 const response = await fetch('/api/patient/video-call-status?conversationId=conv-123');
-const { activeSession, pendingInvitations, statistics } = await response.json();
+const data = await response.json();
+
+if (data.activeSession) {
+  console.log('Active call:', data.activeSession.status);
+} else if (data.canInitiateCall) {
+  console.log('Ready to initiate call');
+} else {
+  console.log('Call in progress or unavailable');
+}
 ```
 
-## 🔐 Authentication & Authorization
+## 🔐 Security Features
 
-- **Patient endpoints** require patient authentication
-- **Staff endpoints** require staff authentication
-- Users can only access their own conversations and requests
-- Real-time notifications are sent to appropriate channels
+- **Patient-Only Access** - All endpoints verify user is a patient
+- **Conversation Validation** - Ensures patient is part of conversation
+- **Session Management** - Secure call session handling
+- **Real-time Security** - Encrypted real-time communications
 
-## 🎯 Integration with Existing System
+## 📱 Frontend Integration
 
-The patient video call messaging API integrates seamlessly with:
-- ✅ **Existing chat system** - Messages are stored in regular messages table
-- ✅ **Video call infrastructure** - Uses existing call session management
-- ✅ **Real-time notifications** - Leverages existing Supabase channels
-- ✅ **User authentication** - Uses existing auth system
+### React Hook Example:
+```javascript
+import { useState, useEffect } from 'react';
 
-## 🚀 Frontend Integration
+function usePatientVideoCalls(conversationId) {
+  const [callStatus, setCallStatus] = useState(null);
+  const [canInitiate, setCanInitiate] = useState(false);
 
-### Patient Interface:
-1. **Message Input** - Add "Video Call" button to message input
-2. **Call Status** - Show pending/active call status
-3. **Call History** - Display call statistics and history
-4. **Real-time Updates** - Listen for staff responses
+  useEffect(() => {
+    const fetchStatus = async () => {
+      const response = await fetch(`/api/patient/video-call-status?conversationId=${conversationId}`);
+      const data = await response.json();
+      setCallStatus(data);
+      setCanInitiate(data.canInitiateCall);
+    };
 
-### Staff Interface:
-1. **Incoming Requests** - Show pending video call requests
-2. **Quick Actions** - Accept/decline buttons
-3. **Call Management** - Start/end call functionality
-4. **Response Messages** - Send messages with responses
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 5000); // Poll every 5 seconds
+    return () => clearInterval(interval);
+  }, [conversationId]);
+
+  const initiateCall = async (message, callType = 'video') => {
+    const response = await fetch('/api/patient/initiate-video-call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversationId,
+        callType,
+        message
+      })
+    });
+    return response.json();
+  };
+
+  return { callStatus, canInitiate, initiateCall };
+}
+```
+
+## 🚀 Setup Instructions
+
+1. **Ensure database tables exist** (run `scripts/create_video_call_tables.sql`)
+2. **Deploy the API endpoints**
+3. **Configure real-time subscriptions** for live updates
+4. **Update frontend** to use the new patient-specific endpoints
 
 ## 📊 Error Handling
 
@@ -321,21 +345,16 @@ Common status codes:
 - `200` - Success
 - `400` - Bad Request
 - `401` - Unauthorized
-- `403` - Forbidden
+- `403` - Forbidden (not a patient)
 - `404` - Not Found
+- `409` - Conflict (active call exists)
 - `500` - Internal Server Error
 
-## 🛠️ Setup Instructions
+## 🎯 Benefits for Patients
 
-1. **Ensure video call tables exist** (run `scripts/create_video_call_tables.sql`)
-2. **Deploy the new API endpoints**
-3. **Update frontend** to use the new patient-specific endpoints
-4. **Configure real-time subscriptions** for live updates
-
-## 🎉 Benefits
-
-- **Simplified Patient Experience** - One-click video call initiation
-- **Automatic Notifications** - Staff get instant alerts
-- **Status Tracking** - Patients can monitor their requests
-- **Seamless Integration** - Works with existing chat system
-- **Real-time Updates** - Live status updates and responses
+- **Easy Call Initiation** - One-click video call starting
+- **Automatic Detection** - Smart keyword detection
+- **Real-time Updates** - Instant status notifications
+- **Call History** - Track all video interactions
+- **Priority Support** - Urgent call handling
+- **Mobile Friendly** - Optimized for mobile devices

@@ -6,6 +6,7 @@
  */
 
 import { validateAndFixSDP, createMinimalSDP } from './sdp-validator';
+import { safeSdpLog, shouldOptimizeSdp, getSdpSizeCategory } from './sdp-buffer-optimizer';
 
 /**
  * Ultra-safe setLocalDescription with comprehensive error handling
@@ -18,7 +19,16 @@ export async function ultraSafeSetLocalDescription(
     console.log('🔧 Ultra-safe setLocalDescription starting...');
     console.log('📊 Peer connection state:', pc.signalingState);
     console.log('📊 Description type:', description.type);
-    console.log('📊 SDP length:', description.sdp?.length || 0);
+    safeSdpLog(description.sdp || '', 'SDP');
+    
+    // Log SDP size category for optimization insights
+    if (description.sdp) {
+      const sizeCategory = getSdpSizeCategory(description.sdp);
+      console.log('📊 SDP size category:', sizeCategory);
+      if (shouldOptimizeSdp(description.sdp)) {
+        console.log('⚡ Large SDP detected - will use Buffer optimization');
+      }
+    }
 
     // 1. Validate peer connection state
     if (pc.signalingState === 'closed') {
@@ -69,8 +79,7 @@ export async function ultraSafeSetLocalDescription(
       sdp: fixedSDP
     };
 
-    console.log('📊 Fixed SDP length:', fixedSDP.length);
-    console.log('📊 Fixed SDP preview:', fixedSDP.substring(0, 200));
+    safeSdpLog(fixedSDP, 'Fixed SDP');
 
     // 5. Set local description with retry logic
     let retryCount = 0;
@@ -110,21 +119,8 @@ export async function ultraSafeSetLocalDescription(
     console.error('📊 Final peer connection state:', pc.signalingState);
     console.error('📊 Description type:', description.type);
     
-    // Safe SDP length logging
-    try {
-      const sdpLength = description.sdp?.length || 0;
-      console.error('📊 SDP length:', sdpLength);
-    } catch (logError) {
-      console.error('📊 SDP length: [Error logging SDP length]');
-    }
-    
-    // Safe SDP logging - only log first 200 chars to prevent stack overflow
-    try {
-      const sdpPreview = description.sdp?.substring(0, 200) || 'No SDP';
-      console.error('📊 SDP preview:', sdpPreview);
-    } catch (logError) {
-      console.error('📊 SDP preview: [Error logging SDP]');
-    }
+    // Safe SDP logging using optimized function
+    safeSdpLog(description.sdp || '', 'Error SDP');
     
     throw error;
   }
@@ -141,7 +137,16 @@ export async function ultraSafeSetRemoteDescription(
     console.log('🔧 Ultra-safe setRemoteDescription starting...');
     console.log('📊 Peer connection state:', pc.signalingState);
     console.log('📊 Description type:', description.type);
-    console.log('📊 SDP length:', description.sdp?.length || 0);
+    safeSdpLog(description.sdp || '', 'Remote SDP');
+    
+    // Log SDP size category for optimization insights
+    if (description.sdp) {
+      const sizeCategory = getSdpSizeCategory(description.sdp);
+      console.log('📊 Remote SDP size category:', sizeCategory);
+      if (shouldOptimizeSdp(description.sdp)) {
+        console.log('⚡ Large remote SDP detected - will use Buffer optimization');
+      }
+    }
 
     // 1. Validate peer connection state
     if (pc.signalingState === 'closed') {
@@ -181,8 +186,7 @@ export async function ultraSafeSetRemoteDescription(
       sdp: fixedSDP
     };
 
-    console.log('📊 Fixed remote SDP length:', fixedSDP.length);
-    console.log('📊 Fixed remote SDP preview:', fixedSDP.substring(0, 200));
+    safeSdpLog(fixedSDP, 'Fixed Remote SDP');
 
     // 4. Set remote description with retry logic
     let retryCount = 0;
@@ -211,21 +215,8 @@ export async function ultraSafeSetRemoteDescription(
     console.error('📊 Final peer connection state:', pc.signalingState);
     console.error('📊 Description type:', description.type);
     
-    // Safe SDP length logging
-    try {
-      const sdpLength = description.sdp?.length || 0;
-      console.error('📊 SDP length:', sdpLength);
-    } catch (logError) {
-      console.error('📊 SDP length: [Error logging SDP length]');
-    }
-    
-    // Safe SDP logging - only log first 200 chars to prevent stack overflow
-    try {
-      const sdpPreview = description.sdp?.substring(0, 200) || 'No SDP';
-      console.error('📊 SDP preview:', sdpPreview);
-    } catch (logError) {
-      console.error('📊 SDP preview: [Error logging SDP]');
-    }
+    // Safe SDP logging using optimized function
+    safeSdpLog(description.sdp || '', 'Error Remote SDP');
     
     throw error;
   }
@@ -238,6 +229,8 @@ export async function ultraSafeCreateOffer(
   pc: RTCPeerConnection,
   options: RTCOfferOptions
 ): Promise<RTCSessionDescriptionInit> {
+  let fixedSDP = ''; // Declare at function scope for error handling
+  
   try {
     console.log('🔧 Ultra-safe createOffer starting...');
     console.log('📊 Peer connection state:', pc.signalingState);
@@ -261,10 +254,10 @@ export async function ultraSafeCreateOffer(
 
     // 2. Create offer
     const offer = await pc.createOffer(options);
-    console.log('📊 Original offer SDP length:', offer.sdp?.length || 0);
+    safeSdpLog(offer.sdp || '', 'Original Offer SDP');
 
     // 3. Validate and fix SDP
-    let fixedSDP = offer.sdp || '';
+    fixedSDP = offer.sdp || '';
     
     if (fixedSDP) {
       console.log('🔧 Validating offer SDP...');
@@ -290,8 +283,7 @@ export async function ultraSafeCreateOffer(
       fixedSDP = createMinimalSDP('offer', options.offerToReceiveVideo || false);
     }
 
-    console.log('📊 Fixed offer SDP length:', fixedSDP.length);
-    console.log('📊 Fixed offer SDP preview:', fixedSDP.substring(0, 200));
+    safeSdpLog(fixedSDP, 'Fixed Offer SDP');
 
     return {
       type: offer.type,
@@ -302,21 +294,8 @@ export async function ultraSafeCreateOffer(
     console.error('📊 Final peer connection state:', pc.signalingState);
     console.error('📊 Options:', options);
     
-    // Safe SDP length logging
-    try {
-      const sdpLength = fixedSDP?.length || 0;
-      console.error('📊 SDP length:', sdpLength);
-    } catch (logError) {
-      console.error('📊 SDP length: [Error logging SDP length]');
-    }
-    
-    // Safe SDP logging - only log first 200 chars to prevent stack overflow
-    try {
-      const sdpPreview = fixedSDP?.substring(0, 200) || 'No SDP';
-      console.error('📊 SDP preview:', sdpPreview);
-    } catch (logError) {
-      console.error('📊 SDP preview: [Error logging SDP]');
-    }
+    // Safe SDP logging using optimized function
+    safeSdpLog(fixedSDP || '', 'Error Offer SDP');
     
     throw error;
   }
@@ -329,6 +308,8 @@ export async function ultraSafeCreateAnswer(
   pc: RTCPeerConnection,
   options?: RTCAnswerOptions
 ): Promise<RTCSessionDescriptionInit> {
+  let fixedSDP = ''; // Declare at function scope for error handling
+  
   try {
     console.log('🔧 Ultra-safe createAnswer starting...');
     console.log('📊 Peer connection state:', pc.signalingState);
@@ -345,10 +326,10 @@ export async function ultraSafeCreateAnswer(
 
     // 2. Create answer
     const answer = await pc.createAnswer(options);
-    console.log('📊 Original answer SDP length:', answer.sdp?.length || 0);
+    safeSdpLog(answer.sdp || '', 'Original Answer SDP');
 
     // 3. Validate and fix SDP
-    let fixedSDP = answer.sdp || '';
+    fixedSDP = answer.sdp || '';
     
     if (fixedSDP) {
       console.log('🔧 Validating answer SDP...');
@@ -374,8 +355,7 @@ export async function ultraSafeCreateAnswer(
       fixedSDP = createMinimalSDP('answer', false);
     }
 
-    console.log('📊 Fixed answer SDP length:', fixedSDP.length);
-    console.log('📊 Fixed answer SDP preview:', fixedSDP.substring(0, 200));
+    safeSdpLog(fixedSDP, 'Fixed Answer SDP');
 
     return {
       type: answer.type,
@@ -386,21 +366,8 @@ export async function ultraSafeCreateAnswer(
     console.error('📊 Final peer connection state:', pc.signalingState);
     console.error('📊 Options:', options);
     
-    // Safe SDP length logging
-    try {
-      const sdpLength = fixedSDP?.length || 0;
-      console.error('📊 SDP length:', sdpLength);
-    } catch (logError) {
-      console.error('📊 SDP length: [Error logging SDP length]');
-    }
-    
-    // Safe SDP logging - only log first 200 chars to prevent stack overflow
-    try {
-      const sdpPreview = fixedSDP?.substring(0, 200) || 'No SDP';
-      console.error('📊 SDP preview:', sdpPreview);
-    } catch (logError) {
-      console.error('📊 SDP preview: [Error logging SDP]');
-    }
+    // Safe SDP logging using optimized function
+    safeSdpLog(fixedSDP || '', 'Error Answer SDP');
     
     throw error;
   }

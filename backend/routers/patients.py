@@ -14,13 +14,14 @@ async def get_patient_profile(
     db: Session = Depends(get_db)
 ):
     """Get current patient's profile."""
-    if current_user.role != models.UserRole.PATIENT:
+    user_role: models.UserRole = current_user.role  # type: ignore
+    if user_role != models.UserRole.PATIENT:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only patients can access patient profiles"
         )
     
-    patient = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
+    patient: Optional[models.Patient] = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
     if not patient:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -36,13 +37,14 @@ async def update_patient_profile(
     db: Session = Depends(get_db)
 ):
     """Update current patient's profile."""
-    if current_user.role != models.UserRole.PATIENT:
+    user_role: models.UserRole = current_user.role  # type: ignore
+    if user_role != models.UserRole.PATIENT:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only patients can update patient profiles"
         )
     
-    patient = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
+    patient: Optional[models.Patient] = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
     if not patient:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -65,7 +67,7 @@ async def get_all_patients(
     db: Session = Depends(get_db)
 ):
     """Get all patients (staff only)."""
-    patients = db.query(models.Patient).offset(skip).limit(limit).all()
+    patients: List[models.Patient] = db.query(models.Patient).offset(skip).limit(limit).all()
     return patients
 
 @router.get("/{patient_id}", response_model=schemas.Patient)
@@ -75,7 +77,7 @@ async def get_patient_by_id(
     db: Session = Depends(get_db)
 ):
     """Get patient by ID (staff only)."""
-    patient = db.query(models.Patient).filter(models.Patient.id == patient_id).first()
+    patient: Optional[models.Patient] = db.query(models.Patient).filter(models.Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

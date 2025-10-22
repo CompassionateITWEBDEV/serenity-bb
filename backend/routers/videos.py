@@ -1,6 +1,6 @@
 import os
 import aiofiles
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -15,20 +15,22 @@ router = APIRouter()
 @router.post("/upload", response_model=schemas.VideoRecording)
 async def upload_video(
     title: str = Form(...),
-    description: str = Form(None),
+    description: Optional[str] = Form(None),
     video_file: UploadFile = File(...),
     current_user: models.User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Upload a video recording."""
-    if current_user.role != models.UserRole.PATIENT:
+    # Type assertion to help the type checker understand the enum comparison
+    user_role: models.UserRole = current_user.role  # type: ignore  # type: ignore
+    if user_role != models.UserRole.PATIENT:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only patients can upload videos"
         )
     
     # Get patient profile
-    patient = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
+    patient: Optional[models.Patient] = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
     if not patient:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -36,7 +38,7 @@ async def upload_video(
         )
     
     # Validate file type
-    if not video_file.content_type.startswith('video/'):
+    if not video_file.content_type or not video_file.content_type.startswith('video/'):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File must be a video"
@@ -56,7 +58,7 @@ async def upload_video(
     
     # Generate unique filename
     import uuid
-    file_extension = os.path.splitext(video_file.filename)[1]
+    file_extension = os.path.splitext(video_file.filename or "")[1]
     unique_filename = f"{uuid.uuid4()}{file_extension}"
     file_path = os.path.join(upload_dir, unique_filename)
     
@@ -85,17 +87,18 @@ async def get_my_videos(
     db: Session = Depends(get_db)
 ):
     """Get current patient's video recordings."""
-    if current_user.role != models.UserRole.PATIENT:
+    user_role: models.UserRole = current_user.role  # type: ignore
+    if user_role != models.UserRole.PATIENT:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only patients can access their videos"
         )
     
-    patient = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
+    patient: Optional[models.Patient] = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
     if not patient:
         return []
     
-    videos = db.query(models.VideoRecording).filter(
+    videos: List[models.VideoRecording] = db.query(models.VideoRecording).filter(
         models.VideoRecording.patient_id == patient.id
     ).order_by(models.VideoRecording.recorded_at.desc()).all()
     
@@ -108,7 +111,7 @@ async def download_video(
     db: Session = Depends(get_db)
 ):
     """Download a video recording."""
-    video = db.query(models.VideoRecording).filter(models.VideoRecording.id == video_id).first()
+    video: Optional[models.VideoRecording] = db.query(models.VideoRecording).filter(models.VideoRecording.id == video_id).first()
     if not video:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -116,22 +119,26 @@ async def download_video(
         )
     
     # Check permissions
-    if current_user.role == models.UserRole.PATIENT:
-        patient = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
-        if not patient or video.patient_id != patient.id:
+    user_role: models.UserRole = current_user.role  # type: ignore
+    if user_role == models.UserRole.PATIENT:
+        patient: Optional[models.Patient] = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
+        patient_id: int = video.patient_id  # type: ignore
+        if not patient or patient_id != patient.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to access this video"
             )
     
-    if not os.path.exists(video.file_path):
+    # Get the actual file path value
+    file_path: str = video.file_path  # type: ignore
+    if not os.path.exists(file_path):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Video file not found on server"
         )
     
     return FileResponse(
-        path=video.file_path,
+        path=file_path,
         filename=f"{video.title}.mp4",
         media_type='video/mp4'
     )
@@ -143,7 +150,7 @@ async def delete_video(
     db: Session = Depends(get_db)
 ):
     """Delete a video recording."""
-    video = db.query(models.VideoRecording).filter(models.VideoRecording.id == video_id).first()
+    video: Optional[models.VideoRecording] = db.query(models.VideoRecording).filter(models.VideoRecording.id == video_id).first()
     if not video:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -151,17 +158,20 @@ async def delete_video(
         )
     
     # Check permissions
-    if current_user.role == models.UserRole.PATIENT:
-        patient = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
-        if not patient or video.patient_id != patient.id:
+    user_role: models.UserRole = current_user.role  # type: ignore
+    if user_role == models.UserRole.PATIENT:
+        patient: Optional[models.Patient] = db.query(models.Patient).filter(models.Patient.user_id == current_user.id).first()
+        patient_id: int = video.patient_id  # type: ignore
+        if not patient or patient_id != patient.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to delete this video"
             )
     
     # Delete file from filesystem
-    if os.path.exists(video.file_path):
-        os.remove(video.file_path)
+    file_path: str = video.file_path  # type: ignore
+    if os.path.exists(file_path):
+        os.remove(file_path)
     
     # Delete database record
     db.delete(video)

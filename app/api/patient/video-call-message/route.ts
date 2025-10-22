@@ -3,21 +3,22 @@ import { supabaseFromRoute } from "@/lib/supabaseRoute";
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = supabaseFromRoute();
+    const supabase = await supabaseFromRoute();
     const { data: au } = await supabase.auth.getUser();
     if (!au.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
     const body = await req.json();
     const { 
       conversationId, 
-      message, 
+      content, 
+      messageType = "text",
+      autoInitiateCall = false,
       callType = "video",
-      autoInitiateCall = true,
       metadata = {}
     } = body;
 
-    if (!conversationId || !message?.trim()) {
-      return NextResponse.json({ error: "conversationId and message are required" }, { status: 400 });
+    if (!conversationId || !content?.trim()) {
+      return NextResponse.json({ error: "conversationId and content are required" }, { status: 400 });
     }
 
     // Verify conversation exists and user is a patient
@@ -31,40 +32,121 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "conversation not found" }, { status: 404 });
     }
 
-    // Verify user is the patient in this conversation
+    // Ensure user is the patient in this conversation
     if (conversation.patient_id !== au.user.id) {
-      return NextResponse.json({ error: "access denied - only patients can use this endpoint" }, { status: 403 });
+      return NextResponse.json({ error: "access denied - patient only" }, { status: 403 });
     }
 
-    // Get patient information
-    const { data: patient, error: patientError } = await supabase
-      .from("patients")
-      .select("user_id, first_name, last_name, email")
-      .eq("user_id", au.user.id)
-      .single();
+    // Check if message contains video call keywords
+    const videoCallKeywords = [
+      'video call', 'video chat', 'video meeting', 'video conference',
+      'call me', 'video', 'face to face', 'meet online', 'video session',
+      'video consultation', 'video appointment', 'video therapy'
+    ];
+    
+    const shouldInitiateCall = autoInitiateCall || 
+      videoCallKeywords.some(keyword => 
+        content.toLowerCase().includes(keyword.toLowerCase())
+      );
 
-    if (patientError || !patient) {
-      return NextResponse.json({ error: "patient not found" }, { status: 404 });
+    let callSession = null;
+    let callInvitation = null;
+
+    // If video call should be initiated, create session and invitation
+    if (shouldInitiateCall) {
+      // Create call session
+      const { data: session, error: sessionError } = await supabase
+        .from("call_sessions")
+        .insert({
+          conversation_id: conversationId,
+          caller_id: au.user.id,
+          callee_id: conversation.provider_id,
+          call_type: callType,
+          status: "initiated",
+          started_at: new Date().toISOString(),
+          metadata: {
+            ...metadata,
+            auto_initiated: true,
+            patient_message: content
+          }
+        })
+        .select("*")
+        .single();
+
+      if (sessionError) {
+        console.warn("Failed to create call session:", sessionError);
+      } else {
+        callSession = session;
+
+        // Create call invitation
+        const { data: invitation, error: inviteError } = await supabase
+          .from("video_call_invitations")
+          .insert({
+            conversation_id: conversationId,
+            caller_id: au.user.id,
+            callee_id: conversation.provider_id,
+            caller_name: au.user.user_metadata?.full_name || au.user.email || "Patient",
+            caller_role: "patient",
+            call_type: callType,
+            message: `Patient requested: ${content}`,
+            status: "pending",
+            metadata: {
+              ...metadata,
+              auto_initiated: true,
+              patient_message: content
+            },
+            expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10 minutes
+          })
+          .select("*")
+          .single();
+
+        if (inviteError) {
+          console.warn("Failed to create call invitation:", inviteError);
+        } else {
+          callInvitation = invitation;
+
+          // Send real-time notification to staff
+          const staffChannel = supabase.channel(`staff-calls-${conversation.provider_id}`, {
+            config: { broadcast: { ack: true } },
+          });
+
+          await staffChannel.send({
+            type: "broadcast",
+            event: "patient-video-request",
+            payload: {
+              conversation_id: conversationId,
+              patient_id: au.user.id,
+              patient_name: au.user.user_metadata?.full_name || au.user.email || "Patient",
+              message: content,
+              call_type: callType,
+              session_id: session.id,
+              invitation_id: invitation.id,
+              timestamp: new Date().toISOString()
+            },
+          });
+
+          supabase.removeChannel(staffChannel);
+        }
+      }
     }
 
-    const patientName = [patient.first_name, patient.last_name].filter(Boolean).join(" ") || 
-                       patient.email || "Patient";
-
-    // Create the message first
-    const { data: chatMessage, error: messageError } = await supabase
+    // Create the message
+    const { data: message, error: messageError } = await supabase
       .from("messages")
       .insert({
         conversation_id: conversationId,
         patient_id: conversation.patient_id,
         sender_id: au.user.id,
-        sender_name: patientName,
+        sender_name: au.user.user_metadata?.full_name || au.user.email || "Patient",
         sender_role: "patient",
-        content: message.trim(),
+        content: String(content).trim(),
         read: false,
         metadata: {
           ...metadata,
-          video_call_related: true,
-          call_type: callType
+          message_type: messageType,
+          video_call_initiated: shouldInitiateCall,
+          session_id: callSession?.id,
+          invitation_id: callInvitation?.id
         }
       })
       .select("*")
@@ -78,131 +160,48 @@ export async function POST(req: NextRequest) {
     await supabase
       .from("conversations")
       .update({ 
-        last_message: message.trim(), 
-        last_message_at: chatMessage.created_at 
+        last_message: message.content, 
+        last_message_at: message.created_at 
       })
       .eq("id", conversationId);
 
-    let callSession = null;
-    let invitation = null;
-
-    // If autoInitiateCall is true, automatically create video call session and invitation
-    if (autoInitiateCall) {
-      // Create call session with improved flow
-      const { data: session, error: sessionError } = await supabase
-        .from("call_sessions")
+    // Create video call message if call was initiated
+    let videoCallMessage = null;
+    if (shouldInitiateCall && callSession) {
+      const { data: vcMessage, error: vcError } = await supabase
+        .from("video_call_messages")
         .insert({
           conversation_id: conversationId,
-          caller_id: au.user.id,
-          callee_id: conversation.provider_id,
-          call_type: callType,
-          status: "initiated", // Start as initiated, will change to ringing when staff accepts
-          started_at: new Date().toISOString(),
+          session_id: callSession.id,
+          sender_id: au.user.id,
+          sender_name: au.user.user_metadata?.full_name || au.user.email || "Patient",
+          sender_role: "patient",
+          message_type: "call_action",
+          content: `Patient initiated video call: ${content}`,
           metadata: {
+            ...metadata,
             auto_initiated: true,
-            message_id: chatMessage.id,
-            systematic_flow: true, // Flag for improved flow
-            ...metadata
-          }
+            original_message: content
+          },
+          read: false
         })
         .select("*")
         .single();
 
-      if (sessionError) {
-        console.warn("Failed to create call session:", sessionError);
+      if (vcError) {
+        console.warn("Failed to create video call message:", vcError);
       } else {
-        callSession = session;
-
-        // Create call history entry
-        await supabase
-          .from("call_history")
-          .insert({
-            conversation_id: conversationId,
-            caller_id: au.user.id,
-            callee_id: conversation.provider_id,
-            caller_name: patientName,
-            callee_name: conversation.provider_name || "Staff",
-            call_type: callType,
-            status: "initiated",
-            started_at: new Date().toISOString(),
-          });
-
-        // Create call invitation
-        const { data: invite, error: inviteError } = await supabase
-          .from("video_call_invitations")
-          .insert({
-            conversation_id: conversationId,
-            caller_id: au.user.id,
-            callee_id: conversation.provider_id,
-            caller_name: patientName,
-            caller_role: "patient",
-            call_type: callType,
-            message: `Patient wants to start a ${callType} call: "${message.trim()}"`,
-            status: "pending",
-            metadata: {
-              auto_initiated: true,
-              message_id: chatMessage.id,
-              ...metadata
-            },
-            expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() // 5 minutes
-          })
-          .select("*")
-          .single();
-
-        if (inviteError) {
-          console.warn("Failed to create call invitation:", inviteError);
-        } else {
-          invitation = invite;
-
-          // Send real-time notification to staff
-          const staffChannel = supabase.channel(`staff-calls-${conversation.provider_id}`, {
-            config: { broadcast: { ack: true } },
-          });
-
-          const userChannel = supabase.channel(`user_${conversation.provider_id}`, {
-            config: { broadcast: { ack: true } },
-          });
-
-          const notificationPayload = {
-            type: "patient_video_call_request",
-            invitation_id: invite.id,
-            session_id: session.id,
-            conversation_id: conversationId,
-            caller_id: au.user.id,
-            caller_name: patientName,
-            caller_role: "patient",
-            call_type: callType,
-            message: message.trim(),
-            timestamp: new Date().toISOString(),
-            metadata
-          };
-
-          // Send to both channels
-          await Promise.all([
-            staffChannel.send({
-              type: "broadcast",
-              event: "patient-video-call-request",
-              payload: notificationPayload,
-            }),
-            userChannel.send({
-              type: "broadcast",
-              event: "incoming-video-call",
-              payload: notificationPayload,
-            })
-          ]);
-
-          // Clean up channels
-          supabase.removeChannel(staffChannel);
-          supabase.removeChannel(userChannel);
-        }
+        videoCallMessage = vcMessage;
       }
     }
 
     return NextResponse.json({ 
-      message: chatMessage,
+      message,
+      videoCallMessage,
       callSession,
-      invitation,
-      autoInitiated: autoInitiateCall
+      callInvitation,
+      videoCallInitiated: shouldInitiateCall,
+      callType: shouldInitiateCall ? callType : null
     });
 
   } catch (error: any) {
@@ -212,13 +211,15 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = supabaseFromRoute();
+    const supabase = await supabaseFromRoute();
     const { data: au } = await supabase.auth.getUser();
     if (!au.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
     const url = new URL(req.url);
     const conversationId = url.searchParams.get("conversationId");
-    const includeCallHistory = url.searchParams.get("includeCallHistory") === "true";
+    const includeVideoCalls = url.searchParams.get("includeVideoCalls") === "true";
+    const limit = parseInt(url.searchParams.get("limit") || "50");
+    const before = url.searchParams.get("before");
 
     if (!conversationId) {
       return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
@@ -236,41 +237,47 @@ export async function GET(req: NextRequest) {
     }
 
     if (conversation.patient_id !== au.user.id) {
-      return NextResponse.json({ error: "access denied" }, { status: 403 });
+      return NextResponse.json({ error: "access denied - patient only" }, { status: 403 });
     }
 
-    // Get messages with video call context
-    const { data: messages, error: messagesError } = await supabase
+    // Get messages
+    let query = supabase
       .from("messages")
       .select("*")
       .eq("conversation_id", conversationId)
-      .eq("sender_id", au.user.id)
-      .not("metadata->video_call_related", "is", null)
       .order("created_at", { ascending: false })
-      .limit(20);
+      .limit(limit);
 
-    if (messagesError) {
-      return NextResponse.json({ error: messagesError.message }, { status: 500 });
+    if (before) {
+      query = query.lt("created_at", before);
     }
 
-    let callHistory = null;
-    if (includeCallHistory) {
-      const { data: history, error: historyError } = await supabase
-        .from("call_history")
+    const { data: messages, error: messageError } = await query;
+
+    if (messageError) {
+      return NextResponse.json({ error: messageError.message }, { status: 500 });
+    }
+
+    let videoCallData = null;
+    if (includeVideoCalls) {
+      // Get video call sessions for this conversation
+      const { data: sessions, error: sessionError } = await supabase
+        .from("call_sessions")
         .select("*")
         .eq("conversation_id", conversationId)
-        .eq("caller_id", au.user.id)
         .order("started_at", { ascending: false })
         .limit(10);
 
-      if (!historyError) {
-        callHistory = history;
+      if (sessionError) {
+        console.warn("Failed to get video call sessions:", sessionError);
+      } else {
+        videoCallData = sessions;
       }
     }
 
     return NextResponse.json({ 
-      messages: messages || [],
-      callHistory: callHistory || [],
+      messages: (messages ?? []).reverse(),
+      videoCallData,
       conversation: {
         id: conversation.id,
         provider_id: conversation.provider_id

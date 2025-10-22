@@ -3,13 +3,15 @@ from database import SessionLocal, engine
 import models
 from auth import get_password_hash
 from datetime import datetime, timedelta
+from typing import List
 
-def create_sample_data():
+def create_sample_data() -> None:
     """Create sample data for testing."""
-    db = SessionLocal()
+    db: Session = SessionLocal()
     
     try:
         # Create sample users
+        created_users: List[models.User] = []
         users_data = [
             {
                 "email": "john.doe@email.com",
@@ -45,7 +47,6 @@ def create_sample_data():
             }
         ]
         
-        created_users = []
         for user_data in users_data:
             # Check if user already exists
             existing_user = db.query(models.User).filter(models.User.email == user_data["email"]).first()
@@ -67,7 +68,8 @@ def create_sample_data():
             created_users.append(db_user)
             
             # Create patient or staff profile
-            if db_user.role == models.UserRole.PATIENT:
+            user_role: models.UserRole = db_user.role  # type: ignore
+            if user_role == models.UserRole.PATIENT:
                 patient_id = f"PAT{db_user.id:06d}"
                 db_patient = models.Patient(
                     user_id=db_user.id,
@@ -118,10 +120,11 @@ def create_sample_data():
             
             # Add members to group
             for user in created_users:
+                user_role: models.UserRole = user.role  # type: ignore
                 db_member = models.GroupMember(
                     group_id=db_group.id,
                     user_id=user.id,
-                    is_moderator=(user.role in [models.UserRole.DOCTOR, models.UserRole.COUNSELOR])
+                    is_moderator=(user_role in [models.UserRole.DOCTOR, models.UserRole.COUNSELOR])
                 )
                 db.add(db_member)
         

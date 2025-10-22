@@ -1,0 +1,28 @@
+{
+    "include": [
+        "."
+    ],
+    "exclude": [
+        "**/node_modules",
+        "**/__pycache__"
+    ],
+    "venvPath": ".",
+    "venv": "venv",
+    "pythonVersion": "3.14",
+    "pythonPlatform": "Windows",
+    "typeCheckingMode": "basic",
+    "useLibraryCodeForTypes": true,
+    "extraPaths": [
+        "C:\\Users\\ejohn\\serenity-b9\\serenity-b9\\backend\\venv\\Lib\\site-packages"
+    ],
+    "executionEnvironments": [
+        {
+            "root": ".",
+            "pythonVersion": "3.14",
+            "pythonPlatform": "Windows",
+            "extraPaths": [
+                "C:\\Users\\ejohn\\serenity-b9\\serenity-b9\\backend\\venv\\Lib\\site-packages"
+            ]
+        }
+    ]
+}

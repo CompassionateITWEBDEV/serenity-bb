@@ -1,0 +1,28 @@
+{
+    "include": [
+        ".",
+        "backend",
+        "fastapi_backend"
+    ],
+    "exclude": [
+        "**/node_modules",
+        "**/__pycache__",
+        "**/venv"
+    ],
+    "typeCheckingMode": "basic",
+    "useLibraryCodeForTypes": true,
+    "pythonVersion": "3.14",
+    "pythonPlatform": "Windows",
+    "executionEnvironments": [
+        {
+            "root": "backend",
+            "pythonVersion": "3.14",
+            "pythonPlatform": "Windows",
+            "venvPath": "C:\\Users\\ejohn\\serenity-b9\\serenity-b9\\backend",
+            "venv": "venv",
+            "extraPaths": [
+                "C:\\Users\\ejohn\\serenity-b9\\serenity-b9\\backend\\venv\\Lib\\site-packages"
+            ]
+        }
+    ]
+}

@@ -31,7 +31,7 @@ async def send_message(
     
     # If sending to a group, verify user is a member
     if message.group_id:
-        group_member = db.query(models.GroupMember).filter(
+        group_member: Optional[models.GroupMember] = db.query(models.GroupMember).filter(
             and_(
                 models.GroupMember.group_id == message.group_id,
                 models.GroupMember.user_id == current_user.id
@@ -46,7 +46,7 @@ async def send_message(
     
     # If sending to individual, verify recipient exists
     if message.recipient_id:
-        recipient = db.query(models.User).filter(models.User.id == message.recipient_id).first()
+        recipient: Optional[models.User] = db.query(models.User).filter(models.User.id == message.recipient_id).first()
         if not recipient:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -77,7 +77,7 @@ async def get_inbox(
     db: Session = Depends(get_db)
 ):
     """Get user's inbox messages."""
-    messages = db.query(models.Message).filter(
+    messages: List[models.Message] = db.query(models.Message).filter(
         models.Message.recipient_id == current_user.id
     ).order_by(models.Message.created_at.desc()).offset(skip).limit(limit).all()
     
@@ -91,7 +91,7 @@ async def get_sent_messages(
     db: Session = Depends(get_db)
 ):
     """Get user's sent messages."""
-    messages = db.query(models.Message).filter(
+    messages: List[models.Message] = db.query(models.Message).filter(
         models.Message.sender_id == current_user.id
     ).order_by(models.Message.created_at.desc()).offset(skip).limit(limit).all()
     
@@ -106,7 +106,7 @@ async def get_conversation(
     db: Session = Depends(get_db)
 ):
     """Get conversation between current user and another user."""
-    messages = db.query(models.Message).filter(
+    messages: List[models.Message] = db.query(models.Message).filter(
         or_(
             and_(
                 models.Message.sender_id == current_user.id,
@@ -128,7 +128,7 @@ async def mark_message_read(
     db: Session = Depends(get_db)
 ):
     """Mark a message as read."""
-    message = db.query(models.Message).filter(models.Message.id == message_id).first()
+    message: Optional[models.Message] = db.query(models.Message).filter(models.Message.id == message_id).first()
     if not message:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -136,14 +136,15 @@ async def mark_message_read(
         )
     
     # Only recipient can mark message as read
-    if message.recipient_id != current_user.id:
+    recipient_id: int = message.recipient_id  # type: ignore
+    if recipient_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only mark your own messages as read"
         )
     
-    message.status = models.MessageStatus.READ
-    message.read_at = func.now()
+    setattr(message, 'status', models.MessageStatus.READ)
+    setattr(message, 'read_at', func.now())
     db.commit()
     
     return {"message": "Message marked as read"}
@@ -154,13 +155,14 @@ async def get_healthcare_providers(
     db: Session = Depends(get_db)
 ):
     """Get list of healthcare providers for messaging."""
-    if current_user.role != models.UserRole.PATIENT:
+    user_role: models.UserRole = current_user.role  # type: ignore
+    if user_role != models.UserRole.PATIENT:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only patients can access healthcare provider list"
         )
     
-    providers = db.query(models.User).filter(
+    providers: List[models.User] = db.query(models.User).filter(
         models.User.role.in_([
             models.UserRole.DOCTOR,
             models.UserRole.NURSE,

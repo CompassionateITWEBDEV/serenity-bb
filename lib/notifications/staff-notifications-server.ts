@@ -1,5 +1,6 @@
 // Server-side staff notification system for API routes
 import { createClient } from '@/lib/supabase/server';
+import { SupabaseClient } from '@supabase/supabase-js';
 
 export interface StaffNotification {
   id: string;
@@ -25,8 +26,8 @@ export async function createSubmissionNotificationServer(
   submissionId: string,
   submissionType: string,
   patientName: string
-) {
-  const supabase = createClient();
+): Promise<void> {
+  const supabase = await createClient();
   
   try {
     // Get all staff members who should receive notifications
@@ -41,7 +42,7 @@ export async function createSubmissionNotificationServer(
     }
 
     // Create notifications for each staff member
-    const notifications = staffMembers?.map(staff => ({
+    const notifications = staffMembers?.map((staff: any) => ({
       type: 'submission',
       title: `New ${submissionType} Submission`,
       message: `${patientName} has submitted a new ${submissionType} entry. Review and respond as needed.`,
@@ -56,7 +57,7 @@ export async function createSubmissionNotificationServer(
     })) || [];
 
     if (notifications.length > 0) {
-      const { error: insertError } = await supabase
+      const { error: insertError } = await (supabase as any)
         .from('staff_notifications')
         .insert(notifications);
 
@@ -78,8 +79,8 @@ export async function createMessageNotificationServer(
   conversationId: string,
   patientName: string,
   messagePreview: string
-) {
-  const supabase = createClient();
+): Promise<void> {
+  const supabase = await createClient();
   
   try {
     // Get all staff members who should receive notifications
@@ -94,7 +95,7 @@ export async function createMessageNotificationServer(
     }
 
     // Create notifications for each staff member
-    const notifications = staffMembers?.map(staff => ({
+    const notifications = staffMembers?.map((staff: any) => ({
       type: 'message',
       title: `New Message from ${patientName}`,
       message: messagePreview.length > 100 ? `${messagePreview.substring(0, 100)}...` : messagePreview,
@@ -110,7 +111,7 @@ export async function createMessageNotificationServer(
     })) || [];
 
     if (notifications.length > 0) {
-      const { error: insertError } = await supabase
+      const { error: insertError } = await (supabase as any)
         .from('staff_notifications')
         .insert(notifications);
 

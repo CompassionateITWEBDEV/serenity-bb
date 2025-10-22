@@ -78,7 +78,7 @@ export function useProgressTracking() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const patientId = patient?.user_id || patient?.id;
+  const patientId = patient?.id;
 
   // Fetch progress data
   const fetchProgressData = useCallback(async () => {

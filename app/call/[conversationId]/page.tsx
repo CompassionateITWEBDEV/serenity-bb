@@ -101,12 +101,6 @@ function VideoTile({
       setShowVideo(true);
       setHasVideoStream(true);
     };
-
-    const handlePlaying = () => {
-      console.log(`🎬 Video playing for ${label}`);
-      setShowVideo(true);
-      setHasVideoStream(true);
-    };
     
     const handlePlay = () => {
       console.log(`🎬 Video started playing for ${label}`);
@@ -122,7 +116,6 @@ function VideoTile({
     video.addEventListener('loadstart', handleLoadStart);
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('canplay', handleCanPlay);
-    video.addEventListener('playing', handlePlaying);
     video.addEventListener('play', handlePlay);
     video.addEventListener('error', handleError);
     
@@ -139,12 +132,6 @@ function VideoTile({
         setShowVideo(true);
         setHasVideoStream(true);
       }
-      // Also check if video is actually playing
-      if (video.srcObject && !video.paused && !video.ended && video.readyState >= 2) {
-        console.log(`🎬 Periodic check: Video is playing for ${label}`);
-        setShowVideo(true);
-        setHasVideoStream(true);
-      }
     };
     
     // Check immediately and then periodically
@@ -158,7 +145,6 @@ function VideoTile({
       video.removeEventListener('loadstart', handleLoadStart);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('canplay', handleCanPlay);
-      video.removeEventListener('playing', handlePlaying);
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('error', handleError);
       clearInterval(interval);
@@ -249,8 +235,8 @@ function VideoTile({
             {!isConnected && (
               <p className="text-gray-400 text-xs mt-1">Connecting media...</p>
             )}
-            {isConnected && !hasVideoStream && videoRef.current?.srcObject && (
-              <p className="text-green-400 text-xs mt-1">Video ready...</p>
+            {isConnected && !hasVideoStream && (
+              <p className="text-yellow-400 text-xs mt-1">Waiting for video...</p>
             )}
             {isConnected && hasVideoStream && !showVideo && (
               <p className="text-orange-400 text-xs mt-1">Video loading...</p>
