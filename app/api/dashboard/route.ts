@@ -25,7 +25,8 @@ export async function GET() {
   });
 
   // ✅ Accept Bearer OR cookies
-  const authHeader = headers().get("authorization") || "";
+  const headersList = await headers();
+  const authHeader = headersList.get("authorization") || "";
   const bearer = authHeader.toLowerCase().startsWith("bearer ")
     ? authHeader.slice(7).trim()
     : null;

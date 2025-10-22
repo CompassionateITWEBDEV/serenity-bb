@@ -125,18 +125,38 @@ function VideoTile({
       video.load(); // Force reload
     }
     
-    // Periodic check for video stream detection (fallback)
+    // Enhanced periodic check for video stream detection
     const checkVideoStream = () => {
-      if (video.srcObject && video.readyState >= 2 && !hasVideoStream) {
-        console.log(`🔄 Periodic check: Video stream detected for ${label}`);
+      const hasSrcObject = !!video.srcObject;
+      const hasValidDimensions = video.videoWidth > 0 && video.videoHeight > 0;
+      const isReady = video.readyState >= 2; // HAVE_CURRENT_DATA
+      const isPlaying = !video.paused && !video.ended;
+      
+      console.log(`🔍 Video check for ${label}:`, {
+        hasSrcObject,
+        hasValidDimensions,
+        isReady,
+        isPlaying,
+        readyState: video.readyState,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        currentHasVideoStream: hasVideoStream
+      });
+
+      if (hasSrcObject && (hasValidDimensions || isReady) && !hasVideoStream) {
+        console.log(`✅ Video stream detected for ${label}: ${video.videoWidth}x${video.videoHeight}`);
         setShowVideo(true);
         setHasVideoStream(true);
+      } else if (hasSrcObject && !hasValidDimensions && video.readyState >= 1 && !isPlaying) {
+        // Stream exists but dimensions not yet available, try to play
+        console.log(`🔄 Attempting to play video for ${label} to get dimensions`);
+        video.play().catch(console.warn);
       }
     };
     
     // Check immediately and then periodically
     checkVideoStream();
-    const interval = setInterval(checkVideoStream, 1000);
+    const interval = setInterval(checkVideoStream, 500); // More frequent checks
     
     // Cleanup interval after 30 seconds
     const timeout = setTimeout(() => clearInterval(interval), 30000);
@@ -601,8 +621,20 @@ export default function CallRoomPage() {
       audioTracks: stream.getAudioTracks().length,
       videoTracks: stream.getVideoTracks().length,
       streamId: stream.id,
-      videoElement: !!video
+      videoElement: !!video,
+      streamActive: stream.active
     });
+
+    // Ensure stream is active before proceeding
+    if (!stream.active) {
+      console.warn(`⚠️ Stream is not active, attempting to reactivate`);
+      stream.getTracks().forEach(track => {
+        if (track.readyState === 'ended') {
+          console.log(`🔄 Reactivating ${track.kind} track`);
+          track.enabled = true;
+        }
+      });
+    }
 
     // Ensure recommended flags for autoplay and prevent black screens
     try { video.muted = isLocal; } catch {} // Only mute local video
@@ -636,6 +668,9 @@ export default function CallRoomPage() {
       console.warn("Failed to attach MediaStream to video element:", err);
       return false;
     }
+
+    // Force immediate load and play
+    try { video.load(); } catch {}
 
     // Safe play with proper error handling and black screen fixes
     const playVideo = async () => {
@@ -1230,6 +1265,29 @@ export default function CallRoomPage() {
       // Immediately set up remote video when track is received
       if (ev.track.kind === 'video' && remoteVideoRef.current) {
         console.log('🎥 Setting up remote video immediately on track received');
+        
+        // Force immediate setup with enhanced error handling
+        const setupRemoteVideoImmediately = async () => {
+          try {
+            const remoteEl = remoteVideoRef.current;
+            if (remoteEl && remoteStreamRef.current) {
+              // Clear any existing stream
+              remoteEl.srcObject = null;
+              remoteEl.load();
+              
+              // Set new stream
+              remoteEl.srcObject = remoteStreamRef.current;
+              
+              // Force play
+              await remoteEl.play();
+              console.log('✅ Remote video playing immediately');
+            }
+          } catch (error) {
+            console.warn('⚠️ Immediate remote video setup failed:', error);
+          }
+        };
+        
+        setupRemoteVideoImmediately();
         setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
       }
       
@@ -2144,28 +2202,45 @@ export default function CallRoomPage() {
       pc.addTrack(t, localStreamRef.current!);
     });
 
-      // Comprehensive caller video setup
+      // Enhanced caller video setup with retry logic
       console.log('🎯 Setting up caller video system...');
-      const setupCallerVideo = () => {
+      const setupCallerVideo = async () => {
         const localEl = localVideoRef.current;
         if (localEl && localStreamRef.current) {
-          localEl.srcObject = localStreamRef.current;
-          localEl.play().catch(console.warn);
-          console.log('✅ Caller local video set up immediately');
+          try {
+            localEl.srcObject = localStreamRef.current;
+            await localEl.play();
+            console.log('✅ Caller local video set up and playing');
+          } catch (error) {
+            console.warn('⚠️ Local video play failed, retrying:', error);
+            setTimeout(async () => {
+              try {
+                await localEl.play();
+                console.log('✅ Caller local video playing on retry');
+              } catch (retryError) {
+                console.error('❌ Local video play failed on retry:', retryError);
+              }
+            }, 100);
+          }
         }
         
         // Also prepare for remote video
         const remoteEl = remoteVideoRef.current;
         if (remoteEl && remoteStreamRef.current) {
-          remoteEl.srcObject = remoteStreamRef.current;
-          remoteEl.play().catch(console.warn);
-          console.log('✅ Caller remote video set up immediately');
+          try {
+            remoteEl.srcObject = remoteStreamRef.current;
+            await remoteEl.play();
+            console.log('✅ Caller remote video set up and playing');
+          } catch (error) {
+            console.warn('⚠️ Remote video play failed:', error);
+          }
         }
       };
       
+      // Multiple setup attempts for better reliability
       setupCallerVideo();
-      // Retry to ensure video elements are ready
       setTimeout(setupCallerVideo, 300);
+      setTimeout(setupCallerVideo, 1000);
 
       // 3) Simple call flow like Messenger/Zoom
     if (role === "caller") {

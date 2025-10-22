@@ -5,15 +5,19 @@
 Create a `.env.local` file in the root directory with the following variables:
 
 ### Supabase Configuration (Required)
+Based on your Supabase project: https://supabase.com/dashboard/project/cycakdfxcsjknxkqpasp
+
 ```bash
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url_here
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
+# Get these from: https://supabase.com/dashboard/project/cycakdfxcsjknxkqpasp/settings/api
+NEXT_PUBLIC_SUPABASE_URL=https://cycakdfxcsjknxkqpasp.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 ```
 
 ### Database Configuration
 ```bash
-DATABASE_URL=your_supabase_database_url_here
+# Get this from: https://supabase.com/dashboard/project/cycakdfxcsjknxkqpasp/settings/database
+DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@db.cycakdfxcsjknxkqpasp.supabase.co:5432/postgres
 ```
 
 ### JWT Configuration
