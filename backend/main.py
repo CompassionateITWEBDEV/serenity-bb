@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
-from database import engine, Base
+from database import engine, Base, check_database_connection
 from routers import auth, patients, appointments, messages, videos, groups, leads
 from config import settings
 
@@ -24,12 +24,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://your-frontend-domain.com",
-        "https://*.vercel.app",
-        "https://*.netlify.app"
-    ],
+    allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -50,7 +45,14 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "serenity-rehab-api", "version": "1.0.0"}
+    db_status = check_database_connection()
+    return {
+        "status": "healthy" if db_status else "degraded",
+        "service": "serenity-rehab-api", 
+        "version": "1.0.0",
+        "database": "connected" if db_status else "disconnected",
+        "environment": settings.environment
+    }
 
 @app.get("/api/info")
 async def api_info():

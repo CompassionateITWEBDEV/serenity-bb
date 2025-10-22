@@ -3,38 +3,49 @@
 /* Suppress CSS warnings for third-party libraries */
 /* stylelint-disable */
 
-/* WebKit-specific properties */
-* {
-  -webkit-text-size-adjust: 100%;
-  -webkit-tap-highlight-color: transparent;
+/* WebKit-specific properties - only apply to supported browsers */
+@supports (-webkit-text-size-adjust: 100%) {
+  * {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
 }
 
-/* Mozilla-specific properties */
-button::-moz-focus-inner {
-  border: 0;
+/* Mozilla-specific properties - only apply to Firefox */
+@-moz-document url-prefix() {
+  button::-moz-focus-inner {
+    border: 0;
+  }
 }
 
-/* Opera-specific keyframes */
-@-o-keyframes fadeIn {
+/* Standard keyframes with fallbacks */
+@keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
-/* WebKit-specific keyframes */
-@-webkit-keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* WebKit-specific keyframes - only for WebKit browsers */
+@supports (-webkit-appearance: none) {
+  @-webkit-keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
 }
 
-/* Mozilla-specific keyframes */
-@-moz-keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* Mozilla-specific keyframes - only for Firefox */
+@-moz-document url-prefix() {
+  @-moz-keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
 }
 
-/* Global pseudo-class for scoped styles */
-:global(.global-class) {
-  /* Global styles */
+/* Opera-specific keyframes - only for Opera */
+@supports (-o-appearance: none) {
+  @-o-keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
 }
 
 /* WebKit scrollbar styling */
@@ -56,5 +67,10 @@ button::-moz-focus-inner {
 }
 
 /* stylelint-enable */
+
+
+
+
+
 
 

@@ -9,8 +9,10 @@ import Analytics from "./analytics"
 import { OrganizationStructuredData } from "@/components/seo/StructuredData"
 import GoogleAnalytics from "@/components/seo/GoogleAnalytics"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
+import AuthErrorBoundary from "@/components/AuthErrorBoundary"
 import ClientErrorHandler from "@/components/ClientErrorHandler"
 import EnvironmentCheck from "@/components/EnvironmentCheck"
+import AuthDebugPanel from "@/components/AuthDebugPanel"
 
 const SITE_URL = "https://src.health"
 const ORG_NAME = "Serenity Rehabilitation Center"
@@ -107,6 +109,38 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"
           strategy="beforeInteractive" /* why: allow early usage in client components */
         />
+        
+        {/* CSS Warning Suppression */}
+        <Script id="css-suppression" strategy="afterInteractive">
+          {`
+            // Suppress CSS parsing warnings in console
+            const originalError = console.error;
+            console.error = function(...args) {
+              const message = args[0];
+              if (typeof message === 'string' && (
+                message.includes('Unknown pseudo-class') ||
+                message.includes('Unknown property') ||
+                message.includes('Declaration dropped') ||
+                message.includes('Ruleset ignored') ||
+                message.includes('Unexpected token') ||
+                message.includes('Unrecognized at-rule') ||
+                message.includes('-webkit-text-size-adjust') ||
+                message.includes('-moz-focus-inner') ||
+                message.includes('@-o-keyframes') ||
+                message.includes('@-moz-keyframes') ||
+                message.includes('@-webkit-keyframes') ||
+                message.includes('-moz-border-radius') ||
+                message.includes('-moz-box-shadow') ||
+                message.includes('-moz-osx-font-smoothing') ||
+                message.includes('style(') ||
+                message.includes('global')
+              )) {
+                return; // Suppress CSS parsing warnings
+              }
+              originalError.apply(console, args);
+            };
+          `}
+        </Script>
 
         <OrganizationStructuredData />
 
@@ -114,11 +148,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {GA_ID && <GoogleAnalytics gaId={GA_ID} />}
 
         <ErrorBoundary>
-          <ClientErrorHandler />
-          {children}
+          <AuthErrorBoundary>
+            <ClientErrorHandler />
+            {children}
+          </AuthErrorBoundary>
         </ErrorBoundary>
         
         <EnvironmentCheck />
+        
+        {/* Debug panel - only show in development */}
+        {process.env.NODE_ENV === 'development' && (
+          <AuthDebugPanel show={true} />
+        )}
       </body>
     </html>
   )

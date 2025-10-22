@@ -2,16 +2,40 @@
 
 /* Improve text rendering across all elements */
 * {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+/* WebKit font smoothing - only for WebKit browsers */
+@supports (-webkit-appearance: none) {
+  * {
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Mozilla font smoothing - only for Firefox on macOS */
+@-moz-document url-prefix() {
+  * {
+    -moz-osx-font-smoothing: grayscale;
+  }
 }
 
 /* Ensure proper font display for all text elements */
 body, h1, h2, h3, h4, h5, h6, p, span, div, a, button {
   font-display: swap;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+}
+
+/* WebKit font smoothing for text elements */
+@supports (-webkit-appearance: none) {
+  body, h1, h2, h3, h4, h5, h6, p, span, div, a, button {
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Mozilla font smoothing for text elements */
+@-moz-document url-prefix() {
+  body, h1, h2, h3, h4, h5, h6, p, span, div, a, button {
+    -moz-osx-font-smoothing: grayscale;
+  }
 }
 
 /* Improve readability for small text */
@@ -68,5 +92,10 @@ a:focus-visible {
   outline: 2px solid #06b6d4;
   outline-offset: 2px;
 }
+
+
+
+
+
 
 

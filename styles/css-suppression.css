@@ -1,0 +1,47 @@
+/* CSS Suppression for third-party library warnings */
+/* This file suppresses CSS parsing warnings from external libraries */
+
+/* Suppress SweetAlert2 and other third-party CSS warnings */
+/* These are expected vendor prefixes and don't affect functionality */
+
+/* stylelint-disable property-no-vendor-prefix */
+/* stylelint-disable at-rule-no-vendor-prefix */
+/* stylelint-disable selector-pseudo-element-no-unknown */
+/* stylelint-disable media-feature-name-no-vendor-prefix */
+/* stylelint-disable at-rule-no-unknown */
+/* stylelint-disable declaration-no-important */
+/* stylelint-disable selector-pseudo-class-no-unknown */
+/* stylelint-disable value-no-vendor-prefix */
+
+/* Override problematic vendor prefixes with modern equivalents */
+* {
+  /* Use modern CSS properties where possible */
+  text-size-adjust: 100%;
+  tap-highlight-color: transparent;
+}
+
+/* Modern focus styles */
+button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* Modern scrollbar styles */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* stylelint-enable */

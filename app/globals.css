@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "maplibre-gl/dist/maplibre-gl.css";
+@import "../styles/css-suppression.css";
 @import "../styles/browser-reset.css";
 @import "../styles/text-optimization.css";
 
@@ -120,10 +121,12 @@
 
 @layer base {
   * {
-    @apply border-border/20 outline-ring/50;
+    border-color: var(--border);
   }
   body {
-    @apply bg-background text-foreground font-sans;
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-source-sans), system-ui, sans-serif;
   }
 }
 

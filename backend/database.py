@@ -2,15 +2,33 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from config import settings
+import os
 
 # Create SQLAlchemy engine
-# Use SQLite for development if PostgreSQL is not available
+# Use Supabase PostgreSQL if available, otherwise SQLite for development
 database_url = settings.database_url
-if database_url.startswith("postgresql://"):
-    # Try to use SQLite as fallback for development
-    database_url = "sqlite:///./serenity_rehab.db"
 
-engine = create_engine(database_url)
+# If no database URL is provided, use SQLite for development
+if not database_url:
+    database_url = "sqlite:///./serenity_rehab.db"
+    print("⚠️ No DATABASE_URL provided, using SQLite for development")
+
+# Create engine with appropriate configuration
+if database_url.startswith("postgresql://"):
+    # PostgreSQL configuration for Supabase
+    engine = create_engine(
+        database_url,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        echo=settings.debug
+    )
+else:
+    # SQLite configuration for development
+    engine = create_engine(
+        database_url,
+        connect_args={"check_same_thread": False} if "sqlite" in database_url else {},
+        echo=settings.debug
+    )
 
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -25,3 +43,14 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# Health check function
+def check_database_connection():
+    """Check if database connection is working"""
+    try:
+        with engine.connect() as connection:
+            connection.execute("SELECT 1")
+        return True
+    except Exception as e:
+        print(f"❌ Database connection failed: {e}")
+        return False

@@ -61,22 +61,64 @@ if (typeof window !== "undefined" && isSupabaseConfigured) {
       if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
         console.log('🔄 Auth state changed:', event);
       }
+      if (event === 'SIGNED_OUT') {
+        // Clear all auth-related storage when signed out
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+          sessionStorage.clear();
+        } catch (e) {
+          console.warn('⚠️ Error clearing storage:', e);
+        }
+      }
     });
     
-    // Catch unhandled auth errors
-    window.addEventListener('unhandledrejection', (event) => {
-      if (event.reason?.message?.includes('Invalid Refresh Token') || 
-          event.reason?.message?.includes('Refresh Token Not Found')) {
-        console.warn('⚠️ Unhandled auth error caught:', event.reason);
-        event.preventDefault();
+    // Enhanced error handling for auth errors
+    const handleAuthError = (error: any) => {
+      const errorMessage = error?.message || error?.toString() || '';
+      const isRefreshTokenError = /invalid\s+refresh\s+token|refresh\s+token\s+not\s+found|not\s+found/i.test(errorMessage);
+      
+      if (isRefreshTokenError) {
+        console.warn('⚠️ Auth error detected:', errorMessage);
         // Clear session and redirect
         supabase.auth.signOut().then(() => {
           localStorage.removeItem(STORAGE_KEY);
           sessionStorage.clear();
+          const next = encodeURIComponent(window.location.pathname + window.location.search);
+          window.location.href = `/login?next=${next}`;
+        }).catch(() => {
+          // Force redirect even if signOut fails
+          localStorage.removeItem(STORAGE_KEY);
+          sessionStorage.clear();
           window.location.href = '/login';
         });
+        return true;
+      }
+      return false;
+    };
+    
+    // Catch unhandled promise rejections
+    window.addEventListener('unhandledrejection', (event) => {
+      if (handleAuthError(event.reason)) {
+        event.preventDefault();
       }
     });
+    
+    // Catch unhandled errors
+    window.addEventListener('error', (event) => {
+      if (handleAuthError(event.error)) {
+        event.preventDefault();
+      }
+    });
+    
+    // Override console.error to catch auth errors
+    const originalConsoleError = console.error;
+    console.error = (...args) => {
+      const errorMessage = args.join(' ');
+      if (/invalid\s+refresh\s+token|refresh\s+token\s+not\s+found|not\s+found/i.test(errorMessage)) {
+        handleAuthError({ message: errorMessage });
+      }
+      originalConsoleError.apply(console, args);
+    };
   } catch (error) {
     console.warn('⚠️ Failed to initialize auth handlers:', error);
   }
@@ -95,24 +137,63 @@ export async function getAuthUser(): Promise<User | null> {
 
 export async function getAccessToken(): Promise<string | null> {
   try {
+    // First try to get existing session
     let { data } = await supabase.auth.getSession();
     let token = data.session?.access_token ?? null;
-    if (token) return token;
+    
+    // If we have a valid token, return it
+    if (token && data.session?.expires_at) {
+      const expiresAt = new Date(data.session.expires_at * 1000);
+      const now = new Date();
+      const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+      
+      // If token expires in more than 5 minutes, it's still valid
+      if (timeUntilExpiry > 5 * 60 * 1000) {
+        return token;
+      }
+    }
+    
+    // Try to refresh the session
     const refreshed = await supabase.auth.refreshSession();
     return refreshed.data.session?.access_token ?? null;
   } catch (e: any) {
     console.warn('⚠️ Auth error in getAccessToken:', e);
-    if (typeof e?.message === "string" && /invalid\s+refresh\s+token|not\s+found|refresh\s+token\s+not\s+found/i.test(e.message)) {
+    
+    // Check if it's a refresh token error
+    const errorMessage = e?.message || e?.toString() || '';
+    const isRefreshTokenError = /invalid\s+refresh\s+token|not\s+found|refresh\s+token\s+not\s+found/i.test(errorMessage);
+    
+    if (isRefreshTokenError) {
       console.log('🔄 Invalid refresh token detected, clearing session and redirecting to login');
-      try { await supabase.auth.signOut(); } catch {}
-      try { localStorage.removeItem(STORAGE_KEY); } catch {}
-      try { sessionStorage.clear(); } catch {}
+      
+      // Clear all auth data
+      try { 
+        await supabase.auth.signOut(); 
+      } catch (signOutError) {
+        console.warn('⚠️ Error during signOut:', signOutError);
+      }
+      
+      try { 
+        localStorage.removeItem(STORAGE_KEY); 
+      } catch (storageError) {
+        console.warn('⚠️ Error clearing localStorage:', storageError);
+      }
+      
+      try { 
+        sessionStorage.clear(); 
+      } catch (storageError) {
+        console.warn('⚠️ Error clearing sessionStorage:', storageError);
+      }
+      
+      // Redirect to login
       if (typeof window !== "undefined") {
         const next = encodeURIComponent(window.location.pathname + window.location.search);
         window.location.href = `/login?next=${next}`;
       }
       return null;
     }
+    
+    // Re-throw non-refresh-token errors
     throw e;
   }
 }

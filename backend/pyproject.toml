@@ -25,7 +25,6 @@ dependencies = [
 include = ["."]
 exclude = ["**/node_modules", "**/__pycache__"]
 venvPath = "."
-venv = "venv"
 pythonVersion = "3.14"
 pythonPlatform = "Windows"
 typeCheckingMode = "basic"

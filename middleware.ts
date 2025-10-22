@@ -55,7 +55,36 @@ export async function middleware(req: NextRequest) {
       },
     }
   );
-  await supabase.auth.getSession();
+  
+  // Safely get session with error handling
+  try {
+    await supabase.auth.getSession();
+  } catch (error: any) {
+    // If it's an auth error, clear cookies and continue
+    const errorMessage = error?.message || error?.toString() || '';
+    if (/invalid\s+refresh\s+token|refresh\s+token\s+not\s+found|not\s+found/i.test(errorMessage)) {
+      console.warn('⚠️ Auth error in middleware, clearing session:', errorMessage);
+      // Clear auth cookies
+      res.cookies.set({
+        name: 'sb-app-auth-token',
+        value: '',
+        expires: new Date(0),
+        path: '/',
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax'
+      });
+      res.cookies.set({
+        name: 'sb-app-auth-refresh-token',
+        value: '',
+        expires: new Date(0),
+        path: '/',
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax'
+      });
+    }
+  }
 
   // Public pages (no SSR hard-block; we may redirect if user already authed)
   const PUBLIC = new Set<string>([
@@ -81,7 +110,36 @@ export async function middleware(req: NextRequest) {
 
   if (PUBLIC.has(pathname)) {
     try {
-      const { data: authData } = await supabase.auth.getUser();
+      const { data: authData, error } = await supabase.auth.getUser();
+      
+      // Handle auth errors gracefully
+      if (error) {
+        const errorMessage = error.message || error.toString();
+        if (/invalid\s+refresh\s+token|refresh\s+token\s+not\s+found|not\s+found/i.test(errorMessage)) {
+          console.warn('⚠️ Auth error in public page check:', errorMessage);
+          // Clear cookies and continue
+          res.cookies.set({
+            name: 'sb-app-auth-token',
+            value: '',
+            expires: new Date(0),
+            path: '/',
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax'
+          });
+          res.cookies.set({
+            name: 'sb-app-auth-refresh-token',
+            value: '',
+            expires: new Date(0),
+            path: '/',
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax'
+          });
+          return res;
+        }
+      }
+      
       const user = authData?.user;
       if (!user) return res;
 
@@ -111,7 +169,31 @@ export async function middleware(req: NextRequest) {
         if (role === "patient") return NextResponse.redirect(new URL("/patient/dashboard", origin));
         return res;
       }
-    } catch {
+    } catch (error: any) {
+      // Handle auth errors in catch block too
+      const errorMessage = error?.message || error?.toString() || '';
+      if (/invalid\s+refresh\s+token|refresh\s+token\s+not\s+found|not\s+found/i.test(errorMessage)) {
+        console.warn('⚠️ Auth error in public page catch:', errorMessage);
+        // Clear cookies and continue
+        res.cookies.set({
+          name: 'sb-app-auth-token',
+          value: '',
+          expires: new Date(0),
+          path: '/',
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax'
+        });
+        res.cookies.set({
+          name: 'sb-app-auth-refresh-token',
+          value: '',
+          expires: new Date(0),
+          path: '/',
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax'
+        });
+      }
       // Fail-open for public pages
       return res;
     }
