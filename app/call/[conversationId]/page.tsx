@@ -249,6 +249,8 @@ export default function CallRoomPage() {
   const [peerInfo, setPeerInfo] = useState<{ name?: string; avatar?: string }>({});
   const [connectionEstablished, setConnectionEstablished] = useState(false);
   const [peerConnected, setPeerConnected] = useState(false);
+  const [bothParticipantsReady, setBothParticipantsReady] = useState(false);
+  const [videoScreenReady, setVideoScreenReady] = useState(false);
 
   // Refs
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -263,6 +265,80 @@ export default function CallRoomPage() {
 
   // Channel name for signaling
   const threadChannel = useMemo(() => `call-${conversationId}`, [conversationId]);
+
+  // Validate that both participants are ready
+  const validateBothParticipantsReady = useCallback((pc: RTCPeerConnection) => {
+    const isIceConnected = pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed";
+    const isConnectionStable = pc.connectionState === "connected";
+    const hasLocalStream = !!localStreamRef.current;
+    const hasRemoteStream = !!remoteStreamRef.current;
+    
+    // Additional checks for video calls
+    const hasLocalVideo = mode === "video" ? 
+      (localStreamRef.current?.getVideoTracks().length || 0) > 0 : true;
+    const hasRemoteVideo = mode === "video" ? 
+      (remoteStreamRef.current?.getVideoTracks().length || 0) > 0 : true;
+    
+    // For video calls, we need both video tracks
+    const videoRequirementsMet = mode === "video" ? 
+      (hasLocalVideo && hasRemoteVideo) : true;
+    
+    const bothReady = isIceConnected && isConnectionStable && hasLocalStream && hasRemoteStream && videoRequirementsMet;
+    
+    console.log("🔍 Connection validation:", {
+      isIceConnected,
+      isConnectionStable,
+      hasLocalStream,
+      hasRemoteStream,
+      hasLocalVideo,
+      hasRemoteVideo,
+      videoRequirementsMet,
+      mode,
+      bothReady
+    });
+    
+    if (bothReady && !bothParticipantsReady) {
+      setBothParticipantsReady(true);
+      setConnectionEstablished(true);
+      setPeerConnected(true);
+      setStatus("connected");
+      callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+      console.log("✅ Both participants fully ready - video screen now accessible");
+      
+      // Additional delay to ensure video elements are ready
+      setTimeout(() => {
+        // Double-check that video elements are properly set up
+        const localVideo = localVideoRef.current;
+        const remoteVideo = remoteVideoRef.current;
+        
+        if (mode === "video") {
+          const localVideoReady = localVideo && localVideo.srcObject && localVideo.readyState >= 2;
+          const remoteVideoReady = remoteVideo && remoteVideo.srcObject && remoteVideo.readyState >= 2;
+          
+          if (localVideoReady && remoteVideoReady) {
+            setVideoScreenReady(true);
+            console.log("✅ Video screen is now ready and accessible");
+          } else {
+            console.log("🔄 Video elements not ready yet, retrying...");
+            setTimeout(() => {
+              setVideoScreenReady(true);
+              console.log("✅ Video screen ready after retry");
+            }, 2000);
+          }
+        } else {
+          setVideoScreenReady(true);
+          console.log("✅ Audio call screen is now ready");
+        }
+      }, 1000);
+    } else if (!bothReady && bothParticipantsReady) {
+      setBothParticipantsReady(false);
+      setConnectionEstablished(false);
+      setPeerConnected(false);
+      setVideoScreenReady(false);
+      setStatus("connecting");
+      console.log("❌ Connection lost - video screen no longer accessible");
+    }
+  }, [bothParticipantsReady, conversationId, mode]);
 
   // Authentication check
   useEffect(() => {
@@ -334,21 +410,20 @@ export default function CallRoomPage() {
     pc.oniceconnectionstatechange = () => {
       console.log(`🧊 ICE connection state: ${pc.iceConnectionState}`);
       if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
-        setStatus("connected");
-        setConnectionEstablished(true);
-        setPeerConnected(true);
-        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-        console.log("✅ Peer connection established - video screen now accessible");
+        console.log("🔄 ICE connected, validating full connection...");
+        validateBothParticipantsReady(pc);
       } else if (pc.iceConnectionState === "failed") {
         console.warn("⚠️ ICE connection failed");
         setStatus("failed");
         setConnectionEstablished(false);
         setPeerConnected(false);
+        setBothParticipantsReady(false);
         setMediaError("Connection failed. Please try again.");
       } else if (pc.iceConnectionState === "disconnected") {
         console.warn("⚠️ ICE connection disconnected");
         setConnectionEstablished(false);
         setPeerConnected(false);
+        setBothParticipantsReady(false);
         setStatus("connecting");
       }
     };
@@ -357,13 +432,19 @@ export default function CallRoomPage() {
     pc.onconnectionstatechange = () => {
       console.log(`🔗 Connection state: ${pc.connectionState}`);
       if (pc.connectionState === "connected") {
-        setConnectionEstablished(true);
-        setPeerConnected(true);
-        console.log("✅ WebRTC connection established - video screen now accessible");
+        console.log("🔄 Connection established, validating full connection...");
+        validateBothParticipantsReady(pc);
       } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
         setConnectionEstablished(false);
         setPeerConnected(false);
+        setBothParticipantsReady(false);
         console.log("❌ WebRTC connection lost");
+        if (pc.connectionState === "failed") {
+          setStatus("failed");
+          setMediaError("Connection failed. Please try again.");
+        } else {
+          setStatus("connecting");
+        }
       }
     };
 
@@ -388,6 +469,10 @@ export default function CallRoomPage() {
       if (event.track.kind === 'video' && remoteVideoRef.current) {
         setupVideoElement(remoteVideoRef, remoteStreamRef.current, false);
       }
+      
+      // Validate connection now that we have remote tracks
+      console.log("🔄 Remote track received, validating full connection...");
+      validateBothParticipantsReady(pc);
     };
 
     pcRef.current = pc;
@@ -699,6 +784,8 @@ export default function CallRoomPage() {
     // Reset connection states
     setConnectionEstablished(false);
     setPeerConnected(false);
+    setBothParticipantsReady(false);
+    setVideoScreenReady(false);
     
     // Send bye signal
     if (!fromPeer && peerUserId) {
@@ -747,6 +834,32 @@ export default function CallRoomPage() {
       setShowModeSelector(true);
     }
   }, [authChecked, me?.id, mode]);
+
+  // Periodic connection validation
+  useEffect(() => {
+    if (!bothParticipantsReady || !pcRef.current) return;
+    
+    const interval = setInterval(() => {
+      if (pcRef.current) {
+        validateBothParticipantsReady(pcRef.current);
+        
+        // Also check if video screen should still be ready
+        if (videoScreenReady && mode === "video") {
+          const localVideo = localVideoRef.current;
+          const remoteVideo = remoteVideoRef.current;
+          const localVideoReady = localVideo && localVideo.srcObject && localVideo.readyState >= 2;
+          const remoteVideoReady = remoteVideo && remoteVideo.srcObject && remoteVideo.readyState >= 2;
+          
+          if (!localVideoReady || !remoteVideoReady) {
+            console.log("⚠️ Video elements lost, hiding video screen");
+            setVideoScreenReady(false);
+          }
+        }
+      }
+    }, 2000); // Check every 2 seconds
+    
+    return () => clearInterval(interval);
+  }, [bothParticipantsReady, validateBothParticipantsReady, videoScreenReady, mode]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -879,29 +992,34 @@ export default function CallRoomPage() {
         {mode === "video" ? (
           <div className="w-full max-w-4xl">
             {/* Connection Status */}
-            {!connectionEstablished && (
+            {!videoScreenReady && (
               <div className="mb-8 text-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
                 <h2 className="text-xl font-semibold mb-2">
                   {status === "ringing" ? "Ringing..." : 
                    status === "connecting" ? "Connecting..." : 
+                   bothParticipantsReady ? "Preparing video screen..." :
                    "Establishing connection..."}
                 </h2>
                 <p className="text-gray-400">
                   {status === "ringing" ? "Waiting for the other person to answer" :
                    status === "connecting" ? "Setting up video call..." :
+                   bothParticipantsReady ? "Video screen is being prepared..." :
                    "Please wait while we connect you..."}
                 </p>
-                {!peerConnected && (
-                  <p className="text-yellow-400 text-sm mt-2">
-                    ⚠️ Video screen will be available once connection is established
+                <p className="text-yellow-400 text-sm mt-2">
+                  ⚠️ Video screen will be available once connection is fully established
+                </p>
+                {bothParticipantsReady && (
+                  <p className="text-blue-400 text-sm mt-1">
+                    🔄 Connection established, preparing video interface...
                   </p>
                 )}
               </div>
             )}
 
-            {/* Video Grid - Only show when connected */}
-            {connectionEstablished && (
+            {/* Video Grid - Only show when video screen is ready */}
+            {videoScreenReady && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                 {/* Local Video */}
                 <VideoTile
@@ -924,8 +1042,8 @@ export default function CallRoomPage() {
               </div>
             )}
 
-            {/* Controls - Only show when connected */}
-            {connectionEstablished && (
+            {/* Controls - Only show when video screen is ready */}
+            {videoScreenReady && (
               <div className="flex justify-center gap-4">
                 <Button
                   onClick={toggleMute}
@@ -957,7 +1075,7 @@ export default function CallRoomPage() {
             )}
 
             {/* Basic controls when not connected */}
-            {!connectionEstablished && (
+            {!videoScreenReady && (
               <div className="flex justify-center gap-4">
                 <Button
                   onClick={() => endCall()}
