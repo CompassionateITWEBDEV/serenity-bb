@@ -92,6 +92,36 @@ export function useIncomingCall() {
             }
           }, 30000);
         })
+        .on("broadcast", { event: "invite" }, (payload) => {
+          if (!mounted) return;
+          
+          const { conversationId, fromId, fromName, mode } = payload.payload as { 
+            conversationId: string; 
+            fromId: string; 
+            fromName: string; 
+            mode: string; 
+          };
+          
+          const callData: IncomingCall = {
+            conversationId,
+            callerId: fromId,
+            callerName: fromName,
+            mode: mode as "audio" | "video",
+            timestamp: new Date().toISOString()
+          };
+          
+          console.log("Incoming call received (legacy format):", callData);
+          
+          setIncomingCall(callData);
+          setIsRinging(true);
+          
+          // Auto-decline after 30 seconds if not answered
+          setTimeout(() => {
+            if (mounted && isRinging) {
+              declineCall();
+            }
+          }, 30000);
+        })
         .on("broadcast", { event: "call-cancelled" }, (payload) => {
           if (!mounted) return;
           

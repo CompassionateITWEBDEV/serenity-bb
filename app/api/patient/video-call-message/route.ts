@@ -112,16 +112,17 @@ export async function POST(req: NextRequest) {
 
           await staffChannel.send({
             type: "broadcast",
-            event: "patient-video-request",
+            event: "incoming-call",
             payload: {
-              conversation_id: conversationId,
-              patient_id: au.user.id,
-              patient_name: au.user.user_metadata?.full_name || au.user.email || "Patient",
-              message: content,
-              call_type: callType,
+              conversationId: conversationId,
+              callerId: au.user.id,
+              callerName: au.user.user_metadata?.full_name || au.user.email || "Patient",
+              callerAvatar: au.user.user_metadata?.avatar_url || null,
+              mode: callType,
+              timestamp: new Date().toISOString(),
               session_id: session.id,
               invitation_id: invitation.id,
-              timestamp: new Date().toISOString()
+              message: content
             },
           });
 

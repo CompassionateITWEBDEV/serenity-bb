@@ -190,35 +190,83 @@ export async function POST(req: NextRequest) {
     });
 
     const notificationPayload = {
-      type: "patient_video_call_request",
-      conversation_id: conversationId,
-      patient_id: au.user.id,
-      patient_name: au.user.user_metadata?.full_name || au.user.email || "Patient",
-      call_type: callType,
-      message: message,
+      conversationId: conversationId,
+      callerId: au.user.id,
+      callerName: au.user.user_metadata?.full_name || au.user.email || "Patient",
+      callerAvatar: au.user.user_metadata?.avatar_url || null,
+      mode: callType,
+      timestamp: new Date().toISOString(),
       session_id: callSession.id,
       invitation_id: callInvitation.id,
-      priority,
-      timestamp: new Date().toISOString()
+      message: message,
+      priority
     };
 
-    // Send to both channels
-    await Promise.all([
-      userChannel.send({
-        type: "broadcast",
-        event: "patient-video-request",
-        payload: notificationPayload,
-      }),
-      staffChannel.send({
-        type: "broadcast",
-        event: "incoming-patient-video-call",
-        payload: notificationPayload,
-      })
-    ]);
+    try {
+      // Subscribe to both channels first
+      await Promise.all([
+        new Promise<void>((res, rej) => {
+          const to = setTimeout(() => rej(new Error("user channel timeout")), 5000);
+          userChannel.subscribe((s) => {
+            if (s === "SUBSCRIBED") {
+              clearTimeout(to);
+              res();
+            }
+            if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+              clearTimeout(to);
+              rej(new Error(String(s)));
+            }
+          });
+        }),
+        new Promise<void>((res, rej) => {
+          const to = setTimeout(() => rej(new Error("staff channel timeout")), 5000);
+          staffChannel.subscribe((s) => {
+            if (s === "SUBSCRIBED") {
+              clearTimeout(to);
+              res();
+            }
+            if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+              clearTimeout(to);
+              rej(new Error(String(s)));
+            }
+          });
+        })
+      ]);
 
-    // Clean up channels
-    supabase.removeChannel(userChannel);
-    supabase.removeChannel(staffChannel);
+      // Send to both channels
+      await Promise.all([
+        userChannel.send({
+          type: "broadcast",
+          event: "patient-video-request",
+          payload: notificationPayload,
+        }),
+        staffChannel.send({
+          type: "broadcast",
+          event: "incoming-call",
+          payload: notificationPayload,
+        }),
+        // Also send the old format for compatibility
+        userChannel.send({
+          type: "broadcast",
+          event: "invite",
+          payload: { 
+            conversationId, 
+            fromId: au.user.id, 
+            fromName: au.user.user_metadata?.full_name || au.user.email || "Patient", 
+            mode: callType 
+          },
+        })
+      ]);
+
+    } catch (error) {
+      console.error("Failed to send notifications:", error);
+    } finally {
+      // Clean up channels
+      try {
+        supabase.removeChannel(userChannel);
+        supabase.removeChannel(staffChannel);
+      } catch {}
+    }
 
     // Update conversation last message
     await supabase
