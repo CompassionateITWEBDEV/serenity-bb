@@ -3,7 +3,7 @@ import { supabaseFromRoute } from "@/lib/supabaseRoute";
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await supabaseFromRoute();
+    const supabase = supabaseFromRoute();
     const { data: au } = await supabase.auth.getUser();
     if (!au.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
@@ -99,84 +99,23 @@ export async function POST(req: NextRequest) {
       metadata
     };
 
-    try {
-      // Subscribe to both channels first
-      await Promise.all([
-        new Promise<void>((res, rej) => {
-          const to = setTimeout(() => rej(new Error("user channel timeout")), 5000);
-          userChannel.subscribe((s) => {
-            if (s === "SUBSCRIBED") {
-              clearTimeout(to);
-              res();
-            }
-            if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
-              clearTimeout(to);
-              rej(new Error(String(s)));
-            }
-          });
-        }),
-        new Promise<void>((res, rej) => {
-          const to = setTimeout(() => rej(new Error("staff channel timeout")), 5000);
-          staffChannel.subscribe((s) => {
-            if (s === "SUBSCRIBED") {
-              clearTimeout(to);
-              res();
-            }
-            if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
-              clearTimeout(to);
-              rej(new Error(String(s)));
-            }
-          });
-        })
-      ]);
+    // Send to user channel
+    await userChannel.send({
+      type: "broadcast",
+      event: "video-call-invitation",
+      payload: notificationPayload,
+    });
 
-      // Send to user channel
-      await userChannel.send({
-        type: "broadcast",
-        event: "video-call-invitation",
-        payload: notificationPayload,
-      });
+    // Send to staff channel
+    await staffChannel.send({
+      type: "broadcast",
+      event: "incoming-video-call",
+      payload: notificationPayload,
+    });
 
-      // Send to staff channel
-      await staffChannel.send({
-        type: "broadcast",
-        event: "incoming-video-call",
-        payload: notificationPayload,
-      });
-
-      // Also send the old format for compatibility
-      await userChannel.send({
-        type: "broadcast",
-        event: "invite",
-        payload: { 
-          conversationId, 
-          fromId: au.user.id, 
-          fromName: callerName, 
-          mode: callType 
-        },
-      });
-
-      await staffChannel.send({
-        type: "broadcast",
-        event: "incoming-call",
-        payload: {
-          conversationId,
-          callerId: au.user.id,
-          callerName,
-          mode: callType,
-          timestamp: new Date().toISOString(),
-        },
-      });
-
-    } catch (error) {
-      console.error("Failed to send notifications:", error);
-    } finally {
-      // Clean up channels
-      try {
-        supabase.removeChannel(userChannel);
-        supabase.removeChannel(staffChannel);
-      } catch {}
-    }
+    // Clean up channels
+    supabase.removeChannel(userChannel);
+    supabase.removeChannel(staffChannel);
 
     return NextResponse.json({ invitation });
 
@@ -187,7 +126,7 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   try {
-    const supabase = await supabaseFromRoute();
+    const supabase = supabaseFromRoute();
     const { data: au } = await supabase.auth.getUser();
     if (!au.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
@@ -246,7 +185,7 @@ export async function PUT(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = await supabaseFromRoute();
+    const supabase = supabaseFromRoute();
     const { data: au } = await supabase.auth.getUser();
     if (!au.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
