@@ -109,38 +109,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"
           strategy="beforeInteractive" /* why: allow early usage in client components */
         />
-        
-        {/* CSS Warning Suppression */}
-        <Script id="css-suppression" strategy="afterInteractive">
-          {`
-            // Suppress CSS parsing warnings in console
-            const originalError = console.error;
-            console.error = function(...args) {
-              const message = args[0];
-              if (typeof message === 'string' && (
-                message.includes('Unknown pseudo-class') ||
-                message.includes('Unknown property') ||
-                message.includes('Declaration dropped') ||
-                message.includes('Ruleset ignored') ||
-                message.includes('Unexpected token') ||
-                message.includes('Unrecognized at-rule') ||
-                message.includes('-webkit-text-size-adjust') ||
-                message.includes('-moz-focus-inner') ||
-                message.includes('@-o-keyframes') ||
-                message.includes('@-moz-keyframes') ||
-                message.includes('@-webkit-keyframes') ||
-                message.includes('-moz-border-radius') ||
-                message.includes('-moz-box-shadow') ||
-                message.includes('-moz-osx-font-smoothing') ||
-                message.includes('style(') ||
-                message.includes('global')
-              )) {
-                return; // Suppress CSS parsing warnings
-              }
-              originalError.apply(console, args);
-            };
-          `}
-        </Script>
 
         <OrganizationStructuredData />
 
