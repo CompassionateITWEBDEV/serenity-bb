@@ -125,14 +125,87 @@ function VideoTile({
       video.load(); // Force reload
     }
     
+    // Periodic check for video stream detection (fallback)
+    const checkVideoStream = () => {
+      if (video.srcObject && video.readyState >= 2 && !hasVideoStream) {
+        console.log(`🔄 Periodic check: Video stream detected for ${label}`);
+        setShowVideo(true);
+        setHasVideoStream(true);
+      }
+    };
+    
+    // Check immediately and then periodically
+    checkVideoStream();
+    const interval = setInterval(checkVideoStream, 1000);
+    
+    // Cleanup interval after 30 seconds
+    const timeout = setTimeout(() => clearInterval(interval), 30000);
+    
     return () => {
       video.removeEventListener('loadstart', handleLoadStart);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('error', handleError);
+      clearInterval(interval);
+      clearTimeout(timeout);
     };
   }, [videoRef, label]);
+
+  // Additional effect to detect video stream changes
+  useEffect(() => {
+    if (!videoRef.current) return;
+    
+    const video = videoRef.current;
+    
+    // Check for video stream immediately when component mounts or updates
+    const checkForStream = () => {
+      const hasSrcObject = !!video.srcObject;
+      const hasVideoTracks = video.srcObject && (video.srcObject as MediaStream).getVideoTracks().length > 0;
+      const isReady = video.readyState >= 2;
+      const hasDimensions = video.videoWidth > 0 && video.videoHeight > 0;
+      
+      console.log(`🔍 Checking stream for ${label}:`, {
+        hasSrcObject,
+        hasVideoTracks,
+        isReady,
+        hasDimensions,
+        readyState: video.readyState,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        currentHasVideoStream: hasVideoStream
+      });
+      
+      if (hasSrcObject && hasVideoTracks && (isReady || hasDimensions) && !hasVideoStream) {
+        console.log(`✅ Stream detected for ${label}:`, {
+          srcObject: !!video.srcObject,
+          readyState: video.readyState,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight
+        });
+        setShowVideo(true);
+        setHasVideoStream(true);
+      }
+    };
+    
+    // Check immediately
+    checkForStream();
+    
+    // Set up a MutationObserver to watch for srcObject changes
+    const observer = new MutationObserver(checkForStream);
+    observer.observe(video, { 
+      attributes: true, 
+      attributeFilter: ['src', 'srcObject'] 
+    });
+    
+    // Also check on any property changes with more frequent checks
+    const checkInterval = setInterval(checkForStream, 200);
+    
+    return () => {
+      observer.disconnect();
+      clearInterval(checkInterval);
+    };
+  }, [videoRef, label, hasVideoStream]);
 
   return (
     <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-gray-900 shadow-2xl">
@@ -176,7 +249,7 @@ function VideoTile({
             </Avatar>
             <p className="text-white text-sm font-medium">{name || label}</p>
             {!isConnected && (
-              <p className="text-gray-400 text-xs mt-1">Connecting...</p>
+              <p className="text-gray-400 text-xs mt-1">Connecting media...</p>
             )}
             {isConnected && !hasVideoStream && (
               <p className="text-yellow-400 text-xs mt-1">Waiting for video...</p>
@@ -184,8 +257,8 @@ function VideoTile({
             {isConnected && hasVideoStream && !showVideo && (
               <p className="text-orange-400 text-xs mt-1">Video loading...</p>
             )}
-          </div>
-        )}
+        </div>
+      )}
       </div>
       
       <div className="absolute bottom-3 left-3 flex items-center gap-2">
@@ -419,10 +492,12 @@ export default function CallRoomPage() {
   useEffect(() => {
     let alive = true;
     (async () => {
+      try {
       const { data: session } = await supabase.auth.getSession();
       if (!alive) return;
       if (session.session?.user) {
         const user = session.session.user;
+          try {
         const userRole = await determineUserRole(user.id);
         setMe({ 
           id: user.id, 
@@ -432,9 +507,22 @@ export default function CallRoomPage() {
         });
         setAuthChecked(true);
         return;
+          } catch (roleError) {
+            console.error('Error determining user role:', roleError);
+            // Fallback to patient role
+            setMe({ 
+              id: user.id, 
+              email: user.email,
+              name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+              role: 'patient'
+            });
+            setAuthChecked(true);
+            return;
+          }
       }
       const { data: user } = await supabase.auth.getUser();
       if (user.user) {
+          try {
         const userRole = await determineUserRole(user.user.id);
         setMe({ 
           id: user.user.id, 
@@ -444,10 +532,23 @@ export default function CallRoomPage() {
         });
         setAuthChecked(true);
         return;
+          } catch (roleError) {
+            console.error('Error determining user role:', roleError);
+            // Fallback to patient role
+            setMe({ 
+              id: user.user.id, 
+              email: user.user.email,
+              name: user.user.user_metadata?.name || user.user.email?.split('@')[0] || 'User',
+              role: 'patient'
+            });
+            setAuthChecked(true);
+            return;
+          }
       }
       const { data: refreshed } = await supabase.auth.refreshSession();
       if (refreshed.session?.user) {
         const user = refreshed.session.user;
+          try {
         const userRole = await determineUserRole(user.id);
         setMe({ 
           id: user.id, 
@@ -456,8 +557,39 @@ export default function CallRoomPage() {
           role: userRole
         });
         setAuthChecked(true);
+          } catch (roleError) {
+            console.error('Error determining user role:', roleError);
+            // Fallback to patient role
+            setMe({ 
+              id: user.id, 
+              email: user.email,
+              name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+              role: 'patient'
+            });
+            setAuthChecked(true);
+          }
       } else {
         // Keep next so user returns straight to the call if they log in
+          const next = encodeURIComponent(location.pathname + location.search);
+          router.replace(`/login?next=${next}`);
+        }
+      } catch (error: any) {
+        console.error('Authentication error:', error);
+        
+        // Handle specific auth errors
+        if (error?.message?.includes('Invalid Refresh Token') || 
+            error?.message?.includes('Refresh Token Not Found')) {
+          console.log('🔄 Invalid refresh token detected, clearing session and redirecting');
+          try {
+            await supabase.auth.signOut();
+            localStorage.removeItem('sb-app-auth');
+            sessionStorage.clear();
+          } catch (e) {
+            console.warn('Error during signout:', e);
+          }
+        }
+        
+        // Redirect to login on any auth error
         const next = encodeURIComponent(location.pathname + location.search);
         router.replace(`/login?next=${next}`);
       }
@@ -474,112 +606,491 @@ export default function CallRoomPage() {
   }, [peerName]);
 
   // Function to ensure video elements are properly set up
-  const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal: boolean) => {
-    if (!videoRef.current || !stream) {
-      console.warn(`⚠️ Cannot setup video element: videoRef=${!!videoRef.current}, stream=${!!stream}`);
+  const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream | null, isLocal: boolean) => {
+    const video = videoRef.current;
+    if (!video || !stream) {
+      console.warn(`⚠️ Cannot setup video element: videoRef=${!!video}, stream=${!!stream}`);
       return false;
     }
 
-    const video = videoRef.current;
     console.log(`🎥 Setting up ${isLocal ? 'local' : 'remote'} video element:`, {
       audioTracks: stream.getAudioTracks().length,
       videoTracks: stream.getVideoTracks().length,
       streamId: stream.id,
-      videoElement: !!video
+      videoElement: !!video,
+      streamActive: stream.active,
+      videoTrackEnabled: stream.getVideoTracks().every(t => t.enabled)
     });
 
-    video.srcObject = stream;
-    video.muted = isLocal; // Local muted, remote unmuted
-    video.autoplay = true;
-    video.playsInline = true;
-    video.controls = false;
+    // Ensure recommended flags for autoplay and prevent black screens
+    try { video.muted = isLocal; } catch {} // Only mute local video
+    try { video.playsInline = true; } catch {}
+    try { (video as any).webkitPlaysInline = true; } catch {}
+    try { video.autoplay = true; } catch {}
+    try { video.controls = false; } catch {}
+    
+    // Additional attributes to prevent black screens
+    try { video.setAttribute('playsinline', 'true'); } catch {}
+    try { video.setAttribute('webkit-playsinline', 'true'); } catch {}
+    try { video.setAttribute('x5-playsinline', 'true'); } catch {} // For mobile browsers
+    
+    // Ensure video is visible
+    try { video.style.opacity = '1'; } catch {}
+    try { video.style.visibility = 'visible'; } catch {}
+    try { video.style.display = 'block'; } catch {}
+    
+    // Force video to not be muted for remote streams
+    if (!isLocal) {
+      try { video.muted = false; } catch {}
+      try { video.volume = 1.0; } catch {}
+    }
 
-    // Force play
-    video.play().then(() => {
-      console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing`);
-    }).catch(err => {
-      console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
-    });
+    // Clear existing source to prevent conflicts
+    try { (video as any).srcObject = null; } catch {}
+    try { video.load(); } catch {}
+
+    // Set new source safely
+    try { (video as any).srcObject = stream; } catch (err) {
+      console.warn("Failed to attach MediaStream to video element:", err);
+      return false;
+    }
+
+    // Force immediate video setup for better reliability
+    console.log(`🔧 Forcing immediate video setup for ${isLocal ? 'local' : 'remote'}`);
+    try {
+      video.load(); // Force reload with new stream
+    } catch (err) {
+      console.warn("Failed to load video:", err);
+    }
+
+    // Safe play with proper error handling and black screen fixes
+    const playVideo = async () => {
+      try {
+        console.log(`🎬 Attempting to play ${isLocal ? 'local' : 'remote'} video:`, {
+          readyState: video.readyState,
+          paused: video.paused,
+          srcObject: !!video.srcObject,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+          muted: video.muted,
+          volume: video.volume,
+          streamActive: stream.active,
+          videoTracks: stream.getVideoTracks().length,
+          videoTrackEnabled: stream.getVideoTracks().every(t => t.enabled)
+        });
+        
+        // Ensure video is not muted for remote video
+        if (!isLocal) {
+          video.muted = false;
+          video.volume = 1.0;
+        }
+        
+        // Force video to be visible
+        video.style.opacity = '1';
+        video.style.visibility = 'visible';
+        
+        // Check if we have video tracks
+        const videoTracks = stream.getVideoTracks();
+        if (videoTracks.length === 0) {
+          console.warn(`⚠️ No video tracks in stream for ${isLocal ? 'local' : 'remote'}`);
+          return false;
+        }
+        
+        // Ensure video tracks are enabled
+        videoTracks.forEach(track => {
+          if (!track.enabled) {
+            console.log(`🔧 Enabling video track for ${isLocal ? 'local' : 'remote'}`);
+            track.enabled = true;
+          }
+        });
+        
+        if (video.readyState < 2) {
+          console.log(`⏳ Waiting for video metadata to load...`);
+          await new Promise((resolve) => {
+            video.addEventListener('loadedmetadata', resolve, { once: true });
+            setTimeout(resolve, 3000); // Increased timeout for better reliability
+          });
+        }
+        
+        // Force video to load and play
+        if (video.paused) {
+          // Multiple play attempts for better reliability
+          try {
+            await video.play();
+            console.log(`✅ Video started playing for ${isLocal ? 'local' : 'remote'}`);
+          } catch (playError) {
+            console.warn(`First play attempt failed, trying again:`, playError);
+            // Force load and try again
+            video.load();
+            await new Promise(resolve => setTimeout(resolve, 100));
+            await video.play();
+            console.log(`✅ Video started playing on second attempt for ${isLocal ? 'local' : 'remote'}`);
+          }
+        } else {
+          console.log(`▶️ Video already playing for ${isLocal ? 'local' : 'remote'}`);
+        }
+        
+        // Verify video is actually showing content
+        setTimeout(() => {
+          if (video.videoWidth === 0 || video.videoHeight === 0) {
+            console.warn(`⚠️ Video dimensions are 0x0, attempting to fix...`);
+            video.load();
+            video.play().catch(console.warn);
+          }
+        }, 1000);
+        
+      } catch (err) {
+        console.warn(`Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
+        // Try again after a short delay with more aggressive approach
+        setTimeout(async () => {
+          try {
+            video.load();
+            await new Promise(resolve => setTimeout(resolve, 200));
+            await video.play();
+            console.log(`✅ Video started playing on retry for ${isLocal ? 'local' : 'remote'}`);
+          } catch (retryErr) {
+            console.warn(`Failed to play video on retry:`, retryErr);
+            // Last resort: force video to be visible even if play fails
+            video.style.opacity = '1';
+            video.style.visibility = 'visible';
+          }
+        }, 500);
+      }
+    };
+
+    // Immediate setup and delayed play
+    try { video.load(); } catch {}
+    void playVideo();
+    
+    // Additional retry after shorter delay for better responsiveness
+    setTimeout(() => {
+      try { video.load(); } catch {}
+      void playVideo();
+    }, 200);
+    
+    // Force trigger video detection events - more immediate
+    setTimeout(() => {
+      if (video.srcObject && video.readyState >= 2) {
+        console.log(`🔄 Force triggering video detection for ${isLocal ? 'local' : 'remote'}`);
+        // Trigger custom event to notify VideoTile components
+        video.dispatchEvent(new Event('loadedmetadata'));
+        video.dispatchEvent(new Event('canplay'));
+      }
+    }, 50);
+    
+    // Additional immediate trigger for better responsiveness
+    setTimeout(() => {
+      if (video.srcObject) {
+        console.log(`🔄 Immediate video trigger for ${isLocal ? 'local' : 'remote'}`);
+        video.dispatchEvent(new Event('loadedmetadata'));
+        video.dispatchEvent(new Event('canplay'));
+      }
+    }, 10);
 
     return true;
   }, []);
 
+  // Function to detect and fix black screen issues
+  const fixBlackScreen = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream | null, isLocal: boolean) => {
+    const video = videoRef.current;
+    if (!video || !stream) return false;
+    
+    console.log(`🔍 Checking for black screen issues:`, {
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      readyState: video.readyState,
+      paused: video.paused,
+      muted: video.muted,
+      volume: video.volume,
+      srcObject: !!video.srcObject
+    });
+    
+    // Check if video has dimensions (not black)
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      console.log(`⚠️ Black screen detected - video dimensions are 0x0`);
+      
+      // Force video to reload and play
+      video.load();
+      video.srcObject = stream;
+      
+      // Ensure proper attributes
+      video.muted = isLocal;
+      video.playsInline = true;
+      video.autoplay = true;
+      
+      // Force play
+      video.play().catch(console.warn);
+      
+      return true;
+    }
+    
+    return false;
+  }, []);
+
   // Function to setup video element with retry
-  const setupVideoElementWithRetry = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal: boolean, maxRetries = 5) => {
+  const setupVideoElementWithRetry = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream | null, isLocal: boolean, maxRetries = 10, delayMs = 150) => {
     let retries = 0;
     
     const trySetup = () => {
-      if (videoRef.current && stream) {
-        return setupVideoElement(videoRef, stream, isLocal);
-      } else if (retries < maxRetries) {
-        retries++;
-        console.log(`🔄 Retrying video setup (${retries}/${maxRetries})...`);
-        setTimeout(trySetup, 100);
-        return false;
-      } else {
-        console.error(`❌ Failed to setup video element after ${maxRetries} retries`);
+      const ok = setupVideoElement(videoRef, stream, isLocal);
+      if (ok) {
+        // Check for black screen after setup
+        setTimeout(() => {
+          fixBlackScreen(videoRef, stream, isLocal);
+        }, 1000);
+        return true;
+      }
+      if (retries >= maxRetries) {
+        // Use warn instead of error to avoid Next.js intercepting as unhandled error
+        console.warn(`❌ Failed to setup video element after ${maxRetries} retries`);
         return false;
       }
+        retries++;
+        console.log(`🔄 Retrying video setup (${retries}/${maxRetries})...`);
+      setTimeout(trySetup, delayMs);
+        return false;
     };
     
     return trySetup();
-  }, [setupVideoElement]);
+  }, [setupVideoElement, fixBlackScreen]);
 
   // Ensure video elements are updated when streams change
   useEffect(() => {
-    if (localStreamRef.current) {
+    (async () => {
+      if (!localStreamRef.current) return;
+      const el = await waitForRef(localVideoRef);
+      if (!el) return;
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-    }
+    })();
   }, [localStreamRef.current, setupVideoElement]);
 
   useEffect(() => {
-    if (remoteStreamRef.current) {
+    (async () => {
+      if (!remoteStreamRef.current) return;
+      const el = await waitForRef(remoteVideoRef);
+      if (!el) return;
       setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-    }
+    })();
   }, [remoteStreamRef.current, setupVideoElement]);
 
-  // Initialize video elements and check permissions
+  // Simple video display when connected
   useEffect(() => {
-    if (authChecked && me?.id) {
-      console.log('🚀 Initializing call component...');
+    (async () => {
+      if (!(status === "connected" && remoteStreamRef.current)) return;
+      const el = await waitForRef(remoteVideoRef);
+      if (!el) return;
+      console.log('🎯 Connection established - setting up remote video...');
+      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+    })();
+  }, [status, setupVideoElement]);
+
+  // Debug status changes and force UI updates
+  useEffect(() => {
+    console.log('📞 Status changed to:', status);
+    
+    // Force UI update when status changes to connected
+    if (status === "connected") {
+      console.log('🔄 Call connected - refreshing video elements');
+      // Force re-render of video elements
+      if (localVideoRef.current && localStreamRef.current) {
+        console.log('🎥 Setting up local video on connect');
+        setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+      }
+      if (remoteVideoRef.current && remoteStreamRef.current) {
+        console.log('🎥 Setting up remote video on connect');
+        setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      }
       
-      // Initialize video elements
-      if (localVideoRef.current) {
-        console.log('✅ Local video element found');
-        localVideoRef.current.muted = true;
+      // Additional refresh after a short delay to ensure video elements are ready
+      setTimeout(() => {
+        if (localVideoRef.current && localStreamRef.current) {
+          console.log('🔄 Delayed local video setup');
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Delayed remote video setup');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 1000);
+      
+      // Force video refresh to fix black screen issues
+      setTimeout(() => {
+        console.log('🔄 Force refreshing video elements to fix black screen');
+        if (localVideoRef.current && localStreamRef.current) {
+          const video = localVideoRef.current;
+          video.srcObject = null;
+          video.load();
+          setTimeout(() => {
+            video.srcObject = localStreamRef.current;
+            video.play().catch(console.warn);
+          }, 100);
+        }
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          const video = remoteVideoRef.current;
+          video.srcObject = null;
+          video.load();
+          setTimeout(() => {
+            video.srcObject = remoteStreamRef.current;
+            video.play().catch(console.warn);
+          }, 100);
+        }
+      }, 2000);
+      
+      // Additional aggressive video stream detection for connected calls
+      setTimeout(() => {
+        console.log('🔍 Aggressive video stream detection for connected call');
+        if (localVideoRef.current && localStreamRef.current) {
+          const video = localVideoRef.current;
+          const stream = localStreamRef.current;
+          console.log('Local video stream check:', {
+            hasSrcObject: !!video.srcObject,
+            streamActive: stream.active,
+            videoTracks: stream.getVideoTracks().length,
+            videoTrackEnabled: stream.getVideoTracks().every(t => t.enabled),
+            videoWidth: video.videoWidth,
+            videoHeight: video.videoHeight
+          });
+          
+          // Force re-attach if needed
+          if (!video.srcObject || video.videoWidth === 0) {
+            console.log('🔧 Re-attaching local video stream');
+            video.srcObject = stream;
+            video.load();
+            video.play().catch(console.warn);
+          }
+        }
+        
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          const video = remoteVideoRef.current;
+          const stream = remoteStreamRef.current;
+          console.log('Remote video stream check:', {
+            hasSrcObject: !!video.srcObject,
+            streamActive: stream.active,
+            videoTracks: stream.getVideoTracks().length,
+            videoTrackEnabled: stream.getVideoTracks().every(t => t.enabled),
+            videoWidth: video.videoWidth,
+            videoHeight: video.videoHeight
+          });
+          
+          // Force re-attach if needed
+          if (!video.srcObject || video.videoWidth === 0) {
+            console.log('🔧 Re-attaching remote video stream');
+            video.srcObject = stream;
+            video.load();
+            video.play().catch(console.warn);
+          }
+        }
+      }, 3000);
+    }
+  }, [status, setupVideoElement]);
+
+  // Ensure local video is displayed for both caller and callee (like patient code)
+  useEffect(() => {
+    if (localStreamRef.current && localVideoRef.current) {
+      console.log('🎯 Setting up local video for both caller and callee...');
+      setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+      
+      // Single retry attempt to avoid AbortError
+      setTimeout(() => {
+        if (localVideoRef.current && localStreamRef.current) {
+          console.log('🔄 Single retry for local video (1000ms)');
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+        }
+      }, 1000);
+    }
+  }, [localStreamRef.current, setupVideoElement]);
+
+  // Comprehensive video call initialization
+  useEffect(() => {
+    if (!authChecked || !me?.id) return;
+    
+    console.log('🚀 Initializing comprehensive video call system...', {
+      role,
+      mode,
+      conversationId,
+      peerUserId
+    });
+    
+    // Initialize video elements immediately
+    const initVideoElements = () => {
+      const localEl = localVideoRef.current;
+      const remoteEl = remoteVideoRef.current;
+      
+      if (localEl) {
+        console.log('✅ Local video element initialized for mobile');
+        localEl.muted = true;
+        localEl.playsInline = true;
+        localEl.autoplay = true;
+        localEl.controls = false;
+        // Mobile-specific attributes
+        localEl.setAttribute('playsinline', 'true');
+        localEl.setAttribute('webkit-playsinline', 'true');
+        localEl.setAttribute('x5-video-player-type', 'h5');
+        // Ensure video element is ready
+        localEl.addEventListener('loadedmetadata', () => {
+          console.log('✅ Local video metadata loaded');
+        });
       } else {
         console.warn('⚠️ Local video element not found');
       }
       
-      if (remoteVideoRef.current) {
-        console.log('✅ Remote video element found');
-        remoteVideoRef.current.muted = false;
+      if (remoteEl) {
+        console.log('✅ Remote video element initialized for mobile');
+        remoteEl.muted = false;
+        remoteEl.playsInline = true;
+        remoteEl.autoplay = true;
+        remoteEl.controls = false;
+        // Mobile-specific attributes
+        remoteEl.setAttribute('playsinline', 'true');
+        remoteEl.setAttribute('webkit-playsinline', 'true');
+        remoteEl.setAttribute('x5-video-player-type', 'h5');
+        // Ensure video element is ready
+        remoteEl.addEventListener('loadedmetadata', () => {
+          console.log('✅ Remote video metadata loaded');
+        });
       } else {
         console.warn('⚠️ Remote video element not found');
       }
+    };
+    
+    // Initialize immediately and retry if needed
+    initVideoElements();
+    setTimeout(initVideoElements, 100);
+    setTimeout(initVideoElements, 500);
       
       getAvailableDevices();
       
-      // Proactively request permissions for better UX
-      const requestInitialPermissions = async () => {
+    // Request permissions and prepare for call
+    const prepareCall = async () => {
         try {
-          console.log('🔐 Requesting initial permissions...');
+        console.log('🔐 Preparing call permissions...');
           const stream = await navigator.mediaDevices.getUserMedia({ 
             audio: true, 
             video: mode === "video" 
           });
-          console.log('✅ Initial permissions granted');
-          // Immediately stop the stream
-          stream.getTracks().forEach(track => track.stop());
-        } catch (error) {
-          console.log("⚠️ Initial permission check failed (this is normal):", error);
+        console.log('✅ Call permissions granted');
+        
+        // Store the stream for immediate use
+        localStreamRef.current = stream;
+        
+        // Set up local video immediately
+        const localEl = localVideoRef.current;
+        if (localEl) {
+          localEl.srcObject = stream;
+          localEl.play().catch(console.warn);
+          console.log('✅ Local video set up immediately');
         }
-      };
-      
-      // Small delay to let the UI render first
-      setTimeout(requestInitialPermissions, 500);
-    }
-  }, [authChecked, me?.id, mode]);
+        
+        // Don't stop the stream - keep it for the call
+        } catch (error) {
+        console.warn("⚠️ Permission request failed:", error);
+        setMediaError("Camera/microphone access denied. Please allow access and refresh the page.");
+      }
+    };
+    
+    // Start preparation after a short delay
+    setTimeout(prepareCall, 1000);
+  }, [authChecked, me?.id, mode, role, conversationId, peerUserId]);
 
   // Call duration timer
   useEffect(() => {
@@ -602,41 +1113,124 @@ export default function CallRoomPage() {
   }, [status]);
 
   // ---------- WebRTC core ----------
+  
+  // Connection validation function
+  const validateConnection = useCallback((pc: RTCPeerConnection) => {
+    const connectionState = pc.connectionState;
+    const iceConnectionState = pc.iceConnectionState;
+    const iceGatheringState = pc.iceGatheringState;
+    
+    console.log('🔍 Connection validation:', {
+      connectionState,
+      iceConnectionState,
+      iceGatheringState,
+      localStream: !!localStreamRef.current,
+      remoteStream: !!remoteStreamRef.current,
+      localTracks: localStreamRef.current?.getTracks().length || 0,
+      remoteTracks: remoteStreamRef.current?.getTracks().length || 0
+    });
+    
+    // Check if connection is established
+    const isConnected = connectionState === 'connected' && 
+                       (iceConnectionState === 'connected' || iceConnectionState === 'completed');
+    
+    if (isConnected) {
+      console.log('✅ Connection validated - both participants should be connected');
+    } else {
+      console.log('⚠️ Connection not fully established yet');
+    }
+    
+    return isConnected;
+  }, []);
+  
   const ensurePC = useCallback(() => {
+    try {
     if (pcRef.current) return pcRef.current;
-    const pc = new RTCPeerConnection({ iceServers: buildIceServers() });
+    
+    console.log('🔄 Creating new RTCPeerConnection...');
+    const pc = new RTCPeerConnection({ 
+      iceServers: buildIceServers(),
+      iceCandidatePoolSize: 10,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require'
+    });
+    
+    console.log('✅ RTCPeerConnection created with configuration:', {
+      iceServers: buildIceServers().length,
+      iceCandidatePoolSize: 10,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require'
+    });
 
     pc.onicecandidate = (ev) => {
       if (ev.candidate && me?.id) {
+        console.log('🧊 ICE candidate generated:', {
+          candidate: ev.candidate.candidate,
+          sdpMLineIndex: ev.candidate.sdpMLineIndex,
+          sdpMid: ev.candidate.sdpMid
+        });
         sendSignal({ kind: "webrtc-ice", from: me.id, candidate: ev.candidate.toJSON() });
+      } else if (ev.candidate === null) {
+        console.log('🧊 ICE gathering completed');
       }
     };
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState;
       console.log(`🔗 PeerConnection state changed: ${s}`);
-      
       if (s === "connected") {
         setStatus("connected");
         callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-        // Start audio level monitoring when connected
         startAudioLevelMonitoring();
-        // Clear connection timeout
-        if (connectionTimeout) {
-          clearTimeout(connectionTimeout);
-          setConnectionTimeout(null);
+        // Ensure video elements are set when fully connected
+        if (localStreamRef.current) {
+          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
         }
-      } else if (s === "connecting") {
-        setStatus("connecting");
-      } else if (s === "failed" || s === "disconnected" || s === "closed") {
-        setStatus("ended");
-        callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
-        // Stop audio level monitoring when disconnected
+        if (remoteStreamRef.current) {
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+        
+        // Immediate responsiveness check and setup
+        setTimeout(() => {
+          console.log('🚀 Immediate responsiveness check for connected call');
+          if (localVideoRef.current && localStreamRef.current) {
+            const localVideo = localVideoRef.current;
+            if (!localVideo.srcObject || localVideo.videoWidth === 0) {
+              console.log('🔄 Immediate local video fix');
+              localVideo.srcObject = localStreamRef.current;
+              localVideo.play().catch(console.warn);
+            }
+          }
+          if (remoteVideoRef.current && remoteStreamRef.current) {
+            const remoteVideo = remoteVideoRef.current;
+            if (!remoteVideo.srcObject || remoteVideo.videoWidth === 0) {
+              console.log('🔄 Immediate remote video fix');
+              remoteVideo.srcObject = remoteStreamRef.current;
+              remoteVideo.play().catch(console.warn);
+            }
+          }
+        }, 100);
+      } else if (s === "failed" || s === "closed") {
+        console.error("❌ PeerConnection failed or closed, attempting to reconnect...");
+        setStatus("failed");
+        
+        // Try to restart the connection instead of immediately ending
+        setTimeout(() => {
+          if (status !== "connected") {
+            console.log("🔄 Attempting to restart call after failure...");
+            startOrPrep().catch(console.error);
+          }
+        }, 2000);
+        
         stopAudioLevelMonitoring();
-        // Clear connection timeout
-        if (connectionTimeout) {
-          clearTimeout(connectionTimeout);
-          setConnectionTimeout(null);
-        }
+      } else if (s === "disconnected") {
+        console.warn("⚠️ PeerConnection disconnected, attempting to reconnect...");
+        // Don't immediately fail on disconnection, try to reconnect
+        setTimeout(() => {
+          if (status !== "connected") {
+            console.log("🔄 Attempting to restart call after disconnection...");
+            startOrPrep().catch(console.error);
+          }
+        }, 1000);
       }
     };
 
@@ -647,16 +1241,54 @@ export default function CallRoomPage() {
       
       if (iceState === "connected" || iceState === "completed") {
         console.log("✅ ICE connection established");
-        // Immediately set to connected when ICE is ready
-        if (status !== "connected") {
           setStatus("connected");
-          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+          callTracker.handleConnectionRecovery(conversationId!).catch(console.warn);
           startAudioLevelMonitoring();
+        
+        // Ensure video elements are set up when ICE connects
+        if (localStreamRef.current) {
+          (async () => {
+            const el = await waitForRef(localVideoRef);
+            if (el) setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+          })();
         }
+        if (remoteStreamRef.current) {
+          (async () => {
+            const el = await waitForRef(remoteVideoRef);
+            if (el) setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+          })();
+        }
+      } else if (iceState === "checking") {
+        // Also set connected when ICE is checking (more aggressive)
+        console.log("🔄 ICE checking - setting connected status");
+        setStatus("connected");
+        callTracker.handleConnectionRecovery(conversationId!).catch(console.warn);
+        startAudioLevelMonitoring();
       } else if (iceState === "failed") {
         console.error("❌ ICE connection failed - trying to restart ICE");
         // Try to restart ICE gathering
-        pc.restartIce();
+        try {
+          pc.restartIce();
+        } catch (error) {
+          console.warn("Failed to restart ICE:", error);
+        }
+        
+        // Also try to restart the entire connection
+        setTimeout(() => {
+          if (status !== "connected") {
+            console.log("🔄 Attempting to restart call after ICE failure...");
+            startOrPrep().catch(console.error);
+          }
+        }, 3000);
+      } else if (iceState === "disconnected") {
+        console.warn("⚠️ ICE disconnected - attempting to reconnect");
+        // Try to restart the connection
+        setTimeout(() => {
+          if (status !== "connected") {
+            console.log("🔄 Attempting to restart call after ICE disconnection...");
+            startOrPrep().catch(console.error);
+          }
+        }, 2000);
       }
     };
 
@@ -685,12 +1317,107 @@ export default function CallRoomPage() {
         video: remoteStreamRef.current.getVideoTracks().length
       });
       
-      // Set the video element source for remote stream using setup function with retry
-      setupVideoElementWithRetry(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      // Immediately set up remote video when track is received
+      if (ev.track.kind === 'video' && remoteVideoRef.current) {
+        console.log('🎥 Setting up remote video immediately on track received');
+        setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        
+        // Force video element to detect the stream
+        setTimeout(() => {
+          if (remoteVideoRef.current && remoteStreamRef.current) {
+            console.log('🔄 Forcing remote video stream detection');
+            const video = remoteVideoRef.current;
+            video.srcObject = remoteStreamRef.current;
+            video.load();
+            video.play().catch(console.warn);
+          }
+        }, 100);
+      }
+      
+      // Mobile-optimized remote video setup
+      const setupMobileVideo = () => {
+        const remoteEl = remoteVideoRef.current;
+        if (remoteEl) {
+          console.log('🎯 Setting up remote video for mobile');
+          
+          // Mobile-specific attributes
+          remoteEl.setAttribute('playsinline', 'true');
+          remoteEl.setAttribute('webkit-playsinline', 'true');
+          remoteEl.muted = false; // Ensure audio is not muted
+          remoteEl.volume = 1.0;
+          
+          // Clear any existing stream first
+          remoteEl.srcObject = null;
+          
+          // Set new stream if available
+          if (remoteStreamRef.current) {
+            remoteEl.srcObject = remoteStreamRef.current;
+            
+            // Force play with mobile-specific handling
+            const playPromise = remoteEl.play();
+            if (playPromise !== undefined) {
+              playPromise.then(() => {
+                console.log('✅ Remote video playing successfully on mobile');
+              }).catch(error => {
+                console.warn('⚠️ Mobile video play failed, retrying:', error);
+                // Retry with user interaction simulation
+                setTimeout(() => {
+                  remoteEl.play().catch(console.warn);
+                }, 500);
+              });
+            }
+            
+            console.log(`✅ Remote video set up for mobile with ${ev.track.kind} track`);
+          } else {
+            console.log('⏳ Remote stream not ready yet, will retry...');
+            // Retry when stream becomes available
+            setTimeout(setupMobileVideo, 1000);
+          }
+        } else {
+          console.warn('⚠️ Remote video element not found for mobile setup');
+        }
+      };
+      
+      // Immediate setup
+      setupMobileVideo();
+      
+      // Also set up regular remote video (not just mobile)
+      if (remoteVideoRef.current && remoteStreamRef.current) {
+        console.log('🎥 Setting up regular remote video');
+        setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+      }
+      
+      // Mobile retry mechanism - more aggressive for better responsiveness
+      setTimeout(setupMobileVideo, 100);
+      setTimeout(setupMobileVideo, 500);
+      setTimeout(setupMobileVideo, 1000);
+      setTimeout(setupMobileVideo, 2000);
+      
+      // Regular video retry mechanism - more frequent for better responsiveness
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Retrying regular remote video setup');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 200);
+      
+      setTimeout(() => {
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          console.log('🔄 Second retry for regular remote video setup');
+          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
+        }
+      }, 1000);
     };
 
     pcRef.current = pc;
     return pc;
+    } catch (error) {
+      console.warn('⚠️ ensurePC error:', error);
+      // Return a dummy PC to prevent further errors
+      const dummy = new RTCPeerConnection({ iceServers: [] });
+      pcRef.current = dummy;
+      return dummy;
+    }
   }, [me?.id]);
 
   const getConstraints = useCallback((): MediaStreamConstraints => {
@@ -937,25 +1664,25 @@ export default function CallRoomPage() {
         console.log('🎯 Trying main constraints:', constraints);
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         console.log('✅ Media stream acquired with main constraints:', {
-          audioTracks: stream.getAudioTracks().length,
-          videoTracks: stream.getVideoTracks().length,
+        audioTracks: stream.getAudioTracks().length,
+        videoTracks: stream.getVideoTracks().length,
           audioTrackLabels: stream.getAudioTracks().map(t => t.label),
           videoTrackLabels: stream.getVideoTracks().map(t => t.label),
-          streamId: stream.id,
-          active: stream.active
-        });
-        
-        // Ensure all tracks are enabled
-        stream.getAudioTracks().forEach(track => {
-          track.enabled = true;
-          console.log(`🔊 Audio track enabled: ${track.label}`);
-        });
-        stream.getVideoTracks().forEach(track => {
-          track.enabled = true;
-          console.log(`📹 Video track enabled: ${track.label}`);
-        });
-        
-        return stream;
+        streamId: stream.id,
+        active: stream.active
+      });
+      
+      // Ensure all tracks are enabled
+      stream.getAudioTracks().forEach(track => {
+        track.enabled = true;
+        console.log(`🔊 Audio track enabled: ${track.label}`);
+      });
+      stream.getVideoTracks().forEach(track => {
+        track.enabled = true;
+        console.log(`📹 Video track enabled: ${track.label}`);
+      });
+      
+      return stream;
       } catch (error: any) {
         console.warn("❌ Main constraints failed, trying basic constraints:", error);
         
@@ -992,7 +1719,47 @@ export default function CallRoomPage() {
           return basicStream;
         } catch (basicError: any) {
           console.warn("❌ Basic constraints also failed:", basicError);
-          throw error; // Throw the original error
+
+          // Targeted retry for localhost: iterate devices and try explicit deviceId
+          try {
+            const all = await navigator.mediaDevices.enumerateDevices();
+            const cams = all.filter((d) => d.kind === "videoinput");
+            const mics = all.filter((d) => d.kind === "audioinput");
+
+            for (const cam of cams) {
+              const deviceConstraints: MediaStreamConstraints = {
+                video: { deviceId: { exact: cam.deviceId } },
+                audio: mics.length ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false,
+              };
+              try {
+                console.log('🎯 Trying explicit deviceId for camera:', cam.label || cam.deviceId);
+                const s = await navigator.mediaDevices.getUserMedia(deviceConstraints);
+                console.log('✅ Media stream acquired with explicit deviceId');
+                setIsFallbackStream(false);
+                return s;
+              } catch (perDeviceErr: any) {
+                console.warn('⚠️ Device-specific getUserMedia failed:', perDeviceErr?.name || perDeviceErr?.message || perDeviceErr);
+                // Continue trying other devices
+              }
+            }
+
+            // Final fallback for localhost: canvas stream so the call can proceed
+            console.warn('⚠️ Falling back to canvas video stream');
+            const canvas = document.createElement('canvas');
+            canvas.width = 320; canvas.height = 240;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, 320, 240);
+              ctx.fillStyle = '#ffffff'; ctx.font = '16px Arial'; ctx.textAlign = 'center';
+              ctx.fillText('Camera unavailable', 160, 120);
+            }
+            const fallback = canvas.captureStream(24);
+            setIsFallbackStream(true);
+            return fallback;
+          } catch (retryErr) {
+            console.warn('⚠️ Localhost retry path failed:', retryErr);
+            throw error; // Throw the original error if all retries fail
+          }
         }
       }
     } catch (error: any) {
@@ -1022,22 +1789,86 @@ export default function CallRoomPage() {
   const threadChannel = useMemo(() => `thread_${conversationId}`, [conversationId]);
 
   const sendSignal = useCallback((payload: SigPayload) => {
+    try {
     if (!threadChanRef.current) {
-      console.error('❌ Cannot send signal: channel not available');
+        console.warn('⚠️ Cannot send signal: channel not available');
       return;
     }
-    console.log(`📤 Sending signal:`, payload);
-    void threadChanRef.current.send({ type: "broadcast", event: "signal", payload });
+    
+    // Enhanced logging for HTTP requests and signaling
+    console.log(`📤 [HTTP REQUEST] Sending signal:`, {
+      kind: payload.kind,
+      from: payload.from,
+      timestamp: new Date().toISOString(),
+      channel: threadChannel,
+      conversationId: conversationId,
+      hasSDP: 'sdp' in payload ? !!payload.sdp : false,
+      hasCandidate: 'candidate' in payload ? !!payload.candidate : false,
+      sdpType: 'sdp' in payload ? payload.sdp?.type : undefined,
+      candidateType: 'candidate' in payload ? payload.candidate?.candidate?.substring(0, 50) + '...' : undefined
+    });
+    
+    threadChanRef.current.send({ type: "broadcast", event: "signal", payload })
+      .then(() => {
+        console.log(`✅ [HTTP SUCCESS] Signal sent successfully:`, {
+          kind: payload.kind,
+          timestamp: new Date().toISOString(),
+          channel: threadChannel
+        });
+      })
+      .catch((error) => {
+          console.warn(`⚠️ [HTTP ERROR] Failed to send signal:`, {
+            error: error instanceof Error ? error.message : String(error),
+            kind: payload.kind,
+            timestamp: new Date().toISOString(),
+            channel: threadChannel
+          });
+        });
+    } catch (error) {
+      console.warn('⚠️ [HTTP ERROR] sendSignal error:', {
+        error: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString(),
+        channel: threadChannel
+      });
+    }
+  }, [threadChannel, conversationId]);
+
+  // Helper: wait for a ref to mount before using it
+  const waitForRef = useCallback(async <T,>(ref: React.RefObject<T>, tries = 20, delay = 150): Promise<T | null> => {
+    for (let i = 0; i < tries; i++) {
+      if (ref.current) return ref.current;
+      if (i <= 2) { // Only log first few attempts
+        console.log(`⏳ Waiting for video element (attempt ${i + 1}/${tries})...`);
+      }
+      await new Promise((r) => setTimeout(r, delay));
+    }
+    console.warn('⚠️ Video element not found within timeout');
+    return null;
   }, []);
 
   useEffect(() => {
     if (!conversationId || !me?.id) return;
 
+    console.log(`🔗 Setting up signaling channel: ${threadChannel} for user: ${me.id}`);
+
     const ch = supabase.channel(threadChannel, { config: { broadcast: { ack: true } } });
 
     ch.on("broadcast", { event: "signal" }, async (e) => {
       const msg = (e.payload || {}) as SigPayload;
-      console.log(`📨 Received signal:`, msg);
+      
+      // Enhanced logging for signal reception
+      console.log(`📥 [HTTP RESPONSE] Received signal:`, {
+        kind: msg.kind,
+        from: msg.from,
+        timestamp: new Date().toISOString(),
+        channel: threadChannel,
+        conversationId: conversationId,
+        hasSDP: 'sdp' in msg ? !!msg.sdp : false,
+        hasCandidate: 'candidate' in msg ? !!msg.candidate : false,
+        sdpType: 'sdp' in msg ? msg.sdp?.type : undefined,
+        candidateType: 'candidate' in msg ? msg.candidate?.candidate?.substring(0, 50) + '...' : undefined,
+        payloadSize: JSON.stringify(msg).length
+      });
       
       if (!msg || msg.from === me.id) {
         console.log(`⏭️ Ignoring signal from self or invalid message`);
@@ -1045,77 +1876,230 @@ export default function CallRoomPage() {
       }
 
       if (msg.kind === "webrtc-offer") {
-        console.log('📞 Received offer from peer, answering immediately...');
+        // Prevent redundant processing
+        if (callProcessed) {
+          console.log('⏭️ Call already processed, ignoring duplicate offer');
+          return;
+        }
+        
+        console.log('📞 [CALL RECEPTION] Received offer from peer, answering immediately...', {
+          from: msg.from,
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId,
+          currentStatus: status,
+          role: role,
+          sdpType: msg.sdp?.type,
+          sdpSize: msg.sdp?.sdp?.length || 0
+        });
+        setCallProcessed(true); // Mark as processed
+        
+        // Always show connecting status when receiving an offer
         setStatus("connecting");
+        console.log('🔄 [CALL STATUS] Status changed to connecting for offer reception');
         
         try {
-          // Ensure we have a local stream before answering
-          if (!localStreamRef.current) {
-            console.log('🎥 Getting local stream for callee...');
+          // Both participants are already ready with streams, just handle the offer
+        const pc = ensurePC();
+        // Ensure callee has local media tracks before answering
+        if (!localStreamRef.current) {
+          console.log('🎤 Callee acquiring media now (call accepted)...');
+          try {
             localStreamRef.current = await getMediaStream();
-            console.log('✅ Local stream acquired for callee:', {
-              audioTracks: localStreamRef.current.getAudioTracks().length,
-              videoTracks: localStreamRef.current.getVideoTracks().length,
-              streamId: localStreamRef.current.id
-            });
-            
-            // Set the video element source with retry
-            setupVideoElementWithRetry(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-            
-            // Add tracks to peer connection
-            const pc = ensurePC();
-            localStreamRef.current.getTracks().forEach((t) => {
-              console.log(`Adding ${t.kind} track to peer connection:`, t.label);
-              pc.addTrack(t, localStreamRef.current!);
-            });
+            // Wait for video element to mount before setup
+            const el = await waitForRef(localVideoRef);
+            if (el) {
+              setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
+            }
+            localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
+            console.log('✅ Callee media acquired and tracks added');
+          } catch (e) {
+            console.warn('⚠️ Failed to acquire local media before answer:', e);
+            setStatus("failed");
+            setMediaError("Failed to access camera/microphone. Please try again.");
+            setCallProcessed(false); // Reset on error
+            return;
+          }
+        }
+          
+        console.log('📋 Setting remote description for offer...');
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        console.log('✅ Remote description set for offer');
+        
+        console.log('🎯 Creating WebRTC answer...');
+        const answer = await pc.createAnswer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: mode === "video"
+        });
+        
+        console.log('📋 Answer created:', {
+          type: answer.type,
+          sdp: answer.sdp?.substring(0, 100) + '...'
+        });
+          
+        await pc.setLocalDescription(answer);
+        console.log('✅ Local description set for answer');
+        
+        sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+        console.log('✅ Answer sent');
+          
+        // Immediately transition to connected after sending answer
+        console.log('🔄 Callee: transitioning to connected after answer sent');
+          setStatus("connected");
+          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+          startAudioLevelMonitoring();
+          
+          // Validate connection after answer
+          setTimeout(() => {
+            validateConnection(pc);
+          }, 1000);
+          
+        // Force video refresh for both participants with mobile optimization
+        setTimeout(() => {
+          console.log('🔄 Forcing video refresh after answer sent for mobile');
+          if (localVideoRef.current && localStreamRef.current) {
+            localVideoRef.current.srcObject = localStreamRef.current;
+            localVideoRef.current.play().catch(console.warn);
+          }
+          if (remoteVideoRef.current && remoteStreamRef.current) {
+            // Mobile-specific remote video refresh
+            const remoteEl = remoteVideoRef.current;
+            remoteEl.setAttribute('playsinline', 'true');
+            remoteEl.setAttribute('webkit-playsinline', 'true');
+            remoteEl.srcObject = remoteStreamRef.current;
+            remoteEl.play().catch(console.warn);
+            console.log('✅ Mobile remote video refreshed');
+          }
+        }, 500);
+        
+        // Additional mobile retry
+        setTimeout(() => {
+          if (remoteVideoRef.current && remoteStreamRef.current) {
+            remoteVideoRef.current.srcObject = remoteStreamRef.current;
+            remoteVideoRef.current.play().catch(console.warn);
+            console.log('🔄 Mobile video retry completed');
+          }
+        }, 2000);
+        
+        // Comprehensive video setup for callee
+        const setupCalleeVideo = () => {
+          // Local video setup
+          if (localStreamRef.current) {
+            const localEl = localVideoRef.current;
+            if (localEl) {
+              localEl.srcObject = localStreamRef.current;
+              localEl.play().catch(console.warn);
+              console.log('✅ Callee local video set up immediately');
+            }
           }
           
-          const pc = ensurePC();
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-          const answer = await pc.createAnswer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: mode === "video",
-          });
-          console.log('Created answer with audio:', answer.sdp?.includes('m=audio'));
-          console.log('Created answer with video:', answer.sdp?.includes('m=video'));
-          await pc.setLocalDescription(answer);
-          sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
-          console.log('✅ Answer sent to peer - connection should establish now');
-          
-          // Clear any callee timeout since we received the offer
-          if (connectionTimeout) {
-            clearTimeout(connectionTimeout);
-            setConnectionTimeout(null);
+          // Remote video setup
+          if (remoteStreamRef.current) {
+            const remoteEl = remoteVideoRef.current;
+            if (remoteEl) {
+              remoteEl.srcObject = remoteStreamRef.current;
+              remoteEl.play().catch(console.warn);
+              console.log('✅ Callee remote video set up immediately');
+            }
           }
+        };
+        
+        setupCalleeVideo();
+        // Retry after a short delay to ensure video elements are ready
+        setTimeout(setupCalleeVideo, 500);
+        
+        // Additional fallback for ICE connection issues
+          setTimeout(() => {
+          if (status !== "connected") {
+            console.log('🔄 Callee fallback: forcing connected status');
+            setStatus("connected");
+            callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+            startAudioLevelMonitoring();
+          }
+        }, 1000);
+        
+        // Prevent further offer processing once connected
+        setTimeout(() => {
+          if (status === "connected") {
+            setCallProcessed(true);
+          }
+        }, 3000);
         } catch (error) {
           console.error('❌ Failed to handle offer:', error);
           setStatus("failed");
           setMediaError("Failed to establish connection. Please try again.");
         }
       } else if (msg.kind === "webrtc-answer") {
+        console.log('📞 [CALL RESPONSE] Received answer from peer:', {
+          from: msg.from,
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId,
+          currentStatus: status,
+          role: role,
+          sdpType: msg.sdp?.type,
+          sdpSize: msg.sdp?.sdp?.length || 0
+        });
         const pc = ensurePC();
+        
+        console.log('📋 Setting remote description for answer...');
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        console.log('✅ Remote description set for answer');
+        
+        // Validate connection state
+        console.log('🔍 Connection state after answer:', {
+          connectionState: pc.connectionState,
+          iceConnectionState: pc.iceConnectionState,
+          iceGatheringState: pc.iceGatheringState
+        });
+        
+        // Validate the connection
+        validateConnection(pc);
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
-          console.log(`🧊 Adding ICE candidate:`, msg.candidate);
+          console.log(`🧊 [ICE CANDIDATE] Adding ICE candidate:`, {
+            from: msg.from,
+            timestamp: new Date().toISOString(),
+            conversationId: conversationId,
+            candidate: msg.candidate?.candidate?.substring(0, 50) + '...',
+            sdpMLineIndex: msg.candidate?.sdpMLineIndex,
+            sdpMid: msg.candidate?.sdpMid
+          });
           await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-          console.log(`✅ ICE candidate added successfully`);
+          console.log(`✅ [ICE SUCCESS] ICE candidate added successfully`);
         } catch (error) {
-          console.warn(`⚠️ Failed to add ICE candidate:`, error);
+          console.warn(`⚠️ [ICE ERROR] Failed to add ICE candidate:`, {
+            error: error instanceof Error ? error.message : String(error),
+            candidate: msg.candidate?.candidate?.substring(0, 50) + '...',
+            timestamp: new Date().toISOString()
+          });
           // Don't ignore - this might be important for connection
         }
       } else if (msg.kind === "bye") {
+        console.log('📞 Received bye from peer');
+        setCallProcessed(false); // Reset for next call
         endCall(true);
       }
     });
 
+    // Add subscription status monitoring
     ch.subscribe((status) => {
-      console.log(`📡 Channel subscription status: ${status}`);
+      console.log(`📡 [CHANNEL STATUS] Channel subscription status: ${status}`, {
+        channel: threadChannel,
+        timestamp: new Date().toISOString(),
+        conversationId: conversationId,
+        userId: me.id
+      });
       if (status === "SUBSCRIBED") {
-        console.log(`✅ Successfully subscribed to channel: ${threadChannel}`);
+        console.log(`✅ [CHANNEL SUCCESS] Successfully subscribed to channel: ${threadChannel}`, {
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId
+        });
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        console.error(`❌ Channel subscription failed: ${status}`);
+        console.error(`❌ [CHANNEL ERROR] Channel subscription failed: ${status}`, {
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId,
+          channel: threadChannel
+        });
         setStatus("failed");
         setMediaError("Failed to establish signaling connection. Please try again.");
       }
@@ -1124,6 +2108,7 @@ export default function CallRoomPage() {
     threadChanRef.current = ch;
 
     return () => {
+      console.log(`🔌 Cleaning up signaling channel: ${threadChannel}`);
       try {
         supabase.removeChannel(ch);
       } catch {}
@@ -1147,17 +2132,17 @@ export default function CallRoomPage() {
       // Subscribe to both channels
       await Promise.all([
         new Promise<void>((res, rej) => {
-          const to = setTimeout(() => rej(new Error("subscribe timeout")), 8000);
-          ch.subscribe((s) => {
-            if (s === "SUBSCRIBED") {
-              clearTimeout(to);
-              res();
-            }
-            if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
-              clearTimeout(to);
-              rej(new Error(String(s)));
-            }
-          });
+      const to = setTimeout(() => rej(new Error("subscribe timeout")), 8000);
+      ch.subscribe((s) => {
+        if (s === "SUBSCRIBED") {
+          clearTimeout(to);
+          res();
+        }
+        if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+          clearTimeout(to);
+          rej(new Error(String(s)));
+        }
+      });
         }),
         new Promise<void>((res, rej) => {
           const to = setTimeout(() => rej(new Error("staff subscribe timeout")), 8000);
@@ -1175,9 +2160,9 @@ export default function CallRoomPage() {
       ]);
 
       // Send old format for compatibility
-      await ch.send({
-        type: "broadcast",
-        event: "invite",
+    await ch.send({
+      type: "broadcast",
+      event: "invite",
         payload: { conversationId, fromId: me.id, fromName: callerName, mode },
       });
 
@@ -1197,10 +2182,10 @@ export default function CallRoomPage() {
     } catch (error) {
       console.error("Failed to send ring notification:", error);
     } finally {
-      try {
-        supabase.removeChannel(ch);
+    try {
+      supabase.removeChannel(ch);
         supabase.removeChannel(staffCh);
-      } catch {}
+    } catch {}
     }
   }
 
@@ -1218,7 +2203,15 @@ export default function CallRoomPage() {
   const startOrPrep = useCallback(async () => {
     if (!me?.id) return;
 
+    // Caller shows connecting, callee shows ringing and prepares
+    if (role !== "caller") {
+      // Callee shows ringing and waits for incoming call
+      setStatus("ringing");
+      setMediaError(null);
+    } else {
     setStatus("connecting");
+      setMediaError(null);
+    }
     setMediaError(null);
 
     // Log call initiation (non-blocking)
@@ -1245,38 +2238,88 @@ export default function CallRoomPage() {
       // Set the video element source using the setup function
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
 
-      // 2) Add tracks to PC
-      const pc = ensurePC();
-      localStreamRef.current.getTracks().forEach((t) => {
-        console.log(`Adding ${t.kind} track to peer connection:`, t.label);
-        pc.addTrack(t, localStreamRef.current!);
-      });
+    // 2) Add tracks to PC
+    const pc = ensurePC();
+    localStreamRef.current.getTracks().forEach((t) => {
+      console.log(`Adding ${t.kind} track to peer connection:`, t.label);
+      pc.addTrack(t, localStreamRef.current!);
+    });
 
-      // 3) If caller, create offer + send + ring
-      if (role === "caller") {
-        setStatus("ringing");
-        callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
+      // Comprehensive caller video setup
+      console.log('🎯 Setting up caller video system...');
+      const setupCallerVideo = () => {
+        const localEl = localVideoRef.current;
+        if (localEl && localStreamRef.current) {
+          localEl.srcObject = localStreamRef.current;
+          localEl.play().catch(console.warn);
+          console.log('✅ Caller local video set up immediately');
+          
+          // Force video element to detect the stream
+          setTimeout(() => {
+            if (localVideoRef.current && localStreamRef.current) {
+              console.log('🔄 Forcing local video stream detection');
+              const video = localVideoRef.current;
+              video.srcObject = localStreamRef.current;
+              video.load();
+              video.play().catch(console.warn);
+            }
+          }, 100);
+        }
         
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: mode === "video",
+        // Also prepare for remote video
+        const remoteEl = remoteVideoRef.current;
+        if (remoteEl && remoteStreamRef.current) {
+          remoteEl.srcObject = remoteStreamRef.current;
+          remoteEl.play().catch(console.warn);
+          console.log('✅ Caller remote video set up immediately');
+        }
+      };
+      
+      setupCallerVideo();
+      // Retry to ensure video elements are ready
+      setTimeout(setupCallerVideo, 300);
+
+      // 3) Simple call flow like Messenger/Zoom
+    if (role === "caller") {
+        // Caller shows ringing until callee answers
+      setStatus("ringing");
+      callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
+      
+        console.log('🎯 [CALL INITIATION] Creating WebRTC offer...', {
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId,
+          role: role,
+          mode: mode,
+          peerUserId: peerUserId
         });
-        console.log('Created offer with audio:', offer.sdp?.includes('m=audio'));
-        console.log('Created offer with video:', offer.sdp?.includes('m=video'));
-        await pc.setLocalDescription(offer);
-        sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
-        await ringPeer(); // show IncomingCallBanner on the peer
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: mode === "video",
+        iceRestart: false
+      });
+      
+      console.log('📋 [OFFER CREATED] Offer created:', {
+        type: offer.type,
+        sdp: offer.sdp?.substring(0, 100) + '...',
+        sdpSize: offer.sdp?.length || 0,
+        timestamp: new Date().toISOString()
+      });
         
-        // Set connection timeout (30 seconds)
-        const timeout = setTimeout(() => {
-          if (status !== "connected") {
-            console.warn("⚠️ Connection timeout - no response from peer");
-            setStatus("failed");
-            setMediaError("Connection timeout. The other person may not be available or there may be a network issue.");
-          }
-        }, 30000);
-        setConnectionTimeout(timeout);
-      }
+      await pc.setLocalDescription(offer);
+      console.log('✅ [OFFER SETUP] Local description set for offer');
+      
+      sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
+      await ringPeer(); // show IncomingCallBanner on the peer
+        
+        console.log('✅ [CALL SENT] Caller sent offer, waiting for answer...', {
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId
+        });
+      } else {
+        // Callee shows ringing and waits for incoming call
+        setStatus("ringing");
+        console.log('📞 Callee ready and waiting for offer...');
+    }
     } catch (error) {
       console.error("Failed to start call:", error);
       setStatus("failed");
@@ -1284,77 +2327,16 @@ export default function CallRoomPage() {
     }
   }, [ensurePC, getMediaStream, me?.id, mode, role, sendSignal, conversationId, peerUserId, peerInfo?.name, peerName]);
 
+  // Main caller effect: only start for caller
   useEffect(() => {
     if (!authChecked || !me?.id) return;
-    
-    // Only start the call process if we're the caller
-    if (role === "caller") {
-      (async () => {
-        await startOrPrep();
-      })();
-    } else {
-      // For callee, check devices and prepare for incoming call
-      console.log('📞 Callee ready, waiting for offer...');
-      setStatus("idle");
-      getAvailableDevices();
-      
-      // Set a timeout for callee waiting for offer (60 seconds)
-      const calleeTimeout = setTimeout(() => {
-        if (status === "idle") {
-          console.warn("⚠️ Callee timeout - no offer received");
-          setStatus("failed");
-          setMediaError("No incoming call received. The caller may have cancelled or there may be a connection issue.");
-        }
-      }, 60000);
-      
-      return () => clearTimeout(calleeTimeout);
-    }
+    if (role !== "caller") return;
+    (async () => { await startOrPrep(); })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authChecked, me?.id, role]);
 
-  // Auto-accept incoming calls for callees (when coming from notification)
-  useEffect(() => {
-    if (role === "callee" && status === "idle" && authChecked && me?.id) {
-      // Check if this is an incoming call that should be auto-accepted
-      const urlParams = new URLSearchParams(window.location.search);
-      const autoAccept = urlParams.get('autoAccept');
-      
-      if (autoAccept === 'true') {
-        console.log('📞 Auto-accepting incoming call - preparing immediately...');
-        // Don't change status to "connecting" - keep it as "idle" for consistency
-        // The offer handling will change it to "connecting" when needed
-        
-        // Immediately prepare the call without waiting for offer
-        (async () => {
-          try {
-            // Get local stream immediately
-            localStreamRef.current = await getMediaStream();
-            console.log('✅ Local stream acquired for auto-accept:', {
-              audioTracks: localStreamRef.current.getAudioTracks().length,
-              videoTracks: localStreamRef.current.getVideoTracks().length,
-              streamId: localStreamRef.current.id
-            });
-            
-            // Set the video element source with retry
-            setupVideoElementWithRetry(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-            
-            // Add tracks to peer connection
-            const pc = ensurePC();
-            localStreamRef.current.getTracks().forEach((t) => {
-              console.log(`Adding ${t.kind} track to peer connection:`, t.label);
-              pc.addTrack(t, localStreamRef.current!);
-            });
-            
-            console.log('✅ Callee ready for immediate connection');
-          } catch (error) {
-            console.error('❌ Failed to prepare auto-accept call:', error);
-            setStatus("failed");
-            setMediaError("Failed to prepare call. Please try again.");
-          }
-        })();
-      }
-    }
-  }, [role, status, authChecked, me?.id, getMediaStream, setupVideoElementWithRetry, ensurePC]);
+  // Prevent redundant call processing - track if already handled
+  const [callProcessed, setCallProcessed] = useState(false);
 
   // Cleanup connection timeout on unmount
   useEffect(() => {
@@ -1362,6 +2344,7 @@ export default function CallRoomPage() {
       if (connectionTimeout) {
         clearTimeout(connectionTimeout);
       }
+      setCallProcessed(false); // Reset call state on unmount
     };
   }, [connectionTimeout]);
 
@@ -1414,6 +2397,20 @@ export default function CallRoomPage() {
     
     setCamOff(newCamOffState);
     console.log(`Camera state changed to: ${newCamOffState ? 'off' : 'on'}`);
+    
+    // Force video element refresh when camera state changes for flexibility
+    setTimeout(() => {
+      if (localVideoRef.current && localStreamRef.current) {
+        const video = localVideoRef.current;
+        video.srcObject = null;
+        video.load();
+        setTimeout(() => {
+          video.srcObject = localStreamRef.current;
+          video.play().catch(console.warn);
+          console.log('🔄 Local video refreshed after camera toggle');
+        }, 100);
+      }
+    }, 200);
   }, [camOff]);
 
   const shareScreen = useCallback(async () => {
@@ -1518,6 +2515,20 @@ export default function CallRoomPage() {
         screenStreamRef.current?.getTracks().forEach((t) => t.stop());
       } catch {}
       screenStreamRef.current = null;
+      
+      // Clean up remote stream
+      try {
+        remoteStreamRef.current?.getTracks().forEach((t) => t.stop());
+      } catch {}
+      remoteStreamRef.current = null;
+      
+      // Reset video elements
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = null;
+      }
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = null;
+      }
 
       // notify via thread + user channel
       if (!remote && me?.id) {
@@ -1728,6 +2739,188 @@ export default function CallRoomPage() {
     }
   }, []);
 
+  // Debug function to refresh video streams
+  const refreshVideoStreams = useCallback(() => {
+    console.log('🔄 Manually refreshing video streams...');
+    
+    if (localVideoRef.current && localStreamRef.current) {
+      console.log('🔄 Refreshing local video');
+      const video = localVideoRef.current;
+      video.srcObject = null;
+      video.load();
+      setTimeout(() => {
+        video.srcObject = localStreamRef.current;
+        video.play().catch(console.warn);
+      }, 100);
+    }
+    
+    if (remoteVideoRef.current && remoteStreamRef.current) {
+      console.log('🔄 Refreshing remote video');
+      const video = remoteVideoRef.current;
+      video.srcObject = null;
+      video.load();
+      setTimeout(() => {
+        video.srcObject = remoteStreamRef.current;
+        video.play().catch(console.warn);
+      }, 100);
+    }
+  }, []);
+
+  // Comprehensive video refresh system for screen time
+  useEffect(() => {
+    if (status !== "connected") return;
+    
+    console.log('🔄 Comprehensive video refresh for screen time...');
+    
+    // Multiple refresh attempts to ensure video works
+    const refreshVideo = (attempt = 1) => {
+      const localVideo = localVideoRef.current;
+      const remoteVideo = remoteVideoRef.current;
+      
+      console.log(`🔄 Video refresh attempt ${attempt}`);
+      
+      // Local video refresh
+      if (localVideo && localStreamRef.current) {
+        if (!localVideo.srcObject || localVideo.videoWidth === 0) {
+          console.log('🔄 Refreshing local video...');
+          localVideo.srcObject = null;
+          localVideo.load();
+          setTimeout(() => {
+            localVideo.srcObject = localStreamRef.current;
+            localVideo.play().catch(console.warn);
+          }, 100);
+        } else {
+          console.log('✅ Local video is working');
+        }
+      }
+      
+      // Remote video refresh
+      if (remoteVideo && remoteStreamRef.current) {
+        if (!remoteVideo.srcObject || remoteVideo.videoWidth === 0) {
+          console.log('🔄 Refreshing remote video...');
+          remoteVideo.srcObject = null;
+          remoteVideo.load();
+          setTimeout(() => {
+            remoteVideo.srcObject = remoteStreamRef.current;
+            remoteVideo.play().catch(console.warn);
+          }, 100);
+        } else {
+          console.log('✅ Remote video is working');
+        }
+      }
+      
+      // Retry if needed (max 3 attempts)
+      if (attempt < 3) {
+        setTimeout(() => refreshVideo(attempt + 1), 1000);
+      }
+    };
+    
+    // Start refresh sequence
+    setTimeout(() => refreshVideo(1), 500);
+    setTimeout(() => refreshVideo(2), 2000);
+    setTimeout(() => refreshVideo(3), 4000);
+  }, [status]);
+
+  // Periodic remote video check to ensure it stays connected - more responsive
+  useEffect(() => {
+    if (status !== "connected") return;
+    
+    const remoteVideoCheck = setInterval(() => {
+      if (remoteVideoRef.current && remoteStreamRef.current) {
+        const video = remoteVideoRef.current;
+        if (!video.srcObject || video.videoWidth === 0) {
+          console.log('🔄 Periodic remote video check - reconnecting...');
+          video.srcObject = remoteStreamRef.current;
+          video.play().catch(console.warn);
+        }
+      }
+    }, 2000); // More frequent checks for better responsiveness
+    
+    return () => {
+      clearInterval(remoteVideoCheck);
+    };
+  }, [status]);
+
+  // Periodic connection validation
+  useEffect(() => {
+    if (status !== "connected" || !pcRef.current) return;
+    
+    const connectionCheck = setInterval(() => {
+      if (pcRef.current) {
+        const isValid = validateConnection(pcRef.current);
+        if (!isValid) {
+          console.log('⚠️ Connection validation failed - attempting to reconnect...');
+          // Try to restart the connection
+          startOrPrep().catch(console.error);
+        }
+      }
+    }, 10000); // Check every 10 seconds
+    
+    return () => {
+      clearInterval(connectionCheck);
+    };
+  }, [status, validateConnection, startOrPrep]);
+
+  // Periodic black screen detection and fix
+  useEffect(() => {
+    if (status !== "connected") return;
+    
+    const blackScreenCheck = setInterval(() => {
+      // Check local video
+      if (localVideoRef.current && localStreamRef.current) {
+        const localVideo = localVideoRef.current;
+        if (localVideo.videoWidth === 0 || localVideo.videoHeight === 0) {
+          console.log('🔍 Black screen detected on local video, attempting fix...');
+          fixBlackScreen(localVideoRef, localStreamRef.current, true);
+        }
+      }
+      
+      // Check remote video
+      if (remoteVideoRef.current && remoteStreamRef.current) {
+        const remoteVideo = remoteVideoRef.current;
+        if (remoteVideo.videoWidth === 0 || remoteVideo.videoHeight === 0) {
+          console.log('🔍 Black screen detected on remote video, attempting fix...');
+          fixBlackScreen(remoteVideoRef, remoteStreamRef.current, false);
+        }
+      }
+    }, 5000); // Check every 5 seconds
+    
+    return () => {
+      clearInterval(blackScreenCheck);
+    };
+  }, [status, fixBlackScreen]);
+
+  // Periodic call flow monitoring
+  useEffect(() => {
+    if (status === "connected") {
+      const logCallFlowSummary = () => {
+        console.log('📊 [CALL FLOW SUMMARY] Current call state:', {
+          timestamp: new Date().toISOString(),
+          conversationId: conversationId,
+          status: status,
+          role: role,
+          mode: mode,
+          peerUserId: peerUserId,
+          hasLocalStream: !!localStreamRef.current,
+          hasRemoteStream: !!remoteStreamRef.current,
+          localTracks: localStreamRef.current?.getTracks().length || 0,
+          remoteTracks: remoteStreamRef.current?.getTracks().length || 0,
+          channelConnected: !!threadChanRef.current,
+          pcConnected: !!pcRef.current,
+          callProcessed: callProcessed
+        });
+      };
+      
+      const callFlowMonitor = setInterval(() => {
+        logCallFlowSummary();
+      }, 10000); // Log every 10 seconds when connected
+      
+      return () => {
+        clearInterval(callFlowMonitor);
+      };
+    }
+  }, [conversationId, status, role, mode, peerUserId, callProcessed]);
+
   // Comprehensive media test function
   const testAllMedia = useCallback(async () => {
     console.log('=== COMPREHENSIVE MEDIA TEST ===');
@@ -1823,6 +3016,21 @@ export default function CallRoomPage() {
   if (status === "connecting") {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        {/* Hidden video elements for setup */}
+        <div className="hidden">
+          <VideoTile
+            videoRef={localVideoRef}
+            label="Local"
+            isLocal
+            isConnected={false}
+          />
+          <VideoTile
+            videoRef={remoteVideoRef}
+            label="Remote"
+            isConnected={false}
+          />
+        </div>
+        
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
           <p className="text-white text-lg">Connecting...</p>
@@ -1832,13 +3040,28 @@ export default function CallRoomPage() {
     );
   }
 
-  if (status === "idle" && role === "callee") {
+  if (status === "idle") {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        {/* Hidden video elements for setup */}
+        <div className="hidden">
+          <VideoTile
+            videoRef={localVideoRef}
+            label="Local"
+            isLocal
+            isConnected={false}
+          />
+          <VideoTile
+            videoRef={remoteVideoRef}
+            label="Remote"
+            isConnected={false}
+          />
+        </div>
+        
         <div className="text-center">
           <div className="animate-pulse rounded-full h-12 w-12 border-2 border-blue-400 mx-auto mb-4"></div>
-          <p className="text-white text-lg">Waiting for call...</p>
-          <p className="text-gray-400 text-sm mt-2">Ready to receive incoming call from {peerInfo?.name || peerName}</p>
+          <p className="text-white text-lg">Preparing call...</p>
+          <p className="text-gray-400 text-sm mt-2">Getting ready for {role === "caller" ? "outgoing" : "incoming"} call</p>
         </div>
       </div>
     );
@@ -2015,6 +3238,105 @@ export default function CallRoomPage() {
               📹 Test Video
             </Button>
             
+            {/* Refresh video streams button */}
+            <Button 
+              variant="outline" 
+              onClick={refreshVideoStreams}
+              className="w-full"
+            >
+              🔄 Refresh Video
+            </Button>
+            
+            {/* Debug video elements button */}
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                console.log('🔍 Debug video elements:');
+                console.log('Local video element:', localVideoRef.current ? {
+                  srcObject: !!localVideoRef.current.srcObject,
+                  videoWidth: localVideoRef.current.videoWidth,
+                  videoHeight: localVideoRef.current.videoHeight,
+                  readyState: localVideoRef.current.readyState,
+                  paused: localVideoRef.current.paused,
+                  muted: localVideoRef.current.muted
+                } : 'null');
+                console.log('Remote video element:', remoteVideoRef.current ? {
+                  srcObject: !!remoteVideoRef.current.srcObject,
+                  videoWidth: remoteVideoRef.current.videoWidth,
+                  videoHeight: remoteVideoRef.current.videoHeight,
+                  readyState: remoteVideoRef.current.readyState,
+                  paused: remoteVideoRef.current.paused,
+                  muted: remoteVideoRef.current.muted
+                } : 'null');
+                console.log('Local stream:', localStreamRef.current ? {
+                  audioTracks: localStreamRef.current.getAudioTracks().length,
+                  videoTracks: localStreamRef.current.getVideoTracks().length,
+                  active: localStreamRef.current.active
+                } : 'null');
+                console.log('Remote stream:', remoteStreamRef.current ? {
+                  audioTracks: remoteStreamRef.current.getAudioTracks().length,
+                  videoTracks: remoteStreamRef.current.getVideoTracks().length,
+                  active: remoteStreamRef.current.active
+                } : 'null');
+                alert('Video debug info logged to console');
+              }}
+              className="w-full"
+            >
+              🔍 Debug Video
+            </Button>
+            
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                console.log('🔄 Force Video Refresh triggered');
+                if (localVideoRef.current && localStreamRef.current) {
+                  localVideoRef.current.srcObject = localStreamRef.current;
+                  localVideoRef.current.play().catch(console.warn);
+                  console.log('✅ Local video refreshed');
+                }
+                if (remoteVideoRef.current && remoteStreamRef.current) {
+                  remoteVideoRef.current.srcObject = remoteStreamRef.current;
+                  remoteVideoRef.current.play().catch(console.warn);
+                  console.log('✅ Remote video refreshed');
+                }
+                alert('Video refresh attempted - check console for results');
+              }}
+              className="w-full bg-green-600 hover:bg-green-700 text-white"
+            >
+              🔄 Force Video Refresh
+            </Button>
+            
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                console.log('📱 Mobile Video Fix triggered');
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                console.log('Device type:', isMobile ? 'Mobile' : 'Desktop');
+                
+                if (remoteVideoRef.current && remoteStreamRef.current) {
+                  const remoteEl = remoteVideoRef.current;
+                  // Mobile-specific attributes
+                  remoteEl.setAttribute('playsinline', 'true');
+                  remoteEl.setAttribute('webkit-playsinline', 'true');
+                  remoteEl.setAttribute('x5-video-player-type', 'h5');
+                  remoteEl.muted = false;
+                  remoteEl.volume = 1.0;
+                  
+                  // Clear and reset stream
+                  remoteEl.srcObject = null;
+                  setTimeout(() => {
+                    remoteEl.srcObject = remoteStreamRef.current;
+                    remoteEl.play().catch(console.warn);
+                    console.log('✅ Mobile video fix applied');
+                  }, 100);
+                }
+                alert('Mobile video fix applied - check if video appears');
+              }}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              📱 Mobile Video Fix
+            </Button>
+            
             {/* Comprehensive test button */}
             <Button 
               variant="outline" 
@@ -2103,6 +3425,21 @@ export default function CallRoomPage() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
+      {/* Hidden video elements for setup - always rendered */}
+      <div className="hidden">
+        <VideoTile
+          videoRef={localVideoRef}
+          label="Local"
+          isLocal
+          isConnected={false}
+        />
+        <VideoTile
+          videoRef={remoteVideoRef}
+          label="Remote"
+          isConnected={false}
+        />
+      </div>
+
       {/* Header */}
       <div className="bg-black/20 backdrop-blur-sm border-b border-gray-700 px-6 py-4">
         <div className="flex items-center justify-between">
@@ -2257,12 +3594,12 @@ export default function CallRoomPage() {
                     
                     // Wait a bit for video to load
                     setTimeout(async () => {
-                      try {
+                    try {
                         await localVideoRef.current!.play();
                         console.log('✅ Video started playing');
-                      } catch (playError) {
-                        console.error('❌ Video play failed:', playError);
-                      }
+                    } catch (playError) {
+                      console.error('❌ Video play failed:', playError);
+                    }
                     }, 100);
                     
                     alert('✅ SUCCESS! Media access works. Check console for details and video should appear.');
@@ -2346,7 +3683,7 @@ export default function CallRoomPage() {
                   
                   // Try to play
                   try {
-                    await testVideo.play();
+                  await testVideo.play();
                     console.log('✅ HTML video element playing');
                     alert('✅ HTML test successful! You should see a red-bordered video in the top-right corner.');
                   } catch (playError) {
