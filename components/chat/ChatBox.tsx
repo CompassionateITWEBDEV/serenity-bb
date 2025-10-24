@@ -716,7 +716,7 @@ function ChatBoxInner(props: {
     return !!t && t !== "(image)" && t !== "(photo)" && t !== "(voice note)";
   }
   function extractImageUrlFromContent(content?: string | null) {
-    if (!content) return null;
+    if (!content || content.trim() === '') return null;
     try {
       const maybe = JSON.parse(content);
       if (

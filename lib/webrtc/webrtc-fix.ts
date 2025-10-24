@@ -26,8 +26,8 @@ export function createFixedPeerConnection(config: WebRTCConfig): RTCPeerConnecti
     iceServers: config.iceServers,
     iceCandidatePoolSize: config.iceCandidatePoolSize || 10,
     bundlePolicy: config.bundlePolicy || 'max-bundle',
-    rtcpMuxPolicy: config.rtcpMuxPolicy || 'require'
-    // Note: sdpSemantics is deprecated and not part of the current RTCConfiguration spec
+    rtcpMuxPolicy: config.rtcpMuxPolicy || 'require',
+    sdpSemantics: 'unified-plan' // Use unified plan for better compatibility
   };
 
   const pc = new RTCPeerConnection(pcConfig);
@@ -60,8 +60,8 @@ export async function createFixedOffer(
 
     const offer = await pc.createOffer({
       offerToReceiveAudio: constraints.offerToReceiveAudio,
-      offerToReceiveVideo: constraints.offerToReceiveVideo
-      // Note: voiceActivityDetection is not part of the current RTCOfferOptions spec
+      offerToReceiveVideo: constraints.offerToReceiveVideo,
+      voiceActivityDetection: constraints.voiceActivityDetection ?? true
     });
 
     // Fix SDP to ensure proper m-line ordering
@@ -93,8 +93,8 @@ export async function createFixedAnswer(
 
     const answer = await pc.createAnswer({
       offerToReceiveAudio: constraints.offerToReceiveAudio,
-      offerToReceiveVideo: constraints.offerToReceiveVideo
-      // Note: voiceActivityDetection is not part of the current RTCAnswerOptions spec
+      offerToReceiveVideo: constraints.offerToReceiveVideo,
+      voiceActivityDetection: constraints.voiceActivityDetection ?? true
     });
 
     // Fix SDP to ensure proper m-line ordering
@@ -352,4 +352,3 @@ export class FixedWebRTCHandler {
     }
   }
 }
-

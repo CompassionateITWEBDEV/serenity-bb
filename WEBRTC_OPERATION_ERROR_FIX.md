@@ -159,4 +159,3 @@ The `OperationError` and `InvalidModificationError` should now be completely res
 - Fallback SDP ensures calls can always be established
 - Comprehensive logging helps with debugging
 - The fix is backward compatible with existing code
-

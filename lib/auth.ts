@@ -401,6 +401,7 @@ export class AuthService {
     if (token && stored) {
       try {
         await apiClient.getCurrentUser(); // validate token
+        if (!stored || stored.trim() === '') throw new Error('Empty stored data');
         const patient = JSON.parse(stored) as Patient;
         saveAuth(patient, token);
         this.authState = { isAuthenticated: true, patient, loading: false };
@@ -413,6 +414,7 @@ export class AuthService {
 
     if (stored && !token) {
       try {
+        if (!stored || stored.trim() === '') throw new Error('Empty stored data');
         const patient = JSON.parse(stored) as Patient;
         this.authState = { isAuthenticated: true, patient, loading: false };
         this.notify();

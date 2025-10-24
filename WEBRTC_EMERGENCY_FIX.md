@@ -130,4 +130,3 @@ This will automatically fix all RTCPeerConnection instances in your app.
 4. Try refreshing the page after applying the fix
 
 The fix addresses the root cause of the `InvalidModificationError` by properly formatting the SDP before setting it on the peer connection.
-

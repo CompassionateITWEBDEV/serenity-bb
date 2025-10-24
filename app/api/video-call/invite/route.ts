@@ -3,7 +3,7 @@ import { supabaseFromRoute } from "@/lib/supabaseRoute";
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = supabaseFromRoute();
+    const supabase = await supabaseFromRoute();
     const { data: au } = await supabase.auth.getUser();
     if (!au.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   try {
-    const supabase = supabaseFromRoute();
+    const supabase = await supabaseFromRoute();
     const { data: au } = await supabase.auth.getUser();
     if (!au.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
@@ -185,7 +185,7 @@ export async function PUT(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = supabaseFromRoute();
+    const supabase = await supabaseFromRoute();
     const { data: au } = await supabase.auth.getUser();
     if (!au.user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 

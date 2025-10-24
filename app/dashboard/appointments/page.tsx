@@ -1163,7 +1163,7 @@ export default function AppointmentsPage() {
 
                 <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white"></div>
 
-              </div>
+                      </div>
 
               <div>
 
@@ -1221,7 +1221,7 @@ export default function AppointmentsPage() {
 
                       <Plus className="h-5 w-5 text-blue-600" />
 
-                    </div>
+          </div>
 
                     Book New Appointment
 
@@ -1251,7 +1251,7 @@ export default function AppointmentsPage() {
 
                       />
 
-                    </div>
+            </div>
 
                     <div className="space-y-2">
 
@@ -1371,7 +1371,7 @@ export default function AppointmentsPage() {
 
                       />
 
-                    </div>
+                  </div>
 
                   </div>
 
@@ -1399,7 +1399,7 @@ export default function AppointmentsPage() {
 
                       />
 
-                    </div>
+                  </div>
 
                     <div className="space-y-2">
 
@@ -1523,9 +1523,9 @@ export default function AppointmentsPage() {
 
             </Dialog>
 
-            </div>
-
           </div>
+
+        </div>
 
         </div>
 
@@ -1547,7 +1547,7 @@ export default function AppointmentsPage() {
 
                     {upcoming.length}
 
-                  </div>
+        </div>
 
                   <div className="text-sm font-medium text-blue-600">Upcoming</div>
 
@@ -1691,7 +1691,7 @@ export default function AppointmentsPage() {
 
               </TabsTrigger>
 
-            </TabsList>
+          </TabsList>
 
             <div className="flex items-center gap-2 text-sm text-gray-500">
 
@@ -1769,7 +1769,7 @@ export default function AppointmentsPage() {
 
                                 )}
 
-                              </div>
+                          </div>
 
                               <div className="flex items-center gap-2 flex-wrap">
 
@@ -1787,11 +1787,11 @@ export default function AppointmentsPage() {
 
                                 </Badge>
 
-                              </div>
+                          </div>
 
                             </div>
 
-                          </div>
+                        </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 

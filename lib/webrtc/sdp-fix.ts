@@ -252,4 +252,3 @@ export class WebRTCCallWithSDPFix {
     resetToStableState(this.pc);
   }
 }
-

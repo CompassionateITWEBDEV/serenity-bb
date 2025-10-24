@@ -65,7 +65,7 @@ class SafeNotificationService {
   // Get appointments for a patient (safe version)
   async getAppointmentNotifications(patientId: string): Promise<SafeNotification[]> {
     const appointments = await this.safeQuery(
-      async () => await supabase
+      () => supabase
         .from('appointments')
         .select('id, appointment_type, appointment_date, appointment_time, status, is_virtual, location, notes')
         .eq('patient_id', patientId)
@@ -106,7 +106,7 @@ class SafeNotificationService {
   async getMessageNotifications(patientId: string): Promise<SafeNotification[]> {
     // First get patient's user_id
     const patient = await this.safeQuery(
-      async () => await supabase
+      () => supabase
         .from('patients')
         .select('user_id')
         .eq('id', patientId)
@@ -118,10 +118,10 @@ class SafeNotificationService {
     if (!patient) return [];
 
     const messages = await this.safeQuery(
-      async () => await supabase
+      () => supabase
         .from('messages')
         .select('id, subject, content, is_read, message_type, created_at')
-        .eq('recipient_id', (patient as any).user_id)
+        .eq('recipient_id', patient.user_id)
         .eq('is_read', false)
         .order('created_at', { ascending: false })
         .limit(20),
@@ -145,7 +145,7 @@ class SafeNotificationService {
   // Get group messages for a patient (safe version)
   async getGroupMessageNotifications(patientId: string): Promise<SafeNotification[]> {
     const userGroups = await this.safeQuery(
-      async () => await supabase
+      () => supabase
         .from('group_members')
         .select('group_id')
         .eq('patient_id', patientId),
@@ -158,7 +158,7 @@ class SafeNotificationService {
     const groupIds = userGroups.map(g => g.group_id);
 
     const messages = await this.safeQuery(
-      async () => await supabase
+      () => supabase
         .from('group_messages')
         .select('id, content, message_type, is_announcement, created_at')
         .in('group_id', groupIds)
@@ -185,7 +185,7 @@ class SafeNotificationService {
   // Get video submission notifications (safe version)
   async getVideoSubmissionNotifications(patientId: string): Promise<SafeNotification[]> {
     const submissions = await this.safeQuery(
-      async () => await supabase
+      () => supabase
         .from('video_submissions')
         .select('*')
         .eq('patient_id', patientId)
@@ -215,7 +215,7 @@ class SafeNotificationService {
   // Get video recording notifications (safe version)
   async getVideoRecordingNotifications(patientId: string): Promise<SafeNotification[]> {
     const recordings = await this.safeQuery(
-      async () => await supabase
+      () => supabase
         .from('video_recordings')
         .select('*')
         .eq('patient_id', patientId)
@@ -241,7 +241,7 @@ class SafeNotificationService {
   // Get medication notifications (safe version)
   async getMedicationNotifications(patientId: string): Promise<SafeNotification[]> {
     const medications = await this.safeQuery(
-      async () => await supabase
+      () => supabase
         .from('medication_logs')
         .select('*')
         .eq('patient_id', patientId)
@@ -268,7 +268,7 @@ class SafeNotificationService {
   // Get activity notifications (safe version)
   async getActivityNotifications(patientId: string): Promise<SafeNotification[]> {
     const activities = await this.safeQuery(
-      async () => await supabase
+      () => supabase
         .from('activity_logs')
         .select('*')
         .eq('patient_id', patientId)
@@ -295,7 +295,7 @@ class SafeNotificationService {
   // Get progress notifications (safe version)
   async getProgressNotifications(patientId: string): Promise<SafeNotification[]> {
     const progress = await this.safeQuery(
-      async () => await supabase
+      () => supabase
         .from('progress_tracking')
         .select('*')
         .eq('patient_id', patientId)

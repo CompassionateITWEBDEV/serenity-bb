@@ -64,4 +64,3 @@ function applyFix() {
 
 // Run the fix
 applyFix();
-

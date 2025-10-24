@@ -105,6 +105,9 @@ export class ApiClient {
       return (await response.json()) as T
     }
     const text = await response.text()
+    if (!text || text.trim() === '') {
+      return undefined as unknown as T
+    }
     try {
       return JSON.parse(text) as T
     } catch {

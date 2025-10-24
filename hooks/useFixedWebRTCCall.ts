@@ -157,12 +157,7 @@ export function useFixedWebRTCCall({
       if (pc?.connectionState === 'connected') {
         setStatus("connected");
         onStatus?.("connected");
-        // Clear any connection timeout
-        if (connectionTimeoutRef.current) {
-          clearTimeout(connectionTimeoutRef.current);
-          connectionTimeoutRef.current = null;
-        }
-      } else if (pc?.connectionState === 'failed' || pc?.connectionState === 'disconnected') {
+      } else if (pc?.connectionState === 'failed') {
         setStatus("failed");
         onStatus?.("failed");
       }
@@ -170,18 +165,6 @@ export function useFixedWebRTCCall({
 
     pc.oniceconnectionstatechange = () => {
       console.log('WebRTC ICE connection state:', pc?.iceConnectionState);
-      if (pc?.iceConnectionState === 'connected' || pc?.iceConnectionState === 'completed') {
-        setStatus("connected");
-        onStatus?.("connected");
-        // Clear any connection timeout
-        if (connectionTimeoutRef.current) {
-          clearTimeout(connectionTimeoutRef.current);
-          connectionTimeoutRef.current = null;
-        }
-      } else if (pc?.iceConnectionState === 'failed') {
-        setStatus("failed");
-        onStatus?.("failed");
-      }
     };
 
     pc.ontrack = (event) => {
@@ -268,13 +251,6 @@ export function useFixedWebRTCCall({
         setStatus("connecting");
         onStatus?.("connecting");
         
-        // Set connection timeout (30 seconds)
-        connectionTimeoutRef.current = setTimeout(() => {
-          console.warn('⚠️ Connection timeout - call taking too long to establish');
-          setStatus("failed");
-          onStatus?.("failed");
-        }, 30000);
-        
         const handler = getWebRTCHandler();
         const constraints: SDPConstraints = {
           offerToReceiveAudio: true,
@@ -313,13 +289,6 @@ export function useFixedWebRTCCall({
           console.log('📞 Received offer from peer, answering...');
           setStatus("connecting");
           onStatus?.("connecting");
-          
-          // Set connection timeout (30 seconds)
-          connectionTimeoutRef.current = setTimeout(() => {
-            console.warn('⚠️ Connection timeout - call taking too long to establish');
-            setStatus("failed");
-            onStatus?.("failed");
-          }, 30000);
           
           // Ensure we have local media
           if (!localStreamRef.current) {
@@ -532,4 +501,3 @@ export function useFixedWebRTCCall({
     shareScreen,
   };
 }
-

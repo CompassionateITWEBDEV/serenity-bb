@@ -5,22 +5,22 @@ import type { Metadata } from "next";
 import { Header } from "@/components/header";
 import { HeroSection } from "@/components/hero-section";
 import { Footer } from "@/components/footer";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"; // optional pretty links
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
   "https://serenity-b9.onrender.com";
 
 export const metadata: Metadata = {
-  title: "Serenity Rehabilitation Center – Rehab & Recovery in Detroit, MI",
+  title: "Serenity Rehabilitation Center – Rehab & Recovery in Detroit, MI",    
   description:
     "Evidence-based rehabilitation in Detroit. Confidential assessments, licensed clinicians, and personalized recovery plans.",
   alternates: { canonical: SITE_URL },
   openGraph: {
     url: SITE_URL,
-    title: "Serenity Rehabilitation Center – Rehab & Recovery in Detroit, MI",
+    title: "Serenity Rehabilitation Center – Rehab & Recovery in Detroit, MI",  
     description: "Compassionate, evidence-based rehabilitation with licensed clinicians.",
-    images: [{ url: `${SITE_URL}/og-image.jpg`, width: 1200, height: 630 }],
+    images: [{ url: `${SITE_URL}/og-image.jpg`, width: 1200, height: 630 }],    
   },
   twitter: {
     card: "summary_large_image",
@@ -51,51 +51,61 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen">
-      <Script id="org-ld" type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(orgLd) }} />
-
+      <Script id="org-ld" type="application/ld+json" dangerouslySetInnerHTML={{ 
+        __html: JSON.stringify(orgLd) }} />
+      
       <Header />
       <HeroSection />
-
-      {/* Explore site sections (links to existing pages) */}
+      
+      {/* Services Section */}
       <section className="py-16 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid gap-6 md:grid-cols-3">
-            <Link href="/services" className="block">
-              <Card className="h-full hover:shadow-lg transition">
-                <CardHeader>
-                  <CardTitle>Our Treatment Services</CardTitle>
-                </CardHeader>
-                <CardContent className="text-gray-600">
-                  Evidence-based programs and 24/7 support tailored to your recovery.
-                </CardContent>
-              </Card>
-            </Link>
-
-            <Link href="/about" className="block">
-              <Card className="h-full hover:shadow-lg transition">
-                <CardHeader>
-                  <CardTitle>About Serenity</CardTitle>
-                </CardHeader>
-                <CardContent className="text-gray-600">
-                  Mission, values, and the team behind our compassionate care.
-                </CardContent>
-              </Card>
-            </Link>
-
-            <Link href="/contact" className="block">
-              <Card className="h-full hover:shadow-lg transition">
-                <CardHeader>
-                  <CardTitle>Contact & Visit</CardTitle>
-                </CardHeader>
-                <CardContent className="text-gray-600">
-                  Reach our coordinators and find directions to our clinic.
-                </CardContent>
-              </Card>
-            </Link>
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">
+              Our Services
+            </h2>
+            <p className="text-gray-600 max-w-2xl mx-auto">
+              Comprehensive rehabilitation services designed to support your recovery journey
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Individual Counseling</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-gray-600">
+                  One-on-one sessions with licensed clinicians to address personal challenges and develop coping strategies.
+                </p>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle>Group Therapy</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-gray-600">
+                  Supportive group sessions that foster connection and shared learning experiences.
+                </p>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle>Family Support</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-gray-600">
+                  Comprehensive family counseling to strengthen relationships and support systems.
+                </p>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </section>
-
+      
       <Footer />
     </main>
   );

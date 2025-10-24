@@ -159,4 +159,3 @@ The stack overflow error should now be completely resolved. Your WebRTC error lo
 - All error handlers are now protected against stack overflow
 - The fix is backward compatible with existing code
 - Error information is still comprehensive and useful for debugging
-

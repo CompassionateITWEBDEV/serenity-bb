@@ -25,9 +25,11 @@ export function useConversationSSE<T = any>(
 
     const onChangeEvt = (e: MessageEvent<string>) => {
       try {
+        if (!e.data || e.data.trim() === '') return;
         const data = JSON.parse(e.data);
         if (data?.type) handlerRef.current({ type: data.type, new: data.new, old: data.old });
-      } catch {
+      } catch (error) {
+        console.warn('SSE JSON parse error:', error);
         // ignore JSON errors
       }
     };

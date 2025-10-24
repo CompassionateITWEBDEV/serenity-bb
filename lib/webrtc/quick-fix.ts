@@ -37,78 +37,25 @@ export function patchRTCPeerConnection(pc: RTCPeerConnection): RTCPeerConnection
     }
   };
 
-  // Override createOffer - handle both overloads
-  pc.createOffer = function(
-    optionsOrSuccessCallback?: RTCOfferOptions | RTCSessionDescriptionCallback,
-    failureCallback?: RTCPeerConnectionErrorCallback,
-    options2?: RTCOfferOptions
-  ): Promise<RTCSessionDescriptionInit> {
-    // Support both Promise-based and legacy callback-based usage
-    // Legacy: createOffer(successCallback, failureCallback, options)
-    if (typeof optionsOrSuccessCallback === 'function') {
-      // legacy callback style - return a promise that resolves to void
-      const successCallback = optionsOrSuccessCallback as RTCSessionDescriptionCallback;
-      const opts = options2 as RTCOfferOptions | undefined;
-      return new Promise<RTCSessionDescriptionInit>((resolve, reject) => {
-        (async () => {
-          try {
-            const offer = await createFixedOffer(pc, opts || {});
-            successCallback(offer);
-            resolve(offer);
-          } catch (error) {
-            if (failureCallback) failureCallback(error as DOMException);
-            reject(error);
-          }
-        })();
-      });
-    } else {
-      // promise style
-      const opts = optionsOrSuccessCallback as RTCOfferOptions | undefined;
-      return (async () => {
-        try {
-          return await createFixedOffer(pc, opts || {});
-        } catch (error) {
-          console.error('Fixed createOffer failed, trying original:', error);
-          return await originalCreateOffer(opts);
-        }
-      })();
+  // Override createOffer
+  pc.createOffer = async function(options?: RTCOfferOptions) {
+    try {
+      return await createFixedOffer(pc, options || {});
+    } catch (error) {
+      console.error('Fixed createOffer failed, trying original:', error);
+      return await originalCreateOffer(options);
     }
-  } as any;
+  };
 
-  // Override createAnswer - handle both overloads
-  pc.createAnswer = function(
-    optionsOrSuccessCallback?: RTCAnswerOptions | RTCSessionDescriptionCallback,
-    failureCallback?: RTCPeerConnectionErrorCallback
-  ): Promise<RTCSessionDescriptionInit> {
-    // Support both Promise-based and legacy callback-based usage
-    if (typeof optionsOrSuccessCallback === 'function') {
-      // legacy callback style
-      const successCallback = optionsOrSuccessCallback as RTCSessionDescriptionCallback;
-      return new Promise<RTCSessionDescriptionInit>((resolve, reject) => {
-        (async () => {
-          try {
-            const answer = await createFixedAnswer(pc, undefined);
-            successCallback(answer);
-            resolve(answer);
-          } catch (error) {
-            if (failureCallback) failureCallback(error as DOMException);
-            reject(error);
-          }
-        })();
-      });
-    } else {
-      // promise style
-      const opts = optionsOrSuccessCallback as RTCAnswerOptions | undefined;
-      return (async () => {
-        try {
-          return await createFixedAnswer(pc, opts);
-        } catch (error) {
-          console.error('Fixed createAnswer failed, trying original:', error);
-          return await originalCreateAnswer(opts);
-        }
-      })();
+  // Override createAnswer
+  pc.createAnswer = async function(options?: RTCAnswerOptions) {
+    try {
+      return await createFixedAnswer(pc, options);
+    } catch (error) {
+      console.error('Fixed createAnswer failed, trying original:', error);
+      return await originalCreateAnswer(options);
     }
-  } as any;
+  };
 
   return pc;
 }
@@ -144,4 +91,3 @@ export function enableGlobalWebRTCFix(): void {
 
   console.log('🔧 Global WebRTC SDP fix enabled');
 }
-

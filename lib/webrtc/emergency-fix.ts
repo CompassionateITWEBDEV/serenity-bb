@@ -40,14 +40,13 @@ export async function safeSetLocalDescription(
   pc: RTCPeerConnection,
   description: RTCSessionDescriptionInit
 ): Promise<void> {
-  // Fix SDP before setting - declare outside try block for catch block access
-  const fixedSdp = fixSDP(description.sdp || '');
-  
   try {
     console.log('🔧 Setting local description with fixed SDP');
     console.log('📊 Original SDP length:', description.sdp?.length || 0);
     console.log('📊 Description type:', description.type);
     
+    // Fix SDP before setting
+    const fixedSdp = fixSDP(description.sdp || '');
     console.log('📊 Fixed SDP length:', fixedSdp.length);
     
     // Validate SDP structure
@@ -84,7 +83,14 @@ export async function safeSetLocalDescription(
     console.error('❌ Error setting local description:', error);
     console.error('📊 Peer connection state:', pc.signalingState);
     console.error('📊 Description type:', description.type);
-    console.error('📊 SDP length:', description.sdp?.length || 0);
+    
+    // Safe SDP length logging
+    try {
+      const sdpLength = description.sdp?.length || 0;
+      console.error('📊 SDP length:', sdpLength);
+    } catch (logError) {
+      console.error('📊 SDP length: [Error logging SDP length]');
+    }
     
     // Safe SDP logging - only log first 200 chars to prevent stack overflow
     try {
@@ -95,7 +101,7 @@ export async function safeSetLocalDescription(
     }
     
     try {
-      const fixedSdpPreview = fixedSdp?.substring(0, 200) || 'No Fixed SDP';
+      const fixedSdpPreview = 'Fixed SDP not available in error handler';
       console.error('📊 Fixed SDP preview:', fixedSdpPreview);
     } catch (logError) {
       console.error('📊 Fixed SDP preview: [Error logging Fixed SDP]');

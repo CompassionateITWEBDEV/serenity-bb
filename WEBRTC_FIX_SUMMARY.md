@@ -123,4 +123,3 @@ After this fix:
 The `InvalidModificationError` should now be completely resolved. Your WebRTC video and audio calls should work smoothly without any SDP-related errors.
 
 **Test it now by starting a call between two users!** 🚀
-
