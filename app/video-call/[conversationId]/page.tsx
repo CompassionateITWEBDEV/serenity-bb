@@ -107,15 +107,39 @@ function VideoTile({
       video.load();
     }
     
-    // Periodic check for video stream detection (fallback)
+    // Enhanced periodic check for video stream detection (fallback)
     const checkVideoStream = () => {
-      if (video.srcObject && video.readyState >= 2) {
+      const hasSrcObject = !!video.srcObject;
+      const hasVideoTracks = video.srcObject && (video.srcObject as MediaStream).getVideoTracks().length > 0;
+      const isReady = video.readyState >= 2;
+      const hasDimensions = video.videoWidth > 0 && video.videoHeight > 0;
+      
+      console.log(`🔍 Checking stream for ${label}:`, {
+        hasSrcObject,
+        hasVideoTracks,
+        isReady,
+        hasDimensions,
+        readyState: video.readyState,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        currentHasVideoStream: hasVideoStream
+      });
+      
+      if (hasSrcObject && hasVideoTracks && (isReady || hasDimensions) && !hasVideoStream) {
+        console.log(`✅ Stream detected for ${label}:`, {
+          srcObject: !!video.srcObject,
+          readyState: video.readyState,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight
+        });
         setShowVideo(true);
         setHasVideoStream(true);
       }
     };
     
-    const checkInterval = setInterval(checkVideoStream, 1000);
+    // Check immediately and then periodically
+    checkVideoStream();
+    const checkInterval = setInterval(checkVideoStream, 500);
     
     return () => {
       video.removeEventListener('loadstart', handleLoadStart);
@@ -332,6 +356,25 @@ export default function VideoCallPage() {
       if (pc.connectionState === "connected") {
         setConnectionEstablished(true);
         setStatus("connected");
+        console.log("✅ Peer connection established - video should be working now");
+        
+        // Force video elements to refresh when connected
+        setTimeout(() => {
+          if (localVideoRef.current && localStreamRef.current) {
+            console.log("🔄 Refreshing local video on connection");
+            const video = localVideoRef.current;
+            video.srcObject = localStreamRef.current;
+            video.load();
+            video.play().catch(console.warn);
+          }
+          if (remoteVideoRef.current && remoteStreamRef.current) {
+            console.log("🔄 Refreshing remote video on connection");
+            const video = remoteVideoRef.current;
+            video.srcObject = remoteStreamRef.current;
+            video.load();
+            video.play().catch(console.warn);
+          }
+        }, 1000);
       } else if (pc.connectionState === "failed") {
         console.warn("❌ Connection failed");
         setStatus("failed");
@@ -352,10 +395,25 @@ export default function VideoCallPage() {
         setConnectionEstablished(true);
         setPeerConnected(true);
         setStatus("connected");
+        console.log("✅ ICE connection established - peer-to-peer video should work now");
+        
+        // Additional video refresh for ICE connection
+        setTimeout(() => {
+          if (remoteVideoRef.current && remoteStreamRef.current) {
+            console.log("🔄 ICE connected - refreshing remote video");
+            const video = remoteVideoRef.current;
+            video.srcObject = remoteStreamRef.current;
+            video.load();
+            video.play().catch(console.warn);
+          }
+        }, 500);
       } else if (pc.iceConnectionState === "failed") {
         console.warn("❌ ICE connection failed");
         setStatus("failed");
         setMediaError("Connection failed. Please check your internet connection.");
+      } else if (pc.iceConnectionState === "checking") {
+        console.log("🔄 ICE connection checking - establishing peer connection...");
+        setStatus("connecting");
       }
     };
 
@@ -365,6 +423,7 @@ export default function VideoCallPage() {
       
       if (!remoteStreamRef.current) {
         remoteStreamRef.current = new MediaStream();
+        console.log('🆕 Created new remote stream');
       }
       
       // Remove existing tracks of the same kind
@@ -375,15 +434,39 @@ export default function VideoCallPage() {
       });
       
       remoteStreamRef.current.addTrack(event.track);
+      console.log(`✅ Added ${event.track.kind} track to remote stream. Total tracks:`, {
+        audio: remoteStreamRef.current.getAudioTracks().length,
+        video: remoteStreamRef.current.getVideoTracks().length
+      });
       
-      // Setup remote video
+      // Setup remote video immediately when track is received
       if (event.track.kind === 'video' && remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteStreamRef.current;
+        console.log('🎥 Setting up remote video immediately on track received');
+        const video = remoteVideoRef.current;
+        video.srcObject = remoteStreamRef.current;
+        video.muted = false; // Ensure remote video is not muted
+        video.volume = 1.0;
+        video.playsInline = true;
+        video.autoplay = true;
+        video.controls = false;
+        
+        // Force video to load and play
+        video.load();
+        video.play().catch(console.warn);
+        
+        console.log('✅ Remote video element configured and playing');
       }
       
       // Setup remote audio
       if (event.track.kind === 'audio' && remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = remoteStreamRef.current;
+        const audio = remoteAudioRef.current;
+        audio.srcObject = remoteStreamRef.current;
+        audio.muted = false;
+        audio.volume = 1.0;
+        audio.autoplay = true;
+        audio.controls = false;
+        
+        console.log('🔊 Remote audio element configured');
       }
       
       console.log("🔄 Remote track received, validating connection...");
@@ -418,7 +501,18 @@ export default function VideoCallPage() {
       localStreamRef.current = stream;
       
       if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
+        const video = localVideoRef.current;
+        video.srcObject = stream;
+        video.muted = true; // Mute local video to prevent echo
+        video.playsInline = true;
+        video.autoplay = true;
+        video.controls = false;
+        
+        // Force video to load and play
+        video.load();
+        video.play().catch(console.warn);
+        
+        console.log('✅ Local video element configured and playing');
       }
 
       // Create peer connection
@@ -464,7 +558,18 @@ export default function VideoCallPage() {
       localStreamRef.current = stream;
       
       if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
+        const video = localVideoRef.current;
+        video.srcObject = stream;
+        video.muted = true; // Mute local video to prevent echo
+        video.playsInline = true;
+        video.autoplay = true;
+        video.controls = false;
+        
+        // Force video to load and play
+        video.load();
+        video.play().catch(console.warn);
+        
+        console.log('✅ Local video element configured and playing');
       }
 
       // Create peer connection
