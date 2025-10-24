@@ -343,31 +343,22 @@ function ChatBoxInner(props: {
   }, [ensureConversation]);
 
   // initial load
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!conversationId || !me) return;
-    
-    const loadMessages = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("messages")
-          .select("*")
-          .eq("conversation_id", conversationId)
-          .order("created_at", { ascending: true });
-        
-        if (error) {
-          console.error("Error loading messages:", error);
-          return;
-        }
-        
-        setMsgs((data as MessageRow[]) ?? []);
-        scrollToBottom(false);
-        await markReadHelper(conversationId, me.role);
-      } catch (err) {
-        console.error("Error in loadMessages:", err);
+    (async () => {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true });
+      if (error) {
+        console.error(error);
+        return;
       }
-    };
-
-    loadMessages();
+      setMsgs((data as MessageRow[]) ?? []);
+      scrollToBottom(false);
+      await markReadHelper(conversationId, me.role);
+    })();
   }, [conversationId, me, scrollToBottom]);
 
   // live updates + typing
@@ -716,7 +707,7 @@ function ChatBoxInner(props: {
     return !!t && t !== "(image)" && t !== "(photo)" && t !== "(voice note)";
   }
   function extractImageUrlFromContent(content?: string | null) {
-    if (!content || content.trim() === '') return null;
+    if (!content) return null;
     try {
       const maybe = JSON.parse(content);
       if (

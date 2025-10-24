@@ -8,11 +8,6 @@ import "./globals.css"
 import Analytics from "./analytics"
 import { OrganizationStructuredData } from "@/components/seo/StructuredData"
 import GoogleAnalytics from "@/components/seo/GoogleAnalytics"
-import { ErrorBoundary } from "@/components/ErrorBoundary"
-import AuthErrorBoundary from "@/components/AuthErrorBoundary"
-import ClientErrorHandler from "@/components/ClientErrorHandler"
-import EnvironmentCheck from "@/components/EnvironmentCheck"
-import AuthDebugPanel from "@/components/AuthDebugPanel"
 
 const SITE_URL = "https://src.health"
 const ORG_NAME = "Serenity Rehabilitation Center"
@@ -21,13 +16,7 @@ const OG_IMAGE = "/og-image.jpg"
 const playfair = Playfair_Display({ subsets: ["latin"], display: "swap", variable: "--font-playfair" })
 const sourceSans = Source_Sans_Pro({ subsets: ["latin"], weight: ["400", "600"], display: "swap", variable: "--font-source-sans" })
 
-export const viewport: Viewport = { 
-  themeColor: "#0ea5e9", 
-  width: "device-width", 
-  initialScale: 1,
-  // Cookie configuration for Cloudflare
-  colorScheme: "light dark"
-}
+export const viewport: Viewport = { themeColor: "#0ea5e9", width: "device-width", initialScale: 1 }
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -115,19 +104,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Google Analytics Page Tracking */}
         {GA_ID && <GoogleAnalytics gaId={GA_ID} />}
 
-        <ErrorBoundary>
-          <AuthErrorBoundary>
-            <ClientErrorHandler />
-            {children}
-          </AuthErrorBoundary>
-        </ErrorBoundary>
-        
-        <EnvironmentCheck />
-        
-        {/* Debug panel - only show in development */}
-        {process.env.NODE_ENV === 'development' && (
-          <AuthDebugPanel show={true} />
-        )}
+        {children}
       </body>
     </html>
   )

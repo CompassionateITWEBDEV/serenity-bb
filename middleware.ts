@@ -10,15 +10,6 @@ export async function middleware(req: NextRequest) {
   // Always create a response we can mutate (so refreshed cookies are set)
   const res = NextResponse.next();
 
-  // Handle Cloudflare cookies properly
-  res.headers.set('X-Frame-Options', 'DENY');
-  res.headers.set('X-Content-Type-Options', 'nosniff');
-  res.headers.set('Referrer-Policy', 'origin-when-cross-origin');
-  
-  // Set proper domain for cookies
-  const domain = process.env.NODE_ENV === 'production' ? '.src.health' : 'localhost';
-  res.headers.set('Set-Cookie', `__cf_bm=; Domain=${domain}; Path=/; HttpOnly; Secure; SameSite=Lax`);
-
   // ⚠️ DO NOT skip /api — API needs refreshed auth cookies
   // Skip only static assets and Next internals
   const isStatic =
@@ -55,36 +46,7 @@ export async function middleware(req: NextRequest) {
       },
     }
   );
-  
-  // Safely get session with error handling
-  try {
-    await supabase.auth.getSession();
-  } catch (error: any) {
-    // If it's an auth error, clear cookies and continue
-    const errorMessage = error?.message || error?.toString() || '';
-    if (/invalid\s+refresh\s+token|refresh\s+token\s+not\s+found|not\s+found/i.test(errorMessage)) {
-      console.warn('⚠️ Auth error in middleware, clearing session:', errorMessage);
-      // Clear auth cookies
-      res.cookies.set({
-        name: 'sb-app-auth-token',
-        value: '',
-        expires: new Date(0),
-        path: '/',
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax'
-      });
-      res.cookies.set({
-        name: 'sb-app-auth-refresh-token',
-        value: '',
-        expires: new Date(0),
-        path: '/',
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax'
-      });
-    }
-  }
+  await supabase.auth.getSession();
 
   // Public pages (no SSR hard-block; we may redirect if user already authed)
   const PUBLIC = new Set<string>([
@@ -110,36 +72,7 @@ export async function middleware(req: NextRequest) {
 
   if (PUBLIC.has(pathname)) {
     try {
-      const { data: authData, error } = await supabase.auth.getUser();
-      
-      // Handle auth errors gracefully
-      if (error) {
-        const errorMessage = error.message || error.toString();
-        if (/invalid\s+refresh\s+token|refresh\s+token\s+not\s+found|not\s+found/i.test(errorMessage)) {
-          console.warn('⚠️ Auth error in public page check:', errorMessage);
-          // Clear cookies and continue
-          res.cookies.set({
-            name: 'sb-app-auth-token',
-            value: '',
-            expires: new Date(0),
-            path: '/',
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax'
-          });
-          res.cookies.set({
-            name: 'sb-app-auth-refresh-token',
-            value: '',
-            expires: new Date(0),
-            path: '/',
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax'
-          });
-          return res;
-        }
-      }
-      
+      const { data: authData } = await supabase.auth.getUser();
       const user = authData?.user;
       if (!user) return res;
 
@@ -169,31 +102,7 @@ export async function middleware(req: NextRequest) {
         if (role === "patient") return NextResponse.redirect(new URL("/patient/dashboard", origin));
         return res;
       }
-    } catch (error: any) {
-      // Handle auth errors in catch block too
-      const errorMessage = error?.message || error?.toString() || '';
-      if (/invalid\s+refresh\s+token|refresh\s+token\s+not\s+found|not\s+found/i.test(errorMessage)) {
-        console.warn('⚠️ Auth error in public page catch:', errorMessage);
-        // Clear cookies and continue
-        res.cookies.set({
-          name: 'sb-app-auth-token',
-          value: '',
-          expires: new Date(0),
-          path: '/',
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax'
-        });
-        res.cookies.set({
-          name: 'sb-app-auth-refresh-token',
-          value: '',
-          expires: new Date(0),
-          path: '/',
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax'
-        });
-      }
+    } catch {
       // Fail-open for public pages
       return res;
     }
