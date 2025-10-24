@@ -21,14 +21,11 @@ import {
   Maximize2,
   Minimize2,
   Users,
+  Volume2,
   VolumeX,
   MoreVertical,
   ArrowLeft,
 } from "lucide-react";
-import DeviceStatusIndicator from "@/components/accessibility/DeviceStatusIndicator";
-import AccessibilityHelp from "@/components/accessibility/AccessibilityHelp";
-import AudioCallInterface from "@/components/call/AudioCallInterface";
-import CallModeSelector from "@/components/call/CallModeSelector";
 
 /**
  * Optional TURN/STUN via env:
@@ -136,6 +133,7 @@ function VideoTile({
 
   return (
     <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-gray-900 shadow-2xl">
+      {showVideo && hasVideoStream ? (
       <video
         ref={videoRef}
         autoPlay
@@ -147,26 +145,9 @@ function VideoTile({
           backgroundColor: '#000',
           transform: mirrored ? 'scaleX(-1)' : 'none'
         }}
-        onLoadedMetadata={() => {
-          console.log(`✅ Video metadata loaded for ${label}`);
-          setShowVideo(true);
-          setHasVideoStream(true);
-        }}
-        onError={(e) => {
-          console.error(`❌ Video error for ${label}:`, e);
-          setShowVideo(false);
-          setHasVideoStream(false);
-        }}
-        onPlay={() => {
-          console.log(`▶️ Video playing for ${label}`);
-          setShowVideo(true);
-          setHasVideoStream(true);
-        }}
       />
-      
-      {/* Always show overlay for debugging */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        {!showVideo && (
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
           <div className="text-center">
             <Avatar className="mx-auto h-20 w-20 mb-4">
               <AvatarImage src={avatarUrl} />
@@ -176,7 +157,7 @@ function VideoTile({
             </Avatar>
             <p className="text-white text-sm font-medium">{name || label}</p>
             {!isConnected && (
-              <p className="text-gray-400 text-xs mt-1">Connecting media...</p>
+              <p className="text-gray-400 text-xs mt-1">Connecting...</p>
             )}
             {isConnected && !hasVideoStream && (
               <p className="text-yellow-400 text-xs mt-1">Waiting for video...</p>
@@ -184,9 +165,9 @@ function VideoTile({
             {isConnected && hasVideoStream && !showVideo && (
               <p className="text-orange-400 text-xs mt-1">Video loading...</p>
             )}
+          </div>
         </div>
       )}
-      </div>
       
       <div className="absolute bottom-3 left-3 flex items-center gap-2">
         <div className="rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur">
@@ -335,10 +316,6 @@ export default function CallRoomPage() {
   const [hasVideo, setHasVideo] = useState<boolean | null>(null);
   const [isFallbackStream, setIsFallbackStream] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
-  const [showModeSelector, setShowModeSelector] = useState(false);
-  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
-  const [isCheckingDevices, setIsCheckingDevices] = useState(false);
-  const [connectionTimeout, setConnectionTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -419,12 +396,10 @@ export default function CallRoomPage() {
   useEffect(() => {
     let alive = true;
     (async () => {
-      try {
       const { data: session } = await supabase.auth.getSession();
       if (!alive) return;
       if (session.session?.user) {
         const user = session.session.user;
-          try {
         const userRole = await determineUserRole(user.id);
         setMe({ 
           id: user.id, 
@@ -434,22 +409,9 @@ export default function CallRoomPage() {
         });
         setAuthChecked(true);
         return;
-          } catch (roleError) {
-            console.error('Error determining user role:', roleError);
-            // Fallback to patient role
-            setMe({ 
-              id: user.id, 
-              email: user.email,
-              name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-              role: 'patient'
-        });
-        setAuthChecked(true);
-        return;
-          }
       }
       const { data: user } = await supabase.auth.getUser();
       if (user.user) {
-          try {
         const userRole = await determineUserRole(user.user.id);
         setMe({ 
           id: user.user.id, 
@@ -459,23 +421,10 @@ export default function CallRoomPage() {
         });
         setAuthChecked(true);
         return;
-          } catch (roleError) {
-            console.error('Error determining user role:', roleError);
-            // Fallback to patient role
-            setMe({ 
-              id: user.user.id, 
-              email: user.user.email,
-              name: user.user.user_metadata?.name || user.user.email?.split('@')[0] || 'User',
-              role: 'patient'
-        });
-        setAuthChecked(true);
-        return;
-          }
       }
       const { data: refreshed } = await supabase.auth.refreshSession();
       if (refreshed.session?.user) {
         const user = refreshed.session.user;
-          try {
         const userRole = await determineUserRole(user.id);
         setMe({ 
           id: user.id, 
@@ -484,25 +433,8 @@ export default function CallRoomPage() {
           role: userRole
         });
         setAuthChecked(true);
-          } catch (roleError) {
-            console.error('Error determining user role:', roleError);
-            // Fallback to patient role
-            setMe({ 
-              id: user.id, 
-              email: user.email,
-              name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
-              role: 'patient'
-            });
-            setAuthChecked(true);
-          }
       } else {
         // Keep next so user returns straight to the call if they log in
-          const next = encodeURIComponent(location.pathname + location.search);
-          router.replace(`/login?next=${next}`);
-        }
-      } catch (error) {
-        console.error('Authentication error:', error);
-        // Redirect to login on any auth error
         const next = encodeURIComponent(location.pathname + location.search);
         router.replace(`/login?next=${next}`);
       }
@@ -519,349 +451,79 @@ export default function CallRoomPage() {
   }, [peerName]);
 
   // Function to ensure video elements are properly set up
-  const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream | null, isLocal: boolean) => {
-    const video = videoRef.current;
-    if (!video || !stream) {
-      console.warn(`⚠️ Cannot setup video element: videoRef=${!!video}, stream=${!!stream}`);
+  const setupVideoElement = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream, isLocal: boolean) => {
+    if (!videoRef.current || !stream) {
+      console.warn(`⚠️ Cannot setup video element: videoRef=${!!videoRef.current}, stream=${!!stream}`);
       return false;
     }
 
-    // Mobile detection
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    
+    const video = videoRef.current;
     console.log(`🎥 Setting up ${isLocal ? 'local' : 'remote'} video element:`, {
       audioTracks: stream.getAudioTracks().length,
       videoTracks: stream.getVideoTracks().length,
       streamId: stream.id,
-      videoElement: !!video,
-      isMobile,
-      isIOS
+      videoElement: !!video
     });
 
-    // Mobile-specific video element setup
-    if (isMobile) {
-      video.style.width = '100%';
-      video.style.height = '100%';
-      video.style.objectFit = 'cover';
-      video.style.backgroundColor = '#000';
-      video.style.display = 'block';
-    }
+    video.srcObject = stream;
+    video.muted = isLocal; // Local muted, remote unmuted
+    video.autoplay = true;
+    video.playsInline = true;
+    video.controls = false;
 
-    // Ensure recommended flags for autoplay (enhanced for mobile)
-    try { video.muted = isLocal || video.muted; } catch {}
-    try { video.playsInline = true; } catch {}
-    try { (video as any).webkitPlaysInline = true; } catch {}
-    try { video.autoplay = true; } catch {}
-    try { video.controls = false; } catch {}
-    
-    // Additional mobile attributes
-    if (isIOS) {
-      video.setAttribute('webkit-playsinline', 'true');
-      video.setAttribute('playsinline', 'true');
-    }
-
-    // Clear existing source to prevent conflicts
-    try { (video as any).srcObject = null; } catch {}
-    try { video.load(); } catch {}
-
-    // Set new source safely
-    try { (video as any).srcObject = stream; } catch (err) {
-      console.warn("Failed to attach MediaStream to video element:", err);
-      return false;
-    }
-
-    // Safe play with proper error handling (enhanced for mobile)
-    const playVideo = async () => {
-      try {
-        console.log(`🎬 Attempting to play ${isLocal ? 'local' : 'remote'} video:`, {
-          readyState: video.readyState,
-          paused: video.paused,
-          srcObject: !!video.srcObject,
-          videoWidth: video.videoWidth,
-          videoHeight: video.videoHeight,
-          isMobile,
-          isIOS
-        });
-        
-        // Mobile-specific handling
-        if (isMobile) {
-          // For mobile, wait longer for metadata and use touch events
-          if (video.readyState < 2) {
-            console.log(`⏳ Mobile: Waiting for video metadata to load...`);
-            await new Promise((resolve) => {
-              video.addEventListener('loadedmetadata', resolve, { once: true });
-              video.addEventListener('canplay', resolve, { once: true });
-              setTimeout(resolve, 3000); // Longer timeout for mobile
-            });
-          }
-          
-          // Force video to be visible on mobile
-          video.style.opacity = '1';
-          video.style.visibility = 'visible';
-        } else {
-          // Desktop handling
-          if (video.readyState < 2) {
-            console.log(`⏳ Waiting for video metadata to load...`);
-            await new Promise((resolve) => {
-              video.addEventListener('loadedmetadata', resolve, { once: true });
-              setTimeout(resolve, 2000);
-            });
-          }
-        }
-        
-        if (video.paused) {
-          await video.play();
-          console.log(`✅ Video started playing for ${isLocal ? 'local' : 'remote'} (mobile: ${isMobile})`);
-        } else {
-          console.log(`▶️ Video already playing for ${isLocal ? 'local' : 'remote'}`);
-        }
-      } catch (err) {
-        console.warn(`Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
-        
-        // Enhanced retry logic for mobile
-        const retryDelay = isMobile ? 1000 : 500;
-        const maxRetries = isMobile ? 3 : 2;
-        
-        for (let i = 0; i < maxRetries; i++) {
-          setTimeout(async () => {
-            try {
-              // For mobile, try to trigger user interaction
-              if (isMobile && i === 0) {
-                video.load();
-                await new Promise(resolve => setTimeout(resolve, 200));
-              }
-              
-              await video.play();
-              console.log(`✅ Video started playing on retry ${i + 1} for ${isLocal ? 'local' : 'remote'}`);
-            } catch (retryErr) {
-              console.warn(`Failed to play video on retry ${i + 1}:`, retryErr);
-              if (i === maxRetries - 1) {
-                console.error(`❌ All retry attempts failed for ${isLocal ? 'local' : 'remote'} video`);
-              }
-            }
-          }, retryDelay * (i + 1));
-        }
-      }
-    };
-
-    // Immediate setup and delayed play
-    try { video.load(); } catch {}
-    void playVideo();
-    
-    // Additional retry after delay
-    setTimeout(() => {
-      try { video.load(); } catch {}
-      void playVideo();
-    }, 500);
+    // Force play
+    video.play().then(() => {
+      console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing`);
+    }).catch(err => {
+      console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
+    });
 
     return true;
   }, []);
 
-  // Function to setup video element with retry
-  const setupVideoElementWithRetry = useCallback((videoRef: React.RefObject<HTMLVideoElement | null>, stream: MediaStream | null, isLocal: boolean, maxRetries = 10, delayMs = 150) => {
-    let retries = 0;
-    
-    const trySetup = () => {
-      const ok = setupVideoElement(videoRef, stream, isLocal);
-      if (ok) return true;
-      if (retries >= maxRetries) {
-        // Use warn instead of error to avoid Next.js intercepting as unhandled error
-        console.warn(`❌ Failed to setup video element after ${maxRetries} retries`);
-        return false;
-      }
-        retries++;
-        console.log(`🔄 Retrying video setup (${retries}/${maxRetries})...`);
-      setTimeout(trySetup, delayMs);
-        return false;
-    };
-    
-    return trySetup();
-  }, [setupVideoElement]);
-
   // Ensure video elements are updated when streams change
   useEffect(() => {
-    (async () => {
-      if (!localStreamRef.current) return;
-      const el = await waitForRef(localVideoRef);
-      if (!el) return;
+    if (localStreamRef.current) {
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-    })();
+    }
   }, [localStreamRef.current, setupVideoElement]);
 
   useEffect(() => {
-    (async () => {
-      if (!remoteStreamRef.current) return;
-      const el = await waitForRef(remoteVideoRef);
-      if (!el) return;
+    if (remoteStreamRef.current) {
       setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-    })();
+    }
   }, [remoteStreamRef.current, setupVideoElement]);
 
-  // Simple video display when connected
+  // Initialize video elements and check permissions
   useEffect(() => {
-    (async () => {
-      if (!(status === "connected" && remoteStreamRef.current)) return;
-      const el = await waitForRef(remoteVideoRef);
-      if (!el) return;
-      console.log('🎯 Connection established - setting up remote video...');
-      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-    })();
-  }, [status, setupVideoElement]);
-
-  // Debug status changes and force UI updates
-  useEffect(() => {
-    console.log('📞 Status changed to:', status);
-    
-    // Force UI update when status changes to connected
-    if (status === "connected") {
-      console.log('🔄 Call connected - refreshing video elements');
-      // Force re-render of video elements
-      if (localVideoRef.current && localStreamRef.current) {
-        console.log('🎥 Setting up local video on connect');
-        setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-      }
-      if (remoteVideoRef.current && remoteStreamRef.current) {
-        console.log('🎥 Setting up remote video on connect');
-        setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-      }
+    if (authChecked && me?.id) {
+      console.log('🚀 Initializing call component...');
       
-      // Additional refresh after a short delay to ensure video elements are ready
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Delayed local video setup');
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          console.log('🔄 Delayed remote video setup');
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      }, 1000);
-      
-      // Force video refresh to fix black screen issues
-      setTimeout(() => {
-        console.log('🔄 Force refreshing video elements to fix black screen');
-        if (localVideoRef.current && localStreamRef.current) {
-          const video = localVideoRef.current;
-          video.srcObject = null;
-          video.load();
-          setTimeout(() => {
-            video.srcObject = localStreamRef.current;
-            video.play().catch(console.warn);
-          }, 100);
-        }
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-          const video = remoteVideoRef.current;
-          video.srcObject = null;
-          video.load();
-          setTimeout(() => {
-            video.srcObject = remoteStreamRef.current;
-            video.play().catch(console.warn);
-          }, 100);
-        }
-      }, 2000);
-    }
-  }, [status, setupVideoElement]);
-
-  // Ensure local video is displayed for both caller and callee (like patient code)
-  useEffect(() => {
-    if (localStreamRef.current && localVideoRef.current) {
-      console.log('🎯 Setting up local video for both caller and callee...');
-      setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-      
-      // Single retry attempt to avoid AbortError
-      setTimeout(() => {
-        if (localVideoRef.current && localStreamRef.current) {
-          console.log('🔄 Single retry for local video (1000ms)');
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-      }, 1000);
-    }
-  }, [localStreamRef.current, setupVideoElement]);
-
-  // Comprehensive video call initialization
-  useEffect(() => {
-    if (!authChecked || !me?.id) return;
-    
-    console.log('🚀 Initializing comprehensive video call system...', {
-      role,
-      mode,
-      conversationId,
-      peerUserId
-    });
-    
-    // Initialize video elements immediately
-    const initVideoElements = () => {
-      const localEl = localVideoRef.current;
-      const remoteEl = remoteVideoRef.current;
-      
-      if (localEl) {
-        console.log('✅ Local video element initialized');
-        localEl.muted = true;
-        localEl.playsInline = true;
-        localEl.autoplay = true;
-        localEl.controls = false;
-        // Ensure video element is ready
-        localEl.addEventListener('loadedmetadata', () => {
-          console.log('✅ Local video metadata loaded');
-        });
-      } else {
+      // Initialize video elements
+      if (localVideoRef.current) {
+        console.log('✅ Local video element found');
+        localVideoRef.current.muted = true;
+    } else {
         console.warn('⚠️ Local video element not found');
       }
       
-      if (remoteEl) {
-        console.log('✅ Remote video element initialized');
-        remoteEl.muted = false;
-        remoteEl.playsInline = true;
-        remoteEl.autoplay = true;
-        remoteEl.controls = false;
-        // Ensure video element is ready
-        remoteEl.addEventListener('loadedmetadata', () => {
-          console.log('✅ Remote video metadata loaded');
-        });
+      if (remoteVideoRef.current) {
+        console.log('✅ Remote video element found');
+        remoteVideoRef.current.muted = false;
       } else {
         console.warn('⚠️ Remote video element not found');
       }
-    };
-    
-    // Initialize immediately and retry if needed
-    initVideoElements();
-    setTimeout(initVideoElements, 100);
-    setTimeout(initVideoElements, 500);
       
       getAvailableDevices();
       
-    // Request permissions and prepare for call
-    const prepareCall = async () => {
-        try {
-        console.log('🔐 Preparing call permissions...');
-          const stream = await navigator.mediaDevices.getUserMedia({ 
-            audio: true, 
-            video: mode === "video" 
-          });
-        console.log('✅ Call permissions granted');
-        
-        // Store the stream for immediate use
-        localStreamRef.current = stream;
-        
-        // Set up local video immediately
-        const localEl = localVideoRef.current;
-        if (localEl) {
-          localEl.srcObject = stream;
-          localEl.play().catch(console.warn);
-          console.log('✅ Local video set up immediately');
-        }
-        
-        // Don't stop the stream - keep it for the call
-        } catch (error) {
-        console.warn("⚠️ Permission request failed:", error);
-        setMediaError("Camera/microphone access denied. Please allow access and refresh the page.");
-      }
-    };
-    
-    // Start preparation after a short delay
-    setTimeout(prepareCall, 1000);
-  }, [authChecked, me?.id, mode, role, conversationId, peerUserId]);
+      // Auto-start call immediately for better UX
+      console.log('🚀 Auto-starting call...');
+      console.log('📞 Call will start automatically - no permission request needed');
+      setTimeout(() => {
+        startOrPrep();
+      }, 500);
+    }
+  }, [authChecked, me?.id, mode]);
 
   // Call duration timer
   useEffect(() => {
@@ -883,94 +545,8 @@ export default function CallRoomPage() {
     };
   }, [status]);
 
-  // Mobile-specific touch event handler for video playback
-  useEffect(() => {
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    if (!isMobile) return;
-
-    const handleTouchStart = async (e: TouchEvent) => {
-      // Only handle touch events on video elements
-      const target = e.target as HTMLElement;
-      if (!target || !target.tagName || target.tagName.toLowerCase() !== 'video') return;
-
-      const video = target as HTMLVideoElement;
-      if (video.paused && video.srcObject) {
-        console.log('📱 Mobile touch detected - attempting to play video');
-        try {
-          await video.play();
-          console.log('✅ Mobile video started playing on touch');
-        } catch (err) {
-          console.warn('⚠️ Mobile video play failed on touch:', err);
-        }
-      }
-    };
-
-    // Add touch event listener
-    document.addEventListener('touchstart', handleTouchStart, { passive: true });
-    
-    return () => {
-      document.removeEventListener('touchstart', handleTouchStart);
-    };
-  }, []);
-
-  // Mobile-specific video refresh mechanism
-  const forceMobileVideoRefresh = useCallback(() => {
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    if (!isMobile) return;
-
-    console.log('📱 Mobile video refresh triggered');
-    
-    // Force refresh both video elements
-    [localVideoRef, remoteVideoRef].forEach((ref, index) => {
-      const video = ref.current;
-      if (video && video.srcObject) {
-        console.log(`📱 Refreshing ${index === 0 ? 'local' : 'remote'} video for mobile`);
-        
-        // Clear and reload
-        video.srcObject = null;
-        video.load();
-        
-        // Reattach stream after a short delay
-        setTimeout(() => {
-          if (index === 0 && localStreamRef.current) {
-            video.srcObject = localStreamRef.current;
-          } else if (index === 1 && remoteStreamRef.current) {
-            video.srcObject = remoteStreamRef.current;
-          }
-          
-          video.load();
-          video.play().catch(console.warn);
-        }, 100);
-      }
-    });
-  }, []);
-
-  // Mobile-specific periodic refresh for black screen issues
-  useEffect(() => {
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    if (!isMobile || status !== "connected") return;
-
-    console.log('📱 Starting mobile periodic refresh');
-    
-    const mobileRefreshInterval = setInterval(() => {
-      // Check for black screens on mobile
-      [localVideoRef, remoteVideoRef].forEach((ref, index) => {
-        const video = ref.current;
-        if (video && video.srcObject && (video.videoWidth === 0 || video.videoHeight === 0)) {
-          console.log(`📱 Mobile black screen detected on ${index === 0 ? 'local' : 'remote'} video - refreshing`);
-          forceMobileVideoRefresh();
-        }
-      });
-    }, 3000); // Check every 3 seconds
-
-    return () => {
-      clearInterval(mobileRefreshInterval);
-    };
-  }, [status, forceMobileVideoRefresh]);
-
   // ---------- WebRTC core ----------
   const ensurePC = useCallback(() => {
-    try {
     if (pcRef.current) return pcRef.current;
     const pc = new RTCPeerConnection({ iceServers: buildIceServers() });
 
@@ -981,70 +557,18 @@ export default function CallRoomPage() {
     };
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState;
-      console.log(`🔗 PeerConnection state changed: ${s}`);
       if (s === "connected") {
         setStatus("connected");
         callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+        // Start audio level monitoring when connected
         startAudioLevelMonitoring();
-        // Ensure video elements are set when fully connected
-        if (localStreamRef.current) {
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-        }
-        if (remoteStreamRef.current) {
-          setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-          setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-        }
-      } else if (s === "failed" || s === "closed") {
+      }
+      if (s === "failed" || s === "disconnected" || s === "closed") {
         setStatus("ended");
         callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
+        // Stop audio level monitoring when disconnected
         stopAudioLevelMonitoring();
-      } else if (s === "disconnected") {
-        console.warn("⚠️ PeerConnection disconnected");
       }
-    };
-
-    // Add ICE connection state monitoring
-    pc.oniceconnectionstatechange = () => {
-      const iceState = pc.iceConnectionState;
-      console.log(`🧊 ICE connection state: ${iceState}`);
-      
-      if (iceState === "connected" || iceState === "completed") {
-        console.log("✅ ICE connection established");
-          setStatus("connected");
-          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-          startAudioLevelMonitoring();
-        
-        // Ensure video elements are set up when ICE connects
-        if (localStreamRef.current) {
-          (async () => {
-            const el = await waitForRef(localVideoRef);
-            if (el) setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-          })();
-        }
-        if (remoteStreamRef.current) {
-          (async () => {
-            const el = await waitForRef(remoteVideoRef);
-            if (el) setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
-          })();
-        }
-      } else if (iceState === "checking") {
-        // Also set connected when ICE is checking (more aggressive)
-        console.log("🔄 ICE checking - setting connected status");
-        setStatus("connected");
-        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-        startAudioLevelMonitoring();
-      } else if (iceState === "failed") {
-        console.error("❌ ICE connection failed - trying to restart ICE");
-        // Try to restart ICE gathering
-        pc.restartIce();
-      } else if (iceState === "disconnected") {
-        console.warn("⚠️ ICE disconnected");
-      }
-    };
-
-    // Add ICE gathering state monitoring
-    pc.onicegatheringstatechange = () => {
-      console.log(`🧊 ICE gathering state: ${pc.iceGatheringState}`);
     };
     pc.ontrack = (ev) => {
       console.log(`📡 Received remote ${ev.track.kind} track:`, ev.track.label);
@@ -1054,56 +578,18 @@ export default function CallRoomPage() {
         console.log('🆕 Created new remote stream');
       }
       
-      // Remove existing tracks of the same kind to avoid duplicates
-      const existingTracks = remoteStreamRef.current.getTracks().filter(t => t.kind === ev.track.kind);
-      existingTracks.forEach(track => {
-        remoteStreamRef.current!.removeTrack(track);
-        track.stop();
-      });
-      
       remoteStreamRef.current.addTrack(ev.track);
       console.log(`✅ Added ${ev.track.kind} track to remote stream. Total tracks:`, {
         audio: remoteStreamRef.current.getAudioTracks().length,
         video: remoteStreamRef.current.getVideoTracks().length
       });
       
-      // Immediate remote video setup - no delays
-      const remoteEl = remoteVideoRef.current;
-      if (remoteEl && remoteStreamRef.current) {
-        console.log('🎯 Setting up remote video immediately');
-        remoteEl.srcObject = remoteStreamRef.current;
-        remoteEl.play().catch(console.warn);
-        console.log(`✅ Remote video set up immediately with ${ev.track.kind} track`);
-        
-        // Force play if needed
-        setTimeout(() => {
-          if (remoteEl.paused) {
-            remoteEl.play().catch(console.warn);
-            console.log('🔄 Forced remote video play');
-          }
-        }, 100);
-      } else {
-        console.warn('⚠️ Remote video element or stream not ready');
-        // Retry after a short delay
-      setTimeout(() => {
-        if (remoteVideoRef.current && remoteStreamRef.current) {
-            remoteVideoRef.current.srcObject = remoteStreamRef.current;
-            remoteVideoRef.current.play().catch(console.warn);
-            console.log('✅ Remote video set up on retry');
-        }
-        }, 200);
-      }
+      // Set the video element source for remote stream using setup function
+      setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
     };
 
     pcRef.current = pc;
     return pc;
-    } catch (error) {
-      console.warn('⚠️ ensurePC error:', error);
-      // Return a dummy PC to prevent further errors
-      const dummy = new RTCPeerConnection({ iceServers: [] });
-      pcRef.current = dummy;
-      return dummy;
-    }
   }, [me?.id]);
 
   const getConstraints = useCallback((): MediaStreamConstraints => {
@@ -1122,40 +608,8 @@ export default function CallRoomPage() {
     };
   }, [mode]);
 
-  // Toggle speaker on/off
-  const toggleSpeaker = useCallback(() => {
-    setIsSpeakerOn(prev => !prev);
-    // Note: In a real implementation, you might want to control actual audio output
-    // This is a UI-only toggle for now
-  }, []);
-
-  // Handle call mode selection
-  const handleModeSelection = useCallback((selectedMode: "audio" | "video") => {
-    setShowModeSelector(false);
-    // Update the URL to reflect the selected mode
-    const newUrl = new URL(window.location.href);
-    newUrl.searchParams.set('mode', selectedMode);
-    window.history.replaceState({}, '', newUrl.toString());
-    // The component will re-render with the new mode
-  }, []);
-
-  // Show mode selector if no mode is specified or if devices are not available
-  useEffect(() => {
-    if (authChecked && me?.id && !showModeSelector) {
-      // If no mode is specified in URL, show mode selector
-      if (!qs.get("mode")) {
-        setShowModeSelector(true);
-      }
-      // If video mode is selected but no camera is available, suggest audio mode
-      else if (mode === "video" && hasVideo === false && hasAudio === true) {
-        setShowModeSelector(true);
-      }
-    }
-  }, [authChecked, me?.id, mode, hasVideo, hasAudio, qs, showModeSelector]);
-
   // Get available media devices
   const getAvailableDevices = useCallback(async () => {
-    setIsCheckingDevices(true);
     try {
       // First, try to get user media to trigger permission request
       // This often helps detect devices that weren't visible before
@@ -1185,8 +639,6 @@ export default function CallRoomPage() {
     } catch (error) {
       console.warn("Failed to enumerate devices:", error);
       return [];
-    } finally {
-      setIsCheckingDevices(false);
     }
   }, []);
 
@@ -1195,197 +647,30 @@ export default function CallRoomPage() {
     try {
       setMediaError(null);
       
-      console.log('=== GETTING MEDIA STREAM ===');
+      console.log('=== GETTING MEDIA STREAM (SIMPLIFIED) ===');
       console.log('Mode:', mode);
       
-      // First, try to get available devices
-      const devices = await getAvailableDevices();
+      // Very simple approach - just try basic getUserMedia
+      const constraints: MediaStreamConstraints = {
+        audio: true,
+        video: mode === "video"
+      };
       
-      // Check what devices are available
-      const audioAvailable = devices.some(device => device.kind === 'audioinput');
-      const videoAvailable = devices.some(device => device.kind === 'videoinput');
+      console.log('🎯 Requesting media access for call...');
+      console.log('📞 This will request camera/microphone access automatically');
       
-      // Update state for UI
-      setHasAudio(audioAvailable);
-      setHasVideo(videoAvailable);
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       
-      console.log("Available devices:", { hasAudio: audioAvailable, hasVideo: videoAvailable, mode });
-      console.log("Device list:", devices.map(d => ({ kind: d.kind, label: d.label })));
-      
-      // For video calls, always allow the call even without devices
-      if (mode === "video" && !audioAvailable && !videoAvailable) {
-        console.log("No devices available for video call, creating fallback stream");
-        const canvas = document.createElement('canvas');
-        canvas.width = 320;
-        canvas.height = 240;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(0, 0, 320, 240);
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '16px Arial';
-          ctx.textAlign = 'center';
-          ctx.fillText('No Camera', 160, 120);
-        }
-        
-        const stream = canvas.captureStream(30);
-        setIsFallbackStream(true);
-        return stream;
-      }
-      
-      // Mobile detection for optimized constraints
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-      
-      console.log('Mobile detection:', { isMobile, isIOS });
-      
-      // Build constraints based on what's available and what's needed
-      let constraints: MediaStreamConstraints = {};
-      
-      if (mode === "video") {
-        // For video calls, prioritize video, audio is optional
-        if (videoAvailable) {
-          // Mobile-optimized video constraints
-          if (isMobile) {
-            constraints.video = { 
-              width: { ideal: 640, max: 1280 },
-              height: { ideal: 480, max: 720 },
-              frameRate: { ideal: 15, max: 30 },
-              facingMode: { ideal: "user" }, // Front camera for mobile
-              aspectRatio: { ideal: 16/9 }
-            };
-          } else {
-            // Desktop video constraints
-            constraints.video = { 
-              width: { ideal: 1280, max: 1920 },
-              height: { ideal: 720, max: 1080 },
-              frameRate: { ideal: 30, max: 60 }
-            };
-          }
-        } else {
-          // No camera available, but still allow video call (audio only)
-          console.warn("No camera found, proceeding with audio-only video call");
-          constraints.video = false;
-        }
-        
-        // Audio is optional for video calls
-        if (audioAvailable) {
-          // Mobile-optimized audio constraints
-          if (isMobile) {
-            constraints.audio = { 
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-              sampleRate: 44100, // Standard mobile sample rate
-              channelCount: 1 // Mono for mobile
-            };
-          } else {
-            constraints.audio = { 
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true
-            };
-          }
-        } else {
-          console.warn("No microphone found, proceeding without audio input");
-          constraints.audio = false;
-        }
-      } else {
-        // For audio calls, try to get audio, but allow fallback if none available
-        if (audioAvailable) {
-          constraints.audio = { 
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          };
-        } else {
-          console.warn("No microphone found for audio call, creating fallback");
-          // Create a silent audio stream for audio calls without microphone
-          try {
-            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            
-            // Create a silent audio stream
-            oscillator.connect(gainNode);
-            gainNode.gain.value = 0; // Silent
-            oscillator.frequency.value = 440; // A4 note
-            oscillator.start();
-            
-            // Create a MediaStream from the audio context
-            const destination = audioContext.createMediaStreamDestination();
-            oscillator.connect(destination);
-            
-            const stream = destination.stream;
-            setIsFallbackStream(true);
-            return stream;
-          } catch (error) {
-            console.warn("Failed to create audio fallback, using video fallback instead");
-            // If audio context fails, create a video stream instead
-            const canvas = document.createElement('canvas');
-            canvas.width = 320;
-            canvas.height = 240;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.fillStyle = '#000000';
-              ctx.fillRect(0, 0, 320, 240);
-              ctx.fillStyle = '#ffffff';
-              ctx.font = '16px Arial';
-              ctx.textAlign = 'center';
-              ctx.fillText('No Microphone', 160, 120);
-            }
-            
-            const stream = canvas.captureStream(30);
-            setIsFallbackStream(true);
-            return stream;
-          }
-        }
-        
-        constraints.video = false;
-      }
-      
-      // If no devices are available at all, handle gracefully
-      if (!audioAvailable && !videoAvailable) {
-        console.warn("No audio or video devices found");
-        
-        // For video calls without any devices, we can still create a call
-        // The peer will see a black video feed or avatar
-        if (mode === "video") {
-          // Create a minimal video stream using canvas
-          const canvas = document.createElement('canvas');
-          canvas.width = 320;
-          canvas.height = 240;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(0, 0, 320, 240);
-            ctx.fillStyle = '#ffffff';
-            ctx.font = '16px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('No Camera', 160, 120);
-          }
-          
-          const stream = canvas.captureStream(30); // 30 FPS
-          setIsFallbackStream(true);
-          return stream;
-        } else {
-          // For audio calls, we need at least some audio capability
-          throw new Error("No microphone found. Audio calls require a microphone. Please connect a microphone or switch to video call.");
-        }
-      }
-      
-      // Try the main constraints first
-      try {
-        console.log('🎯 Trying main constraints:', constraints);
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        console.log('✅ Media stream acquired with main constraints:', {
+      console.log('✅ Media stream acquired successfully:', {
         audioTracks: stream.getAudioTracks().length,
         videoTracks: stream.getVideoTracks().length,
-          audioTrackLabels: stream.getAudioTracks().map(t => t.label),
-          videoTrackLabels: stream.getVideoTracks().map(t => t.label),
         streamId: stream.id,
         active: stream.active
       });
+      
+      // Update device availability state
+      setHasAudio(stream.getAudioTracks().length > 0);
+      setHasVideo(stream.getVideoTracks().length > 0);
       
       // Ensure all tracks are enabled
       stream.getAudioTracks().forEach(track => {
@@ -1398,98 +683,20 @@ export default function CallRoomPage() {
       });
       
       return stream;
-      } catch (error: any) {
-        console.warn("❌ Main constraints failed, trying basic constraints:", error);
-        
-        // Try with basic constraints
-        const basicConstraints: MediaStreamConstraints = {};
-        if (mode === "video") {
-          basicConstraints.video = true;
-          basicConstraints.audio = true;
-        } else {
-          basicConstraints.audio = true;
-          basicConstraints.video = false;
-        }
-        
-        try {
-          console.log('🎯 Trying basic constraints:', basicConstraints);
-          const basicStream = await navigator.mediaDevices.getUserMedia(basicConstraints);
-          console.log('✅ Media stream acquired with basic constraints:', {
-            audioTracks: basicStream.getAudioTracks().length,
-            videoTracks: basicStream.getVideoTracks().length,
-            streamId: basicStream.id,
-            active: basicStream.active
-          });
-          
-          // Ensure all tracks are enabled
-          basicStream.getAudioTracks().forEach(track => {
-            track.enabled = true;
-            console.log(`🔊 Audio track enabled: ${track.label}`);
-          });
-          basicStream.getVideoTracks().forEach(track => {
-            track.enabled = true;
-            console.log(`📹 Video track enabled: ${track.label}`);
-          });
-          
-          return basicStream;
-        } catch (basicError: any) {
-          console.warn("❌ Basic constraints also failed:", basicError);
-
-          // Targeted retry for localhost: iterate devices and try explicit deviceId
-          try {
-            const all = await navigator.mediaDevices.enumerateDevices();
-            const cams = all.filter((d) => d.kind === "videoinput");
-            const mics = all.filter((d) => d.kind === "audioinput");
-
-            for (const cam of cams) {
-              const deviceConstraints: MediaStreamConstraints = {
-                video: { deviceId: { exact: cam.deviceId } },
-                audio: mics.length ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false,
-              };
-              try {
-                console.log('🎯 Trying explicit deviceId for camera:', cam.label || cam.deviceId);
-                const s = await navigator.mediaDevices.getUserMedia(deviceConstraints);
-                console.log('✅ Media stream acquired with explicit deviceId');
-                setIsFallbackStream(false);
-                return s;
-              } catch (perDeviceErr: any) {
-                console.warn('⚠️ Device-specific getUserMedia failed:', perDeviceErr?.name || perDeviceErr?.message || perDeviceErr);
-                // Continue trying other devices
-              }
-            }
-
-            // Final fallback for localhost: canvas stream so the call can proceed
-            console.warn('⚠️ Falling back to canvas video stream');
-            const canvas = document.createElement('canvas');
-            canvas.width = 320; canvas.height = 240;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, 320, 240);
-              ctx.fillStyle = '#ffffff'; ctx.font = '16px Arial'; ctx.textAlign = 'center';
-              ctx.fillText('Camera unavailable', 160, 120);
-            }
-            const fallback = canvas.captureStream(24);
-            setIsFallbackStream(true);
-            return fallback;
-          } catch (retryErr) {
-            console.warn('⚠️ Localhost retry path failed:', retryErr);
-            throw error; // Throw the original error if all retries fail
-          }
-        }
-      }
+      
     } catch (error: any) {
-      console.error("Media access error:", error);
+      console.error("❌ Media access error:", error);
       
       let errorMessage = "Unable to access camera or microphone.";
       
       if (error.name === "NotAllowedError" || error.message?.includes("Permission denied")) {
-        errorMessage = "Camera and microphone access denied. Please look for the camera/microphone icon in your browser's address bar, click it, and select 'Allow' for both camera and microphone, then refresh the page.";
+        errorMessage = "Camera and microphone access is required for video calls. Please click 'Allow' when your browser asks for permission, then the call will start automatically.";
       } else if (error.name === "NotFoundError") {
         errorMessage = "No camera or microphone found. Please connect your devices and try again.";
       } else if (error.name === "NotReadableError") {
         errorMessage = "Camera or microphone is being used by another application. Please close other apps and try again.";
       } else if (error.name === "OverconstrainedError") {
-        errorMessage = "Camera or microphone doesn't support the required settings. Trying with basic settings...";
+        errorMessage = "Camera or microphone doesn't support the required settings.";
       } else if (error.message) {
         errorMessage = error.message;
       }
@@ -1498,232 +705,63 @@ export default function CallRoomPage() {
       setStatus("failed");
       throw error;
     }
-  }, [mode, getAvailableDevices]);
+  }, [mode]);
 
   // ---------- Signaling on thread_${conversationId} ----------
   const threadChannel = useMemo(() => `thread_${conversationId}`, [conversationId]);
 
   const sendSignal = useCallback((payload: SigPayload) => {
-    try {
-    if (!threadChanRef.current) {
-        console.warn('⚠️ Cannot send signal: channel not available');
-      return;
-    }
-    console.log(`📤 Sending signal:`, payload);
-    threadChanRef.current.send({ type: "broadcast", event: "signal", payload })
-      .then(() => {
-        console.log(`✅ Signal sent successfully:`, payload.kind);
-      })
-      .catch((error) => {
-          console.warn(`⚠️ Failed to send signal:`, error);
-        });
-    } catch (error) {
-      console.warn('⚠️ sendSignal error:', error);
-    }
-  }, []);
-
-  // Helper: wait for a ref to mount before using it
-  const waitForRef = useCallback(async <T,>(ref: React.RefObject<T>, tries = 20, delay = 150): Promise<T | null> => {
-    for (let i = 0; i < tries; i++) {
-      if (ref.current) return ref.current;
-      if (i <= 2) { // Only log first few attempts
-        console.log(`⏳ Waiting for video element (attempt ${i + 1}/${tries})...`);
-      }
-      await new Promise((r) => setTimeout(r, delay));
-    }
-    console.warn('⚠️ Video element not found within timeout');
-    return null;
+    if (!threadChanRef.current) return;
+    void threadChanRef.current.send({ type: "broadcast", event: "signal", payload });
   }, []);
 
   useEffect(() => {
     if (!conversationId || !me?.id) return;
 
-    console.log(`🔗 Setting up signaling channel: ${threadChannel} for user: ${me.id}`);
-
     const ch = supabase.channel(threadChannel, { config: { broadcast: { ack: true } } });
 
     ch.on("broadcast", { event: "signal" }, async (e) => {
       const msg = (e.payload || {}) as SigPayload;
-      console.log(`📨 Received signal:`, msg);
-      
-      if (!msg || msg.from === me.id) {
-        console.log(`⏭️ Ignoring signal from self or invalid message`);
-        return;
-      }
+      if (!msg || msg.from === me.id) return;
 
       if (msg.kind === "webrtc-offer") {
-        // Prevent redundant processing
-        if (callProcessed) {
-          console.log('⏭️ Call already processed, ignoring duplicate offer');
-          return;
-        }
-        
-        console.log('📞 Received offer from peer, answering immediately...');
-        setCallProcessed(true); // Mark as processed
-        
-        try {
-          // Both participants are already ready with streams, just handle the offer
         const pc = ensurePC();
-        // Ensure callee has local media tracks before answering
-        if (!localStreamRef.current) {
-          console.log('🎤 Callee acquiring media now (call accepted)...');
-          setStatus("connecting"); // Show connecting only when actually accepting
-          try {
-            localStreamRef.current = await getMediaStream();
-            // Wait for video element to mount before setup
-            const el = await waitForRef(localVideoRef);
-            if (el) {
-              setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
-            }
-            localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current!));
-            console.log('✅ Callee media acquired and tracks added');
-          } catch (e) {
-            console.warn('⚠️ Failed to acquire local media before answer:', e);
-            setStatus("failed");
-            setMediaError("Failed to access camera/microphone. Please try again.");
-            setCallProcessed(false); // Reset on error
-            return;
-          }
-        }
-          
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-          const answer = await pc.createAnswer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: mode === "video",
-          });
-          
+        const answer = await pc.createAnswer();
+        console.log('Created answer with audio:', answer.sdp?.includes('m=audio'));
         await pc.setLocalDescription(answer);
         sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
-        console.log('✅ Answer sent');
-          
-        // Immediately transition to connected after sending answer
-        console.log('🔄 Callee: transitioning to connected after answer sent');
-          setStatus("connected");
-          callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-          startAudioLevelMonitoring();
-          
-        // Force video refresh for both participants
-        setTimeout(() => {
-          console.log('🔄 Forcing video refresh after answer sent');
-          if (localVideoRef.current && localStreamRef.current) {
-            localVideoRef.current.srcObject = localStreamRef.current;
-            localVideoRef.current.play().catch(console.warn);
-          }
-          if (remoteVideoRef.current && remoteStreamRef.current) {
-            remoteVideoRef.current.srcObject = remoteStreamRef.current;
-            remoteVideoRef.current.play().catch(console.warn);
-          }
-        }, 500);
-        
-        // Comprehensive video setup for callee
-        const setupCalleeVideo = () => {
-          // Local video setup
-          if (localStreamRef.current) {
-            const localEl = localVideoRef.current;
-            if (localEl) {
-              localEl.srcObject = localStreamRef.current;
-              localEl.play().catch(console.warn);
-              console.log('✅ Callee local video set up immediately');
-            }
-          }
-          
-          // Remote video setup
-          if (remoteStreamRef.current) {
-            const remoteEl = remoteVideoRef.current;
-            if (remoteEl) {
-              remoteEl.srcObject = remoteStreamRef.current;
-              remoteEl.play().catch(console.warn);
-              console.log('✅ Callee remote video set up immediately');
-            }
-          }
-        };
-        
-        setupCalleeVideo();
-        // Retry after a short delay to ensure video elements are ready
-        setTimeout(setupCalleeVideo, 500);
-        
-        // Additional fallback for ICE connection issues
-          setTimeout(() => {
-          if (status !== "connected") {
-            console.log('🔄 Callee fallback: forcing connected status');
-            setStatus("connected");
-            callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
-            startAudioLevelMonitoring();
-          }
-        }, 1000);
-        
-        // Prevent further offer processing once connected
-        setTimeout(() => {
-          if (status === "connected") {
-            setCallProcessed(true);
-          }
-        }, 3000);
-        } catch (error) {
-          console.error('❌ Failed to handle offer:', error);
-          setStatus("failed");
-          setMediaError("Failed to establish connection. Please try again.");
-        }
       } else if (msg.kind === "webrtc-answer") {
-        console.log('📞 Received answer from peer');
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        console.log('✅ Remote description set');
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
-          console.log(`🧊 Adding ICE candidate:`, msg.candidate);
           await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-          console.log(`✅ ICE candidate added successfully`);
-        } catch (error) {
-          console.warn(`⚠️ Failed to add ICE candidate:`, error);
-          // Don't ignore - this might be important for connection
+        } catch {
+          /* ignore */
         }
       } else if (msg.kind === "bye") {
-        console.log('📞 Received bye from peer');
-        setCallProcessed(false); // Reset for next call
         endCall(true);
       }
     });
 
-    // Add subscription status monitoring
-    ch.subscribe((status) => {
-      console.log(`📡 Channel subscription status: ${status}`);
-      if (status === "SUBSCRIBED") {
-        console.log(`✅ Successfully subscribed to channel: ${threadChannel}`);
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        console.error(`❌ Channel subscription failed: ${status}`);
-        setStatus("failed");
-        setMediaError("Failed to establish signaling connection. Please try again.");
-      }
-    });
-    
+    ch.subscribe();
     threadChanRef.current = ch;
 
     return () => {
-      console.log(`🔌 Cleaning up signaling channel: ${threadChannel}`);
       try {
         supabase.removeChannel(ch);
       } catch {}
       threadChanRef.current = null;
     };
-  }, [conversationId, ensurePC, me?.id, sendSignal, threadChannel, mode, setupVideoElementWithRetry, getMediaStream, connectionTimeout]);
+  }, [conversationId, ensurePC, me?.id, sendSignal, threadChannel]);
 
   // ---------- Ring peer (for IncomingCallBanner) on user_${peer} ----------
   async function ringPeer() {
     if (!peerUserId || !conversationId || !me?.id) return;
-    
-    // Get caller info for better notification
-    const callerName = me.name || me.email || "Caller";
-    const callerAvatar = null; // Avatar not available in current user object
-    
-    // Send to both old format (for compatibility) and new staff-specific format
     const ch = supabase.channel(`user_${peerUserId}`, { config: { broadcast: { ack: true } } });
-    const staffCh = supabase.channel(`staff-calls-${peerUserId}`, { config: { broadcast: { ack: true } } });
-    
-    try {
-      // Subscribe to both channels
-      await Promise.all([
-        new Promise<void>((res, rej) => {
+    await new Promise<void>((res, rej) => {
       const to = setTimeout(() => rej(new Error("subscribe timeout")), 8000);
       ch.subscribe((s) => {
         if (s === "SUBSCRIBED") {
@@ -1735,50 +773,15 @@ export default function CallRoomPage() {
           rej(new Error(String(s)));
         }
       });
-        }),
-        new Promise<void>((res, rej) => {
-          const to = setTimeout(() => rej(new Error("staff subscribe timeout")), 8000);
-          staffCh.subscribe((s) => {
-            if (s === "SUBSCRIBED") {
-              clearTimeout(to);
-              res();
-            }
-            if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
-              clearTimeout(to);
-              rej(new Error(String(s)));
-            }
-          });
-        })
-      ]);
-
-      // Send old format for compatibility
+    });
     await ch.send({
       type: "broadcast",
       event: "invite",
-        payload: { conversationId, fromId: me.id, fromName: callerName, mode },
-      });
-
-      // Send new staff-specific format
-      await staffCh.send({
-        type: "broadcast",
-        event: "incoming-call",
-        payload: {
-          conversationId,
-          callerId: me.id,
-          callerName,
-          callerAvatar,
-          mode,
-          timestamp: new Date().toISOString(),
-        },
-      });
-    } catch (error) {
-      console.error("Failed to send ring notification:", error);
-    } finally {
+      payload: { conversationId, fromId: me.id, fromName: me.email || "Caller", mode },
+    });
     try {
       supabase.removeChannel(ch);
-        supabase.removeChannel(staffCh);
     } catch {}
-    }
   }
 
   async function byePeer() {
@@ -1795,14 +798,7 @@ export default function CallRoomPage() {
   const startOrPrep = useCallback(async () => {
     if (!me?.id) return;
 
-    // Caller shows ringing until callee answers; callee stays idle and prepares
-    if (role !== "caller") {
-      // Callee shows idle and waits
-      setMediaError(null);
-    } else {
     setStatus("connecting");
-      setMediaError(null);
-    }
     setMediaError(null);
 
     // Log call initiation (non-blocking)
@@ -1836,49 +832,19 @@ export default function CallRoomPage() {
       pc.addTrack(t, localStreamRef.current!);
     });
 
-      // Comprehensive caller video setup
-      console.log('🎯 Setting up caller video system...');
-      const setupCallerVideo = () => {
-        const localEl = localVideoRef.current;
-        if (localEl && localStreamRef.current) {
-          localEl.srcObject = localStreamRef.current;
-          localEl.play().catch(console.warn);
-          console.log('✅ Caller local video set up immediately');
-        }
-        
-        // Also prepare for remote video
-        const remoteEl = remoteVideoRef.current;
-        if (remoteEl && remoteStreamRef.current) {
-          remoteEl.srcObject = remoteStreamRef.current;
-          remoteEl.play().catch(console.warn);
-          console.log('✅ Caller remote video set up immediately');
-        }
-      };
-      
-      setupCallerVideo();
-      // Retry to ensure video elements are ready
-      setTimeout(setupCallerVideo, 300);
-
-      // 3) Simple call flow like Messenger/Zoom
+    // 3) If caller, create offer + send + ring
     if (role === "caller") {
-        // Caller shows ringing until callee answers
-      setStatus("ringing");
-      callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
-      
-        console.log('🎯 Creating WebRTC offer...');
+        setStatus("ringing");
+        callTracker.updateCallStatus(conversationId!, "ringing").catch(console.warn);
+        
       const offer = await pc.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: mode === "video",
       });
-        
+      console.log('Created offer with audio:', offer.sdp?.includes('m=audio'));
       await pc.setLocalDescription(offer);
       sendSignal({ kind: "webrtc-offer", from: me.id, sdp: offer });
       await ringPeer(); // show IncomingCallBanner on the peer
-        
-        console.log('✅ Caller sent offer, waiting for answer...');
-      } else {
-        // Callee shows idle and waits
-        console.log('📞 Callee ready and waiting for offer...');
     }
     } catch (error) {
       console.error("Failed to start call:", error);
@@ -1887,26 +853,13 @@ export default function CallRoomPage() {
     }
   }, [ensurePC, getMediaStream, me?.id, mode, role, sendSignal, conversationId, peerUserId, peerInfo?.name, peerName]);
 
-  // Main caller effect: only start for caller
   useEffect(() => {
     if (!authChecked || !me?.id) return;
-    if (role !== "caller") return;
-    (async () => { await startOrPrep(); })();
+    (async () => {
+      await startOrPrep();
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authChecked, me?.id, role]);
-
-  // Prevent redundant call processing - track if already handled
-  const [callProcessed, setCallProcessed] = useState(false);
-
-  // Cleanup connection timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (connectionTimeout) {
-        clearTimeout(connectionTimeout);
-      }
-      setCallProcessed(false); // Reset call state on unmount
-    };
-  }, [connectionTimeout]);
+  }, [authChecked, me?.id]);
 
   // ---------- Controls ----------
   const toggleMute = useCallback(() => {
@@ -1957,20 +910,6 @@ export default function CallRoomPage() {
     
     setCamOff(newCamOffState);
     console.log(`Camera state changed to: ${newCamOffState ? 'off' : 'on'}`);
-    
-    // Force video element refresh when camera state changes for flexibility
-    setTimeout(() => {
-      if (localVideoRef.current && localStreamRef.current) {
-        const video = localVideoRef.current;
-        video.srcObject = null;
-        video.load();
-        setTimeout(() => {
-          video.srcObject = localStreamRef.current;
-          video.play().catch(console.warn);
-          console.log('🔄 Local video refreshed after camera toggle');
-        }, 100);
-      }
-    }, 200);
   }, [camOff]);
 
   const shareScreen = useCallback(async () => {
@@ -2285,88 +1224,6 @@ export default function CallRoomPage() {
     }
   }, []);
 
-  // Debug function to refresh video streams
-  const refreshVideoStreams = useCallback(() => {
-    console.log('🔄 Manually refreshing video streams...');
-    
-    if (localVideoRef.current && localStreamRef.current) {
-      console.log('🔄 Refreshing local video');
-      const video = localVideoRef.current;
-      video.srcObject = null;
-      video.load();
-      setTimeout(() => {
-        video.srcObject = localStreamRef.current;
-        video.play().catch(console.warn);
-      }, 100);
-    }
-    
-    if (remoteVideoRef.current && remoteStreamRef.current) {
-      console.log('🔄 Refreshing remote video');
-      const video = remoteVideoRef.current;
-      video.srcObject = null;
-      video.load();
-      setTimeout(() => {
-        video.srcObject = remoteStreamRef.current;
-        video.play().catch(console.warn);
-      }, 100);
-    }
-  }, []);
-
-  // Comprehensive video refresh system for screen time
-  useEffect(() => {
-    if (status !== "connected") return;
-    
-    console.log('🔄 Comprehensive video refresh for screen time...');
-    
-    // Multiple refresh attempts to ensure video works
-    const refreshVideo = (attempt = 1) => {
-      const localVideo = localVideoRef.current;
-      const remoteVideo = remoteVideoRef.current;
-      
-      console.log(`🔄 Video refresh attempt ${attempt}`);
-      
-      // Local video refresh
-      if (localVideo && localStreamRef.current) {
-        if (!localVideo.srcObject || localVideo.videoWidth === 0) {
-          console.log('🔄 Refreshing local video...');
-          localVideo.srcObject = null;
-          localVideo.load();
-          setTimeout(() => {
-            localVideo.srcObject = localStreamRef.current;
-            localVideo.play().catch(console.warn);
-          }, 100);
-        } else {
-          console.log('✅ Local video is working');
-        }
-      }
-      
-      // Remote video refresh
-      if (remoteVideo && remoteStreamRef.current) {
-        if (!remoteVideo.srcObject || remoteVideo.videoWidth === 0) {
-          console.log('🔄 Refreshing remote video...');
-          remoteVideo.srcObject = null;
-          remoteVideo.load();
-          setTimeout(() => {
-            remoteVideo.srcObject = remoteStreamRef.current;
-            remoteVideo.play().catch(console.warn);
-          }, 100);
-        } else {
-          console.log('✅ Remote video is working');
-        }
-      }
-      
-      // Retry if needed (max 3 attempts)
-      if (attempt < 3) {
-        setTimeout(() => refreshVideo(attempt + 1), 1000);
-      }
-    };
-    
-    // Start refresh sequence
-    setTimeout(() => refreshVideo(1), 500);
-    setTimeout(() => refreshVideo(2), 2000);
-    setTimeout(() => refreshVideo(3), 4000);
-  }, [status]);
-
   // Comprehensive media test function
   const testAllMedia = useCallback(async () => {
     console.log('=== COMPREHENSIVE MEDIA TEST ===');
@@ -2449,15 +1306,15 @@ export default function CallRoomPage() {
   }, []);
 
   if (!authChecked) {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+  return (
+    <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
           <p className="text-white text-lg">Joining the call...</p>
-        </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   if (status === "connecting") {
     return (
@@ -2466,18 +1323,6 @@ export default function CallRoomPage() {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
           <p className="text-white text-lg">Connecting...</p>
           <p className="text-gray-400 text-sm mt-2">Setting up camera and microphone</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === "idle") {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-pulse rounded-full h-12 w-12 border-2 border-blue-400 mx-auto mb-4"></div>
-          <p className="text-white text-lg">Preparing call...</p>
-          <p className="text-gray-400 text-sm mt-2">Getting ready for {role === "caller" ? "outgoing" : "incoming"} call</p>
         </div>
       </div>
     );
@@ -2654,83 +1499,6 @@ export default function CallRoomPage() {
               📹 Test Video
             </Button>
             
-            {/* Refresh video streams button */}
-            <Button 
-              variant="outline" 
-              onClick={refreshVideoStreams}
-              className="w-full"
-            >
-              🔄 Refresh Video
-            </Button>
-            
-            {/* Mobile-specific refresh button */}
-            <Button 
-              variant="outline" 
-              onClick={forceMobileVideoRefresh}
-              className="w-full"
-            >
-              📱 Mobile Refresh
-            </Button>
-            
-            {/* Debug video elements button */}
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                console.log('🔍 Debug video elements:');
-                console.log('Local video element:', localVideoRef.current ? {
-                  srcObject: !!localVideoRef.current.srcObject,
-                  videoWidth: localVideoRef.current.videoWidth,
-                  videoHeight: localVideoRef.current.videoHeight,
-                  readyState: localVideoRef.current.readyState,
-                  paused: localVideoRef.current.paused,
-                  muted: localVideoRef.current.muted
-                } : 'null');
-                console.log('Remote video element:', remoteVideoRef.current ? {
-                  srcObject: !!remoteVideoRef.current.srcObject,
-                  videoWidth: remoteVideoRef.current.videoWidth,
-                  videoHeight: remoteVideoRef.current.videoHeight,
-                  readyState: remoteVideoRef.current.readyState,
-                  paused: remoteVideoRef.current.paused,
-                  muted: remoteVideoRef.current.muted
-                } : 'null');
-                console.log('Local stream:', localStreamRef.current ? {
-                  audioTracks: localStreamRef.current.getAudioTracks().length,
-                  videoTracks: localStreamRef.current.getVideoTracks().length,
-                  active: localStreamRef.current.active
-                } : 'null');
-                console.log('Remote stream:', remoteStreamRef.current ? {
-                  audioTracks: remoteStreamRef.current.getAudioTracks().length,
-                  videoTracks: remoteStreamRef.current.getVideoTracks().length,
-                  active: remoteStreamRef.current.active
-                } : 'null');
-                alert('Video debug info logged to console');
-              }}
-              className="w-full"
-            >
-              🔍 Debug Video
-            </Button>
-            
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                console.log('🔄 Force Video Refresh triggered');
-                if (localVideoRef.current && localStreamRef.current) {
-                  localVideoRef.current.srcObject = localStreamRef.current;
-                  localVideoRef.current.play().catch(console.warn);
-                  console.log('✅ Local video refreshed');
-                }
-                if (remoteVideoRef.current && remoteStreamRef.current) {
-                  remoteVideoRef.current.srcObject = remoteStreamRef.current;
-                  remoteVideoRef.current.play().catch(console.warn);
-                  console.log('✅ Remote video refreshed');
-                }
-                alert('Video refresh attempted - check console for results');
-              }}
-              className="w-full bg-green-600 hover:bg-green-700 text-white"
-            >
-              🔄 Force Video Refresh
-            </Button>
-            
             {/* Comprehensive test button */}
             <Button 
               variant="outline" 
@@ -2775,45 +1543,6 @@ export default function CallRoomPage() {
           </div>
         </div>
       </div>
-    );
-  }
-
-  // Show mode selector if needed
-  if (showModeSelector) {
-    return (
-      <CallModeSelector
-        onSelectMode={handleModeSelection}
-        onCancel={() => {
-          const messagesUrl = me?.role ? getMessagesUrl(me.role) : '/dashboard/messages';
-          router.push(messagesUrl);
-        }}
-        peerName={peerInfo?.name || peerName}
-        hasAudio={hasAudio}
-        hasVideo={hasVideo}
-        isCheckingDevices={isCheckingDevices}
-      />
-    );
-  }
-
-  // Show audio-only interface for audio calls
-  if (mode === "audio") {
-    return (
-      <AudioCallInterface
-        peerName={peerInfo?.name || peerName}
-        peerAvatar={peerInfo?.avatar}
-        status={status}
-        callDuration={callDuration}
-        muted={muted}
-        isMuted={muted}
-        onToggleMute={toggleMute}
-        onEndCall={() => endCall(false)}
-        onToggleSpeaker={toggleSpeaker}
-        isSpeakerOn={isSpeakerOn}
-        audioLevel={audioLevel}
-        hasAudio={hasAudio}
-        isFallbackStream={isFallbackStream}
-        formatDuration={formatDuration}
-      />
     );
   }
 
@@ -2924,77 +1653,75 @@ export default function CallRoomPage() {
               variant="ghost"
               size="sm"
               onClick={async () => {
+                console.log('🔍 SIMPLE TEST STARTING...');
+                console.log('Browser support check:');
+                console.log('- navigator.mediaDevices:', !!navigator.mediaDevices);
+                console.log('- getUserMedia:', !!navigator.mediaDevices?.getUserMedia);
+                console.log('- HTTPS:', location.protocol === 'https:');
+                console.log('- Localhost:', location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+                
                 try {
-                  console.log('🔍 Testing basic getUserMedia support...');
+                  // Test 1: Check if we can enumerate devices
+                  console.log('📱 Testing device enumeration...');
+                  const devices = await navigator.mediaDevices.enumerateDevices();
+                  const audioDevices = devices.filter(d => d.kind === 'audioinput');
+                  const videoDevices = devices.filter(d => d.kind === 'videoinput');
                   
-                  // Check if getUserMedia is available
-                  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    throw new Error('getUserMedia is not supported in this browser');
-                  }
-                  
-                  console.log('✅ getUserMedia is supported');
-                  
-                  // Test with very basic constraints
-                  console.log('🎯 Requesting media with basic constraints...');
-                  const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: 320, height: 240 },
-                    audio: true 
+                  console.log('Available devices:', {
+                    audio: audioDevices.length,
+                    video: videoDevices.length,
+                    total: devices.length
                   });
                   
-                  console.log('✅ Media stream acquired:', {
+                  if (audioDevices.length === 0 && videoDevices.length === 0) {
+                    alert('❌ No audio or video devices found! Please connect a camera and microphone.');
+                    return;
+                  }
+                  
+                  // Test 2: Try basic getUserMedia
+                  console.log('🎤 Testing basic getUserMedia...');
+                  const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: videoDevices.length > 0,
+                    audio: audioDevices.length > 0
+                  });
+                  
+                  console.log('✅ getUserMedia successful!', {
                     audioTracks: stream.getAudioTracks().length,
                     videoTracks: stream.getVideoTracks().length,
                     streamId: stream.id,
                     active: stream.active
                   });
                   
-                  // Log track details
-                  stream.getAudioTracks().forEach((track, i) => {
-                    console.log(`Audio track ${i}:`, {
-                      label: track.label,
-                      enabled: track.enabled,
-                      readyState: track.readyState
-                    });
-                  });
-                  
-                  stream.getVideoTracks().forEach((track, i) => {
-                    console.log(`Video track ${i}:`, {
-                      label: track.label,
-                      enabled: track.enabled,
-                      readyState: track.readyState
-                    });
-                  });
-                  
-                  // Test video element assignment
+                  // Test 3: Try to display in video element
                   if (localVideoRef.current) {
-                    console.log('🎥 Assigning stream to video element...');
+                    console.log('🎥 Testing video element assignment...');
                     localVideoRef.current.srcObject = stream;
                     localVideoRef.current.muted = true;
                     
-                    // Wait a bit for video to load
-                    setTimeout(async () => {
                     try {
-                        await localVideoRef.current!.play();
-                        console.log('✅ Video started playing');
+                      await localVideoRef.current.play();
+                      console.log('✅ Video element playing successfully!');
+                      alert('✅ SUCCESS! You should see yourself in the video. Check the video preview!');
                     } catch (playError) {
                       console.error('❌ Video play failed:', playError);
+                      alert('❌ Video element failed to play: ' + playError);
                     }
-                    }, 100);
-                    
-                    alert('✅ SUCCESS! Media access works. Check console for details and video should appear.');
                   } else {
-                    console.error('❌ Video element not found');
-                    alert('❌ Video element not found');
+                    console.error('❌ localVideoRef.current is null!');
+                    alert('❌ Video element not found!');
                   }
                   
                   // Clean up after 5 seconds
                   setTimeout(() => {
                     console.log('🔄 Cleaning up test stream...');
-                    stream.getTracks().forEach(track => track.stop());
+                    stream.getTracks().forEach(track => {
+                      track.stop();
+                      console.log(`Stopped ${track.kind} track:`, track.label);
+                    });
                   }, 5000);
                   
                 } catch (error: any) {
-                  console.error('❌ Basic test failed:', error);
+                  console.error('❌ SIMPLE TEST FAILED:', error);
                   console.error('Error details:', {
                     name: error.name,
                     message: error.message,
@@ -3003,22 +1730,22 @@ export default function CallRoomPage() {
                   
                   let errorMsg = 'Unknown error';
                   if (error.name === 'NotAllowedError') {
-                    errorMsg = 'Permission denied. Please allow camera and microphone access.';
+                    errorMsg = 'Permission denied! Click the camera/mic icon in your browser address bar and allow access.';
                   } else if (error.name === 'NotFoundError') {
-                    errorMsg = 'No camera or microphone found.';
+                    errorMsg = 'No camera or microphone found! Please connect your devices.';
                   } else if (error.name === 'NotReadableError') {
-                    errorMsg = 'Camera or microphone is being used by another app.';
+                    errorMsg = 'Camera or microphone is being used by another app! Close other apps and try again.';
                   } else {
-                    errorMsg = error.message || 'Unknown error';
+                    errorMsg = error.message || 'Unknown error occurred';
                   }
                   
-                  alert('❌ Test failed: ' + errorMsg);
+                  alert('❌ SIMPLE TEST FAILED: ' + errorMsg);
                 }
               }}
               className="text-white hover:bg-white/10"
-              title="Basic Test"
+              title="Simple Test"
             >
-              🔍 Basic Test
+              🔍 Simple Test
             </Button>
             
             {/* HTML test button */}
@@ -3027,59 +1754,54 @@ export default function CallRoomPage() {
               size="sm"
               onClick={async () => {
                 try {
-                  console.log('🧪 Testing with direct HTML video element...');
+                  console.log('🧪 HTML TEST STARTING...');
                   
                   // Create a new video element directly
                   const testVideo = document.createElement('video');
-                  testVideo.style.width = '320px';
-                  testVideo.style.height = '240px';
-                  testVideo.style.backgroundColor = '#000';
+                  testVideo.style.width = '300px';
+                  testVideo.style.height = '200px';
+                  testVideo.style.border = '2px solid red';
+                  testVideo.style.position = 'fixed';
+                  testVideo.style.top = '50px';
+                  testVideo.style.right = '50px';
+                  testVideo.style.zIndex = '9999';
                   testVideo.muted = true;
                   testVideo.autoplay = true;
                   testVideo.playsInline = true;
                   
-                  // Add to page temporarily
-                  testVideo.style.position = 'fixed';
-                  testVideo.style.top = '10px';
-                  testVideo.style.right = '10px';
-                  testVideo.style.zIndex = '9999';
-                  testVideo.style.border = '2px solid red';
+                  // Add to page
                   document.body.appendChild(testVideo);
                   
                   // Get media stream
                   const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: 320, height: 240 },
+                    video: true, 
                     audio: true 
                   });
                   
-                  console.log('✅ Stream acquired for HTML test:', {
+                  console.log('✅ HTML test stream acquired:', {
                     audioTracks: stream.getAudioTracks().length,
                     videoTracks: stream.getVideoTracks().length
                   });
                   
-                  // Assign to video element
+                  // Assign to test video
                   testVideo.srcObject = stream;
                   
-                  // Try to play
-                  try {
+                  // Play
                   await testVideo.play();
-                    console.log('✅ HTML video element playing');
-                    alert('✅ HTML test successful! You should see a red-bordered video in the top-right corner.');
-                  } catch (playError) {
-                    console.error('❌ HTML video play failed:', playError);
-                    alert('❌ HTML video play failed: ' + playError);
-                  }
+                  console.log('✅ HTML test video playing');
+                  
+                  alert('✅ HTML TEST SUCCESS! You should see a red-bordered video in the top-right corner. Check if you can see yourself!');
                   
                   // Clean up after 5 seconds
                   setTimeout(() => {
-                    console.log('🔄 Cleaning up HTML test...');
                     stream.getTracks().forEach(track => track.stop());
                     document.body.removeChild(testVideo);
+                    console.log('🔄 HTML test cleaned up');
                   }, 5000);
                   
                 } catch (error: any) {
-                  console.error('❌ HTML test failed:', error);
-                  alert('❌ HTML test failed: ' + error.message);
+                  console.error('❌ HTML TEST FAILED:', error);
+                  alert('❌ HTML TEST FAILED: ' + (error.message || 'Unknown error'));
                 }
               }}
               className="text-white hover:bg-white/10"
@@ -3094,13 +1816,6 @@ export default function CallRoomPage() {
               size="sm"
               onClick={() => {
                 console.log('🔍 DEBUG INFO:');
-                console.log('Browser info:', {
-                  userAgent: navigator.userAgent,
-                  mediaDevices: !!navigator.mediaDevices,
-                  getUserMedia: !!navigator.mediaDevices?.getUserMedia,
-                  webRTC: !!(window.RTCPeerConnection || (window as any).webkitRTCPeerConnection),
-                  https: location.protocol === 'https:'
-                });
                 console.log('Local stream:', localStreamRef.current ? {
                   audioTracks: localStreamRef.current.getAudioTracks().length,
                   videoTracks: localStreamRef.current.getVideoTracks().length,
@@ -3144,20 +1859,6 @@ export default function CallRoomPage() {
           </div>
         </div>
       </div>
-
-      {/* Accessibility Status Indicator */}
-      {status === "connected" && (
-        <DeviceStatusIndicator
-          hasMicrophone={hasAudio === true}
-          hasCamera={hasVideo === true}
-          mode={mode}
-          isFallbackMode={isFallbackStream}
-          onSwitchToChat={() => {
-            const messagesUrl = me?.role ? getMessagesUrl(me.role) : '/dashboard/messages';
-            router.push(messagesUrl);
-          }}
-        />
-      )}
 
       {/* Main Content */}
       <div className="flex-1 p-6">
@@ -3231,9 +1932,6 @@ export default function CallRoomPage() {
             audioLevel={audioLevel}
           />
       )}
-
-      {/* Accessibility Help */}
-      <AccessibilityHelp />
     </div>
   );
 }
