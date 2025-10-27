@@ -239,9 +239,13 @@ export default function DashboardMessagesPage() {
     
     ch.on("broadcast", { event: "invite" }, (payload) => {
       const { conversationId, fromId, fromName, mode } = (payload.payload || {}) as any;
-      if (!conversationId || !fromId) return;
+      if (!conversationId || !fromId) {
+        console.warn("📞 Invalid invite payload:", payload.payload);
+        return;
+      }
       
       console.log("📞 Patient received incoming call:", { conversationId, fromId, fromName, mode });
+      console.log("📞 Setting incoming call state to show banner");
       
       setIncoming({
         conversationId,
@@ -251,10 +255,17 @@ export default function DashboardMessagesPage() {
       });
     });
     
+    ch.on("broadcast", { event: "bye" }, () => {
+      console.log("📞 Received bye signal, clearing incoming call");
+      setIncoming(null);
+    });
+    
     ch.subscribe((status) => {
       console.log('📡 Patient channel subscription status:', status);
       if (status === 'SUBSCRIBED') {
         console.log('✅ Patient successfully subscribed to incoming call channel');
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.error('❌ Patient channel subscription failed:', status);
       }
     });
     
@@ -1132,9 +1143,9 @@ export default function DashboardMessagesPage() {
         </div>
       </div>
 
-      {/* Sticky incoming banner if no thread selected */}
-      {!selectedId && incoming && (
-        <div className="fixed bottom-4 left-1/2 z-40 w-[min(640px,90vw)] -translate-x-1/2">
+      {/* Sticky incoming banner - always show when call is incoming */}
+      {incoming && (
+        <div className="fixed bottom-4 left-1/2 z-50 w-[min(640px,90vw)] -translate-x-1/2 animate-in slide-in-from-bottom-5">
           <IncomingCallBanner
             callerName={incoming.fromName}
             mode={incoming.mode}
