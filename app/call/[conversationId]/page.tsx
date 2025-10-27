@@ -732,8 +732,16 @@ export default function CallRoomPage() {
           offerToReceiveVideo: false  // Audio-only - match the offer
         });
         console.log('Created answer with audio:', answer.sdp?.includes('m=audio'));
-        await pc.setLocalDescription(answer);
-        sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+        console.log('Answer SDP m-lines:', answer.sdp?.match(/m=\w+/g));
+        
+        try {
+          await pc.setLocalDescription(answer);
+          sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+        } catch (error) {
+          console.error('Error setting local description:', error);
+          console.error('Answer SDP:', answer.sdp);
+          console.error('Remote SDP:', msg.sdp);
+        }
       } else if (msg.kind === "webrtc-answer") {
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
@@ -876,11 +884,16 @@ export default function CallRoomPage() {
       // Set the video element source using the setup function
       setupVideoElement(localVideoRef as React.RefObject<HTMLVideoElement>, localStreamRef.current, true);
 
-    // 2) Add tracks to PC
+    // 2) Add ONLY audio tracks to PC (filter out any video tracks)
     const pc = ensurePC();
     localStreamRef.current.getTracks().forEach((t) => {
-      console.log(`Adding ${t.kind} track to peer connection:`, t.label);
-      pc.addTrack(t, localStreamRef.current!);
+      // Only add audio tracks for audio-only calls
+      if (t.kind === 'audio') {
+        console.log(`Adding ${t.kind} track to peer connection:`, t.label);
+        pc.addTrack(t, localStreamRef.current!);
+      } else {
+        console.log(`Skipping ${t.kind} track (audio-only mode)`, t.label);
+      }
     });
 
     // 3) If caller, create offer + send + ring
@@ -1677,13 +1690,49 @@ export default function CallRoomPage() {
           </div>
           
           <div className="flex items-center gap-2">
+            {/* Audio Test Button - Output Test */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={async () => {
+                try {
+                  // Create audio context and generate a test tone
+                  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                  const oscillator = audioContext.createOscillator();
+                  const gainNode = audioContext.createGain();
+                  
+                  oscillator.connect(gainNode);
+                  gainNode.connect(audioContext.destination);
+                  
+                  // Play a pleasant tone for 500ms
+                  oscillator.frequency.value = 440; // A4 note
+                  oscillator.type = 'sine';
+                  
+                  gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                  gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                  
+                  oscillator.start(audioContext.currentTime);
+                  oscillator.stop(audioContext.currentTime + 0.5);
+                  
+                  console.log('✅ Audio test tone played');
+                } catch (error) {
+                  console.error('❌ Audio test failed:', error);
+                  alert('Audio test failed. Please check your browser audio settings.');
+                }
+              }}
+              className="text-white hover:bg-white/10"
+              title="Test Audio Output"
+            >
+              🔊 Test
+            </Button>
+            
             {/* Test audio button */}
             <Button
               variant="ghost"
               size="sm"
               onClick={testAudio}
               className="text-white hover:bg-white/10"
-              title="Test Audio"
+              title="Test Microphone Input"
             >
               🎤 Test
             </Button>
@@ -1953,11 +2002,13 @@ export default function CallRoomPage() {
                     </div>
                     {status === "connected" ? (
                       <div className="flex items-center justify-center gap-2 text-green-400 text-sm">
-                        <Mic className="h-4 w-4" />
-                        <span>Audio active</span>
+                        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                        <span>Connected</span>
                       </div>
+                    ) : status === "ringing" ? (
+                      <div className="text-blue-400 text-sm animate-pulse">Ringing...</div>
                     ) : (
-                      <div className="text-yellow-400 text-sm">Connecting audio...</div>
+                      <div className="text-yellow-400 text-sm">Connecting...</div>
                     )}
                   </div>
                 </div>
@@ -1982,13 +2033,16 @@ export default function CallRoomPage() {
                     <div className="text-2xl font-semibold text-white mb-2">
                       {me?.name || "You"}
                     </div>
-                    {status === "connected" ? (
-                      <div className="flex items-center justify-center gap-2 text-yellow-400 text-sm">
+                    {!muted ? (
+                      <div className="flex items-center justify-center gap-2 text-green-400 text-sm">
                         <Mic className="h-4 w-4" />
-                        <span>Waiting for video...</span>
+                        <span>Microphone on</span>
                       </div>
                     ) : (
-                      <div className="text-yellow-400 text-sm">Connecting...</div>
+                      <div className="flex items-center justify-center gap-2 text-gray-400 text-sm">
+                        <MicOff className="h-4 w-4" />
+                        <span>Muted</span>
+                      </div>
                     )}
                   </div>
                 </div>
