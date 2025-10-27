@@ -227,6 +227,43 @@ export default function DashboardMessagesPage() {
 
   const [sidebarTab, setSidebarTab] = useState<"convs" | "staff">("convs");
 
+  /* ------------------------- Incoming Call Listener ------------------------ */
+  useEffect(() => {
+    if (!me?.id) return;
+    
+    const ch = supabase.channel(`user_${me.id}`, {
+      config: { broadcast: { ack: true } }
+    });
+    
+    console.log('📡 Patient subscribing to incoming call channel:', `user_${me.id}`);
+    
+    ch.on("broadcast", { event: "invite" }, (payload) => {
+      const { conversationId, fromId, fromName, mode } = (payload.payload || {}) as any;
+      if (!conversationId || !fromId) return;
+      
+      console.log("📞 Patient received incoming call:", { conversationId, fromId, fromName, mode });
+      
+      setIncoming({
+        conversationId,
+        fromId,
+        fromName: fromName || "Caller",
+        mode: (mode || "audio") as "audio" | "video",
+      });
+    });
+    
+    ch.subscribe((status) => {
+      console.log('📡 Patient channel subscription status:', status);
+      if (status === 'SUBSCRIBED') {
+        console.log('✅ Patient successfully subscribed to incoming call channel');
+      }
+    });
+    
+    return () => {
+      console.log('🧹 Patient cleaning up incoming call listener');
+      supabase.removeChannel(ch);
+    };
+  }, [me?.id]);
+
   /* ------------------------- Auth ------------------------ */
   useEffect(() => {
     (async () => {
@@ -255,34 +292,6 @@ export default function DashboardMessagesPage() {
     })();
   }, []);
 
-  /* -------------------- Incoming invite → banner -------------------- */
-  useEffect(() => {
-    if (!me?.id) return;
-    const ch = supabase.channel(`user_${me.id}`, {
-      config: { broadcast: { ack: true } },
-    });
-
-    ch.on("broadcast", { event: "invite" }, (p) => {
-      const { conversationId, fromId, fromName, mode } = (p.payload || {}) as any;
-      if (!conversationId || !fromId) return;
-      setSelectedId((curr) => curr || conversationId); // jump into that thread if none selected
-      setIncoming({
-        conversationId,
-        fromId,
-        fromName: fromName || "Caller",
-        mode: (mode || "audio") as "audio" | "video",
-      });
-    });
-
-    ch.on("broadcast", { event: "bye" }, () => setIncoming(null));
-
-    ch.subscribe();
-    return () => {
-      try {
-        supabase.removeChannel(ch);
-      } catch {}
-    };
-  }, [me?.id]);
 
   /* ------------------------ Load convos ------------------ */
   const reloadConversations = useCallback(async (patientId: string) => {
