@@ -583,13 +583,29 @@ export default function CallRoomPage() {
       } else if (s === "connected") {
         setStatus("connected");
         console.log('✅ Setting status to connected');
-        callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
+        
+        // Only try to update call status if conversation ID is available
+        if (conversationId) {
+          callTracker.updateCallStatus(conversationId, "connected").catch((err) => {
+            // Silently handle missing call tracking - it's not critical
+            console.log('Call tracking not available (not critical)');
+          });
+        }
+        
         // Start audio level monitoring when connected
         startAudioLevelMonitoring();
       } else if (s === "failed" || s === "disconnected" || s === "closed") {
         console.log('❌ Connection failed/disconnected/closed');
         setStatus("ended");
-        callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
+        
+        // Only try to update call status if conversation ID is available
+        if (conversationId) {
+          callTracker.updateCallStatus(conversationId, "ended").catch((err) => {
+            // Silently handle missing call tracking - it's not critical
+            console.log('Call tracking not available (not critical)');
+          });
+        }
+        
         // Stop audio level monitoring when disconnected
         stopAudioLevelMonitoring();
       }

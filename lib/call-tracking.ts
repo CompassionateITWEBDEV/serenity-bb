@@ -90,10 +90,10 @@ export class CallTracker {
     try {
       const activeCall = this.activeCalls.get(conversationId);
       if (!activeCall) {
-        console.warn("No active call found for conversation:", conversationId);
-        // If it's a temporary failure, don't log as error
+        // Don't log warning for normal status updates when call isn't tracked
+        // This is not an error - call tracking is optional
         if (status === "failed" || status === "disconnected") {
-          console.log("Temporary failure detected, call may still be active");
+          console.log("Call not tracked in database (not critical)");
           return;
         }
         return;
