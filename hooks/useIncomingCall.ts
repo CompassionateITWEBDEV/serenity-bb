@@ -120,10 +120,12 @@ export function useIncomingCall() {
             if (!mounted) return;
             
             const callData = payload.payload as IncomingCall;
-            console.log("📞 Incoming call received:", callData);
+            console.log("📞 Incoming call received (incoming-call event):", callData);
             
             setIncomingCall(callData);
             setIsRinging(true);
+            
+            console.log("✅ Set incoming call and isRinging=true");
             
             // Auto-decline after 30 seconds if not answered
             setTimeout(() => {
@@ -145,14 +147,16 @@ export function useIncomingCall() {
               conversationId,
               callerId: fromId,
               callerName: fromName || "Caller",
-              mode: (mode || "audio") as "audio bunchvideo",
+              mode: (mode || "audio") as "audio" | "video",
               timestamp: new Date().toISOString(),
             };
             
-            console.log("📞 Incoming call received (invite):", callData);
+            console.log("📞 Incoming call received (invite event):", callData);
             
             setIncomingCall(callData);
             setIsRinging(true);
+            
+            console.log("✅ Set incoming call and isRinging=true from invite");
             
             // Auto-decline after 30 seconds if not answered
             setTimeout(() => {

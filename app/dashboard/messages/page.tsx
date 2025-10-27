@@ -223,6 +223,7 @@ export default function DashboardMessagesPage() {
     fromId: string;
     fromName: string;
     mode: "audio" | "video";
+    meetingUrl?: string;
   } | null>(null);
 
   const [sidebarTab, setSidebarTab] = useState<"convs" | "staff">("convs");
@@ -662,37 +663,83 @@ export default function DashboardMessagesPage() {
         return;
       }
 
-      // broadcast invite so peer sees IncomingCallBanner immediately
+      // Create or get Zoho Meeting link
       try {
-        await ringPeer(peerUserId, {
-          conversationId: selectedId,
-          fromId: me.id,
-          fromName: providerInfo.name ? me.name : "Patient",
-          mode,
+        const response = await fetch('/api/zoho-meeting', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversationId: selectedId,
+            patientName: me.name,
+            staffName: providerInfo.name
+          })
         });
-      } catch (e) {
-        // non-blocking; user still enters call room
-        console.warn("[call] ring failed", e);
-      }
 
-      // Navigate to call page
-      window.location.href = `/call/${selectedId}?role=caller&mode=${mode}&peer=${encodeURIComponent(
-          peerUserId
-      )}&peerName=${encodeURIComponent(providerInfo.name || "Contact")}`;
+        const data = await response.json();
+        
+        if (data.meetingUrl) {
+          // Open Zoho Meeting in new tab
+          window.open(data.meetingUrl, '_blank', 'noopener,noreferrer');
+          
+          // Notify peer about the meeting
+          await ringPeer(peerUserId, {
+            conversationId: selectedId,
+            fromId: me.id,
+            fromName: providerInfo.name ? me.name : "Patient",
+            mode,
+          });
+        } else {
+          throw new Error('Failed to get meeting URL');
+        }
+      } catch (error) {
+        console.error('Failed to start Zoho Meeting:', error);
+        await Swal.fire(
+          "Meeting Error",
+          "Could not start the meeting. Please try again.",
+          "error"
+        );
+      }
     },
-    [selectedId, me?.id, providerInfo.id, providerInfo.name, router]
+    [selectedId, me?.id, me?.name, providerInfo.id, providerInfo.name]
   );
 
   // Accept / Decline (Banner)
-  const acceptIncoming = useCallback(() => {
+  const acceptIncoming = useCallback(async () => {
     if (!incoming) return;
-    window.location.href = `/call/${incoming.conversationId}?role=callee&mode=${
-        incoming.mode
-      }&peer=${encodeURIComponent(
-        incoming.fromId
-    )}&peerName=${encodeURIComponent(incoming.fromName || "Caller")}`;
+    
+    try {
+      // Get Zoho Meeting link for this conversation
+      const response = await fetch('/api/zoho-meeting', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json' 
+        },
+        body: JSON.stringify({
+          conversationId: incoming.conversationId,
+          patientName: me?.name,
+          staffName: incoming.fromName
+        })
+      });
+
+      const data = await response.json();
+      
+      if (data.meetingUrl) {
+        // Open Zoho Meeting in new tab
+        window.open(data.meetingUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        throw new Error('Failed to get meeting URL');
+      }
+    } catch (error) {
+      console.error('Failed to join Zoho Meeting:', error);
+      await Swal.fire(
+        "Meeting Error",
+        "Could not join the meeting. Please try again.",
+        "error"
+      );
+    }
+    
     setIncoming(null);
-  }, [incoming]);
+  }, [incoming, me?.name]);
 
   const declineIncoming = useCallback(async () => {
     if (!incoming) return;
