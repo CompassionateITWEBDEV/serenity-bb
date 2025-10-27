@@ -19,26 +19,39 @@ export function useIncomingCall() {
   const router = useRouter();
 
   // Accept the incoming call
-  const acceptCall = useCallback(() => {
+  const acceptCall = useCallback(async () => {
     if (!incomingCall) return;
     
-    // Build the new URL with all parameters
-    const params = new URLSearchParams();
-    params.set("role", "callee");
-    params.set("peer", incomingCall.callerId);
-    params.set("peerName", incomingCall.callerName);
-    params.set("autoAccept", "true");
+    try {
+      // Get Zoho Meeting link for this conversation
+      const response = await fetch('/api/zoho-meeting', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          conversationId: incomingCall.conversationId,
+          patientName: incomingCall.callerName,
+          staffName: 'Staff'
+        })
+      });
 
-    // Add mode parameter
-    params.set("mode", incomingCall.mode);
+      const data = await response.json();
+      
+      if (data.meetingUrl) {
+        // Open Zoho Meeting in new tab
+        window.open(data.meetingUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        throw new Error('Failed to get meeting URL');
+      }
+    } catch (error) {
+      console.error('Failed to join Zoho Meeting:', error);
+      alert('Could not join the meeting. Please try again.');
+    }
     
-    // Redirect to unified call page
-    const callUrl = `/call/${incomingCall.conversationId}?${params.toString()}`;
-    
-    router.push(callUrl);
     setIncomingCall(null);
     setIsRinging(false);
-  }, [incomingCall, router]);
+  }, [incomingCall]);
 
   // Decline the incoming call
   const declineCall = useCallback(async () => {
