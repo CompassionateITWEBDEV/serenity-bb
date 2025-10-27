@@ -471,10 +471,27 @@ export default function CallRoomPage() {
     video.autoplay = true;
     video.playsInline = true;
     video.controls = false;
+    
+    // Ensure remote audio is unmuted and full volume
+    if (!isLocal) {
+      video.muted = false;
+      video.volume = 1.0;
+      console.log(`🔊 Remote video unmuted and volume set to 1.0`);
+    }
 
     // Force play
     video.play().then(() => {
       console.log(`✅ ${isLocal ? 'Local' : 'Remote'} video started playing`);
+      
+      // Log audio status for remote
+      if (!isLocal && video.srcObject) {
+        const stream = video.srcObject as MediaStream;
+        const audioTracks = stream.getAudioTracks();
+        console.log(`🔊 Remote audio tracks:`, {
+          count: audioTracks.length,
+          enabled: audioTracks.map(t => ({ label: t.label, enabled: t.enabled }))
+        });
+      }
     }).catch(err => {
       console.warn(`⚠️ Failed to auto-play ${isLocal ? 'local' : 'remote'} video:`, err);
     });
@@ -584,6 +601,12 @@ export default function CallRoomPage() {
         audio: remoteStreamRef.current.getAudioTracks().length,
         video: remoteStreamRef.current.getVideoTracks().length
       });
+      
+      // Ensure audio tracks are enabled
+      if (ev.track.kind === 'audio') {
+        ev.track.enabled = true;
+        console.log(`🔊 Remote audio track enabled:`, ev.track.label);
+      }
       
       // Set the video element source for remote stream using setup function
       setupVideoElement(remoteVideoRef as React.RefObject<HTMLVideoElement>, remoteStreamRef.current, false);
