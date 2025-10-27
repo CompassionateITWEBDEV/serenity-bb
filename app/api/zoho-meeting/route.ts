@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const topic = `${patientName || 'Patient'} & ${staffName ||宣告ff'} Meeting`;
+    const topic = `${patientName || 'Patient'} & ${staffName || 'Staff'} Meeting`;
     
     // Create meeting dynamically - generates unique ID
     const meeting = await createZohoMeeting({
