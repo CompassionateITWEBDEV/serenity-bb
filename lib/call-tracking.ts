@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 
-export type CallStatus = "initiated" | "ringing" | "connected" | "ended" | "missed" | "declined";
+export type CallStatus = "initiated" | "ringing" | "connecting" | "connected" | "ended" | "missed" | "declined" | "failed";
 
 export type CallEvent = {
   conversationId: string;
@@ -54,9 +54,9 @@ export class CallTracker {
       }
 
       // Track active calls - only delete on explicit end states
-      if (event.status === "initiated" || event.status === "ringing" || event.status === "connected") {
+      if (event.status === "initiated" || event.status === "ringing" || event.status === "connecting" || event.status === "connected") {
         this.activeCalls.set(event.conversationId, event);
-      } else if (event.status === "ended" || event.status === "missed" || event.status === "declined") {
+      } else if (event.status === "ended" || event.status === "missed" || event.status === "declined" || event.status === "failed") {
         // Only delete on explicit end states, not on temporary failures
         this.activeCalls.delete(event.conversationId);
       }
@@ -103,7 +103,7 @@ export class CallTracker {
         ...activeCall,
         ...additionalData,
         status,
-        endedAt: status === "ended" || status === "missed" || status === "declined" 
+        endedAt: status === "ended" || status === "missed" || status === "declined" || status === "failed" 
           ? new Date().toISOString() 
           : activeCall.endedAt,
         durationSeconds: this.calculateDuration(activeCall.startedAt, status),
@@ -132,7 +132,7 @@ export class CallTracker {
       }
 
       // Update local tracking
-      if (status === "ended" || status === "missed" || status === "declined") {
+      if (status === "ended" || status === "missed" || status === "declined" || status === "failed") {
         this.activeCalls.delete(conversationId);
       } else {
         this.activeCalls.set(conversationId, updatedEvent);
@@ -144,7 +144,7 @@ export class CallTracker {
   }
 
   private calculateDuration(startedAt: string | undefined, status: CallStatus): number {
-    if (!startedAt || status === "initiated" || status === "ringing") {
+    if (!startedAt || status === "initiated" || status === "ringing" || status === "connecting" || status === "failed") {
       return 0;
     }
 

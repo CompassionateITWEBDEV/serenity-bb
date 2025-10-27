@@ -11,7 +11,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: "About", href: "/about" },
   { label: "Blog", href: "/blog" },
   { label: "Contact", href: "/contact" },
-  { label: "Test Video Call", href: "/test-video-call" },
 ];
 
 export function Header() {

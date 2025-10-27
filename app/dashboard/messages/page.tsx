@@ -67,8 +67,8 @@ async function ringPeer(
   try {
     // Send to both user channel and staff-specific channel
     const userChannel = supabase.channel(`user_${toUserId}`, {
-      config: { broadcast: { ack: true } },
-    });
+    config: { broadcast: { ack: true } },
+  });
     const staffChannel = supabase.channel(`staff-calls-${toUserId}`, {
       config: { broadcast: { ack: true } },
     });
@@ -93,10 +93,10 @@ async function ringPeer(
     // Send to user channel (for general notifications)
     console.log('📤 Sending to user channel...');
     const userResponse = await userChannel.send({
-      type: "broadcast",
-      event: "invite",
-      payload,
-    });
+    type: "broadcast",
+    event: "invite",
+    payload,
+  });
     console.log('📤 User channel response:', userResponse);
     
     // Send to staff channel (for incoming call banner)
@@ -657,7 +657,7 @@ export default function DashboardMessagesPage() {
 
       // Navigate to call page
       window.location.href = `/call/${selectedId}?role=caller&mode=${mode}&peer=${encodeURIComponent(
-        peerUserId
+          peerUserId
       )}&peerName=${encodeURIComponent(providerInfo.name || "Contact")}`;
     },
     [selectedId, me?.id, providerInfo.id, providerInfo.name, router]
@@ -667,9 +667,9 @@ export default function DashboardMessagesPage() {
   const acceptIncoming = useCallback(() => {
     if (!incoming) return;
     window.location.href = `/call/${incoming.conversationId}?role=callee&mode=${
-      incoming.mode
-    }&peer=${encodeURIComponent(
-      incoming.fromId
+        incoming.mode
+      }&peer=${encodeURIComponent(
+        incoming.fromId
     )}&peerName=${encodeURIComponent(incoming.fromName || "Caller")}`;
     setIncoming(null);
   }, [incoming]);
@@ -955,26 +955,18 @@ export default function DashboardMessagesPage() {
                   >
                     <Phone className="h-5 w-5" />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="rounded-full"
-                    onClick={() => startCall("video")}
-                    title="Start video call"
-                  >
-                    <Video className="h-5 w-5" />
-                  </Button>
+                 
                 </div>
               </div>
 
               {/* Incoming call banner */}
               {incoming && (
-                <IncomingCallBanner
-                  callerName={incoming.fromName}
-                  mode={incoming.mode}
-                  onAccept={acceptIncoming}
-                  onDecline={declineIncoming}
-                />
+                  <IncomingCallBanner
+                    callerName={incoming.fromName}
+                    mode={incoming.mode}
+                    onAccept={acceptIncoming}
+                    onDecline={declineIncoming}
+                  />
               )}
 
               <div

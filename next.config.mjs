@@ -13,7 +13,7 @@ const nextConfig = {
   experimental: {
     turbo: {
       rules: {}
-    },
+    }
   },
 };
 

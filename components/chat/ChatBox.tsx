@@ -762,7 +762,7 @@ function ChatBoxInner(props: {
     let cancelled = false;
     (async () => {
       try {
-        const s = await getJSON<{ connected: boolean }>("/api/zoom/oauth/status");
+        const s = await getJSON<{ connected: boolean }>("/api/zoom/status");
         if (!cancelled) setZoomConnected(!!s.connected);
       } catch {
         /* ignore */
@@ -890,19 +890,7 @@ function ChatBoxInner(props: {
             >
               <Phone className="h-5 w-5" />
             </IconButton>
-            <IconButton
-              aria="Video call"
-              onClick={() =>
-                videoHref
-                  ? window.open(videoHref, "_blank")
-                  : beginCall("video")
-              }
-            >
-              <Video className="h-5 w-5" />
-            </IconButton>
-            <IconButton aria="More">
-              <MoreVertical className="h-5 w-5" />
-            </IconButton>
+            
           </div>
         </div>
 

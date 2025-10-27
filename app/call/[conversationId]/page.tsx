@@ -650,10 +650,10 @@ export default function CallRoomPage() {
       console.log('=== GETTING MEDIA STREAM (SIMPLIFIED) ===');
       console.log('Mode:', mode);
       
-      // Very simple approach - just try basic getUserMedia
+      // Audio-only calls - no camera
       const constraints: MediaStreamConstraints = {
         audio: true,
-        video: mode === "video"
+        video: false  // Camera disabled for all calls
       };
       
       console.log('🎯 Requesting media access for call...');
@@ -727,7 +727,10 @@ export default function CallRoomPage() {
       if (msg.kind === "webrtc-offer") {
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-        const answer = await pc.createAnswer();
+        const answer = await pc.createAnswer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: false  // Audio-only - match the offer
+        });
         console.log('Created answer with audio:', answer.sdp?.includes('m=audio'));
         await pc.setLocalDescription(answer);
         sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
@@ -742,7 +745,9 @@ export default function CallRoomPage() {
           /* ignore */
         }
       } else if (msg.kind === "bye") {
-        endCall(true);
+        // End call directly - endCall will be available from closure
+        setStatus("ended");
+        callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
       }
     });
 
@@ -761,27 +766,73 @@ export default function CallRoomPage() {
   async function ringPeer() {
     if (!peerUserId || !conversationId || !me?.id) return;
     const ch = supabase.channel(`user_${peerUserId}`, { config: { broadcast: { ack: true } } });
-    await new Promise<void>((res, rej) => {
-      const to = setTimeout(() => rej(new Error("subscribe timeout")), 8000);
-      ch.subscribe((s) => {
-        if (s === "SUBSCRIBED") {
-          clearTimeout(to);
-          res();
-        }
-        if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
-          clearTimeout(to);
-          rej(new Error(String(s)));
-        }
-      });
-    });
-    await ch.send({
-      type: "broadcast",
-      event: "invite",
-      payload: { conversationId, fromId: me.id, fromName: me.email || "Caller", mode },
-    });
     try {
-      supabase.removeChannel(ch);
-    } catch {}
+      await new Promise<void>((res) => {
+        const to = setTimeout(() => {
+          console.warn('⚠️ Ring channel subscription timeout, proceeding anyway');
+          res(); // Don't block on timeout
+        }, 5000);
+        
+        ch.subscribe((s) => {
+          if (s === "SUBSCRIBED") {
+            clearTimeout(to);
+            res();
+          } else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+            clearTimeout(to);
+            console.warn('⚠️ Ring channel subscription failed:', s);
+            res(); // Don't block on error
+          }
+        });
+      });
+      
+      // Send invite to user channel
+      await ch.send({
+        type: "broadcast",
+        event: "invite",
+        payload: { conversationId, fromId: me.id, fromName: me.email || "Caller", mode },
+      });
+      
+      // Also send to staff-calls channel if the peer is staff
+      const staffChannel = supabase.channel(`staff-calls-${peerUserId}`, { config: { broadcast: { ack: true } } });
+      try {
+        await new Promise<void>((res) => {
+          const to = setTimeout(() => res(), 5000);
+          staffChannel.subscribe((s) => {
+            if (s === "SUBSCRIBED") {
+              clearTimeout(to);
+              res();
+            } else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+              clearTimeout(to);
+              res();
+            }
+          });
+        });
+        
+        await staffChannel.send({
+          type: "broadcast",
+          event: "incoming-call",
+          payload: { 
+            conversationId, 
+            callerId: me.id, 
+            callerName: me.email || "Caller", 
+            mode 
+          },
+        });
+      } catch (error) {
+        console.warn("Failed to send to staff-calls channel:", error);
+      } finally {
+        try {
+          supabase.removeChannel(staffChannel);
+        } catch {}
+      }
+    } catch (error) {
+      console.warn("Failed to ring peer:", error);
+      // Don't throw - call can still proceed
+    } finally {
+      try {
+        supabase.removeChannel(ch);
+      } catch {}
+    }
   }
 
   async function byePeer() {
@@ -839,7 +890,7 @@ export default function CallRoomPage() {
         
       const offer = await pc.createOffer({
         offerToReceiveAudio: true,
-        offerToReceiveVideo: mode === "video",
+        offerToReceiveVideo: false,  // Audio-only - no video
       });
       console.log('Created offer with audio:', offer.sdp?.includes('m=audio'));
       await pc.setLocalDescription(offer);
@@ -1889,34 +1940,81 @@ export default function CallRoomPage() {
         ) : (
           // Full view
           <div className="max-w-6xl mx-auto">
-            <div className="grid gap-6 lg:grid-cols-2">
-              {/* Remote video */}
-              <VideoTile
-                videoRef={remoteVideoRef}
-                label="Remote"
-                isConnected={status === "connected"}
-                avatarUrl={peerInfo?.avatar}
-                name={peerInfo?.name || peerName}
-              />
-              
-              {/* Local video */}
-              <VideoTile
-                videoRef={localVideoRef}
-                label="You"
-                mirrored
-                isLocal
-                isConnected={status === "connected"}
-                avatarUrl={me?.name ? undefined : undefined}
-                name={me?.name || "You"}
-              />
+            <div className="flex gap-4 w-full">
+              {/* Remote Participant Pane */}
+              <div className="flex-1 bg-gray-900 rounded-2xl overflow-hidden relative min-h-[500px]">
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="text-9xl font-bold text-gray-600 mb-4">
+                      {(peerInfo?.name || peerName).charAt(0).toUpperCase()}
+                    </div>
+                    <div className="text-2xl font-semibold text-white mb-2">
+                      {peerInfo?.name || peerName}
+                    </div>
+                    {status === "connected" ? (
+                      <div className="flex items-center justify-center gap-2 text-green-400 text-sm">
+                        <Mic className="h-4 w-4" />
+                        <span>Audio active</span>
+                      </div>
+                    ) : (
+                      <div className="text-yellow-400 text-sm">Connecting audio...</div>
+                    )}
+                  </div>
+                </div>
+                <div className="absolute bottom-3 left-3 bg-gray-800 w-32 h-24 rounded-lg overflow-hidden">
+                  <VideoTile
+                    videoRef={remoteVideoRef}
+                    label="Remote"
+                    isConnected={status === "connected"}
+                    avatarUrl={peerInfo?.avatar}
+                    name={peerInfo?.name || peerName}
+                  />
+                </div>
+              </div>
+
+              {/* Local Participant Pane */}
+              <div className="flex-1 bg-gray-900 rounded-2xl overflow-hidden relative min-h-[500px]">
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="text-9xl font-bold text-gray-600 mb-4">
+                      {(me?.name || "You").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="text-2xl font-semibold text-white mb-2">
+                      {me?.name || "You"}
+                    </div>
+                    {status === "connected" ? (
+                      <div className="flex items-center justify-center gap-2 text-yellow-400 text-sm">
+                        <Mic className="h-4 w-4" />
+                        <span>Waiting for video...</span>
+                      </div>
+                    ) : (
+                      <div className="text-yellow-400 text-sm">Connecting...</div>
+                    )}
+                  </div>
+                </div>
+                <div className="absolute bottom-3 left-3 bg-gray-800 w-32 h-24 rounded-lg overflow-hidden">
+                  <VideoTile
+                    videoRef={localVideoRef}
+                    label="You"
+                    mirrored
+                    isLocal
+                    isConnected={status === "connected"}
+                    avatarUrl={me?.name ? undefined : undefined}
+                    name={me?.name || "You"}
+                  />
+                </div>
+                <div className="absolute top-3 right-3 bg-black/60 p-2 rounded-full">
+                  <VideoOff className="h-5 w-5 text-white" />
+                </div>
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Controls */}
-      {!isMinimized && (
-          <CallControls
+      {/* Bottom Controls - Centered */}
+      <div className="flex justify-center pb-6">
+        <CallControls
             status={status}
             muted={muted}
             camOff={camOff}
@@ -1931,7 +2029,7 @@ export default function CallRoomPage() {
             isFallbackStream={isFallbackStream}
             audioLevel={audioLevel}
           />
-      )}
+      </div>
     </div>
   );
 }
