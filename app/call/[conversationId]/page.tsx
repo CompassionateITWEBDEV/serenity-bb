@@ -575,17 +575,33 @@ export default function CallRoomPage() {
     };
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState;
-      if (s === "connected") {
+      console.log(`🔄 Connection state changed: ${s}`);
+      
+      if (s === "connecting") {
+        setStatus("connecting");
+        console.log('⏳ Setting status to connecting');
+      } else if (s === "connected") {
         setStatus("connected");
+        console.log('✅ Setting status to connected');
         callTracker.updateCallStatus(conversationId!, "connected").catch(console.warn);
         // Start audio level monitoring when connected
         startAudioLevelMonitoring();
-      }
-      if (s === "failed" || s === "disconnected" || s === "closed") {
+      } else if (s === "failed" || s === "disconnected" || s === "closed") {
+        console.log('❌ Connection failed/disconnected/closed');
         setStatus("ended");
         callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
         // Stop audio level monitoring when disconnected
         stopAudioLevelMonitoring();
+      }
+    };
+    
+    pc.oniceconnectionstatechange = () => {
+      console.log(`🧊 ICE connection state: ${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        console.log('✅ ICE connection established');
+        if (status === 'connecting') {
+          setStatus('connected');
+        }
       }
     };
     pc.ontrack = (ev) => {
@@ -784,35 +800,47 @@ export default function CallRoomPage() {
       if (!msg || msg.from === me.id) return;
 
       if (msg.kind === "webrtc-offer") {
+        console.log('📥 Received offer as callee, setting up answer...');
+        setStatus("connecting");
+        
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        console.log('✅ Set remote description');
+        
         const answer = await pc.createAnswer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: false  // Audio-only - match the offer
         });
-        console.log('Created answer with audio:', answer.sdp?.includes('m=audio'));
+        console.log('✅ Created answer with audio:', answer.sdp?.includes('m=audio'));
         console.log('Answer SDP m-lines:', answer.sdp?.match(/m=\w+/g));
         
         try {
           await pc.setLocalDescription(answer);
+          console.log('✅ Set local description');
           sendSignal({ kind: "webrtc-answer", from: me.id, sdp: answer });
+          console.log('✅ Sent answer to peer');
         } catch (error) {
-          console.error('Error setting local description:', error);
+          console.error('❌ Error setting local description:', error);
           console.error('Answer SDP:', answer.sdp);
           console.error('Remote SDP:', msg.sdp);
         }
       } else if (msg.kind === "webrtc-answer") {
+        console.log('📥 Received answer as caller');
+        setStatus("connecting");
+        
         const pc = ensurePC();
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        console.log('✅ Set remote description for answer');
       } else if (msg.kind === "webrtc-ice") {
         try {
           const pc = ensurePC();
           await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-        } catch {
-          /* ignore */
+          console.log('🧊 Added ICE candidate');
+        } catch (err) {
+          console.warn('Failed to add ICE candidate:', err);
         }
       } else if (msg.kind === "bye") {
-        // End call directly - endCall will be available from closure
+        console.log('👋 Received bye, ending call');
         setStatus("ended");
         callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
       }
