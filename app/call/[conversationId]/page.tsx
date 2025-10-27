@@ -316,6 +316,7 @@ export default function CallRoomPage() {
   const [hasVideo, setHasVideo] = useState<boolean | null>(null);
   const [isFallbackStream, setIsFallbackStream] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [peerMuted, setPeerMuted] = useState(false); // Track peer's mute status
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -714,11 +715,29 @@ export default function CallRoomPage() {
     if (!threadChanRef.current) return;
     void threadChanRef.current.send({ type: "broadcast", event: "signal", payload });
   }, []);
+  
+  // Send mute status to peer
+  const sendMuteStatus = useCallback((mutedState: boolean) => {
+    if (!threadChanRef.current) return;
+    void threadChanRef.current.send({ 
+      type: "broadcast", 
+      event: "mute-status", 
+      payload: { muted: mutedState, from: me?.id } 
+    });
+  }, [me?.id]);
 
   useEffect(() => {
     if (!conversationId || !me?.id) return;
 
     const ch = supabase.channel(threadChannel, { config: { broadcast: { ack: true } } });
+
+    ch.on("broadcast", { event: "mute-status" }, (e) => {
+      const payload = e.payload as { muted: boolean; from: string };
+      if (!payload || payload.from === me.id) return;
+      
+      console.log(`🔇 Peer mute status changed: ${payload.muted ? 'MUTED' : 'UNMUTED'}`);
+      setPeerMuted(payload.muted);
+    });
 
     ch.on("broadcast", { event: "signal" }, async (e) => {
       const msg = (e.payload || {}) as SigPayload;
@@ -949,7 +968,10 @@ export default function CallRoomPage() {
     
     setMuted(newMutedState);
     console.log(`Mute state changed to: ${newMutedState}`);
-  }, [muted]);
+    
+    // Broadcast mute status to peer
+    sendMuteStatus(newMutedState);
+  }, [muted, sendMuteStatus]);
 
   const toggleCamera = useCallback(() => {
     const s = localStreamRef.current;
@@ -2010,6 +2032,12 @@ export default function CallRoomPage() {
                     ) : (
                       <div className="text-yellow-400 text-sm">Connecting...</div>
                     )}
+                    {status === "connected" && peerMuted && (
+                      <div className="flex items-center justify-center gap-2 text-red-400 text-sm mt-2">
+                        <MicOff className="h-4 w-4" />
+                        <span>Other person is muted</span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="absolute bottom-3 left-3 bg-gray-800 w-32 h-24 rounded-lg overflow-hidden">
@@ -2039,9 +2067,9 @@ export default function CallRoomPage() {
                         <span>Microphone on</span>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-center gap-2 text-gray-400 text-sm">
+                      <div className="flex items-center justify-center gap-2 text-red-400 text-sm">
                         <MicOff className="h-4 w-4" />
-                        <span>Muted</span>
+                        <span>You are muted</span>
                       </div>
                     )}
                   </div>
