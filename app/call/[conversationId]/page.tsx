@@ -815,59 +815,78 @@ export default function CallRoomPage() {
   // ---------- Ring peer (for IncomingCallBanner) on user_${peer} ----------
   async function ringPeer() {
     if (!peerUserId || !conversationId || !me?.id) return;
+    
+    console.log(`📞 Attempting to ring peer: ${peerUserId}`);
+    
     const ch = supabase.channel(`user_${peerUserId}`, { config: { broadcast: { ack: true } } });
+    
     try {
-      await new Promise<void>((res) => {
+      // Subscribe to channel with timeout
+      const subscribed = await new Promise<boolean>((res) => {
         const to = setTimeout(() => {
-          console.warn('⚠️ Ring channel subscription timeout, proceeding anyway');
-          res(); // Don't block on timeout
-        }, 5000);
+          console.warn('⚠️ Ring channel subscription timeout after 8s, proceeding anyway');
+          res(false);
+        }, 8000); // Increased timeout to 8s
         
-        ch.subscribe((s) => {
-          if (s === "SUBSCRIBED") {
+        ch.subscribe((status) => {
+          console.log(`📡 Ring channel status: ${status}`);
+          if (status === "SUBSCRIBED") {
             clearTimeout(to);
-            res();
-          } else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+            console.log('✅ Ring channel subscribed successfully');
+            res(true);
+          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
             clearTimeout(to);
-            console.warn('⚠️ Ring channel subscription failed:', s);
-            res(); // Don't block on error
+            console.warn(`⚠️ Ring channel subscription failed: ${status}`);
+            res(false);
           }
         });
       });
       
-      // Send invite to user channel
-      await ch.send({
-        type: "broadcast",
-        event: "invite",
-        payload: { conversationId, fromId: me.id, fromName: me.email || "Caller", mode },
-      });
+      // Send invite to user channel (only if subscribed successfully)
+      if (subscribed) {
+        console.log('📤 Sending invite to user channel');
+        await ch.send({
+          type: "broadcast",
+          event: "invite",
+          payload: { conversationId, fromId: me.id, fromName: me.email || "Caller", mode },
+        });
+        console.log('✅ Invite sent successfully');
+      } else {
+        console.warn('⚠️ Cannot send invite - channel not subscribed');
+      }
       
       // Also send to staff-calls channel if the peer is staff
+      console.log('📞 Attempting to send to staff-calls channel');
       const staffChannel = supabase.channel(`staff-calls-${peerUserId}`, { config: { broadcast: { ack: true } } });
       try {
-        await new Promise<void>((res) => {
-          const to = setTimeout(() => res(), 5000);
+        const staffSubscribed = await new Promise<boolean>((res) => {
+          const to = setTimeout(() => res(false), 8000);
           staffChannel.subscribe((s) => {
             if (s === "SUBSCRIBED") {
               clearTimeout(to);
-              res();
+              console.log('✅ Staff channel subscribed');
+              res(true);
             } else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
               clearTimeout(to);
-              res();
+              res(false);
             }
           });
         });
         
-        await staffChannel.send({
-          type: "broadcast",
-          event: "incoming-call",
-          payload: { 
-            conversationId, 
-            callerId: me.id, 
-            callerName: me.email || "Caller", 
-            mode 
-          },
-        });
+        if (staffSubscribed) {
+          console.log('📤 Sending to staff-calls channel');
+          await staffChannel.send({
+            type: "broadcast",
+            event: "incoming-call",
+            payload: { 
+              conversationId, 
+              callerId: me.id, 
+              callerName: me.email || "Caller", 
+              mode 
+            },
+          });
+          console.log('✅ Staff call notification sent');
+        }
       } catch (error) {
         console.warn("Failed to send to staff-calls channel:", error);
       } finally {
