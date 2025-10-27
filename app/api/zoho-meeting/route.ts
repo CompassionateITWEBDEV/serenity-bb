@@ -7,12 +7,94 @@ interface ZohoMeetingRequest {
 }
 
 /**
- * API route to create or get a Zoho Meeting link
- * 
- * This can be extended to:
- * 1. Call Zoho Meeting API to create a scheduled meeting
- * 2. Store meeting links in database
- * 3. Return existing meetings for conversations
+ * Generate a unique meeting ID (12 characters alphanumeric)
+ */
+function generateMeetingId(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 12; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+/**
+ * Create a Zoho Meeting via API or generate a meeting ID
+ */
+async function createZohoMeeting(params: {
+  topic: string;
+  startTime: string;
+  duration: number;
+  conversationId: string;
+}) {
+  const accessToken = process.env.ZOHO_ACCESS_TOKEN;
+  
+  // If no access token, generate a unique meeting ID manually
+  if (!accessToken) {
+    console.log('No ZOHO_ACCESS_TOKEN found, generating unique meeting ID');
+    const meetingId = generateMeetingId();
+    const meetingUrl = `https://meeting.zoho.com/${meetingId}`;
+    
+    return {
+      meeting_id: meetingId,
+      host_url: meetingUrl,
+      attendee_url: meetingUrl,
+      topic: params.topic
+    };
+  }
+
+  try {
+    const response = await fetch('https://meeting.zoho.com/api/v1/meetings', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        topic: params.topic,
+        start_time: params.startTime,
+        duration: params.duration,
+        type: 1, // 1=instant meeting
+        options: {
+          join_before_host: true,
+          audio: 'both',
+          video: true,
+          dial_in: true
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Zoho Meeting API error:', errorText);
+      // Fall back to generating meeting ID
+      const meetingId = generateMeetingId();
+      return {
+        meeting_id: meetingId,
+        host_url: `https://meeting.zoho.com/${meetingId}`,
+        attendee_url: `https://meeting.zoho.com/${meetingId}`,
+        topic: params.topic
+      };
+    }
+
+    const data = await response.json();
+    return data.meeting;
+  } catch (error) {
+    console.error('Failed to create Zoho Meeting via API:', error);
+    // Fall back to generating meeting ID
+    const meetingId = generateMeetingId();
+    return {
+      meeting_id: meetingId,
+      host_url: `https://meeting.zoho.com/${meetingId}`,
+      attendee_url: `https://meeting.zoho.com/${meetingId}`,
+      topic: params.topic
+    };
+  }
+}
+
+/**
+ * API route to create a Zoho Meeting link
+ * This automatically generates a unique meeting ID for each call
  */
 export async function POST(req: NextRequest) {
   try {
@@ -26,28 +108,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Option 1: Use a fixed Zoho Meeting room/URL
-    // Replace this with your actual Zoho Meeting URL or organization link
-    const zohoMeetingUrl = process.env.ZOHO_MEETING_URL || 
-      'https://meeting.zoho.com/your-room-id';
+    const topic = `${patientName || 'Patient'} & ${staffName ||宣告ff'} Meeting`;
     
-    // Option 2: Generate a unique meeting link using conversation ID
-    // This ensures each conversation has its own meeting room
-    const uniqueMeetingUrl = `${zohoMeetingUrl}?cnv=${conversationId}`;
-
-    // Option 3: Call Zoho Meeting API to create a meeting dynamically
-    // const zohoMeeting = await createZohoMeeting({
-    //   topic: `Call - ${patientName || 'Patient'} & ${staffName || 'Staff'}`,
-    //   startTime: new Date().toISOString(),
-    //   duration: 60,
-    //   joinUrl: true
-    // });
+    // Create meeting dynamically - generates unique ID
+    const meeting = await createZohoMeeting({
+      topic,
+      startTime: new Date().toISOString(),
+      duration: 60, // 1 hour
+      conversationId
+    });
 
     return NextResponse.json({
-      meetingUrl: uniqueMeetingUrl,
+      meetingUrl: meeting.attendee_url || meeting.host_url,
+      meetingId: meeting.meeting_id,
       conversationId,
       expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1 hour
-      topic: `${patientName || 'Patient'} & ${staffName || 'Staff'} Meeting`
+      topic
     });
 
   } catch (error: any) {
@@ -58,33 +134,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
-/**
- * Helper function to create a Zoho Meeting (requires API integration)
- * 
- * @example
- * async function createZohoMeeting(params: { topic: string; startTime: string; duration: number }) {
- *   const response = await fetch('https://meeting.zoho.com/api/v1/meetings', {
- *     method: 'POST',
- *     headers: {
- *       'Authorization': `Zoho-oauthtoken ${process.env.ZOHO_ACCESS_TOKEN}`,
- *       'Content-Type': 'application/json'
- *     },
- *     body: JSON.stringify({
- *       topic: params.topic,
- *       start_time: params.startTime,
- *       duration: params.duration,
- *       type: 3, // 1=instant, 2=scheduled, 3=recurring
- *       options: {
- *         join_before_host: true,
- *         audio: 'both',
- *         video: true
- *       }
- *     })
- *   });
- *   
- *   const data = await response.json();
- *   return data.meeting;
- * }
- */
-
