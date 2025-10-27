@@ -127,9 +127,10 @@ export function useIncomingCall() {
             
             // Auto-decline after 30 seconds if not answered
             setTimeout(() => {
-              if (mounted && isRinging) {
+              if (mounted) {
                 console.log('⏰ Auto-declining call after timeout');
-                declineCall();
+                setIncomingCall(null);
+                setIsRinging(false);
               }
             }, 30000);
           })
@@ -144,7 +145,7 @@ export function useIncomingCall() {
               conversationId,
               callerId: fromId,
               callerName: fromName || "Caller",
-              mode: (mode || "audio") as "audio" | "video",
+              mode: (mode || "audio") as "audio bunchvideo",
               timestamp: new Date().toISOString(),
             };
             
@@ -155,9 +156,10 @@ export function useIncomingCall() {
             
             // Auto-decline after 30 seconds if not answered
             setTimeout(() => {
-              if (mounted && isRinging) {
+              if (mounted) {
                 console.log('⏰ Auto-declining call after timeout');
-                declineCall();
+                setIncomingCall(null);
+                setIsRinging(false);
               }
             }, 30000);
           })
@@ -195,7 +197,7 @@ export function useIncomingCall() {
     return () => {
       mounted = false;
     };
-  }, [declineCall, isRinging]);
+  }, []);
 
   return {
     incomingCall,
