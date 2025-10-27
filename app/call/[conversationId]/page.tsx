@@ -986,6 +986,15 @@ export default function CallRoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authChecked, me?.id]);
 
+  // Initialize mute status on connection
+  useEffect(() => {
+    if (status === "connected" && !muted) {
+      // Send initial unmuted status to peer
+      sendMuteStatus(false);
+      console.log('📤 Sent initial unmuted status to peer');
+    }
+  }, [status, muted, sendMuteStatus]);
+
   // ---------- Controls ----------
   const toggleMute = useCallback(() => {
     const s = localStreamRef.current;
