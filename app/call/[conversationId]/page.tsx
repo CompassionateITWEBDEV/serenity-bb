@@ -856,9 +856,16 @@ export default function CallRoomPage() {
           console.warn('Failed to add ICE candidate:', err);
         }
       } else if (msg.kind === "bye") {
-        console.log('👋 Received bye, ending call');
-        setStatus("ended");
-        callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
+        console.log('👋 Received bye signal');
+        // Only end call if we're actually in a connected state
+        // This prevents premature call termination during connection setup
+        if (status === "connected") {
+          console.log('Call is connected, ending call');
+          setStatus("ended");
+          callTracker.updateCallStatus(conversationId!, "ended").catch(console.warn);
+        } else {
+          console.log('Call not yet connected, ignoring bye signal during setup');
+        }
       }
     });
 
