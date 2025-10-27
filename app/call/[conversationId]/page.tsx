@@ -602,10 +602,27 @@ export default function CallRoomPage() {
         video: remoteStreamRef.current.getVideoTracks().length
       });
       
-      // Ensure audio tracks are enabled
+      // Ensure audio tracks are enabled and properly configured
       if (ev.track.kind === 'audio') {
         ev.track.enabled = true;
         console.log(`🔊 Remote audio track enabled:`, ev.track.label);
+        
+        // Force remote audio to play with audio context if available
+        try {
+          if (typeof window !== 'undefined' && !audioContextRef.current) {
+            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            audioContextRef.current = audioContext;
+          }
+          
+          // Ensure the audio track is output through speakers/headphones
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.muted = false;
+            remoteVideoRef.current.volume = 1.0;
+            console.log('🔊 Forced remote video element: unmuted, volume=1.0');
+          }
+        } catch (audioError) {
+          console.warn('Failed to ensure remote audio output:', audioError);
+        }
       }
       
       // Set the video element source for remote stream using setup function
