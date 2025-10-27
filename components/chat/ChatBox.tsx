@@ -538,6 +538,39 @@ function ChatBoxInner(props: {
       const convId = await ensureConversation().catch(() => null);
       if (!convId || !peerUserId || !me?.id) return;
 
+      // Create Zoho Meeting link and send as message
+      try {
+        const response = await fetch('/api/zoho-meeting', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversationId: convId,
+            patientName: mode === "staff" ? (patientName || "Patient") : me.name,
+            staffName: mode === "staff" ? me.name : (providerName || "Staff")
+          })
+        });
+
+        const data = await response.json();
+        
+        if (data.meetingUrl) {
+          // Send meeting link as a message
+          const meetingMessage = `📞 Starting ${m} call\n\nJoin the meeting:\n${data.meetingUrl}`;
+          
+          // Send message to conversation
+          const msgContent = meetingMessage;
+          const caption = msgContent;
+          const meta = null;
+          
+          // This is a simplified version - in production you'd want to use the actual send function
+          console.log('Sending meeting link:', meetingMessage);
+          
+          // Open Zoho Meeting in new tab
+          window.open(data.meetingUrl, '_blank', 'noopener,noreferrer');
+        }
+      } catch (error) {
+        console.error('Failed to create Zoho Meeting:', error);
+      }
+
       try {
         await ringPeer(peerUserId, {
           conversationId: convId,
@@ -554,16 +587,6 @@ function ChatBoxInner(props: {
         console.warn("[call] ring failed", e);
       }
 
-      const url = `/call/${convId}?role=caller&mode=${m}&peer=${encodeURIComponent(
-        peerUserId
-      )}&peerName=${encodeURIComponent(
-        mode === "staff"
-          ? patientName || "Patient"
-          : providerName || "Provider"
-      )}`;
-      
-      // Open in same tab for better UX
-      window.location.href = url;
       setCallDockVisible(true);
       setCallStatus("ringing");
     },

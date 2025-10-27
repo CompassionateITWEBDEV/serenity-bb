@@ -678,6 +678,33 @@ export default function DashboardMessagesPage() {
         const data = await response.json();
         
         if (data.meetingUrl) {
+          // Send meeting link as a message in the conversation
+          const meetingMessage = `📞 Starting ${mode} call\n\nJoin the meeting:\n${data.meetingUrl}`;
+          
+          const { error: msgErr } = await supabase.from("messages").insert({
+            conversation_id: selectedId,
+            patient_id: me.id,
+            sender_id: me.id,
+            sender_name: me.name,
+            sender_role: "patient",
+            content: meetingMessage,
+            read: false,
+            urgent: false,
+          });
+
+          if (msgErr) {
+            console.error('Failed to send meeting message:', msgErr);
+          }
+
+          // Update conversation with meeting link as last message
+          await supabase
+            .from("conversations")
+            .update({
+              last_message: `📞 ${mode} call`,
+              last_message_at: new Date().toISOString(),
+            })
+            .eq("id", selectedId);
+
           // Open Zoho Meeting in new tab
           window.open(data.meetingUrl, '_blank', 'noopener,noreferrer');
           
