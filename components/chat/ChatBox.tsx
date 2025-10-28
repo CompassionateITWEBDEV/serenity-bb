@@ -554,7 +554,7 @@ function ChatBoxInner(props: {
         
         if (data.meetingUrl) {
           // Send meeting link as a message
-          const meetingMessage = `📞 Starting ${m} call\n\nJoin the meeting:\n${data.meetingUrl}`;
+          const meetingMessage = `📞 Starting ${m} call\n\nJoin the meeting:\n🔗 [Click to join](${data.meetingUrl})`;
           
           // Send message to conversation using the actual send function
           try {
@@ -1391,7 +1391,29 @@ function MessageBubble({
         )}
 
         {showText && (
-          <div className="whitespace-pre-wrap break-words">{m.content}</div>
+          <div className="whitespace-pre-wrap break-words">
+            {m.content.split(/(\[.*?\]\(.*?\))/g).map((part, idx) => {
+              const linkMatch = part.match(/\[(.*?)\]\((.*?)\)/);
+              if (linkMatch) {
+                return (
+                  <a
+                    key={idx}
+                    href={linkMatch[2]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      window.open(linkMatch[2], '_blank', 'noopener,noreferrer');
+                    }}
+                  >
+                    {linkMatch[1]}
+                  </a>
+                );
+              }
+              return <span key={idx}>{part}</span>;
+            })}
+          </div>
         )}
         <div
           className={`mt-1 flex items-center gap-1 text-[10px] ${
