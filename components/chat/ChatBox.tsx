@@ -603,13 +603,10 @@ function ChatBoxInner(props: {
           // Send meeting link as a message
           const meetingMessage = `📞 Starting ${m} call\n\nJoin the meeting:\n🔗 [Click to join](${data.meetingUrl})`;
           
-          // Send message to conversation using the actual send function
+          // Send message to conversation using insertMessage
           try {
-            await sendMessage({
+            await insertMessage({
               content: meetingMessage,
-              caption: meetingMessage,
-              meta: null,
-              conversationId: convId
             });
           } catch (sendError) {
             console.error('Failed to send meeting link message:', sendError);
@@ -649,7 +646,7 @@ function ChatBoxInner(props: {
       providerName,
       me?.id,
       me?.name,
-      sendMessage,
+      insertMessage,
     ]
   );
 
