@@ -238,6 +238,15 @@ export default function DashboardMessagesPage() {
     
     console.log('📡 Patient subscribing to incoming call channel:', `user_${me.id}`);
     
+    // Handle connection errors gracefully
+    ch.on('broadcast', { event: '*' }, (payload) => {
+      // Silent handler to prevent unhandled errors
+    }).subscribe((status) => {
+      if (status === 'CHANNEL_ERROR') {
+        console.warn('Channel subscription error - this is non-critical');
+      }
+    });
+    
     ch.on("broadcast", { event: "invite" }, (payload) => {
       const { conversationId, fromId, fromName, mode } = (payload.payload || {}) as any;
       if (!conversationId || !fromId) {

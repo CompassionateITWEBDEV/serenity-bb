@@ -552,6 +552,13 @@ function ChatBoxInner(props: {
 
         const data = await response.json();
         
+        // Check if configuration is needed
+        if (data.needsConfig) {
+          console.warn('Zoho Meeting not configured:', data.configMessage);
+          alert('⚠️ Zoho Meeting is not configured. Please visit /zoho-setup to configure your meeting room URL.');
+          return;
+        }
+        
         if (data.meetingUrl) {
           // Send meeting link as a message
           const meetingMessage = `📞 Starting ${m} call\n\nJoin the meeting:\n🔗 [Click to join](${data.meetingUrl})`;
