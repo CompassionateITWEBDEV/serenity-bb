@@ -917,6 +917,13 @@ function ChatBoxInner(props: {
             >
               <Phone className="h-5 w-5" />
             </IconButton>
+
+            <IconButton
+              aria="Video call"
+              onClick={() => beginCall("video")}
+            >
+              <Video className="h-5 w-5" />
+            </IconButton>
             
           </div>
         </div>
