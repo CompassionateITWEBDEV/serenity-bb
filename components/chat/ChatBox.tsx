@@ -8,6 +8,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { EmbeddedMeeting } from "@/components/zoho-meeting/EmbeddedMeeting";
 import { supabase } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -185,6 +186,12 @@ function ChatBoxInner(props: {
   const [callStatus, setCallStatus] =
     useState<"ringing" | "connected" | "ended">("ended");
   const [callMode] = useState<"audio" | "video">("audio");
+
+  // Embedded meeting state
+  const [embeddedMeeting, setEmbeddedMeeting] = useState<{
+    url: string;
+    callerName: string;
+  } | null>(null);
 
   const listRef = useRef<HTMLDivElement>(null);
   const channelRef =
@@ -575,8 +582,11 @@ function ChatBoxInner(props: {
             console.error('Failed to send meeting link message:', sendError);
           }
           
-          // Open Zoho Meeting in new tab
-          window.open(data.meetingUrl, '_blank', 'noopener,noreferrer');
+          // Open Zoho Meeting in embedded modal instead of new tab
+          setEmbeddedMeeting({
+            url: data.meetingUrl,
+            callerName: mode === "staff" ? me.name : (providerName || "Staff")
+          });
         }
       } catch (error) {
         console.error('Failed to create Zoho Meeting:', error);
@@ -620,9 +630,10 @@ function ChatBoxInner(props: {
         console.warn("[call] bye failed", e);
       }
     }
-    setCallDockVisible(false);
-    setCallStatus("ended");
-  }, [conversationId, peerUserId]);
+      setCallDockVisible(false);
+      setCallStatus("ended");
+      setEmbeddedMeeting(null);
+    }, [conversationId, peerUserId]);
 
   /* ----------------------------- send ops ----------------------------- */
   async function insertMessage(payload: {
@@ -845,7 +856,18 @@ function ChatBoxInner(props: {
 
   /* ----------------------------------- UI ----------------------------------- */
   return (
-    <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
+    <>
+      {/* Embedded Meeting Modal */}
+      {embeddedMeeting && (
+        <EmbeddedMeeting
+          meetingUrl={embeddedMeeting.url}
+          open={true}
+          onClose={() => setEmbeddedMeeting(null)}
+          callerName={embeddedMeeting.callerName}
+        />
+      )}
+
+      <Card className="h-[620px] w-full overflow-hidden border-0 shadow-lg">
       <CardContent className="flex h-full flex-col p-0">
         {/* Header */}
         <div className="flex items-center gap-3 border-b bg-white/80 px-3 py-2 backdrop-blur dark:bg-zinc-900/70">
