@@ -517,10 +517,12 @@ function ChatBoxInner(props: {
       if (userResponse !== "ok" && staffResponse !== "ok") {
         console.warn('Failed to send invite notification, but continuing...');
       }
-  } catch (error) {
-    // Don't throw - non-critical, just log
-    console.warn('[ringPeer] Failed to send ring notification:', error);
+    } catch (error) {
+      // Don't throw - non-critical, just log
+      console.warn('[ringPeer] Failed to send ring notification:', error);
+    }
   }
+  
   async function sendBye(
     toUserId: string,
     args: { conversationId: string }
