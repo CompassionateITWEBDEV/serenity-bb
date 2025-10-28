@@ -29,18 +29,27 @@ async function createZohoMeeting(params: {
 }) {
   const accessToken = process.env.ZOHO_ACCESS_TOKEN;
   
-  // If no access token, generate a unique meeting ID manually
+  // If no access token, use fixed meeting room URL from env or return error
   if (!accessToken) {
-    console.log('No ZOHO_ACCESS_TOKEN found, generating unique meeting ID');
-    const meetingId = generateMeetingId();
-    const meetingUrl = `https://meeting.zoho.com/${meetingId}`;
+    console.log('No ZOHO_ACCESS_TOKEN found, checking for ZOHO_MEETING_URL');
+    const fixedUrl = process.env.ZOHO_MEETING_URL;
     
-    return {
-      meeting_id: meetingId,
-      host_url: meetingUrl,
-      attendee_url: meetingUrl,
-      topic: params.topic
-    };
+    if (fixedUrl) {
+      console.log('Using fixed Zoho Meeting URL:', fixedUrl);
+      // Extract meeting ID from URL if possible
+      const urlParts = fixedUrl.split('/');
+      const meetingId = urlParts[urlParts.length - 1] || 'default';
+      
+      return {
+        meeting_id: meetingId,
+        host_url: fixedUrl,
+        attendee_url: fixedUrl,
+        topic: params.topic
+      };
+    }
+    
+    // If no fixed URL is configured, we need to return an error
+    throw new Error('ZOHO_MEETING_URL environment variable is required. Please set it in your .env.local file with your Zoho Meeting room URL.');
   }
 
   try {
@@ -175,7 +184,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error('Error creating Zoho Meeting:', error);
     return NextResponse.json(
-      { error: 'Failed to create meeting link' },
+      { error: error.message || 'Failed to create meeting link. Please configure ZOHO_MEETING_URL in your environment variables.' },
       { status: 500 }
     );
   }
