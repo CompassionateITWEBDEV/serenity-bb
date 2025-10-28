@@ -688,7 +688,7 @@ export default function DashboardMessagesPage() {
         
         if (data.meetingUrl) {
           // Send meeting link as a message in the conversation
-          const meetingMessage = `📞 Starting ${mode} call\n\nJoin the meeting:\n${data.meetingUrl}`;
+          const meetingMessage = `📞 Starting ${mode} call\n\nJoin the meeting:\n🔗 [Click to join](${data.meetingUrl})`;
           
           const { error: msgErr } = await supabase.from("messages").insert({
             conversation_id: selectedId,
