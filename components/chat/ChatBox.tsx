@@ -545,7 +545,10 @@ function ChatBoxInner(props: {
       
       // Try to subscribe, but don't block if it fails
       try {
-        await ensureSubscribedFor(ch);
+        await Promise.race([
+          ensureSubscribedFor(ch),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+        ]);
       } catch (subError) {
         // Ignore subscription errors
       }
