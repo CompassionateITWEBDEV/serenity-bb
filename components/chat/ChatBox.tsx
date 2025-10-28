@@ -200,12 +200,12 @@ function ChatBoxInner(props: {
     name?: string;
     previewUrl: string;
   } | null>(null);
-  useEffect(
-    () => () => {
+  
+  useEffect(() => {
+    return () => {
       if (draft?.previewUrl) URL.revokeObjectURL(draft.previewUrl);
-    },
-    [draft?.previewUrl]
-  );
+    };
+  }, [draft?.previewUrl]);
 
   const bubbleBase =
     (settings?.bubbleRadius ?? "rounded-2xl") +
