@@ -527,16 +527,22 @@ function ChatBoxInner(props: {
     toUserId: string,
     args: { conversationId: string }
   ) {
-    const ch = supabase.channel(`user_${toUserId}`, {
-      config: { broadcast: { ack: true } },
-    });
-    await ensureSubscribedFor(ch);
-    const response = await ch.send({
-      type: "broadcast",
-      event: "bye",
-      payload: args,
-    });
-    if (response !== "ok") throw new Error("Failed to send bye");
+    try {
+      const ch = supabase.channel(`user_${toUserId}`, {
+        config: { broadcast: { ack: true } },
+      });
+      await ensureSubscribedFor(ch);
+      const response = await ch.send({
+        type: "broadcast",
+        event: "bye",
+        payload: args,
+      });
+      if (response !== "ok") {
+        console.warn('Failed to send bye notification, but continuing...');
+      }
+    } catch (error) {
+      console.warn('[sendBye] Failed to send bye notification:', error);
+    }
   }
 
   // Open /call page and RING the peer so they see a banner
