@@ -533,29 +533,39 @@ function ChatBoxInner(props: {
     toUserId: string,
     args: { conversationId: string }
   ) {
+    // Silently fail - this is non-critical
     try {
+      if (!supabase) {
+        return;
+      }
+      
       const ch = supabase.channel(`user_${toUserId}`, {
         config: { broadcast: { ack: true } },
       });
       
-      // Add timeout for subscription
+      // Try to subscribe, but don't block if it fails
       try {
         await ensureSubscribedFor(ch);
       } catch (subError) {
-        console.warn('[sendBye] Subscription failed, attempting to send anyway:', subError);
+        // Ignore subscription errors
       }
       
-      const response = await ch.send({
-        type: "broadcast",
-        event: "bye",
-        payload: args,
-      });
-      
-      if (response !== "ok") {
-        console.warn('Failed to send bye notification, but continuing...');
+      // Try to send the message
+      try {
+        const response = await ch.send({
+          type: "broadcast",
+          event: "bye",
+          payload: args,
+        });
+        
+        if (response !== "ok") {
+          // Ignore response errors
+        }
+      } catch (sendError) {
+        // Ignore send errors
       }
     } catch (error) {
-      console.warn('[sendBye] Failed to send bye notification:', error);
+      // Ignore all errors
     }
   }
 
