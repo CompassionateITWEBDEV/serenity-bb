@@ -456,21 +456,27 @@ function ChatBoxInner(props: {
   async function ensureSubscribedFor(
     userChannel: ReturnType<typeof supabase.channel>
   ) {
-    await new Promise<void>((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const to = setTimeout(
         () => reject(new Error("subscribe timeout")),
         10000
       );
-      userChannel.subscribe((s) => {
-        if (s === "SUBSCRIBED") {
-          clearTimeout(to);
-          resolve();
-        }
-        if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
-          clearTimeout(to);
-          reject(new Error(String(s)));
-        }
-      });
+      
+      try {
+        userChannel.subscribe((s) => {
+          if (s === "SUBSCRIBED") {
+            clearTimeout(to);
+            resolve();
+          }
+          if (s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+            clearTimeout(to);
+            reject(new Error(String(s)));
+          }
+        });
+      } catch (error) {
+        clearTimeout(to);
+        reject(error);
+      }
     });
   }
   async function ringPeer(
@@ -531,12 +537,25 @@ function ChatBoxInner(props: {
       const ch = supabase.channel(`user_${toUserId}`, {
         config: { broadcast: { ack: true } },
       });
-      await ensureSubscribedFor(ch);
+      
+      // Add timeout for subscription
+      try {
+        await Promise.race([
+          ensureSubscribedFor(ch),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Subscription timeout")), 5000)
+          )
+        ]);
+      } catch (subError) {
+        console.warn('[sendBye] Subscription failed, attempting to send anyway:', subError);
+      }
+      
       const response = await ch.send({
         type: "broadcast",
         event: "bye",
         payload: args,
       });
+      
       if (response !== "ok") {
         console.warn('Failed to send bye notification, but continuing...');
       }
