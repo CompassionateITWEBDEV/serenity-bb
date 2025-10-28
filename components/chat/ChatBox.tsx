@@ -540,12 +540,7 @@ function ChatBoxInner(props: {
       
       // Add timeout for subscription
       try {
-        await Promise.race([
-          ensureSubscribedFor(ch),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("Subscription timeout")), 5000)
-          )
-        ]);
+        await ensureSubscribedFor(ch);
       } catch (subError) {
         console.warn('[sendBye] Subscription failed, attempting to send anyway:', subError);
       }
