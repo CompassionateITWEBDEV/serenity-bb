@@ -93,8 +93,19 @@ async function createZohoMeeting(params: {
 }
 
 /**
+ * In-memory storage for conversation meetings
+ * In production, you might want to use a database or Redis
+ */
+const conversationMeetings = new Map<string, {
+  meetingUrl: string;
+  meetingId: string;
+  topic: string;
+  createdAt: Date;
+}>();
+
+/**
  * API route to create a Zoho Meeting link
- * This automatically generates a unique meeting ID for each call
+ * This creates ONE shared meeting per conversation that both parties join
  */
 export async function POST(req: NextRequest) {
   try {
@@ -108,9 +119,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Check if we already have a meeting for this conversation
+    const existingMeeting = conversationMeetings.get(conversationId);
+    
+    // If meeting exists and is less than 1 hour old, reuse it
+    if (existingMeeting) {
+      const ageInMs = Date.now() - existingMeeting.createdAt.getTime();
+      const oneHourInMs = 60 * 60 * 1000;
+      
+      if (ageInMs < oneHourInMs) {
+        console.log(`Reusing existing meeting for conversation ${conversationId}`);
+        return NextResponse.json({
+          meetingUrl: existingMeeting.meetingUrl,
+          meetingId: existingMeeting.meetingId,
+          conversationId,
+          expiresAt: new Date(existingMeeting.createdAt.getTime() + oneHourInMs).toISOString(),
+          topic: existingMeeting.topic
+        });
+      } else {
+        // Meeting expired, remove it
+        conversationMeetings.delete(conversationId);
+      }
+    }
+
+    // Create new meeting for this conversation
     const topic = `${patientName || 'Patient'} & ${staffName || 'Staff'} Meeting`;
     
-    // Create meeting dynamically - generates unique ID
     const meeting = await createZohoMeeting({
       topic,
       startTime: new Date().toISOString(),
@@ -118,12 +152,24 @@ export async function POST(req: NextRequest) {
       conversationId
     });
 
-    return NextResponse.json({
+    const meetingData = {
       meetingUrl: meeting.attendee_url || meeting.host_url,
       meetingId: meeting.meeting_id,
+      topic
+    };
+
+    // Store the meeting for this conversation
+    conversationMeetings.set(conversationId, {
+      ...meetingData,
+      createdAt: new Date()
+    });
+
+    console.log(`Created new meeting for conversation ${conversationId}: ${meetingData.meetingUrl}`);
+
+    return NextResponse.json({
+      ...meetingData,
       conversationId,
       expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1 hour
-      topic
     });
 
   } catch (error: any) {

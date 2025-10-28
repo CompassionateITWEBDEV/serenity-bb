@@ -39,7 +39,8 @@ export function useIncomingCall() {
       const data = await response.json();
       
       if (data.meetingUrl) {
-        // Open Zoho Meeting in new tab
+        console.log('Joining shared meeting:', data.meetingUrl);
+        // Open Zoho Meeting in new tab - this will reuse the same meeting as the caller
         window.open(data.meetingUrl, '_blank', 'noopener,noreferrer');
       } else {
         throw new Error('Failed to get meeting URL');

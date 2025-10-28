@@ -556,13 +556,17 @@ function ChatBoxInner(props: {
           // Send meeting link as a message
           const meetingMessage = `📞 Starting ${m} call\n\nJoin the meeting:\n${data.meetingUrl}`;
           
-          // Send message to conversation
-          const msgContent = meetingMessage;
-          const caption = msgContent;
-          const meta = null;
-          
-          // This is a simplified version - in production you'd want to use the actual send function
-          console.log('Sending meeting link:', meetingMessage);
+          // Send message to conversation using the actual send function
+          try {
+            await sendMessage({
+              content: meetingMessage,
+              caption: meetingMessage,
+              meta: null,
+              conversationId: convId
+            });
+          } catch (sendError) {
+            console.error('Failed to send meeting link message:', sendError);
+          }
           
           // Open Zoho Meeting in new tab
           window.open(data.meetingUrl, '_blank', 'noopener,noreferrer');
