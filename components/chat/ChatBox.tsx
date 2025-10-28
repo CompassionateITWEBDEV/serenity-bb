@@ -610,6 +610,7 @@ function ChatBoxInner(props: {
       providerName,
       me?.id,
       me?.name,
+      sendMessage,
     ]
   );
 
