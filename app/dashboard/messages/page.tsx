@@ -1101,7 +1101,27 @@ export default function DashboardMessagesPage() {
                           />
                           {showText && (
                             <p className="whitespace-pre-wrap break-words">
-                              {m.content}
+                              {m.content.split(/(\[.*?\]\(.*?\))/g).map((part, idx) => {
+                                const linkMatch = part.match(/\[(.*?)\]\((.*?)\)/);
+                                if (linkMatch) {
+                                  return (
+                                    <a
+                                      key={idx}
+                                      href={linkMatch[2]}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        window.open(linkMatch[2], '_blank', 'noopener,noreferrer');
+                                      }}
+                                    >
+                                      {linkMatch[1]}
+                                    </a>
+                                  );
+                                }
+                                return <span key={idx}>{part}</span>;
+                              })}
                             </p>
                           )}
                           <div
