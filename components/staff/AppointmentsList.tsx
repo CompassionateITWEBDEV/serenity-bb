@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Calendar,
   Clock,
@@ -48,6 +49,8 @@ export default function AppointmentsList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<AppointmentStatus>("all");
   const [dateFilter, setDateFilter] = useState<"all" | "today" | "upcoming" | "past">("all");
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [selected, setSelected] = useState<Appointment | null>(null);
 
   const loadAppointments = async () => {
     try {
@@ -73,7 +76,8 @@ export default function AppointmentsList() {
             email
           )
         `)
-        .order("appointment_time", { ascending: true });
+        .order("appointment_time", { ascending: false })
+        .order("created_at", { ascending: false });
 
       if (error) {
         console.error("Error loading appointments:", error);
@@ -211,6 +215,39 @@ export default function AppointmentsList() {
     });
   };
 
+  const openDetails = (apt: Appointment) => {
+    setSelected(apt);
+    setIsDetailOpen(true);
+  };
+
+  const deleteCancelled = async (apt: Appointment) => {
+    if (apt.status !== "cancelled") return;
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      const res = await fetch("/api/staff/appointments/delete", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ id: apt.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("Delete failed:", err);
+        // Show minimal inline feedback
+        alert(`Delete failed: ${err?.error || res.status}`);
+        return;
+      }
+      await loadAppointments();
+      setIsDetailOpen(false);
+    } catch (e) {
+      console.error("Failed to delete appointment", e);
+    }
+  };
+
   const getEndTime = (apt: Appointment) => {
     const start = new Date(apt.appointment_time);
     const duration = apt.duration_min || 60;
@@ -289,7 +326,7 @@ export default function AppointmentsList() {
           ) : (
             <div className="divide-y divide-gray-100">
               {filteredAppointments.map((apt) => (
-                <div key={apt.id} className="p-6 hover:bg-gray-50 transition-colors">
+                <div key={apt.id} className="p-6 hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => openDetails(apt)}>
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 space-y-3">
                       <div className="flex items-start gap-3">
@@ -306,6 +343,16 @@ export default function AppointmentsList() {
                               {apt.title || "Appointment"}
                             </h4>
                             {getStatusBadge(apt.status)}
+                            {apt.status === "cancelled" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="ml-2"
+                                onClick={(e) => { e.stopPropagation(); deleteCancelled(apt); }}
+                              >
+                                Delete
+                              </Button>
+                            )}
                           </div>
                           {/* Prominent appointment time display */}
                           <div className="mb-3 p-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg border border-blue-200">
@@ -374,6 +421,35 @@ export default function AppointmentsList() {
           )}
         </CardContent>
       </Card>
+
+    {/* Details Dialog */}
+    <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Appointment Details</DialogTitle>
+        </DialogHeader>
+        {selected && (
+          <div className="space-y-2 text-sm">
+            <div><strong>Title:</strong> {selected.title || "Appointment"}</div>
+            <div><strong>Status:</strong> {selected.status}</div>
+            <div><strong>When:</strong> {formatDateTime(selected.appointment_time)} ({selected.duration_min || 60} min)</div>
+            <div><strong>Patient:</strong> {selected.patient_name}{selected.patient_email ? ` (${selected.patient_email})` : ""}</div>
+            {selected.provider && <div><strong>Provider:</strong> {selected.provider}</div>}
+            {selected.location && !selected.is_virtual && <div><strong>Location:</strong> {selected.location}</div>}
+            {selected.is_virtual && <div><strong>Type:</strong> Virtual Appointment</div>}
+            {selected.notes && <div><strong>Notes:</strong> {selected.notes}</div>}
+          </div>
+        )}
+        <DialogFooter>
+          {selected?.status === "cancelled" && (
+            <Button variant="destructive" onClick={() => selected && deleteCancelled(selected)}>
+              Delete
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => setIsDetailOpen(false)}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </div>
   );
 }

@@ -28,6 +28,7 @@ import {
   Plus
 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase/client";
 
 // Types
 interface Patient {
@@ -103,13 +104,15 @@ export default function PatientVerificationManager() {
       if (data.migrationRequired) {
         setMigrationRequired(true);
         console.log('Migration required:', data);
-        return false;
+        // Continue anyway; API has a fallback to patients table
+        return true;
       }
       
       return true;
     } catch (error) {
       console.error('Error checking migration status:', error);
-      return false;
+      // If check fails, proceed; API will handle fallbacks
+      return true;
     }
   };
 
@@ -124,7 +127,17 @@ export default function PatientVerificationManager() {
         return;
       }
       
-      const response = await fetch('/api/patient-verifications/summary');
+      // Include credentials and Bearer token so API can authorize staff
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      const response = await fetch('/api/patient-verifications/summary', {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
       
       if (!response.ok) {
         const errorData = await response.json();

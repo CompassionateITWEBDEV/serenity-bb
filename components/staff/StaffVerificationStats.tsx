@@ -24,19 +24,27 @@ export default function StaffVerificationStats({ staffId }: StaffVerificationSta
 
     async function load() {
       try {
-        const { data, error } = await supabase
-          .from("staff_verifications")
-          .select("rating")
-          .eq("staff_id", staffId);
+        // Prefer API with server-side auth (service role fallback)
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        const res = await fetch(`/api/staff/verifications?staffId=${encodeURIComponent(staffId)}` , {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
 
-        if (error) {
-          console.error("Failed to load verification stats:", error);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.error("Failed to load verification stats:", err);
           return;
         }
 
-        const ratings = (data || []).map((r: any) => Number(r.rating)).filter((n) => !Number.isNaN(n));
-        const totalVerifications = data?.length || 0;
-        const averageRating = ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
+        const body = await res.json();
+        const totalVerifications = body?.stats?.totalVerifications ?? (body?.verifications?.length ?? 0);
+        const averageRating = body?.stats?.averageRating ?? null;
         if (!cancelled) setStats({ totalVerifications, averageRating });
       } catch (e) {
         console.error("Error loading verification stats:", e);
