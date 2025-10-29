@@ -67,10 +67,10 @@ class SafeNotificationService {
     const appointments = await this.safeQuery(
       () => supabase
         .from('appointments')
-        .select('id, appointment_type, appointment_date, appointment_time, status, is_virtual, location, notes')
+        .select('id, patient_id, appointment_time, status, title, provider, duration_min, type, location, is_virtual, notes, created_at')
         .eq('patient_id', patientId)
-        .gte('appointment_date', new Date().toISOString().split('T')[0])
-        .order('appointment_date', { ascending: true })
+        .gte('appointment_time', new Date().toISOString())
+        .order('appointment_time', { ascending: true })
         .limit(10),
       [],
       'Appointments query error'
@@ -79,8 +79,8 @@ class SafeNotificationService {
     const notifications: SafeNotification[] = [];
     const now = new Date();
 
-    appointments.forEach(apt => {
-      const aptDate = new Date(`${apt.appointment_date}T${apt.appointment_time}`);
+    appointments.forEach((apt: any) => {
+      const aptDate = new Date(apt.appointment_time);
       const timeDiff = aptDate.getTime() - now.getTime();
       const hoursUntil = timeDiff / (1000 * 60 * 60);
       const isToday = aptDate.toDateString() === now.toDateString();
@@ -90,8 +90,8 @@ class SafeNotificationService {
         id: `apt-${apt.id}`,
         type: 'appointment',
         title: `${isToday ? 'Today' : 'Upcoming'} ${apt.is_virtual ? 'Virtual' : ''} Appointment`,
-        message: `Staff: ${apt.appointment_time} (${apt.appointment_type})`,
-        timestamp: apt.appointment_date,
+        message: apt.title || `Appointment: ${new Date(apt.appointment_time).toLocaleTimeString()} (${apt.type || 'General'})`,
+        timestamp: apt.appointment_time,
         read: false,
         urgent: isUrgent,
         data: apt,
@@ -120,7 +120,7 @@ class SafeNotificationService {
     const messages = await this.safeQuery(
       () => supabase
         .from('messages')
-        .select('id, subject, content, is_read, message_type, created_at')
+        .select('id, content, is_read, message_type, created_at')
         .eq('recipient_id', patient.user_id)
         .eq('is_read', false)
         .order('created_at', { ascending: false })
@@ -132,8 +132,8 @@ class SafeNotificationService {
     return messages.map(msg => ({
       id: `msg-${msg.id}`,
       type: 'message' as const,
-      title: msg.subject || 'New Message',
-      message: `Staff: ${msg.content.substring(0, 100)}...`,
+      title: 'New Message',
+      message: msg.content ? `${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}` : 'No content',
       timestamp: msg.created_at,
       read: msg.is_read,
       urgent: msg.message_type === 'urgent',
@@ -143,43 +143,11 @@ class SafeNotificationService {
   }
 
   // Get group messages for a patient (safe version)
+  // Note: group_members table may not exist in Supabase, so we return empty array
   async getGroupMessageNotifications(patientId: string): Promise<SafeNotification[]> {
-    const userGroups = await this.safeQuery(
-      () => supabase
-        .from('group_members')
-        .select('group_id')
-        .eq('patient_id', patientId),
-      [],
-      'Group members query error'
-    );
-
-    if (!userGroups.length) return [];
-
-    const groupIds = userGroups.map(g => g.group_id);
-
-    const messages = await this.safeQuery(
-      () => supabase
-        .from('group_messages')
-        .select('id, content, message_type, is_announcement, created_at')
-        .in('group_id', groupIds)
-        .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
-        .order('created_at', { ascending: false })
-        .limit(20),
-      [],
-      'Group messages query error'
-    );
-
-    return messages.map(msg => ({
-      id: `group-${msg.id}`,
-      type: 'group_message' as const,
-      title: 'Group Message',
-      message: `Member: ${msg.content.substring(0, 100)}...`,
-      timestamp: msg.created_at,
-      read: false,
-      urgent: msg.is_announcement,
-      data: msg,
-      source_id: msg.id.toString()
-    }));
+    // Group members table doesn't exist in current Supabase schema
+    // Return empty array to avoid errors
+    return [];
   }
 
   // Get video submission notifications (safe version)
@@ -213,110 +181,36 @@ class SafeNotificationService {
   }
 
   // Get video recording notifications (safe version)
+  // Note: video_recordings table doesn't exist - use video_submissions instead
   async getVideoRecordingNotifications(patientId: string): Promise<SafeNotification[]> {
-    const recordings = await this.safeQuery(
-      () => supabase
-        .from('video_recordings')
-        .select('*')
-        .eq('patient_id', patientId)
-        .order('created_at', { ascending: false })
-        .limit(10),
-      [],
-      'Video recordings query error'
-    );
-
-    return recordings.map(rec => ({
-      id: `rec-${rec.id}`,
-      type: 'video_recording' as const,
-      title: 'New Video Recording',
-      message: `${rec.title} - ${rec.recording_type}`,
-      timestamp: rec.created_at,
-      read: false,
-      urgent: false,
-      data: rec,
-      source_id: rec.id.toString()
-    }));
+    // video_recordings table doesn't exist in current Supabase schema
+    // Video recordings are handled by video_submissions
+    // Return empty array to avoid duplicate notifications
+    return [];
   }
 
   // Get medication notifications (safe version)
+  // Note: medication_logs table may not exist or have different schema
   async getMedicationNotifications(patientId: string): Promise<SafeNotification[]> {
-    const medications = await this.safeQuery(
-      () => supabase
-        .from('medication_logs')
-        .select('*')
-        .eq('patient_id', patientId)
-        .gte('taken_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-        .order('taken_at', { ascending: false })
-        .limit(10),
-      [],
-      'Medication logs query error'
-    );
-
-    return medications.map(med => ({
-      id: `med-${med.id}`,
-      type: 'medication' as const,
-      title: 'Medication Logged',
-      message: `${med.medication_name} - ${med.dosage} (${med.frequency})`,
-      timestamp: med.taken_at,
-      read: false,
-      urgent: false,
-      data: med,
-      source_id: med.id.toString()
-    }));
+    // medication_logs table may not exist in current Supabase schema
+    // Return empty array to avoid errors
+    return [];
   }
 
   // Get activity notifications (safe version)
+  // Note: activity_logs table doesn't exist in Supabase
   async getActivityNotifications(patientId: string): Promise<SafeNotification[]> {
-    const activities = await this.safeQuery(
-      () => supabase
-        .from('activity_logs')
-        .select('*')
-        .eq('patient_id', patientId)
-        .gte('completed_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-        .order('completed_at', { ascending: false })
-        .limit(10),
-      [],
-      'Activity logs query error'
-    );
-
-    return activities.map(act => ({
-      id: `act-${act.id}`,
-      type: 'activity' as const,
-      title: 'Activity Completed',
-      message: `${act.activity_name} - ${act.duration_minutes} minutes`,
-      timestamp: act.completed_at,
-      read: false,
-      urgent: false,
-      data: act,
-      source_id: act.id.toString()
-    }));
+    // activity_logs table doesn't exist in current Supabase schema
+    // Return empty array to avoid errors
+    return [];
   }
 
   // Get progress notifications (safe version)
+  // Note: progress_tracking table doesn't exist in Supabase
   async getProgressNotifications(patientId: string): Promise<SafeNotification[]> {
-    const progress = await this.safeQuery(
-      () => supabase
-        .from('progress_tracking')
-        .select('*')
-        .eq('patient_id', patientId)
-        .gte('recorded_date', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
-        .order('recorded_date', { ascending: false })
-        .limit(10),
-      [],
-      'Progress tracking query error'
-    );
-
-    return progress.map(prog => ({
-      id: `prog-${prog.id}`,
-      type: 'progress' as const,
-      title: 'Progress Update',
-      message: `${prog.metric_name}: ${prog.metric_value} ${prog.metric_unit || ''}`,
-      timestamp: prog.recorded_date,
-      read: false,
-      urgent: false,
-      data: prog,
-      source_id: prog.id.toString()
-    }));
+    // progress_tracking table doesn't exist in current Supabase schema
+    // Return empty array to avoid errors
+    return [];
   }
 
   // Get system notifications (fallback)

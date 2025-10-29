@@ -350,6 +350,8 @@ export default function AppointmentsPage() {
 
     provider: "",
 
+    staff_id: "" as string | "",
+
     date: "",
 
     time: "",
@@ -1254,12 +1256,14 @@ export default function AppointmentsPage() {
 
             <div className="flex flex-col sm:flex-row gap-3">
 
-              <Button 
-                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl transition-all duration-200 px-6 py-3" 
+              <button 
+                type="button"
+                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl transition-all duration-200 px-6 py-3 rounded-md inline-flex items-center gap-2" 
                 onClick={() => setIsBookingOpen(true)}
               >
-                <Plus className="h-5 w-5 mr-2" /> Book Appointment
-              </Button>
+                <Plus className="h-5 w-5" />
+                Book Appointment
+              </button>
 
               <Dialog open={isBookingOpen} onOpenChange={setIsBookingOpen}>
                 <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -2012,11 +2016,14 @@ export default function AppointmentsPage() {
 
                   <p className="text-gray-500 mb-4">Schedule your next session to stay on track with your treatment plan.</p>
 
-                  <Button onClick={() => setIsBookingOpen(true)} className="bg-blue-600 hover:bg-blue-700">
-
-                    <Plus className="h-4 w-4 mr-2" />Book Appointment
-
-                  </Button>
+                  <button 
+                    type="button"
+                    onClick={() => setIsBookingOpen(true)} 
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md inline-flex items-center gap-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Book Appointment
+                  </button>
 
                 </div>
 
