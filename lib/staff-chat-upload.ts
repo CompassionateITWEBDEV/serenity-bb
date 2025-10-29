@@ -59,9 +59,9 @@ export async function uploadStaffChatFile(
 }
 
 /**
- * Convert a storage path to a public URL
+ * Convert a storage path to a signed URL (for private buckets) or public URL
  * @param path The storage path (e.g., "all/user-id/timestamp-random.ext")
- * @returns Public URL to access the file, or null if path is invalid
+ * @returns Signed or public URL to access the file, or null if path is invalid
  */
 export async function urlFromStaffChatPath(path: string | null | undefined): Promise<string | null> {
   if (!path) return null;
@@ -74,14 +74,25 @@ export async function urlFromStaffChatPath(path: string | null | undefined): Pro
       return path;
     }
 
-    // Get public URL from Supabase storage
-    const { data } = supabase.storage
+    // Try to get a signed URL first (for private buckets)
+    // Signed URLs expire after 1 hour by default
+    const { data: signedData, error: signedError } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .createSignedUrl(path, 3600); // Valid for 1 hour
+
+    if (!signedError && signedData?.signedUrl) {
+      return signedData.signedUrl;
+    }
+
+    // Fallback to public URL if signed URL fails (for public buckets)
+    console.warn("Signed URL failed, trying public URL:", signedError);
+    const { data: publicData } = supabase.storage
       .from(STORAGE_BUCKET)
       .getPublicUrl(path);
 
-    return data.publicUrl || null;
+    return publicData?.publicUrl || null;
   } catch (error) {
-    console.error("Error getting public URL:", error);
+    console.error("Error getting attachment URL:", error);
     return null;
   }
 }

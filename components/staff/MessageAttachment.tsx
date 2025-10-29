@@ -27,13 +27,21 @@ export default function MessageAttachment({
       return;
     }
 
+    console.log("Loading attachment:", { attachment_url, attachment_type });
+    
     urlFromStaffChatPath(attachment_url)
       .then((publicUrl) => {
-        setUrl(publicUrl);
+        console.log("Got attachment URL:", publicUrl);
+        if (publicUrl) {
+          setUrl(publicUrl);
+        } else {
+          console.warn("No URL returned for attachment:", attachment_url);
+        }
         setLoading(false);
       })
       .catch((error) => {
         console.error("Error loading attachment URL:", error);
+        console.error("Attachment details:", { attachment_url, attachment_type });
         setLoading(false);
       });
   }, [attachment_url]);
@@ -65,6 +73,15 @@ export default function MessageAttachment({
   }
 
   if (!url || !attachment_type) {
+    if (attachment_url) {
+      console.warn("MessageAttachment: Missing URL or type", { url, attachment_type, attachment_url });
+      return (
+        <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+          <p>Unable to load attachment</p>
+          <p className="text-xs text-yellow-600 mt-1">{attachment_type || "Unknown type"}</p>
+        </div>
+      );
+    }
     return null;
   }
 
