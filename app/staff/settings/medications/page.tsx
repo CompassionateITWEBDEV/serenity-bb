@@ -568,29 +568,3 @@ export default function StaffSettingsMedicationCallbacksPage() {
     </div>
   );
 }
-
-            <ul className="divide-y">
-              {items.map((i) => (
-                <li key={i.id} className="px-4 py-3 flex items-center justify-between">
-                  <div>
-                    <div className="font-medium">{i.name}</div>
-                    <div className="text-xs text-slate-500">{i.due}</div>
-                  </div>
-                  <span
-                    className={`text-xs px-2 py-1 rounded-full border ${
-                      i.status === "done"
-                        ? "text-emerald-700 bg-emerald-50 border-emerald-200"
-                        : "text-amber-700 bg-amber-50 border-amber-200"
-                    }`}
-                  >
-                    {i.status === "done" ? "Done" : "Pending"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      </main>
-    </div>
-  );
-}

@@ -298,26 +298,3 @@ export async function POST(req: NextRequest) {
     }, { status: 500 });
   }
 }
-
-    // Send real-time notification to all staff
-    const staffChannel = supabase.channel('staff-group-chat', {
-      config: { broadcast: { ack: true } },
-    });
-
-    await staffChannel.send({
-      type: 'broadcast',
-      event: 'new-message',
-      payload: {
-        message,
-        timestamp: new Date().toISOString()
-      },
-    });
-
-    supabase.removeChannel(staffChannel);
-
-    return NextResponse.json({ message }, { status: 201 });
-
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-}
