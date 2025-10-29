@@ -229,7 +229,23 @@ export default function StaffPatientInboxPage() {
           {loading && <p className="text-slate-500">Loading assigned patients…</p>}
           {!loading && errorMsg && <p className="text-red-600">{errorMsg}</p>}
           {!loading && !errorMsg && (
-            <PatientInbox patients={patients} onNewGroup={() => console.log("new group")} />
+            <PatientInbox 
+              patients={patients.map(p => ({
+                id: p.user_id,
+                name: p.full_name || 'Unknown',
+                role: p.role_on_team || 'Patient',
+                phone: p.phone_number || null,
+                clinician: null, // Will be fetched if available
+                payer: null, // Will be fetched if available
+                time: new Date(p.added_at || p.created_at).toLocaleString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                }).replace(',', ' ·')
+              }))} 
+              onNewGroup={() => console.log("new group")} 
+            />
           )}
         </div>
       </main>

@@ -77,139 +77,146 @@ export default function RandomDrugTestManager({ patients, onCreate }: Props) {
           </Button>
         </DialogTrigger>
 
-        <DialogContent className="w-[95vw] sm:w-full sm:max-w-4xl p-0 overflow-hidden">
-          <DialogHeader className="px-8 pt-8 pb-6 bg-gradient-to-r from-cyan-50 to-blue-50 border-b">
-            <div className="flex items-center justify-center mb-2">
-              <div className="p-3 rounded-full bg-gradient-to-r from-cyan-600 to-blue-600 text-white">
-                <TestTube2 className="w-6 h-6" />
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-5xl p-0 overflow-hidden max-h-[90vh] flex flex-col">
+          <DialogHeader className="px-10 pt-10 pb-8 bg-gradient-to-br from-cyan-50 via-blue-50 to-indigo-50 border-b border-slate-200">
+            <div className="flex items-center justify-center mb-4">
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg">
+                <TestTube2 className="w-8 h-8" />
               </div>
             </div>
-            <DialogTitle className="text-center text-2xl font-bold text-slate-800">New Random Test</DialogTitle>
-            <DialogDescription className="text-center text-slate-600 text-base">
-              Schedule a random drug test for a patient. Select the patient, date, and time below.
+            <DialogTitle className="text-center text-3xl font-bold text-slate-800 mb-2">New Random Drug Test</DialogTitle>
+            <DialogDescription className="text-center text-slate-600 text-lg max-w-2xl mx-auto">
+              Schedule a random drug test for a patient. Select the patient, date, and time below to create the test.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="px-8 py-6 space-y-8">
+          <div className="px-10 py-8 space-y-10 overflow-y-auto flex-1">
             {/* Patient Selection */}
-            <Card className="border-0 shadow-sm bg-gradient-to-r from-slate-50 to-slate-100">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-2 rounded-lg bg-cyan-100 text-cyan-600">
-                    <User className="w-5 h-5" />
+            <Card className="border-0 shadow-lg bg-white">
+              <CardContent className="p-8">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="p-3 rounded-xl bg-slate-100 text-slate-600">
+                    <User className="w-6 h-6" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-slate-800">Select Patient</h3>
-                    <p className="text-sm text-slate-600">Choose the patient for this random test</p>
+                    <h3 className="text-xl font-bold text-slate-800">Select Patient</h3>
+                    <p className="text-slate-600">Choose the patient for this random drug test</p>
                   </div>
                 </div>
                 
-                <Select value={patientId} onValueChange={setPatientId}>
-                  <SelectTrigger className="h-12 bg-white border-2 border-slate-200 hover:border-cyan-300 focus:border-cyan-500 transition-colors">
-                    <SelectValue placeholder="Select a patient..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {patients.map((p) => (
-                      <SelectItem key={p.id} value={p.id} className="py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 flex items-center justify-center text-white text-sm font-medium">
-                            {p.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                <div className="space-y-4">
+                  <Select value={patientId} onValueChange={setPatientId}>
+                    <SelectTrigger className="h-14 bg-white border-2 border-slate-300 hover:border-cyan-400 focus:border-cyan-500 transition-all duration-200 text-base shadow-sm">
+                      <SelectValue placeholder="Select a patient..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60 bg-white border-2 border-slate-200 shadow-lg">
+                      {patients.map((p) => (
+                        <SelectItem key={p.id} value={p.id} className="py-4 hover:bg-slate-50 focus:bg-slate-50">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 flex items-center justify-center text-white text-sm font-semibold">
+                              {p.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="font-semibold text-slate-800">{p.name}</div>
+                              <div className="text-sm text-slate-600">{p.email}</div>
+                            </div>
                           </div>
-                          <div>
-                            <div className="font-medium">{p.name}</div>
-                            <div className="text-sm text-slate-500">{p.email}</div>
-                          </div>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
-                {selectedPatient && (
-                  <div className="mt-4 p-4 bg-white rounded-lg border border-cyan-200">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 flex items-center justify-center text-white font-medium">
-                        {selectedPatient.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                  {selectedPatient && (
+                    <div className="mt-6 p-6 bg-white rounded-xl border-2 border-cyan-200 shadow-sm">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 flex items-center justify-center text-white font-semibold text-lg">
+                          {selectedPatient.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-lg font-bold text-slate-800">{selectedPatient.name}</div>
+                          <div className="text-slate-600">{selectedPatient.email}</div>
+                        </div>
+                        <Badge variant="secondary" className="bg-cyan-100 text-cyan-700 border-cyan-200 px-3 py-1 text-sm font-medium">
+                          ✓ Selected
+                        </Badge>
                       </div>
-                      <div>
-                        <div className="font-semibold text-slate-800">{selectedPatient.name}</div>
-                        <div className="text-sm text-slate-600">{selectedPatient.email}</div>
-                      </div>
-                      <Badge variant="secondary" className="ml-auto bg-cyan-100 text-cyan-700">
-                        Selected
-                      </Badge>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </CardContent>
             </Card>
 
             {/* Date and Time Selection */}
-            <Card className="border-0 shadow-sm bg-gradient-to-r from-slate-50 to-slate-100">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 rounded-lg bg-blue-100 text-blue-600">
-                    <Calendar className="w-5 h-5" />
+            <Card className="border-0 shadow-lg bg-white">
+              <CardContent className="p-8">
+                <div className="flex items-center gap-4 mb-8">
+                  <div className="p-3 rounded-xl bg-slate-100 text-slate-600">
+                    <Calendar className="w-6 h-6" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-slate-800">Schedule Date & Time</h3>
-                    <p className="text-sm text-slate-600">Choose when to conduct the test</p>
+                    <h3 className="text-xl font-bold text-slate-800">Schedule Date & Time</h3>
+                    <p className="text-slate-600">Choose when to conduct the random drug test</p>
                   </div>
                 </div>
 
-                <div className="grid gap-6 lg:grid-cols-[1fr,300px]">
+                <div className="grid gap-8 lg:grid-cols-[1fr,320px] xl:grid-cols-[1fr,360px]">
                   {/* Calendar */}
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                      <Calendar className="w-4 h-4" />
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3 text-base font-semibold text-slate-700">
+                      <Calendar className="w-5 h-5" />
                       Select Date
                     </div>
-                    <CalendarCard value={date} onChange={setDate} />
+                    <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+                      <CalendarCard value={date} onChange={setDate} />
+                    </div>
                   </div>
 
                   {/* Time Picker */}
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                      <Clock className="w-4 h-4" />
-                      Select Time
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3 text-base font-semibold text-slate-700">
+                      <Clock className="w-5 h-5" />
+                      Available Times
                     </div>
-                    <TimeSlotPicker 
-                      date={date} 
-                      value={slot} 
-                      onChange={setSlot} 
-                      intervalMinutes={30} 
-                      startHour={8} 
-                      endHour={20}
-                      className="h-full"
-                    />
+                    <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm max-h-80 overflow-y-auto">
+                      <TimeSlotPicker 
+                        date={date} 
+                        value={slot} 
+                        onChange={setSlot} 
+                        intervalMinutes={30} 
+                        startHour={8} 
+                        endHour={20}
+                        className="h-full"
+                      />
+                    </div>
                   </div>
                 </div>
 
                 {/* Selection Summary */}
                 {(date || slot) && (
-                  <div className="mt-6 p-4 bg-white rounded-lg border border-blue-200">
-                    <div className="flex items-center gap-2 text-sm font-medium text-slate-700 mb-2">
-                      <Clock className="w-4 h-4" />
+                  <div className="mt-8 p-6 bg-white rounded-xl border-2 border-blue-200 shadow-sm">
+                    <div className="flex items-center gap-3 text-base font-semibold text-slate-700 mb-4">
+                      <Clock className="w-5 h-5" />
                       Scheduled For
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 flex-wrap">
                       {date && (
-                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                          {date.toLocaleDateString('en-US', { 
-                            weekday: 'short', 
-                            month: 'short', 
-                            day: 'numeric' 
+                        <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300 px-4 py-2 text-sm font-medium">
+                          📅 {date.toLocaleDateString('en-US', { 
+                            weekday: 'long', 
+                            month: 'long', 
+                            day: 'numeric',
+                            year: 'numeric'
                           })}
                         </Badge>
                       )}
                       {slot && (
-                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                          {slot}
+                        <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300 px-4 py-2 text-sm font-medium">
+                          🕐 {slot}
                         </Badge>
                       )}
                       {!date && !slot && (
-                        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                          Unscheduled
+                        <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-300 px-4 py-2 text-sm font-medium">
+                          ⏰ Unscheduled
                         </Badge>
                       )}
                     </div>
@@ -219,29 +226,29 @@ export default function RandomDrugTestManager({ patients, onCreate }: Props) {
             </Card>
           </div>
 
-          <DialogFooter className="px-8 py-6 bg-slate-50 border-t gap-3">
+          <DialogFooter className="px-10 py-8 bg-white border-t border-slate-200 gap-4 flex-shrink-0">
             <Button 
               variant="outline" 
               onClick={() => setOpen(false)} 
               disabled={isPending}
-              className="h-11 px-6"
+              className="h-12 px-8 text-base font-medium border-2 border-slate-300 hover:border-slate-400 hover:bg-slate-100"
             >
               Cancel
             </Button>
             <Button 
               onClick={handleCreate} 
               disabled={isPending || !patientId}
-              className="h-11 px-8 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl transition-all duration-200"
+              className="h-12 px-10 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl transition-all duration-200 text-base font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isPending ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Creating...
+                  <Loader2 className="w-5 h-5 mr-3 animate-spin" />
+                  Creating Test...
                 </>
               ) : (
                 <>
-                  <TestTube2 className="w-4 h-4 mr-2" />
-                  Create Test
+                  <TestTube2 className="w-5 h-5 mr-3" />
+                  Create Drug Test
                 </>
               )}
             </Button>

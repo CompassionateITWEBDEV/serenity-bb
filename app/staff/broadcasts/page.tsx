@@ -51,8 +51,8 @@ export default function StaffBroadcastsPage() {
   const router = useRouter();
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
+    <div className="min-h-screen bg-white">
+      <header className="sticky top-0 z-10 bg-white border-b">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
@@ -74,7 +74,7 @@ export default function StaffBroadcastsPage() {
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
         {/* Icon row (consistent with staff pages) */}
         <div className="flex items-center gap-3">
-          <IconPill onClick={() => router.push("/staff/dashboard")} aria="Home">
+          <IconPill onClick={() => router.push("/staff/dashboard")} aria="Dashboard">
             <HomeIcon className="h-5 w-5" />
           </IconPill>
 
@@ -82,7 +82,7 @@ export default function StaffBroadcastsPage() {
             <TestTube2 className="h-5 w-5" />
           </IconPill>
 
-          <IconPill onClick={() => router.push("/staff/patient-inbox")} aria="Messages / Patient Inbox">
+          <IconPill onClick={() => router.push("/staff/messages")} aria="Messages">
             <MessageSquare className="h-5 w-5" />
           </IconPill>
 
@@ -90,11 +90,15 @@ export default function StaffBroadcastsPage() {
             <RadioIcon className="h-5 w-5" />
           </IconPill>
 
-          <IconPill onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups">
+          <IconPill onClick={() => router.push("/staff/hidden-groups")} aria="Groups">
             <EyeOff className="h-5 w-5" />
           </IconPill>
 
-          <IconPill onClick={() => router.push("/staff/notifications")} aria="Notifications">
+          <IconPill onClick={() => router.push("/staff/group-chat")} aria="Group Chat">
+            <Users className="h-5 w-5" />
+          </IconPill>
+
+          <IconPill onClick={() => router.push("/staff/notifications")} aria="Alerts">
             <Bell className="h-5 w-5" />
           </IconPill>
 
@@ -102,7 +106,7 @@ export default function StaffBroadcastsPage() {
             <Users className="h-5 w-5" />
           </IconPill>
 
-          <IconPill onClick={() => router.push("/staff/profile")} aria="Profile Settings">
+          <IconPill onClick={() => router.push("/staff/profile")} aria="Settings">
             <SettingsIcon className="h-5 w-5" />
           </IconPill>
         </div>

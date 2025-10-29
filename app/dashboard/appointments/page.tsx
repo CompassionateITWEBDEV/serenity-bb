@@ -47,6 +47,8 @@ import {
 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import StaffSelector from "@/components/appointments/StaffSelector";
+import StaffVerificationBadge from "@/components/staff/StaffVerificationBadge";
 
 
 
@@ -419,6 +421,8 @@ export default function AppointmentsPage() {
       .eq("patient_id", patientId)
 
       .order("appointment_time", { ascending: true });
+    
+    // Note: staff_id column should be included if it exists in the appointments table
 
     if (!error) setItems((data as Appt[]) || []);
 
@@ -881,7 +885,7 @@ export default function AppointmentsPage() {
 
 
 
-      const { error } = await supabase.from("appointments").insert({
+      const { data: appointmentData, error } = await supabase.from("appointments").insert({
 
         patient_id: patientId,
 
@@ -893,6 +897,8 @@ export default function AppointmentsPage() {
 
         provider: form.provider || null,
 
+        staff_id: form.staff_id || null, // Store selected staff user_id if available
+
         duration_min: Number(form.duration) || null,
 
         type: form.type || null,
@@ -903,7 +909,7 @@ export default function AppointmentsPage() {
 
         notes: form.notes || null,
 
-      });
+      }).select("id").single();
 
 
 
@@ -915,11 +921,56 @@ export default function AppointmentsPage() {
 
       } else {
 
+        // Notify staff when patient creates appointment (async, don't block response)
+        try {
+          // Get session token for authentication
+          const { data: { session } } = await supabase.auth.getSession();
+          const authHeader = session?.access_token ? `Bearer ${session.access_token}` : '';
+          
+          const patientName = (patient as any)?.full_name || 
+            [(patient as any)?.first_name, (patient as any)?.last_name].filter(Boolean).join(" ").trim() || 
+            "Patient";
+          
+          const appointmentDate = new Date(iso).toLocaleDateString("en-US", {
+            weekday: "short",
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          
+          // Call API route to notify staff (runs async, won't block response)
+          fetch('/api/appointments/notify-staff', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(authHeader && { 'Authorization': authHeader })
+            },
+            body: JSON.stringify({
+              appointmentId: appointmentData.id,
+              patientId: patientId,
+              patientName: patientName,
+              appointmentDate: appointmentDate,
+              appointmentType: form.type || undefined,
+              provider: form.provider || undefined,
+              staffId: form.staff_id || undefined, // Send staff_id for targeted notification
+              isVirtual: form.isVirtual || false
+            })
+          }).catch((err) => {
+            console.error("Failed to notify staff about appointment:", err);
+          });
+        } catch (error) {
+          console.error("Error notifying staff about appointment:", error);
+          // Don't fail the appointment creation if notification fails
+        }
+
         await loadAppointments();
 
         setIsBookingOpen(false);
 
-        setForm({ type: "", provider: "", date: "", time: "", duration: "60", location: "", isVirtual: false, title: "", notes: "" });
+        setForm({ type: "", provider: "", staff_id: "", date: "", time: "", duration: "60", location: "", isVirtual: false, title: "", notes: "" });
 
         await swalToast("Appointment requested", "success");
 
@@ -1289,16 +1340,23 @@ export default function AppointmentsPage() {
 
                     <Label className="text-sm font-medium text-gray-700">Healthcare Provider</Label>
 
-                    <Input 
-
-                      value={form.provider} 
-
-                      onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value }))} 
-
-                      placeholder="e.g., Dr. Sarah Johnson" 
-
-                      className="border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-
+                    <StaffSelector
+                      value={form.staff_id}
+                      onValueChange={(staffId) => {
+                        // Find staff name for display
+                        supabase
+                          .from("staff")
+                          .select("first_name, last_name, email")
+                          .eq("user_id", staffId)
+                          .single()
+                          .then(({ data }) => {
+                            if (data) {
+                              const name = [data.first_name, data.last_name].filter(Boolean).join(" ").trim() || data.email?.split("@")[0] || "Staff";
+                              setForm((f) => ({ ...f, staff_id: staffId, provider: name }));
+                            }
+                          });
+                      }}
+                      placeholder="Select a healthcare provider"
                     />
 
                   </div>
@@ -1803,9 +1861,18 @@ export default function AppointmentsPage() {
 
                               </div>
 
-                              <div>
+                              <div className="flex-1">
 
-                                <div className="text-sm font-medium text-gray-900">{a.provider || "TBD"}</div>
+                                <div className="flex items-center gap-2">
+                                  <div className="text-sm font-medium text-gray-900">{a.provider || "TBD"}</div>
+                                  {(() => {
+                                    // Try to find staff_id from the appointment if stored
+                                    const staffId = (a as any).staff_id;
+                                    return staffId ? (
+                                      <StaffVerificationBadge staffId={staffId} showCount={false} showRating={true} />
+                                    ) : null;
+                                  })()}
+                                </div>
 
                                 <div className="text-xs text-gray-500">Provider</div>
 

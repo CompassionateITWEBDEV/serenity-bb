@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,10 @@ import IntakeQueue from "@/components/staff/IntakeQueue";
 import MobileDock from "@/components/staff/MobileDock";
 import ProfileSettings from "@/components/ProfileSettings";
 import IncomingCallNotification from "@/components/call/IncomingCallNotification";
+import NotificationBell from "@/components/staff/NotificationBell";
+import AppointmentsList from "@/components/staff/AppointmentsList";
+import VideoSubmissionsList from "@/components/staff/VideoSubmissionsList";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 import {
   ShieldCheck,
@@ -28,6 +32,9 @@ import {
   Radio as RadioIcon,
   EyeOff,
   Bell,
+  Clock,
+  Calendar,
+  Video,
 } from "lucide-react";
 
 import type { DrugTest, TestStatus } from "@/lib/drug-tests";
@@ -37,6 +44,49 @@ import { fetchPatients, subscribePatients } from "@/lib/patients";
 
 // IMPORTANT: use the *singleton* client + ensureSession
 import { supabase, ensureSession } from "@/lib/supabase-browser";
+
+// NavButton component for enhanced navigation
+interface NavButtonProps {
+  active?: boolean;
+  onClick: () => void;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  description: string;
+}
+
+function NavButton({ active = false, onClick, icon: Icon, label, description }: NavButtonProps) {
+  return (
+    <button
+      onClick={onClick}
+      className={`group relative flex flex-col items-center p-4 rounded-xl border-2 transition-all duration-200 hover:shadow-md ${
+        active
+          ? "border-cyan-500 bg-gradient-to-br from-cyan-50 to-blue-50 shadow-sm"
+          : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+      }`}
+    >
+      <div className={`h-8 w-8 rounded-lg flex items-center justify-center mb-2 transition-colors ${
+        active
+          ? "bg-gradient-to-r from-cyan-500 to-blue-500 text-white"
+          : "bg-slate-100 text-slate-600 group-hover:bg-slate-200 group-hover:text-slate-700"
+      }`}>
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="text-center">
+        <div className={`text-xs font-semibold mb-1 ${
+          active ? "text-cyan-700" : "text-slate-700"
+        }`}>
+          {label}
+        </div>
+        <div className="text-xs text-slate-500">
+          {description}
+        </div>
+      </div>
+      {active && (
+        <div className="absolute -top-1 -right-1 h-3 w-3 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full border-2 border-white"></div>
+      )}
+    </button>
+  );
+}
 
 const TEST_STATUS_META: Record<TestStatus, { label: string; cls: string }> = {
   completed: { label: "Completed", cls: "text-emerald-700 bg-emerald-50 border-emerald-200" },
@@ -56,19 +106,42 @@ function StatusChip({ status }: { status: TestStatus }) {
 const fmtWhen = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
 
-type View = "home" | "tests" | "settings";
+type View = "home" | "tests" | "appointments" | "submissions" | "settings";
 
 export default function StaffDashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Gate all data work behind a ready flag
   const [ready, setReady] = useState(false);
+  const [staffId, setStaffId] = useState<string | null>(null);
 
   const [patients, setPatients] = useState<StaffPatient[]>([]);
   const [tests, setTests] = useState<DrugTest[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | TestStatus>("all");
-  const [view, setView] = useState<View>("home");
+  
+  // Initialize view from URL param or default to "home"
+  const tabParam = searchParams?.get("tab");
+  const initialView: View = 
+    tabParam === "appointments" ? "appointments" : 
+    tabParam === "tests" ? "tests" : 
+    tabParam === "submissions" ? "submissions" : 
+    "home";
+  const [view, setView] = useState<View>(initialView);
+  
+  // Update view when URL param changes
+  useEffect(() => {
+    if (tabParam === "appointments") {
+      setView("appointments");
+    } else if (tabParam === "tests") {
+      setView("tests");
+    } else if (tabParam === "submissions") {
+      setView("submissions");
+    } else if (!tabParam) {
+      setView("home");
+    }
+  }, [tabParam]);
 
   // Session guard: wait for hydrated session before proceeding
   useEffect(() => {
@@ -81,6 +154,11 @@ export default function StaffDashboardPage() {
       if (!session) {
         router.replace("/staff/login?redirect=/staff/dashboard");
         return;
+      }
+
+      // Get staff ID from session
+      if (session.user?.id) {
+        setStaffId(session.user.id);
       }
 
       setReady(true);
@@ -148,40 +226,8 @@ export default function StaffDashboardPage() {
   }
 
   async function onCreateTest() {
-    const m = patients[0];
-    if (!m) {
-      await sweetAlert({
-        icon: "error",
-        title: "No patients available",
-        text: "Add a patient before creating a test.",
-      });
-      return;
-    }
-    try {
-      await createDrugTest({ patientId: m.id, scheduledFor: null });
-      await refreshTests();
-      await sweetAlert({
-        icon: "success",
-        title: "Test created",
-        text: `A new test was created for ${m.name}.`,
-      });
-    } catch (err: any) {
-      const status = Number(err?.status || 0);
-      if (status === 401 || status === 403) {
-        await sweetAlert({
-          icon: "error",
-          title: "Sign in required",
-          text: "Please sign in with a staff account.",
-        });
-        router.replace("/staff/login?redirect=/staff/dashboard");
-        return;
-      }
-      await sweetAlert({
-        icon: "error",
-        title: "Failed to create test",
-        text: err?.message ?? "Please try again.",
-      });
-    }
+    // Navigate to the new test page
+    router.push("/staff/drug-tests/new");
   }
 
   if (!ready) {
@@ -206,6 +252,7 @@ export default function StaffDashboardPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {staffId && <NotificationBell staffId={staffId} />}
             <Badge variant="secondary" className="gap-1">
               <Activity className="h-3.5 w-3.5" /> Live
             </Badge>
@@ -213,102 +260,265 @@ export default function StaffDashboardPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
-        {/* Icon Row */}
-        <div className="flex items-center gap-4">
-          <IconPill size="lg" active={view === "home"} onClick={() => setView("home")} aria="Home">
-            <HomeIcon className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" active={view === "tests"} onClick={() => setView("tests")} aria="Drug Tests">
-            <TestTube2 className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/messages")} aria="Messages">
-            <MessageSquare className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts">
-            <RadioIcon className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/hidden-groups")} aria="Hidden Groups">
-            <EyeOff className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/notifications")} aria="Notifications">
-            <Bell className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/clinician/dashboard")} aria="Clinicians">
-            <Users className="h-6 w-6" />
-          </IconPill>
-          <IconPill size="lg" onClick={() => router.push("/staff/profile")} aria="Settings">
-            <SettingsIcon className="h-6 w-6" />
-          </IconPill>
+      <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+        {/* Enhanced Navigation */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-slate-800">Quick Actions</h2>
+            <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 border-emerald-200">
+              <Activity className="h-3 w-3 mr-1" />
+              Live System
+            </Badge>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+            <NavButton 
+              active={view === "home"} 
+              onClick={() => setView("home")} 
+              icon={HomeIcon}
+              label="Dashboard"
+              description="Overview"
+            />
+            <NavButton 
+              active={view === "tests"} 
+              onClick={() => setView("tests")} 
+              icon={TestTube2}
+              label="Drug Tests"
+              description="Random Tests"
+            />
+            <NavButton 
+              active={view === "appointments"} 
+              onClick={() => setView("appointments")} 
+              icon={Calendar}
+              label="Appointments"
+              description="Patient Appointments"
+            />
+            <NavButton 
+              active={view === "submissions"} 
+              onClick={() => setView("submissions")} 
+              icon={Video}
+              label="Video Submissions"
+              description="Patient Videos"
+            />
+            <NavButton 
+              onClick={() => router.push("/staff/messages")} 
+              icon={MessageSquare}
+              label="Messages"
+              description="Patient Chat"
+            />
+            <NavButton 
+              onClick={() => router.push("/staff/broadcasts")} 
+              icon={RadioIcon}
+              label="Broadcasts"
+              description="Announcements"
+            />
+            <NavButton 
+              onClick={() => router.push("/staff/hidden-groups")} 
+              icon={EyeOff}
+              label="Groups"
+              description="Hidden Groups"
+            />
+            <NavButton 
+              onClick={() => router.push("/staff/group-chat")} 
+              icon={MessageSquare}
+              label="Group Chat"
+              description="Team Chat"
+            />
+            <NavButton 
+              onClick={() => router.push("/staff/notifications")} 
+              icon={Bell}
+              label="Alerts"
+              description="Notifications"
+            />
+            <NavButton 
+              onClick={() => router.push("/staff/patient-verification")} 
+              icon={Users}
+              label="Patient Verification"
+              description="Verify Patients"
+            />
+            <NavButton 
+              onClick={() => router.push("/clinician/dashboard")} 
+              icon={Users}
+              label="Clinicians"
+              description="Medical Staff"
+            />
+            <NavButton 
+              onClick={() => router.push("/staff/profile")} 
+              icon={SettingsIcon}
+              label="Settings"
+              description="Profile"
+            />
+          </div>
         </div>
 
-        {/* Search / Filter */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="relative">
+        {/* Enhanced Search / Filter */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4 flex-1">
+              <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search"
-              className="pl-10 h-10 w-72 rounded-full"
-            />
+                  placeholder="Search patients, tests, or records..."
+                  className="pl-10 h-11 rounded-lg border-slate-300 focus:border-cyan-500 focus:ring-cyan-500"
+                />
+              </div>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    className="h-11 px-6 rounded-lg border-slate-300 hover:border-cyan-400 hover:bg-cyan-50 text-slate-700 hover:text-cyan-700 transition-colors"
+                    aria-label="Open filters"
+                  >
+                    <Filter className="h-4 w-4 mr-2" />
+                    Filter
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-64 p-4">
+                  <div className="space-y-3">
+                    <div className="text-sm font-semibold text-slate-700">Status</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button 
+                        variant={filter === "all" ? "default" : "outline"}
+                        className={filter === "all" ? "bg-cyan-600 hover:bg-cyan-700 text-white" : "border-slate-300"}
+                        onClick={() => setFilter("all")}
+                      >
+                        All
+                      </Button>
+                      <Button 
+                        variant={filter === "pending" ? "default" : "outline"}
+                        className={filter === "pending" ? "bg-amber-500 hover:bg-amber-600 text-white" : "border-slate-300"}
+                        onClick={() => setFilter("pending")}
+                      >
+                        Pending
+                      </Button>
+                      <Button 
+                        variant={filter === "completed" ? "default" : "outline"}
+                        className={filter === "completed" ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "border-slate-300"}
+                        onClick={() => setFilter("completed")}
+                      >
+                        Completed
+                      </Button>
+                      <Button 
+                        variant={filter === "missed" ? "default" : "outline"}
+                        className={filter === "missed" ? "bg-rose-600 hover:bg-rose-700 text-white" : "border-slate-300"}
+                        onClick={() => setFilter("missed")}
+                      >
+                        Missed
+                      </Button>
+                    </div>
+                    <div className="pt-2">
+                      <Button 
+                        variant="ghost" 
+                        className="w-full text-slate-600 hover:text-slate-800"
+                        onClick={() => setFilter("all")}
+                      >
+                        Reset
+                      </Button>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" className="h-10 rounded-full px-4">
-              <Filter className="h-5 w-5 mr-2 text-cyan-600" /> Filter
-            </Button>
-            <span className="text-sm text-slate-600">Patient ({patients.length})</span>
+              <Badge variant="secondary" className="bg-slate-100 text-slate-700 border-slate-200 px-3 py-1">
+                {patients.length} Patients
+              </Badge>
+              <Badge variant="secondary" className="bg-blue-100 text-blue-700 border-blue-200 px-3 py-1">
+                {tests.length} Tests
+              </Badge>
+            </div>
           </div>
         </div>
 
         {view === "home" && (
           <>
-            <section>
-              <h2 className="text-xl font-semibold tracking-tight">Random Drug Test Manager</h2>
-              <Card className="mt-4 shadow-sm">
-                <CardContent className="p-5">
+            <section className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-800">Random Drug Test Manager</h2>
+                  <p className="text-slate-600 mt-1">Schedule and manage random drug tests for patients</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 border-emerald-200">
+                    <TestTube2 className="h-3 w-3 mr-1" />
+                    Active System
+                  </Badge>
+                </div>
+              </div>
+              <Card className="shadow-lg border-slate-200">
+                <CardContent className="p-6">
                   <RandomDrugTestManager patients={patients} onCreate={handleModalCreate} />
                 </CardContent>
               </Card>
             </section>
 
-            <section>
-              <h2 className="text-xl font-semibold tracking-tight">Real-Time Intake Queue</h2>
-              <p className="text-xs text-slate-500 -mt-1">Monitor patient progress across intake roles</p>
+            <section className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-800">Real-Time Intake Queue</h2>
+                  <p className="text-slate-600 mt-1">Monitor patient progress across intake roles</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Badge variant="secondary" className="bg-blue-100 text-blue-700 border-blue-200">
+                    <Activity className="h-3 w-3 mr-1" />
+                    Live Updates
+                  </Badge>
+                </div>
+              </div>
               <IntakeQueue patients={patients} />
             </section>
           </>
         )}
 
+        {view === "appointments" && (
+          <AppointmentsList />
+        )}
+
+        {view === "submissions" && (
+          <VideoSubmissionsList />
+        )}
+
         {view === "tests" && (
-          <section>
+          <section className="space-y-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold tracking-tight">Random Drug Test Manager</h2>
-              <Button onClick={onCreateTest} className="h-10 px-4 gap-2">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">Drug Test Management</h2>
+                <p className="text-slate-600 mt-1">View and manage all random drug tests</p>
+              </div>
+              <Button 
+                onClick={onCreateTest} 
+                className="h-12 px-8 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white shadow-lg hover:shadow-xl transition-all duration-200 font-semibold"
+              >
+                <TestTube2 className="h-5 w-5 mr-2" />
                 + New Test
               </Button>
             </div>
-            <Card className="mt-4 shadow-sm">
-              <CardHeader className="pb-3">
+            <Card className="shadow-lg border-slate-200">
+              <CardHeader className="bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
-                      <TestTube2 className="h-5 w-5 text-cyan-700" />
+                    <div className="h-10 w-10 rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 grid place-items-center">
+                      <TestTube2 className="h-5 w-5 text-white" />
                     </div>
-                    <CardTitle className="text-base">Recent Tests</CardTitle>
+                    <div>
+                      <CardTitle className="text-lg font-semibold text-slate-800">Recent Tests</CardTitle>
+                      <p className="text-sm text-slate-600">All scheduled and completed tests</p>
+                    </div>
                   </div>
                   <div className="flex gap-3">
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                       <Input
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="Search patient…"
-                        className="pl-10 h-10 w-56"
+                        className="pl-9 h-10 w-56 border-slate-300 focus:border-cyan-500"
                       />
                     </div>
                     <Select value={filter} onValueChange={(v) => setFilter(v as any)}>
-                      <SelectTrigger className="h-10 w-40">
+                      <SelectTrigger className="h-10 w-40 border-slate-300 focus:border-cyan-500">
                         <SelectValue placeholder="Filter" />
                       </SelectTrigger>
                       <SelectContent>
@@ -321,26 +531,62 @@ export default function StaffDashboardPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3 p-5">
+              <CardContent className="p-6">
                 {filteredTests.length === 0 && (
-                  <div className="text-sm text-slate-500 py-8 text-center">No tests yet.</div>
-                )}
-                <ul className="grid gap-3">
-                  {filteredTests.map((t) => (
-                    <li
-                      key={t.id}
-                      className="rounded-xl border bg-white px-5 py-4 flex items-center justify-between"
+                  <div className="text-center py-16">
+                    <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-r from-slate-100 to-slate-200 mb-6">
+                      <TestTube2 className="h-10 w-10 text-slate-400" />
+                    </div>
+                    <p className="text-slate-600 text-xl font-semibold mb-2">No tests found</p>
+                    <p className="text-slate-400 text-sm mb-6">Create your first random drug test to get started</p>
+                    <Button 
+                      onClick={onCreateTest} 
+                      className="bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-700 hover:to-cyan-700 text-white"
                     >
-                      <div>
-                        <div className="font-medium">{t.patient.name}</div>
-                        <div className="text-xs text-slate-500">
-                          Scheduled: {fmtWhen(t.scheduledFor)}
+                      <TestTube2 className="h-4 w-4 mr-2" />
+                      Create Test
+                    </Button>
+                  </div>
+                )}
+                <div className="grid gap-4">
+                  {filteredTests.map((t) => (
+                    <div
+                      key={t.id}
+                      className="group rounded-xl border-2 border-slate-200 bg-white p-6 hover:border-cyan-300 hover:shadow-lg transition-all duration-200"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4 flex-1">
+                          <div className="h-14 w-14 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 flex items-center justify-center text-white font-bold text-lg shadow-md">
+                            {t.patient.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <div className="font-bold text-slate-800 text-lg">{t.patient.name}</div>
+                              <Badge variant="outline" className="bg-cyan-50 text-cyan-700 border-cyan-200 text-xs">
+                                {t.id.slice(0, 8)}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-4 flex-wrap">
+                              <div className="flex items-center gap-2 text-sm text-slate-600">
+                                <Clock className="h-4 w-4 text-slate-400" />
+                                <span className="font-medium">{fmtWhen(t.scheduledFor)}</span>
+                              </div>
+                              {t.patient.email && (
+                                <div className="flex items-center gap-2 text-sm text-slate-500">
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                  </svg>
+                                  <span>{t.patient.email}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </div>
+                        <StatusChip status={t.status} />
                       </div>
-                      <StatusChip status={t.status} />
-                    </li>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </CardContent>
             </Card>
           </section>

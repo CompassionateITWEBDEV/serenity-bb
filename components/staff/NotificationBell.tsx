@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Bell, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +9,7 @@ import {
   DropdownMenu, 
   DropdownMenuContent, 
   DropdownMenuTrigger,
-  DropdownMenuHeader,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuItem
 } from "@/components/ui/dropdown-menu";
@@ -21,6 +22,7 @@ interface NotificationBellProps {
 }
 
 export default function NotificationBell({ staffId }: NotificationBellProps) {
+  const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
   const [recentNotifications, setRecentNotifications] = useState<StaffNotification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,11 +52,12 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
     }
   }, [staffId]);
 
-  // Real-time subscription for notifications
+  // Real-time subscriptions for notifications and source events
   useEffect(() => {
     if (!staffId) return;
 
-    const channel = supabase
+    // Subscribe to staff_notifications table changes (direct notifications)
+    const notificationsChannel = supabase
       .channel(`staff-notifications:${staffId}`)
       .on(
         'postgres_changes',
@@ -66,13 +69,108 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
         },
         (payload) => {
           console.log('Real-time notification update:', payload);
-          loadNotifications(); // Reload notifications
+          loadNotifications(); // Reload notifications immediately
+        }
+      )
+      .subscribe();
+
+    // Subscribe to messages table to detect new patient messages
+    const messagesChannel = supabase
+      .channel(`staff-messages:${staffId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: 'sender_role=eq.patient',
+        },
+        (payload) => {
+          console.log('New patient message detected:', payload);
+          // Trigger notification reload (the API will create the notification)
+          setTimeout(() => loadNotifications(), 500);
+        }
+      )
+      .subscribe();
+
+    // Subscribe to drug_tests/random_drug_tests table for status changes
+    const drugTestsChannel = supabase
+      .channel(`staff-drug-tests:${staffId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'drug_tests',
+        },
+        (payload) => {
+          console.log('Drug test status update detected:', payload);
+          // Trigger notification reload (the API will create the notification)
+          setTimeout(() => loadNotifications(), 500);
+        }
+      )
+      .subscribe();
+
+    const randomTestsChannel = supabase
+      .channel(`staff-random-drug-tests:${staffId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'random_drug_tests',
+        },
+        (payload) => {
+          console.log('Random drug test status update detected:', payload);
+          setTimeout(() => loadNotifications(), 500);
+        }
+      )
+      .subscribe();
+
+    // Subscribe to appointments table to detect new patient appointments
+    const appointmentsChannel = supabase
+      .channel(`staff-appointments:${staffId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'appointments',
+        },
+        (payload) => {
+          console.log('New appointment detected:', payload);
+          // Trigger notification reload (the API will create the notification)
+          setTimeout(() => loadNotifications(), 500);
+        }
+      )
+      .subscribe();
+
+    // Subscribe to video_submissions table to detect completed video submissions
+    const videoSubmissionsChannel = supabase
+      .channel(`staff-video-submissions:${staffId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'video_submissions',
+          filter: 'status=eq.completed',
+        },
+        (payload) => {
+          console.log('Video submission completed detected:', payload);
+          // Trigger notification reload (the API will create the notification)
+          setTimeout(() => loadNotifications(), 500);
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(notificationsChannel);
+      supabase.removeChannel(messagesChannel);
+      supabase.removeChannel(drugTestsChannel);
+      supabase.removeChannel(randomTestsChannel);
+      supabase.removeChannel(appointmentsChannel);
+      supabase.removeChannel(videoSubmissionsChannel);
     };
   }, [staffId]);
 
@@ -93,6 +191,8 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
       case 'message': return '💬';
       case 'appointment': return '📅';
       case 'emergency': return '🚨';
+      case 'drug_test': return '🧪';
+      case 'video_submission': return '🎥';
       default: return '🔔';
     }
   };
@@ -103,6 +203,8 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
       case 'message': return 'text-green-600';
       case 'appointment': return 'text-purple-600';
       case 'emergency': return 'text-red-600';
+      case 'drug_test': return 'text-amber-600';
+      case 'video_submission': return 'text-indigo-600';
       default: return 'text-gray-600';
     }
   };
@@ -131,7 +233,7 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
         className="w-80 max-h-96 overflow-y-auto"
         sideOffset={5}
       >
-        <DropdownMenuHeader className="px-3 py-2">
+        <DropdownMenuLabel className="px-3 py-2">
           <div className="flex items-center justify-between">
             <h4 className="font-semibold">Notifications</h4>
             {unreadCount > 0 && (
@@ -140,7 +242,7 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
               </Badge>
             )}
           </div>
-        </DropdownMenuHeader>
+        </DropdownMenuLabel>
         
         <DropdownMenuSeparator />
         
@@ -164,7 +266,15 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
                   if (notification.type === 'submission') {
                     window.location.href = '/staff/patient-inbox';
                   } else if (notification.type === 'message') {
-                    window.location.href = '/staff/messages';
+                    window.location.href = `/staff/messages${notification.metadata?.conversation_id ? `?conversation=${notification.metadata.conversation_id}` : ''}`;
+                  } else if (notification.type === 'drug_test') {
+                    window.location.href = '/staff/dashboard?tab=tests';
+                  } else if (notification.type === 'appointment') {
+                    // Navigate to appointments page
+                    router.push('/staff/appointments');
+                  } else if (notification.type === 'video_submission') {
+                    // Navigate to submissions/videos page
+                    router.push('/staff/dashboard?tab=submissions');
                   }
                   setIsOpen(false);
                 }}

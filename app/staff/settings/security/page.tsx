@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChevronLeft } from "lucide-react";
+import { supabase } from "@/lib/supabase/client";
 
 /**
  * Password & Security — moved under /staff/settings/security
@@ -15,6 +16,7 @@ export default function StaffSecuritySettingsPage() {
   const router = useRouter();
   const [form, setForm] = useState({ current: "", next: "", confirm: "" });
   const [showError, setShowError] = useState<string | null>(null);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [saving, setSaving] = useState(false);
 
   function set<K extends keyof typeof form>(k: K, v: string) {
@@ -25,8 +27,8 @@ export default function StaffSecuritySettingsPage() {
     e.preventDefault();
     setShowError(null);
 
-    if (!form.current || !form.next || !form.confirm) {
-      setShowError("All fields are required.");
+    if (!form.next || !form.confirm) {
+      setShowError("New password and confirmation are required.");
       return;
     }
     if (form.next !== form.confirm) {
@@ -39,12 +41,38 @@ export default function StaffSecuritySettingsPage() {
     }
 
     setSaving(true);
+    setShowError(null);
+    setShowSuccess(false);
+    
     try {
-      // TODO: replace with your real action, e.g. await updatePassword(form)
-      await new Promise((r) => setTimeout(r, 600));
-      router.push("/staff/settings");
-    } catch (err) {
-      setShowError("Failed to update password. Please try again.");
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setShowError("Not authenticated. Please log in again.");
+        return;
+      }
+
+      // Update password using Supabase Auth
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: form.next,
+      });
+
+      if (updateError) {
+        setShowError(updateError.message || "Failed to update password. Please try again.");
+        return;
+      }
+
+      setShowSuccess(true);
+      setForm({ current: "", next: "", confirm: "" });
+      
+      // Show success and navigate back after a delay
+      setTimeout(() => {
+        router.push("/staff/settings");
+      }, 1500);
+    } catch (err: any) {
+      const errorMessage = err?.message || err?.toString() || "Failed to update password. Please try again.";
+      setShowError(errorMessage);
+      console.error("Password update error:", err);
     } finally {
       setSaving(false);
     }
@@ -103,6 +131,9 @@ export default function StaffSecuritySettingsPage() {
 
               {showError && (
                 <p className="text-sm text-rose-600">{showError}</p>
+              )}
+              {showSuccess && (
+                <p className="text-sm text-emerald-600">Password updated successfully!</p>
               )}
 
               <Button className="w-full" type="submit" disabled={saving}>

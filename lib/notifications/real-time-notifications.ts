@@ -394,6 +394,41 @@ class RealTimeNotificationService {
           onUpdate();
         }),
       
+      // Drug tests
+      supabase
+        .channel(`notifications-drug-tests:${userId}`)
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'random_drug_tests',
+          filter: `patient_id=eq.${userId}`
+        }, async (payload) => {
+          // Create notification for new drug test
+          const drugTest = payload.new;
+          const scheduledDate = drugTest.scheduled_for 
+            ? new Date(drugTest.scheduled_for).toLocaleDateString('en-US', {
+                weekday: 'long',
+                month: 'long', 
+                day: 'numeric',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })
+            : "as soon as possible";
+
+          const message = drugTest.scheduled_for
+            ? `A random drug test has been scheduled for you on ${scheduledDate}. Please be prepared to take the test at the scheduled time.`
+            : `A random drug test has been assigned to you. Please contact the facility to schedule your test.`;
+
+          await databaseNotificationService.createDrugTestNotification(
+            userId,
+            drugTest.id,
+            message,
+            drugTest.scheduled_for
+          );
+          onUpdate();
+        }),
+      
       // Group messages
       supabase
         .channel(`notifications-groups:${userId}`)

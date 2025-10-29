@@ -209,6 +209,38 @@ export async function POST(req: NextRequest) {
     .update({ last_message: msg.content, last_message_at: msg.created_at })
     .eq("id", convId as unknown as string);
 
+  // Create staff notification for new message (async, don't block response)
+  try {
+    const { createMessageNotificationServer } = await import("@/lib/notifications/staff-notifications-server");
+    
+    // Get patient name for notification
+    const { data: patientData } = await supabase
+      .from("patients")
+      .select("first_name, last_name, full_name")
+      .eq("user_id", me.id)
+      .single();
+    
+    const patientName = patientData?.full_name || 
+      [patientData?.first_name, patientData?.last_name].filter(Boolean).join(" ").trim() || 
+      "Patient";
+    
+    const messagePreview = content.length > 100 ? `${content.substring(0, 100)}...` : content;
+    
+    // Create notification for staff (runs async, won't block response)
+    createMessageNotificationServer(
+      me.id,
+      msg.id,
+      convId as unknown as string,
+      patientName,
+      messagePreview
+    ).catch((err) => {
+      console.error("Failed to create staff notification for message:", err);
+    });
+  } catch (error) {
+    console.error("Error importing notification function:", error);
+    // Don't fail the message send if notification fails
+  }
+
   return NextResponse.json({ 
     conversationId: convId, 
     message: msg,

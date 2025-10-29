@@ -297,6 +297,29 @@ export class DatabaseNotificationService {
       new Date(startTime.getTime() + 24 * 60 * 60 * 1000) // Expire 24 hours after event
     );
   }
+
+  // Create drug test notification
+  async createDrugTestNotification(
+    userId: string,
+    drugTestId: string,
+    message: string,
+    scheduledFor?: string | null
+  ): Promise<string | null> {
+    const isUrgent = !scheduledFor; // Unscheduled tests are more urgent
+    
+    return this.createNotification(
+      userId,
+      'system', // Using 'system' type since 'drug_test' isn't in the type union
+      'Random Drug Test Assigned',
+      message,
+      {
+        drug_test_id: drugTestId,
+        scheduled_for: scheduledFor,
+        test_type: 'random'
+      },
+      isUrgent
+    );
+  }
 }
 
 export const databaseNotificationService = DatabaseNotificationService.getInstance();

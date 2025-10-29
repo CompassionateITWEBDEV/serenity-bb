@@ -13,7 +13,8 @@ export type PatientItem = {
 };
 
 type Props = {
-  items?: PatientItem[];
+  patients?: PatientItem[];
+  items?: PatientItem[]; // Legacy support
   onNewGroup?: () => void;
 };
 
@@ -35,21 +36,24 @@ const Seed: PatientItem[] = [
   { id:"p5", name:"Emma McElroy", role:"SN PT HHA", time:"Today · 04:37 AM" },
 ];
 
-export default function PatientInbox({ items = Seed, onNewGroup }: Props) {
+export default function PatientInbox({ patients, items, onNewGroup }: Props) {
   const [mode, setMode] = useState<"detailed" | "summary">("detailed");
   const [q, setQ] = useState("");
 
+  // Support both 'patients' and 'items' props for backward compatibility
+  const patientList = patients || items || Seed;
+
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    if (!s) return items;
-    return items.filter(
+    if (!s) return patientList;
+    return patientList.filter(
       (p) =>
         p.name.toLowerCase().includes(s) ||
         p.role.toLowerCase().includes(s) ||
         (p.clinician ?? "").toLowerCase().includes(s) ||
         (p.payer ?? "").toLowerCase().includes(s)
     );
-  }, [items, q]);
+  }, [patientList, q]);
 
   return (
     <section className="rounded-2xl bg-white border border-slate-200 shadow-sm p-6 space-y-6">
@@ -72,7 +76,7 @@ export default function PatientInbox({ items = Seed, onNewGroup }: Props) {
       {/* Header row + segmented toggle */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-slate-600">
-          Patient <span className="font-bold text-slate-900">({items.length})</span>
+          Patient <span className="font-bold text-slate-900">({patientList.length})</span>
         </div>
         <button className="text-sm text-cyan-600 hover:text-cyan-700 font-medium hover:underline transition-colors" onClick={onNewGroup}>
           New Patient Group
@@ -107,13 +111,13 @@ export default function PatientInbox({ items = Seed, onNewGroup }: Props) {
       {mode === "detailed" ? (
         <ul className="space-y-4">
           {filtered.map((p, idx) => (
-            <li key={p.id} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm hover:shadow-md transition-shadow">
-              {/* Colored indicator bar */}
-              <div className={`absolute right-2 top-2 h-[90%] w-1 rounded-full ${idx % 2 ? "bg-cyan-400" : "bg-slate-300"}`} />
+            <li key={p.id} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm hover:shadow-md transition-all duration-200">
+              {/* Colored indicator bar - positioned on right side */}
+              <div className={`absolute right-0 top-2 bottom-2 w-1 rounded-full ${idx % 2 === 0 ? "bg-cyan-400" : "bg-slate-300"}`} />
               
-              <div className="flex items-start gap-4">
+              <div className="flex items-start gap-4 pr-2">
                 {/* Patient icon */}
-                <div className="h-12 w-12 rounded-full bg-gradient-to-r from-cyan-100 to-blue-100 text-cyan-700 grid place-items-center shrink-0 shadow-sm">
+                <div className="h-12 w-12 rounded-full bg-gradient-to-br from-cyan-100 via-cyan-50 to-blue-100 text-cyan-700 grid place-items-center shrink-0 shadow-sm border border-cyan-200/50">
                   {Icons.home}
                 </div>
                 
@@ -121,36 +125,39 @@ export default function PatientInbox({ items = Seed, onNewGroup }: Props) {
                   {/* Header with name, role, and time */}
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="min-w-0 flex-1">
-                      <div className="font-bold text-slate-900 text-base leading-tight">{p.name}</div>
-                      <div className="text-sm text-cyan-600 font-medium mt-0.5">{p.role}</div>
+                      <div className="font-bold text-slate-900 text-base leading-tight mb-0.5">{p.name}</div>
+                      <div className="text-sm text-cyan-600 font-medium">{p.role}</div>
                     </div>
-                    <div className="text-xs text-slate-500 font-medium whitespace-nowrap">{p.time ?? "Today · 04:37 AM"}</div>
+                    <div className="text-xs text-slate-500 font-medium whitespace-nowrap shrink-0">{p.time ?? "Today · 04:37 AM"}</div>
                   </div>
                   
                   {/* Patient details with proper icons */}
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
+                    {/* Phone */}
                     <div className="flex items-center gap-3 text-sm text-slate-700">
-                      <div className="text-cyan-600 flex-shrink-0">{Icons.phone}</div>
-                      <span className="font-medium">{p.phone ?? "N/A"}</span>
+                      <div className="text-cyan-600 flex-shrink-0 opacity-80">{Icons.phone}</div>
+                      <span className="font-medium text-slate-800">{p.phone ?? "N/A"}</span>
                     </div>
+                    {/* Clinician */}
                     <div className="flex items-center gap-3 text-sm text-slate-700">
-                      <div className="text-cyan-600 flex-shrink-0">{Icons.person}</div>
-                      <span className="font-medium">{p.clinician ?? "N/A"}</span>
+                      <div className="text-cyan-600 flex-shrink-0 opacity-80">{Icons.person}</div>
+                      <span className="font-medium text-slate-800">{p.clinician ?? "N/A"}</span>
                     </div>
+                    {/* Payer/Insurance */}
                     <div className="flex items-center gap-3 text-sm text-slate-700">
-                      <div className="text-cyan-600 flex-shrink-0">{Icons.medical}</div>
-                      <span className="font-medium">{p.payer ?? "N/A"}</span>
+                      <div className="text-cyan-600 flex-shrink-0 opacity-80">{Icons.medical}</div>
+                      <span className="font-medium text-slate-800">{p.payer ?? "N/A"}</span>
                     </div>
                   </div>
                 </div>
                 
-                {/* Optional interaction indicator */}
+                {/* Optional interaction indicator - only show for specific patients */}
                 {idx === 1 && (
-                  <div className="flex flex-col items-center gap-1">
-                    <div className="h-8 w-8 rounded-full bg-cyan-500 text-white grid place-items-center shadow-sm">
+                  <div className="flex flex-col items-center gap-1 shrink-0">
+                    <div className="h-8 w-8 rounded-full bg-cyan-500 text-white grid place-items-center shadow-md">
                       {Icons.thumbsUp}
                     </div>
-                    <span className="text-xs font-bold text-cyan-600">33</span>
+                    <span className="text-xs font-bold text-cyan-600">20</span>
                   </div>
                 )}
               </div>
@@ -158,22 +165,22 @@ export default function PatientInbox({ items = Seed, onNewGroup }: Props) {
           ))}
         </ul>
       ) : (
-        <ul className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+        <ul className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm divide-y divide-slate-100">
           {filtered.map((p, idx) => (
-            <li key={p.id} className="relative px-4 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-              {/* Colored indicator line */}
-              <div className={`absolute left-0 top-0 bottom-0 w-1 ${idx % 2 ? "bg-cyan-400" : "bg-slate-300"}`} />
+            <li key={p.id} className="relative px-4 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer group">
+              {/* Colored indicator line on left */}
+              <div className={`absolute left-0 top-0 bottom-0 w-1 ${idx % 2 === 0 ? "bg-cyan-400" : "bg-slate-300"}`} />
               
-              <div className="flex items-center gap-4 ml-2">
-                <div className="h-10 w-10 rounded-full bg-gradient-to-r from-cyan-100 to-blue-100 text-cyan-700 grid place-items-center shadow-sm">
+              <div className="flex items-center gap-4 flex-1 min-w-0">
+                <div className="h-10 w-10 rounded-full bg-gradient-to-br from-cyan-100 via-cyan-50 to-blue-100 text-cyan-700 grid place-items-center shadow-sm border border-cyan-200/50 shrink-0">
                   {Icons.home}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="font-semibold text-slate-900 text-sm">{p.name}</div>
+                  <div className="font-semibold text-slate-900 text-sm truncate">{p.name}</div>
                   <div className="text-xs text-cyan-600 font-medium mt-0.5">{p.role}</div>
                 </div>
               </div>
-              <div className="text-xs text-slate-500 font-medium whitespace-nowrap">{p.time ?? "Today · 04:37 AM"}</div>
+              <div className="text-xs text-slate-500 font-medium whitespace-nowrap shrink-0 ml-3">{p.time ?? "Today · 04:37 AM"}</div>
             </li>
           ))}
         </ul>

@@ -79,6 +79,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     const admin = createSbClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
+    // First get the drug test to get patient info before updating
+    const { data: drugTestBefore, error: fetchError } = await admin
+      .from("drug_tests")
+      .select("id, patient_id, status, scheduled_for")
+      .eq("id", params.id)
+      .single();
+
+    if (fetchError?.code === "PGRST116") return json({ error: "Not found" }, 404, { "x-debug": "not-found" });
+    if (fetchError) return json({ error: fetchError.message }, 400, { "x-debug": "fetch-error" });
+
+    // Update the drug test status
     const { data, error } = await admin
       .from("drug_tests")
       .update({ status: body.status })
@@ -88,6 +99,42 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     if (error?.code === "PGRST116") return json({ error: "Not found" }, 404, { "x-debug": "not-found" });
     if (error) return json({ error: error.message }, 400, { "x-debug": "update-error" });
+
+    // If status changed to completed or missed, notify staff
+    if (drugTestBefore && body.status !== drugTestBefore.status && (body.status === "completed" || body.status === "missed")) {
+      try {
+        // Get patient info for notification
+        const { data: patientData } = await admin
+          .from("patients")
+          .select("user_id, first_name, last_name, full_name")
+          .eq("user_id", data.patient_id)
+          .single();
+
+        const patientName = patientData?.full_name || 
+          [patientData?.first_name, patientData?.last_name].filter(Boolean).join(" ").trim() || 
+          "Patient";
+
+        // Create staff notification (async, don't block response)
+        const { createDrugTestNotificationServer } = await import("@/lib/notifications/staff-notifications-server");
+        
+        const message = body.status === 'completed'
+          ? `${patientName} has completed their drug test. Results are ready for review.`
+          : `${patientName} has missed their scheduled drug test. Follow-up may be required.`;
+        
+        createDrugTestNotificationServer(
+          data.patient_id,
+          params.id,
+          patientName,
+          message,
+          body.status as 'completed' | 'missed'
+        ).catch((err) => {
+          console.error("Failed to create staff notification for drug test:", err);
+        });
+      } catch (error) {
+        console.error("Error creating drug test notification:", error);
+        // Don't fail the status update if notification fails
+      }
+    }
 
     return json({ data }, 200, { "x-debug": "ok" });
   } catch (e: any) {

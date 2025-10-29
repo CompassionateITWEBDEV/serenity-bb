@@ -27,6 +27,7 @@ import MessageMedia, { MessageMeta } from "@/components/chat/MessageMedia";
 import { chatUploadToPath } from "@/lib/chat/storage";
 import IncomingCallBanner from "@/components/call/IncomingCallBanner";
 import CallHistory from "@/components/call/CallHistory";
+import VerifyStaffButton from "@/components/patient/VerifyStaffButton";
 
 /* --------------------------------- Signaling helpers --------------------------------- */
 /** prevent sending before presence channel is actually subscribed */
@@ -1049,16 +1050,30 @@ export default function DashboardMessagesPage() {
                   </div>
                 </div>
                 <div className="ml-auto flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="rounded-full"
-                    onClick={() => startCall("audio")}
-                    title="Start audio call"
-                  >
-                    <Phone className="h-5 w-5" />
-                  </Button>
-                 
+                  {(() => {
+                    const sel = convs.find((c) => c.id === selectedId);
+                    const s = staffDir.find((x) => x.user_id === sel?.provider_id);
+                    const staffName = [s?.first_name, s?.last_name].filter(Boolean).join(" ") || s?.email || "Staff";
+                    return (
+                      <>
+                        {s?.user_id && (
+                          <VerifyStaffButton
+                            staffId={s.user_id}
+                            staffName={staffName}
+                          />
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="rounded-full"
+                          onClick={() => startCall("audio")}
+                          title="Start audio call"
+                        >
+                          <Phone className="h-5 w-5" />
+                        </Button>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 

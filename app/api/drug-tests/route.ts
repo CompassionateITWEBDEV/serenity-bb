@@ -121,6 +121,43 @@ export async function POST(req: Request) {
       return json({ error: ins.error.message }, 400, { "x-debug": "insert-error" });
     }
 
+    // Notify staff when drug test is created (async, don't block response)
+    try {
+      const { createDrugTestNotificationServer } = await import("@/lib/notifications/staff-notifications-server");
+      
+      const patientName = ins.data.patients?.full_name || 
+        [ins.data.patients?.first_name, ins.data.patients?.last_name].filter(Boolean).join(" ").trim() || 
+        "Patient";
+      
+      const scheduledDate = ins.data.scheduled_for 
+        ? new Date(ins.data.scheduled_for).toLocaleDateString("en-US", {
+            weekday: "short",
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "Not scheduled";
+      
+      const message = ins.data.scheduled_for
+        ? `A drug test has been scheduled for ${patientName} on ${scheduledDate}`
+        : `A drug test has been assigned to ${patientName} (not yet scheduled)`;
+      
+      // Create notification for all active staff (runs async, won't block response)
+      createDrugTestNotificationServer(
+        body.patientId,
+        ins.data.id,
+        patientName,
+        message
+      ).catch((err) => {
+        console.error("Failed to create staff notification for drug test:", err);
+      });
+    } catch (error) {
+      console.error("Error importing notification function:", error);
+      // Don't fail the drug test creation if notification fails
+    }
+
     return json({ data: ins.data }, 200, { "x-debug": "ok" });
   } catch (e: any) {
     // Last-resort detail to help you see the exact failure

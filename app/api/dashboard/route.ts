@@ -25,7 +25,7 @@ export async function GET() {
   });
 
   // ✅ Accept Bearer OR cookies
-  const authHeader = headers().get("authorization") || "";
+  const authHeader = (await headers()).get("authorization") || "";
   const bearer = authHeader.toLowerCase().startsWith("bearer ")
     ? authHeader.slice(7).trim()
     : null;
@@ -38,17 +38,8 @@ export async function GET() {
   if (authErr || !user) return json({ error: "Unauthorized" }, 401);
   const pid = user.id;
 
-  // Fetch all pieces in parallel
-  const [
-    overview,
-    goals,
-    milestones,
-    appts,
-    tokens,
-    weekly,
-    notices,
-    txns,
-  ] = await Promise.all([
+  // Fetch all pieces in parallel with graceful error handling
+  const results = await Promise.allSettled([
     supabase.from("progress_overview").select("*").eq("patient_id", pid).maybeSingle(),
     supabase.from("weekly_goals").select("id,name,current,target,updated_at").eq("patient_id", pid),
     supabase.from("milestones").select("id,name,date,completed,type,updated_at").eq("patient_id", pid),
@@ -80,9 +71,84 @@ export async function GET() {
       .limit(10),
   ]);
 
-  // Bubble DB errors
-  for (const r of [overview, goals, milestones, appts, tokens, weekly, notices, txns]) {
-    if ((r as any).error) return json({ error: (r as any).error.message }, 500);
+  // Extract results with error handling
+  const [
+    overviewResult,
+    goalsResult,
+    milestonesResult,
+    apptsResult,
+    tokensResult,
+    weeklyResult,
+    noticesResult,
+    txnsResult,
+  ] = results;
+
+  // Extract results and handle errors gracefully
+  const overview = overviewResult.status === "fulfilled" && !overviewResult.value.error 
+    ? overviewResult.value 
+    : { data: null, error: overviewResult.status === "rejected" ? { message: "Query failed" } : overviewResult.value?.error || null };
+    
+  const goals = goalsResult.status === "fulfilled" && !goalsResult.value.error 
+    ? goalsResult.value 
+    : { data: [], error: goalsResult.status === "rejected" ? { message: "Query failed" } : goalsResult.value?.error || null };
+    
+  const milestones = milestonesResult.status === "fulfilled" && !milestonesResult.value.error 
+    ? milestonesResult.value 
+    : { data: [], error: milestonesResult.status === "rejected" ? { message: "Query failed" } : milestonesResult.value?.error || null };
+    
+  const appts = apptsResult.status === "fulfilled" && !apptsResult.value.error 
+    ? apptsResult.value 
+    : { data: [], error: apptsResult.status === "rejected" ? { message: "Query failed" } : apptsResult.value?.error || null };
+    
+  const tokens = tokensResult.status === "fulfilled" && !tokensResult.value.error 
+    ? tokensResult.value 
+    : { data: null, error: tokensResult.status === "rejected" ? { message: "Query failed" } : tokensResult.value?.error || null };
+    
+  const weekly = weeklyResult.status === "fulfilled" && !weeklyResult.value.error 
+    ? weeklyResult.value 
+    : { data: [], error: weeklyResult.status === "rejected" ? { message: "Query failed" } : weeklyResult.value?.error || null };
+    
+  const notices = noticesResult.status === "fulfilled" && !noticesResult.value.error 
+    ? noticesResult.value 
+    : { data: [], error: noticesResult.status === "rejected" ? { message: "Query failed" } : noticesResult.value?.error || null };
+    
+  const txns = txnsResult.status === "fulfilled" && !txnsResult.value.error 
+    ? txnsResult.value 
+    : { data: [], error: txnsResult.status === "rejected" ? { message: "Query failed" } : txnsResult.value?.error || null };
+
+  // Log warnings for failed queries (but don't fail the entire request)
+  const failedQueries: string[] = [];
+  if (overview.error) {
+    console.warn("Dashboard: Failed to load progress_overview:", overview.error);
+    failedQueries.push("progress overview");
+  }
+  if (goals.error) {
+    console.warn("Dashboard: Failed to load weekly_goals:", goals.error);
+    failedQueries.push("goals");
+  }
+  if (milestones.error) {
+    console.warn("Dashboard: Failed to load milestones:", milestones.error);
+    failedQueries.push("milestones");
+  }
+  if (appts.error) {
+    console.warn("Dashboard: Failed to load appointments:", appts.error);
+    failedQueries.push("appointments");
+  }
+  if (tokens.error) {
+    console.warn("Dashboard: Failed to load reward_tokens:", tokens.error);
+    failedQueries.push("tokens");
+  }
+  if (weekly.error) {
+    console.warn("Dashboard: Failed to load weekly_data:", weekly.error);
+    failedQueries.push("weekly data");
+  }
+  if (notices.error) {
+    console.warn("Dashboard: Failed to load notifications:", notices.error);
+    failedQueries.push("notifications");
+  }
+  if (txns.error) {
+    console.warn("Dashboard: Failed to load token_transactions:", txns.error);
+    failedQueries.push("transactions");
   }
 
   const overallProgress = Number(overview.data?.overall_progress ?? 0);
@@ -123,7 +189,7 @@ export async function GET() {
     .sort((a, b) => new Date(b.ts!).getTime() - new Date(a.ts!).getTime())
     .slice(0, 15);
 
-  return json({
+  const response: any = {
     kpis: { sessions: upcomingAppointments.length, goals: weeklyGoals.length, tokens: tokenStats.total, progressPercent: overallProgress, unreadMessages: unread },
     treatmentProgress,
     upcomingAppointments,
@@ -131,5 +197,12 @@ export async function GET() {
     tokenStats,
     wellness,
     activity,
-  });
+  };
+
+  // Include warning in dev mode if any queries failed
+  if (failedQueries.length > 0 && process.env.NODE_ENV !== "production") {
+    response._warnings = failedQueries;
+  }
+
+  return json(response);
 }

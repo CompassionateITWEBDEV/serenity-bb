@@ -1,7 +1,7 @@
 -- Create staff_notifications table for real-time staff alerts
 CREATE TABLE IF NOT EXISTS staff_notifications (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  type VARCHAR(50) NOT NULL CHECK (type IN ('submission', 'message', 'appointment', 'emergency')),
+  type VARCHAR(50) NOT NULL CHECK (type IN ('submission', 'message', 'appointment', 'emergency', 'drug_test')),
   title VARCHAR(255) NOT NULL,
   message TEXT NOT NULL,
   patient_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -9,15 +9,15 @@ CREATE TABLE IF NOT EXISTS staff_notifications (
   staff_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   read BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  metadata JSONB DEFAULT '{}',
-  
-  -- Indexes for performance
-  INDEX idx_staff_notifications_staff_id ON staff_notifications(staff_id),
-  INDEX idx_staff_notifications_patient_id ON staff_notifications(patient_id),
-  INDEX idx_staff_notifications_created_at ON staff_notifications(created_at),
-  INDEX idx_staff_notifications_read ON staff_notifications(read),
-  INDEX idx_staff_notifications_type ON staff_notifications(type)
+  metadata JSONB DEFAULT '{}'
 );
+
+-- Create indexes for performance
+CREATE INDEX IF NOT EXISTS idx_staff_notifications_staff_id ON staff_notifications(staff_id);
+CREATE INDEX IF NOT EXISTS idx_staff_notifications_patient_id ON staff_notifications(patient_id);
+CREATE INDEX IF NOT EXISTS idx_staff_notifications_created_at ON staff_notifications(created_at);
+CREATE INDEX IF NOT EXISTS idx_staff_notifications_read ON staff_notifications(read);
+CREATE INDEX IF NOT EXISTS idx_staff_notifications_type ON staff_notifications(type);
 
 -- Create staff_members table if it doesn't exist
 CREATE TABLE IF NOT EXISTS staff_members (

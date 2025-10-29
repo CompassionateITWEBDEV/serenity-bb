@@ -17,6 +17,7 @@ import { VideoRecording } from "@/components/dashboard/video-recording";
 import { SubmissionHistory } from "@/components/dashboard/submission-history";
 import { HealthcareMessaging } from "@/components/dashboard/healthcare-messaging";
 import { GroupChat } from "@/components/dashboard/group-chat";
+import PatientVerificationStatus from "@/components/patient/PatientVerificationStatus";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getSwal } from "@/lib/sweetalert"; // <-- use CDN wrapper
 
@@ -112,12 +113,13 @@ export default function DashboardPage() {
         </div>
 
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="tracking">Tracking</TabsTrigger>
             <TabsTrigger value="recording">Recording</TabsTrigger>
             <TabsTrigger value="messages">Messages</TabsTrigger>
             <TabsTrigger value="groups">Groups</TabsTrigger>
+            <TabsTrigger value="verification">Verification</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-8">
@@ -159,6 +161,10 @@ export default function DashboardPage() {
 
           <TabsContent value="groups" className="space-y-8">
             <GroupChat />
+          </TabsContent>
+
+          <TabsContent value="verification" className="space-y-8">
+            <PatientVerificationStatus />
           </TabsContent>
         </Tabs>
       </main>

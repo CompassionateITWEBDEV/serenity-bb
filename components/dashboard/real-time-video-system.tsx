@@ -322,6 +322,27 @@ export default function RealTimeVideoSystem() {
       await supabase.from("video_submissions").update({ status: "completed", processed_at: new Date().toISOString() }).eq("id", row.id);
       setProg((m) => ({ ...m, [row.id]: 100 }));
       setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, status: "completed", processed_at: new Date().toISOString() } : r)));
+      
+      // Notify staff about completed video submission
+      try {
+        const patientName = patient?.full_name || patient?.first_name || "Patient";
+        await fetch("/api/video-submissions/notify-staff", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            videoSubmissionId: row.id,
+            patientId: patientId,
+            patientName: patientName,
+            title: meta.title?.trim() || "Untitled Recording",
+            videoType: meta.type,
+            status: "completed",
+          }),
+        }).catch((err) => {
+          console.warn("Failed to notify staff about video submission:", err);
+        });
+      } catch (err) {
+        console.warn("Error notifying staff about video submission:", err);
+      }
     }, 1000);
 
     pushToast({ title: "Video submitted", description: `${meta.title || "Untitled"} • ${formatClock(duration)} • ${sizeMb} MB` });

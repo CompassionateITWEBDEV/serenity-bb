@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { useNotifications } from "@/lib/useNotifications"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -17,6 +18,7 @@ import {
   KanbanSquareDashed as MarkAsUnread,
   Settings,
   Loader2,
+  TestTube2,
 } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 
@@ -24,10 +26,21 @@ import { formatDistanceToNow } from "date-fns"
 const MOCK_PATIENT_ID = "123e4567-e89b-12d3-a456-426614174000"
 
 export default function NotificationsPage() {
+  const router = useRouter()
   const { notifications, loading, error, markAsRead, markAsUnread, deleteNotification, markAllAsRead } =
     useNotifications(MOCK_PATIENT_ID)
 
   const unreadCount = notifications.filter((n) => !n.read).length
+
+  const handleNotificationClick = (notification: any) => {
+    if (notification.type === 'drug_test') {
+      router.push('/dashboard/drug-tests')
+    } else if (notification.type === 'appointment') {
+      router.push('/dashboard/appointments')
+    } else if (notification.type === 'message') {
+      router.push('/dashboard/messages')
+    }
+  }
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -41,6 +54,8 @@ export default function NotificationsPage() {
         return CheckCircle
       case "alert":
         return AlertTriangle
+      case "drug_test":
+        return TestTube2
       default:
         return Bell
     }
@@ -58,6 +73,8 @@ export default function NotificationsPage() {
         return "border-l-green-500"
       case "achievement":
         return "border-l-purple-500"
+      case "drug_test":
+        return "border-l-yellow-500"
       default:
         return "border-l-gray-300"
     }
@@ -75,6 +92,8 @@ export default function NotificationsPage() {
         return <Badge variant="outline">Message</Badge>
       case "achievement":
         return <Badge variant="outline">Achievement</Badge>
+      case "drug_test":
+        return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">Drug Test</Badge>
       default:
         return null
     }
@@ -92,6 +111,8 @@ export default function NotificationsPage() {
         return "bg-purple-100 text-purple-600"
       case "alert":
         return "bg-orange-100 text-orange-600"
+      case "drug_test":
+        return "bg-yellow-100 text-yellow-600"
       default:
         return "bg-gray-100 text-gray-600"
     }
@@ -151,11 +172,12 @@ export default function NotificationsPage() {
       </div>
 
       <Tabs defaultValue="all" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="all">All</TabsTrigger>
           <TabsTrigger value="unread">Unread ({unreadCount})</TabsTrigger>
           <TabsTrigger value="appointment">Appointments</TabsTrigger>
           <TabsTrigger value="message">Messages</TabsTrigger>
+          <TabsTrigger value="drug_test">Drug Tests</TabsTrigger>
           <TabsTrigger value="medication">Health</TabsTrigger>
           <TabsTrigger value="achievement">Achievements</TabsTrigger>
         </TabsList>
@@ -178,7 +200,8 @@ export default function NotificationsPage() {
                     key={notification.id}
                     className={`border-l-4 ${getPriorityColor(notification.type)} ${
                       !notification.read ? "bg-blue-50/50" : ""
-                    }`}
+                    } ${notification.type === 'drug_test' || notification.type === 'appointment' || notification.type === 'message' ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+                    onClick={() => handleNotificationClick(notification)}
                   >
                     <CardContent className="p-4">
                       <div className="flex items-start gap-4">
@@ -267,6 +290,47 @@ export default function NotificationsPage() {
                   </Card>
                 )
               })}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="drug_test">
+          <div className="space-y-4">
+            {notifications
+              .filter((n) => n.type === "drug_test")
+              .map((notification) => {
+                const IconComponent = getTypeIcon(notification.type)
+                return (
+                  <Card
+                    key={notification.id}
+                    className={`border-l-4 ${getPriorityColor(notification.type)} cursor-pointer hover:shadow-md transition-shadow`}
+                    onClick={() => handleNotificationClick(notification)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-4">
+                        <div className={`p-2 rounded-lg ${getTypeColor(notification.type)}`}>
+                          <IconComponent className="h-5 w-5" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="font-medium">{notification.title}</h3>
+                          <p className="text-gray-600 text-sm">{notification.message}</p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            {notifications.filter((n) => n.type === "drug_test").length === 0 && (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <TestTube2 className="h-12 w-12 text-gray-400 mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No drug test notifications</h3>
+                  <p className="text-gray-600 text-center">You'll be notified here when drug tests are assigned to you.</p>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </TabsContent>
 

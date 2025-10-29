@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   ShieldCheck, Activity, LogOut, ArrowLeft,
   Home as HomeIcon, TestTube2, MessageSquare, Users, Settings as SettingsIcon,
-  Radio as RadioIcon, EyeOff
+  Radio as RadioIcon, EyeOff, Bell
 } from "lucide-react";
 
 import HiddenGroups from "@/components/staff/HiddenGroups";
@@ -38,9 +38,9 @@ export default function StaffHiddenGroupsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-white">
       {/* header */}
-      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
+      <header className="sticky top-0 z-10 bg-white border-b">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-full bg-cyan-100 grid place-items-center">
@@ -65,13 +65,17 @@ export default function StaffHiddenGroupsPage() {
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
         {/* dashboard icon row with Hidden Groups */}
         <div className="flex items-center gap-3">
-          <IconPill onClick={() => router.push("/staff/dashboard")} aria="Home"><HomeIcon className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/dashboard")} aria="Dashboard"><HomeIcon className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/dashboard?tab=tests")} aria="Drug Tests"><TestTube2 className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/staff/patient-inbox")} aria="Messages"><MessageSquare className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/messages")} aria="Messages"><MessageSquare className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/broadcasts")} aria="Broadcasts"><RadioIcon className="h-5 w-5" /></IconPill>
-          <IconPill onClick={() => router.push("/clinician/patient")} aria="Patients"><Users className="h-5 w-5" /></IconPill>
+          <IconPill active aria="Groups"><EyeOff className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/staff/group-chat")} aria="Group Chat">
+            <Users className="h-5 w-5" />
+          </IconPill>
+          <IconPill onClick={() => router.push("/staff/notifications")} aria="Alerts"><Bell className="h-5 w-5" /></IconPill>
+          <IconPill onClick={() => router.push("/clinician/dashboard")} aria="Clinicians"><Users className="h-5 w-5" /></IconPill>
           <IconPill onClick={() => router.push("/staff/profile")} aria="Settings"><SettingsIcon className="h-5 w-5" /></IconPill>
-          <IconPill active aria="Hidden Groups"><EyeOff className="h-5 w-5" /></IconPill>
         </div>
 
         <div className="flex items-center justify-between">

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Bell, Loader2, Calendar, MessageSquare, Users, FileText, Clock, AlertTriangle, CheckCircle, XCircle, Video, Phone } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Bell, Loader2, Calendar, MessageSquare, Users, FileText, Clock, AlertTriangle, CheckCircle, XCircle, Video, Phone, TestTube2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { 
@@ -19,7 +20,7 @@ import { useAuth } from "@/hooks/use-auth";
 
 interface Notification {
   id: string;
-  type: 'appointment' | 'chat' | 'submission' | 'group' | 'virtual_appointment' | 'google_calendar' | 'system';
+  type: 'appointment' | 'chat' | 'submission' | 'group' | 'virtual_appointment' | 'google_calendar' | 'system' | 'drug_test';
   title: string;
   message: string;
   timestamp: string;
@@ -43,6 +44,7 @@ interface NotificationStats {
 }
 
 export default function RealTimeNotificationBell() {
+  const router = useRouter();
   const { patient, isAuthenticated } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [stats, setStats] = useState<NotificationStats>({
@@ -300,6 +302,16 @@ export default function RealTimeNotificationBell() {
           filter: `patient_id=eq.${patient.id}`
         }, () => loadNotifications()),
       
+      // Drug tests
+      supabase
+        .channel(`drug_tests:${patient.id}`)
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'random_drug_tests',
+          filter: `patient_id=eq.${patient.id}`
+        }, () => loadNotifications()),
+      
       // Group messages
       supabase
         .channel(`group_messages:${patient.id}`)
@@ -334,6 +346,7 @@ export default function RealTimeNotificationBell() {
       case 'group': return <Users className="h-4 w-4" />;
       case 'virtual_appointment': return <Video className="h-4 w-4" />;
       case 'google_calendar': return <Calendar className="h-4 w-4" />;
+      case 'drug_test': return <TestTube2 className="h-4 w-4" />;
       default: return <Bell className="h-4 w-4" />;
     }
   };
@@ -348,6 +361,7 @@ export default function RealTimeNotificationBell() {
       case 'group': return 'text-orange-600 bg-orange-50 border-orange-200';
       case 'virtual_appointment': return 'text-indigo-600 bg-indigo-50 border-indigo-200';
       case 'google_calendar': return 'text-gray-600 bg-gray-50 border-gray-200';
+      case 'drug_test': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
       default: return 'text-gray-600 bg-gray-50 border-gray-200';
     }
   };
@@ -477,13 +491,25 @@ export default function RealTimeNotificationBell() {
           </div>
         ) : (
           <div className="max-h-80 overflow-y-auto">
-            {notifications.map((notification) => (
+            {notifications.map((notification) => {
+              const handleClick = () => {
+                markAsRead(notification.id);
+                if (notification.type === 'drug_test') {
+                  router.push('/dashboard/drug-tests');
+                } else if (notification.type === 'appointment') {
+                  router.push('/dashboard/appointments');
+                } else if (notification.type === 'message') {
+                  router.push('/dashboard/messages');
+                }
+              };
+              
+              return (
               <div
                 key={notification.id}
                 className={`p-3 border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${
                   !notification.read ? 'bg-blue-50' : ''
                 }`}
-                onClick={() => markAsRead(notification.id)}
+                onClick={handleClick}
               >
                 <div className="flex items-start gap-3">
                   <div className={`p-2 rounded-full ${getNotificationColor(notification.type, notification.urgent)}`}>

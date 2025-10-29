@@ -1,10 +1,11 @@
 "use client";
 
+import React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   LogOut, Plus, Search, Settings as SettingsIcon,
-  Pin, PinOff, Archive, ArchiveRestore, CheckCheck, ArrowLeft, ChevronDown,
+  Pin, PinOff, Archive, ArchiveRestore, CheckCheck, ArrowLeft, ChevronDown, MessageSquare,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import IncomingCallNotification from "@/components/call/IncomingCallNotification";
@@ -36,7 +37,7 @@ type ConversationPreview = Awaited<
 type PatientAssigned = {
   user_id: string;
   full_name: string | null;
-  email: string | null;
+  email: string;
   avatar: string | null;
 };
 
@@ -67,41 +68,6 @@ function mapStaffRole(role?: string | null, dept?: string | null): ProviderRole 
   return "nurse";
 }
 
-function formatTime(iso: string) {
-  try {
-    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "";
-  }
-}
-
-function readSettings(): UiSettings {
-  if (typeof window === "undefined") {
-    return {
-      theme: "light",
-      density: "comfortable",
-      bubbleRadius: "rounded-xl",
-      enterToSend: true,
-      sound: true,
-    };
-  }
-  const raw = localStorage.getItem("staff:chat:settings");
-  return raw
-    ? (JSON.parse(raw) as UiSettings)
-    : {
-        theme: "light",
-        density: "comfortable",
-        bubbleRadius: "rounded-xl",
-        enterToSend: true,
-        sound: true,
-      };
-}
-
-function persistSettings(s: UiSettings) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem("staff:chat:settings", JSON.stringify(s));
-}
-
 function useDebounce<T>(value: T, ms: number) {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -116,22 +82,16 @@ function useSystemThemeSync(theme: UiSettings["theme"]) {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const apply = (mode: "dark" | "light") => {
-      // Only toggle class when effective theme changes
-      if (mode === "dark") document.documentElement.classList.add("dark");
-      else document.documentElement.classList.remove("dark");
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onMediaChange = () => {
+      if (theme === "system") {
+        document.documentElement.classList.toggle("dark", media.matches);
+      }
     };
 
-    if (theme === "system") {
-      const mql = window.matchMedia("(prefers-color-scheme: dark)");
-      apply(mql.matches ? "dark" : "light");
-      const cb = (e: MediaQueryListEvent) => apply(e.matches ? "dark" : "light");
-      mql.addEventListener?.("change", cb);
-      return () => mql.removeEventListener?.("change", cb);
-    }
-
-    apply(theme);
-    return;
+    onMediaChange();
+    media.addEventListener("change", onMediaChange);
+    return () => media.removeEventListener("change", onMediaChange);
   }, [theme]);
 }
 
@@ -151,10 +111,14 @@ export default function StaffMessagesPage() {
 
   /* Settings */
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settings, setSettings] = useState<UiSettings>(() => readSettings());
-  useEffect(() => {
-    persistSettings(settings);
-  }, [settings]);
+  const [settings, setSettings] = useState<UiSettings>(() => ({
+    theme: "light",
+    density: "comfortable",
+    bubbleRadius: "rounded-xl",
+    enterToSend: true,
+    sound: true,
+  }));
+  
   useSystemThemeSync(settings.theme);
 
   /* Me */
@@ -182,15 +146,40 @@ export default function StaffMessagesPage() {
   const [patients, setPatients] = useState<PatientAssigned[]>([]);
   const filteredPatients = useMemo(() => {
     const v = pSearch.trim().toLowerCase();
-    if (!v) return patients;
-    return patients.filter(
-      (p) =>
+    return patients.filter((p) =>
         (p.full_name ?? "").toLowerCase().includes(v) ||
         (p.email ?? "").toLowerCase().includes(v)
     );
   }, [patients, pSearch]);
 
-  /* URL helper */
+  const filteredConvs = useMemo(() => {
+    let list = convs;
+    
+    // Filter by tab
+    if (tab === "new") list = list.filter((c) => (unreadMap[c.id] ?? 0) > 0);
+    else if (tab === "pinned") list = list.filter((c) => c.pinned && !c.archived_at);
+    else if (tab === "archived") list = list.filter((c) => !!c.archived_at);
+    
+    // Filter by search
+    if (qDebounced) {
+      list = list.filter((c) =>
+        (c.patient_name ?? "").toLowerCase().includes(qDebounced) ||
+        (c.patient_email ?? "").toLowerCase().includes(qDebounced) ||
+        (c.last_message ?? "").toLowerCase().includes(qDebounced)
+      );
+    }
+    
+    return list;
+  }, [convs, tab, qDebounced, unreadMap]);
+
+  const counts = useMemo(() => {
+    const newCount = convs.filter((c) => (unreadMap[c.id] ?? 0) > 0).length;
+    const pinned = convs.filter((c) => c.pinned && !c.archived_at).length;
+    const archived = convs.filter((c) => !!c.archived_at).length;
+    return { newCount, pinned, archived };
+  }, [convs, unreadMap]);
+
+  /* URL sync */
   const syncUrlOpen = useCallback((id: string) => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
@@ -337,195 +326,98 @@ export default function StaffMessagesPage() {
     if (!selectedId || !meId) return;
     (async () => {
       try {
-        await markReadHelper(selectedId, "nurse");
-        setUnreadMap((m) => ({ ...m, [selectedId]: 0 }));
-        syncUrlOpen(selectedId);
-      } catch {
-        notify("Failed to mark as read", "err");
+        await markReadHelper(selectedId, meRole);
+      } catch (err) {
+        console.warn("Failed to mark read:", err);
       }
     })();
-  }, [selectedId, meId, notify, syncUrlOpen]);
+  }, [selectedId, meId]);
 
   /* Merge updated row safely */
-  const mergeRowFromDb = useCallback(
-    <
-      T extends {
-        id: string;
-        pinned?: boolean | null;
-        archived_at?: string | null;
-        last_message_at?: string | null;
-        created_at?: string | null;
-      }
-    >(
-      row: T
-    ) => {
-      setConvs((cur) =>
-        cur.map((c) =>
-          c.id === row.id
-            ? {
-                ...c,
-                pinned: row.pinned ?? c.pinned,
-                archived_at: (row.archived_at as any) ?? c.archived_at,
-                updated_at: (row.last_message_at ?? row.created_at ?? c.updated_at) as string,
-              }
-            : c
-        )
-      );
-    },
-    []
-  );
+  const mergeRowFromDb = useCallback((row: ConversationPreview) => {
+    setConvs((cur) => {
+      const idx = cur.findIndex((c) => c.id === row.id);
+      if (idx < 0) return cur;
+      const next = [...cur];
+      next[idx] = row;
+      return next;
+    });
+  }, []);
 
-  /* Row actions (optimistic with DB truth merge) */
-  const togglePin = useCallback(
-    async (id: string, next: boolean) => {
-      setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, pinned: next } : c))); // optimistic
-      const { data, error } = await supabase
+  const togglePin = useCallback(async (id: string, pinned: boolean) => {
+    try {
+      const { error } = await supabase
         .from("conversations")
-        .update({ pinned: next })
-        .eq("id", id)
-        .select("id, pinned, archived_at, last_message_at, created_at")
-        .single();
-
-      if (error || !data) {
+        .update({ pinned })
+        .eq("id", id);
+      if (error) throw error;
+      mergeRowFromDb({ ...convs.find((c) => c.id === id)!, pinned });
+    } catch (err) {
         notify("Failed to update pin", "err");
-        setConvs((cur) => cur.map((c) => (c.id === id ? { ...c, pinned: !next } : c))); // rollback
-        return;
-      }
-      mergeRowFromDb(data);
-      notify(next ? "Pinned" : "Unpinned");
-    },
-    [mergeRowFromDb, notify]
-  );
+    }
+  }, [convs, mergeRowFromDb, notify]);
 
-  const toggleArchive = useCallback(
-    async (id: string, next: boolean) => {
-      const value = next ? new Date().toISOString() : null;
-
-      setConvs((cur) =>
-        cur.map((c) => (c.id === id ? { ...c, archived_at: value as any } : c))
-      ); // optimistic
-
-      const { data, error } = await supabase
+  const toggleArchive = useCallback(async (id: string, archived: boolean) => {
+    try {
+      const { error } = await supabase
         .from("conversations")
-        .update({ archived_at: value as any })
-        .eq("id", id)
-        .select("id, pinned, archived_at, last_message_at, created_at")
-        .single();
-
-      if (error || !data) {
+        .update({ archived_at: archived ? new Date().toISOString() : null })
+        .eq("id", id);
+      if (error) throw error;
+      mergeRowFromDb({ ...convs.find((c) => c.id === id)!, archived_at: archived ? new Date().toISOString() : null });
+    } catch (err) {
         notify("Failed to update archive", "err");
-        setConvs((cur) =>
-          cur.map((c) => (c.id === id ? { ...c, archived_at: next ? null : (value as any) } : c))
-        ); // rollback
-        return;
-      }
-      mergeRowFromDb(data);
-      if (next && selectedId === id) setSelectedId(null);
-      notify(next ? "Archived" : "Unarchived");
-    },
-    [mergeRowFromDb, notify, selectedId]
-  );
+    }
+  }, [convs, mergeRowFromDb, notify]);
 
-  const markRead = useCallback(
-    async (id: string) => {
-      try {
-        await markReadHelper(id, "nurse");
+  const markRead = useCallback(async (id: string) => {
+    if (!meId) return;
+    try {
+      await markReadHelper(id, meRole);
         setUnreadMap((m) => ({ ...m, [id]: 0 }));
-        notify("Marked as read");
-      } catch {
-        notify("Failed to mark as read", "err");
+    } catch (err) {
+      notify("Failed to mark read", "err");
       }
-    },
-    [notify]
-  );
+  }, [meId, notify]);
 
   const bulkArchive = useCallback(async () => {
     if (!meId) return;
-    const { data, error } = await supabase
+    try {
+      const { error } = await supabase
       .from("conversations")
-      .update({ archived_at: new Date().toISOString() as any })
+        .update({ archived_at: new Date().toISOString() })
       .eq("provider_id", meId)
-      .is("archived_at", null)
-      .select("id, archived_at, pinned, last_message_at, created_at");
-
-    if (error) {
+        .is("archived_at", null);
+      if (error) throw error;
+      setConvs((cur) => cur.map((c) => ({ ...c, archived_at: new Date().toISOString() })));
+      setTab("archived");
+      notify("Archived all");
+    } catch (err) {
       notify("Failed to archive all", "err");
-      return;
     }
-    (data ?? []).forEach((row) => mergeRowFromDb(row));
-    if (selectedId && (data ?? []).some((d) => d.id === selectedId)) setSelectedId(null);
-    setTab("archived");
-    notify("Archived all");
-  }, [meId, mergeRowFromDb, notify, selectedId]);
+  }, [meId, notify]);
 
   const bulkUnarchive = useCallback(async () => {
     if (!meId) return;
-    const { data, error } = await supabase
+    try {
+      const { error } = await supabase
       .from("conversations")
-      .update({ archived_at: null as any })
+        .update({ archived_at: null })
       .eq("provider_id", meId)
-      .not("archived_at", "is", null)
-      .select("id, archived_at, pinned, last_message_at, created_at");
-
-    if (error) {
+        .not("archived_at", "is", null);
+      if (error) throw error;
+      setConvs((cur) => cur.map((c) => ({ ...c, archived_at: null })));
+      setTab("all");
+      notify("Unarchived all");
+    } catch (err) {
       notify("Failed to unarchive all", "err");
-      return;
     }
-    (data ?? []).forEach((row) => mergeRowFromDb(row));
-    setTab("all");
-    notify("Unarchived all");
-  }, [meId, mergeRowFromDb, notify]);
+  }, [meId, notify]);
 
   /* Back */
-  const handleBack = useCallback(() => router.push("/staff/dashboard"), [router]);
-
-  /* Counts */
-  const counts = useMemo(() => {
-    const archived = convs.filter((c) => !!c.archived_at).length;
-    const pinned = convs.filter((c) => !!c.pinned && !c.archived_at).length;
-    const newCount = Object.values(unreadMap).reduce((a, b) => a + b, 0);
-    return { archived, pinned, newCount };
-  }, [convs, unreadMap]);
-
-  /* Filtering & sorting */
-  const filteredConvs = useMemo(() => {
-    let list = convs.slice();
-    list = tab === "archived" ? list.filter((c) => !!c.archived_at) : list.filter((c) => !c.archived_at);
-    if (tab === "new") list = list.filter((c) => (unreadMap[c.id] ?? 0) > 0);
-    if (tab === "pinned") list = list.filter((c) => !!c.pinned);
-
-    if (qDebounced) {
-      list = list.filter(
-        (c) =>
-          (c.patient_name ?? c.patient_email ?? "patient").toLowerCase().includes(qDebounced) ||
-          (c.last_message ?? "").toLowerCase().includes(qDebounced)
-      );
-    }
-    list.sort((a, b) => {
-      const ap = a.pinned ? 1 : 0;
-      const bp = b.pinned ? 1 : 0;
-      if (ap !== bp) return bp - ap;
-      return a.updated_at < b.updated_at ? 1 : -1;
-    });
-    return list;
-  }, [convs, tab, qDebounced, unreadMap]);
-
-  /* Start new message */
-  const startNewMessage = useCallback(
-    async (patient: PatientAssigned) => {
-      if (!meId) return;
-      const { id: convId } = await ensureConversation(patient.user_id, {
-        id: meId,
-        name: meName,
-        role: meRole,
-      });
-      setConvs(await listConversationsForProvider(meId));
-      openConversation(convId);
-      setModalOpen(false);
-      notify("Conversation started");
-    },
-    [meId, meName, meRole, openConversation, notify]
-  );
+  const handleBack = useCallback(() => {
+    router.back();
+  }, [router]);
 
   /* Keyboard UX */
   useEffect(() => {
@@ -550,527 +442,421 @@ export default function StaffMessagesPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-7xl p-6 space-y-4">
-      {/* notifier */}
+    <div className="min-h-screen bg-slate-50">
+      <IncomingCallNotification />
+      
+      {/* Notice */}
       {notice && (
-        <div
-          role="status"
-          aria-live="polite"
-          className={clsx(
-            "fixed right-6 top-6 z-50 rounded-lg px-3 py-2 text-sm shadow",
-            notice.tone === "err" && "bg-red-600 text-white",
-            notice.tone === "warn" && "bg-amber-500 text-black",
-            (!notice.tone || notice.tone === "ok") && "bg-gray-900 text-white"
-          )}
-        >
+        <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-lg shadow-lg text-sm font-medium ${
+          notice.tone === "err" ? "bg-red-100 text-red-800 border border-red-200" :
+          notice.tone === "warn" ? "bg-yellow-100 text-yellow-800 border border-yellow-200" :
+          "bg-green-100 text-green-800 border border-green-200"
+        }`}>
           {notice.text}
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleBack}
-            className="gap-1"
-            aria-label="Back to dashboard"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-            Messages
-          </h1>
+      {/* Header */}
+      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-slate-200">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleBack}
+              className="text-slate-600 hover:text-slate-800"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <div>
+              <h1 className="text-xl font-semibold text-slate-800">Messages</h1>
+              <p className="text-sm text-slate-500">Patient communications</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSettingsOpen(true)}
+              className="text-slate-600 hover:text-slate-800"
+            >
+              <SettingsIcon className="h-4 w-4 mr-2" />
+              Settings
+            </Button>
+            <Button
+              onClick={() => setModalOpen(true)}
+              className="bg-cyan-600 hover:bg-cyan-700 text-white"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              New Message
+            </Button>
+          </div>
         </div>
+      </header>
 
-        <div className="flex items-center gap-2">
-          <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2" aria-label="Open settings">
-                <SettingsIcon className="h-4 w-4" /> Settings
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>Chat settings</DialogTitle>
-              </DialogHeader>
-
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm font-medium">Theme</p>
-                  <div className="mt-2 flex gap-2">
-                    {(["light", "dark", "system"] as const).map((v) => (
-                      <Button
-                        key={v}
-                        variant={settings.theme === v ? "default" : "outline"}
-                        onClick={() => setSettings((s) => ({ ...s, theme: v }))}
-                        aria-pressed={settings.theme === v}
-                      >
-                        {v}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-sm font-medium">Density</p>
-                  <div className="mt-2 flex gap-2">
-                    {(["comfortable", "compact"] as const).map((v) => (
-                      <Button
-                        key={v}
-                        variant={settings.density === v ? "default" : "outline"}
-                        onClick={() => setSettings((s) => ({ ...s, density: v }))}
-                        aria-pressed={settings.density === v}
-                      >
-                        {v}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-sm font-medium">Bubble roundness</p>
-                  <div className="mt-2 flex gap-2">
-                    {(["rounded-lg", "rounded-xl", "rounded-2xl"] as const).map((v) => (
-                      <Button
-                        key={v}
-                        variant={settings.bubbleRadius === v ? "default" : "outline"}
-                        onClick={() => setSettings((s) => ({ ...s, bubbleRadius: v }))}
-                        aria-pressed={settings.bubbleRadius === v}
-                      >
-                        {v.replace("rounded-", "")}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant={settings.enterToSend ? "default" : "outline"}
-                    onClick={() =>
-                      setSettings((s) => ({ ...s, enterToSend: !s.enterToSend }))
-                    }
-                  >
-                    {settings.enterToSend ? "Enter sends" : "Enter adds line"}
-                  </Button>
-                  <Button
-                    variant={settings.sound ? "default" : "outline"}
-                    onClick={() => setSettings((s) => ({ ...s, sound: !s.sound }))}
-                  >
-                    {settings.sound ? "Sounds on" : "Sounds off"}
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          <Button
-            size="sm"
-            className="gap-2"
-            onClick={() => setModalOpen(true)}
-            aria-label="Start new message"
-          >
-            <Plus className="h-4 w-4" /> New message
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={async () => {
-              await supabase.auth.signOut();
-              router.refresh();
-            }}
-            aria-label="Logout"
-          >
-            <LogOut className="h-4 w-4" /> Logout
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid h-[calc(100vh-220px)] grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Conversations */}
-        <Card className="lg:col-span-1 overflow-hidden" aria-label="Conversations list">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center justify-between">
-              <span>Conversations</span>
-
-              <div className="flex items-center gap-1 text-xs">
-                <Button
-                  variant={tab === "all" ? "default" : "outline"}
-                  size="xs"
-                  onClick={() => setTab("all")}
-                >
-                  All
-                </Button>
-
-                <Button
-                  variant={tab === "new" ? "default" : "outline"}
-                  size="xs"
-                  onClick={() => setTab("new")}
-                >
-                  New
-                  {counts.newCount ? <Badge className="ml-1">{counts.newCount}</Badge> : null}
-                </Button>
-
-                <Button
-                  variant={tab === "pinned" ? "default" : "outline"}
-                  size="xs"
-                  onClick={() => setTab("pinned")}
-                >
-                  Pinned
-                  {counts.pinned ? <Badge className="ml-1">{counts.pinned}</Badge> : null}
-                </Button>
-
-                <Button
-                  variant={tab === "archived" ? "default" : "outline"}
-                  size="xs"
-                  onClick={() => setTab("archived")}
-                >
-                  Archived
-                  {counts.archived ? <Badge className="ml-1">{counts.archived}</Badge> : null}
-                </Button>
-
-                {/* Bulk actions */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="xs" className="ml-2 gap-1" aria-label="Bulk actions">
-                      Bulk <ChevronDown className="h-3.5 w-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-40">
-                    <DropdownMenuLabel>Bulk actions</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={bulkArchive}>
-                      <Archive className="mr-2 h-4 w-4" /> Archive all
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={bulkUnarchive}>
-                      <ArchiveRestore className="mr-2 h-4 w-4" /> Unarchive all
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </CardTitle>
-
+      <div className="max-w-7xl mx-auto px-6 py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-200px)]">
+          {/* Sidebar */}
+          <div className="lg:col-span-1 space-y-4">
+            {/* Search */}
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input
                 ref={searchRef}
-                placeholder="Search patients… ( / )"
-                aria-label="Search patients"
-                className="pl-10"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
+                placeholder="Search conversations..."
+                className="pl-10 h-11 rounded-lg border-slate-300 focus:border-cyan-500 focus:ring-cyan-500"
               />
             </div>
-          </CardHeader>
 
-          <CardContent className="p-0">
-            <div ref={listRef} className={clsx(
-              "overflow-y-auto",
-              settings.density === "compact" ? "max-h-[calc(100vh-300px)]" : "max-h-[calc(100vh-320px)]"
-            )}>
-              {loading && (
-                <div className="space-y-2 p-4" aria-live="polite">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="animate-pulse rounded-xl border p-3">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-gray-200" />
-                        <div className="flex-1 space-y-2">
-                          <div className="h-3 w-1/3 rounded bg-gray-200" />
-                          <div className="h-3 w-2/3 rounded bg-gray-200" />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+            {/* Tabs */}
+            <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+              {[
+                { key: "all", label: "All", count: convs.length },
+                { key: "new", label: "New", count: counts.newCount },
+                { key: "pinned", label: "Pinned", count: counts.pinned },
+                { key: "archived", label: "Archived", count: counts.archived },
+              ].map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key as any)}
+                  className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                    tab === t.key
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  {t.label}
+                  {t.count > 0 && (
+                    <Badge variant="secondary" className="ml-2 text-xs">
+                      {t.count}
+                    </Badge>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Bulk Actions */}
+            {tab === "archived" && (
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={bulkUnarchive}
+                  className="flex-1 text-xs"
+                >
+                  <ArchiveRestore className="h-3 w-3 mr-1" />
+                  Unarchive All
+                </Button>
+              </div>
+            )}
+
+            {/* Conversations List */}
+            <div className="flex-1 overflow-y-auto space-y-2">
+              {loading ? (
+                <div className="text-center py-8 text-slate-500">
+                  Loading conversations...
                 </div>
-              )}
-
-              {!loading && filteredConvs.length === 0 && (
-                <div className="p-8 text-center text-sm text-gray-500">No conversations to show.</div>
-              )}
-
-              <ul className="space-y-1 p-2">
-                {filteredConvs.map((c) => {
-                  const active = selectedId === c.id;
-                  const un = unreadMap[c.id] ?? 0;
-                  return (
-                    <li key={c.id}>
-                      <div
-                        onClick={() => openConversation(c.id)}
-                        className={clsx(
-                          "group relative flex w-full items-center gap-3 rounded-xl border p-3 text-left transition cursor-pointer",
-                          active
-                            ? "border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20"
-                            : "hover:bg-gray-50 dark:hover:bg-gray-900"
-                        )}
-                        aria-current={active ? "true" : "false"}
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            openConversation(c.id);
-                          }
-                        }}
-                      >
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage src={c.patient_avatar ?? undefined} />
-                          <AvatarFallback>
-                            {initials(c.patient_name || c.patient_email || "Patient")}
-                          </AvatarFallback>
-                        </Avatar>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between">
-                            <p className="truncate font-medium text-gray-900 dark:text-gray-100">
-                              {c.patient_name ?? c.patient_email ?? "Patient"}
-                            </p>
-                            <span className="ml-2 shrink-0 text-[11px] text-gray-500">
-                              {formatTime(c.updated_at)}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <p className="truncate text-xs text-gray-500">{c.last_message ?? "—"}</p>
-                            {un > 0 && (
-                              <Badge aria-label={`${un} unread`} className="ml-auto">
-                                {un}
+              ) : filteredConvs.length === 0 ? (
+                <div className="text-center py-8 text-slate-500">
+                  <MessageSquare className="h-12 w-12 mx-auto mb-3 text-slate-300" />
+                  <p className="text-sm">No conversations found</p>
+                  {qDebounced && (
+                    <p className="text-xs text-slate-400 mt-1">
+                      Try adjusting your search
+                    </p>
+                  )}
+                </div>
+              ) : (
+                filteredConvs.map((conv) => (
+                  <div
+                    key={conv.id}
+                    onClick={() => openConversation(conv.id)}
+                    className={`p-4 rounded-lg border cursor-pointer transition-all hover:shadow-sm ${
+                      selectedId === conv.id
+                        ? "border-cyan-300 bg-cyan-50 shadow-sm"
+                        : "border-slate-200 bg-white hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage src={conv.patient_avatar || undefined} />
+                        <AvatarFallback className="bg-cyan-100 text-cyan-700">
+                          {initials(conv.patient_name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <h3 className="font-medium text-slate-900 truncate">
+                            {conv.patient_name || "Unknown Patient"}
+                          </h3>
+                          <div className="flex items-center gap-1">
+                            {conv.pinned && (
+                              <Pin className="h-3 w-3 text-amber-500" />
+                            )}
+                            {(unreadMap[conv.id] ?? 0) > 0 && (
+                              <Badge variant="destructive" className="text-xs px-1.5 py-0.5">
+                                {unreadMap[conv.id]}
                               </Badge>
                             )}
-                            {c.pinned && !c.archived_at && (
-                              <Pin className="h-3.5 w-3.5 text-cyan-500" aria-hidden="true" />
-                            )}
                           </div>
                         </div>
-
-                        {/* row actions */}
-                        <div className="absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-1 group-hover:flex">
+                        
+                        <p className="text-sm text-slate-600 truncate mb-2">
+                          {conv.last_message || "No messages yet"}
+                        </p>
+                        
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-slate-400">
+                            {conv.updated_at ? new Date(conv.updated_at).toLocaleDateString() : ""}
+                          </span>
+                          
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button size="sm" variant="ghost" className="h-8 px-2" aria-label="Conversation actions">
-                                •••
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                                <ChevronDown className="h-3 w-3" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
-                              <DropdownMenuLabel>Quick actions</DropdownMenuLabel>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuLabel>Actions</DropdownMenuLabel>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  togglePin(c.id, !c.pinned);
+                                  togglePin(conv.id, !conv.pinned);
                                 }}
                               >
-                                {c.pinned ? (
+                                {conv.pinned ? (
                                   <>
-                                    <PinOff className="mr-2 h-4 w-4" /> Unpin
+                                    <PinOff className="h-4 w-4 mr-2" />
+                                    Unpin
                                   </>
                                 ) : (
                                   <>
-                                    <Pin className="mr-2 h-4 w-4" /> Pin
+                                    <Pin className="h-4 w-4 mr-2" />
+                                    Pin
                                   </>
                                 )}
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  markRead(c.id);
+                                  toggleArchive(conv.id, !conv.archived_at);
                                 }}
                               >
-                                <CheckCheck className="mr-2 h-4 w-4" /> Mark read
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleArchive(c.id, !c.archived_at);
-                                }}
-                              >
-                                {c.archived_at ? (
+                                {conv.archived_at ? (
                                   <>
-                                    <ArchiveRestore className="mr-2 h-4 w-4" /> Unarchive
+                                    <ArchiveRestore className="h-4 w-4 mr-2" />
+                                    Unarchive
                                   </>
                                 ) : (
                                   <>
-                                    <Archive className="mr-2 h-4 w-4" /> Archive
+                                    <Archive className="h-4 w-4 mr-2" />
+                                    Archive
                                   </>
                                 )}
                               </DropdownMenuItem>
+                              {(unreadMap[conv.id] ?? 0) > 0 && (
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    markRead(conv.id);
+                                  }}
+                                >
+                                  <CheckCheck className="h-4 w-4 mr-2" />
+                                  Mark Read
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
                       </div>
-                    </li>
-                  );
-                })}
-              </ul>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
 
-        {/* Thread */}
-        <div className="lg:col-span-2">
-          {!selectedConv ? (
-            <Card className="h-[540px] w-full">
-              <CardContent className="h-full grid place-items-center text-sm text-gray-500">
-                Select a conversation
-              </CardContent>
-            </Card>
-          ) : (
-            <ChatBox
-              mode="staff"
-              patientId={selectedConv.patient_id}
-              providerId={meId!}
-              providerName={meName}
-              providerRole={meRole}
-              settings={settings}
-              conversationId={selectedConv.id}
-            />
-          )}
+          {/* Chat Area */}
+          <div className="lg:col-span-2">
+            {selectedConv ? (
+              <div className="h-full bg-white rounded-lg border border-slate-200 shadow-sm">
+                <ChatBox
+                  mode="staff"
+                  patientId={selectedConv.patient_id}
+                  providerId={meId!}
+                  providerName={meName}
+                  providerRole={meRole}
+                  patientName={selectedConv.patient_name || "Unknown Patient"}
+                  conversationId={selectedConv.id}
+                />
+              </div>
+            ) : (
+              <div className="h-full bg-white rounded-lg border border-slate-200 shadow-sm flex items-center justify-center">
+                <div className="text-center text-slate-500">
+                  <MessageSquare className="h-16 w-16 mx-auto mb-4 text-slate-300" />
+                  <h3 className="text-lg font-medium mb-2">Select a conversation</h3>
+                  <p className="text-sm">Choose a conversation from the sidebar to start messaging</p>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* New Message Modal (simple, fast) */}
-      {modalOpen && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Start new message"
-        >
-          <div className="w-full max-w-lg rounded-2xl border bg-white shadow-xl dark:bg-gray-950">
-            <div className="flex items-center justify-between border-b p-4">
-              <h3 className="font-semibold">New message</h3>
-              <Button variant="ghost" size="sm" onClick={() => setModalOpen(false)} aria-label="Close">
-                Close
-              </Button>
+      {/* New Message Modal */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Start New Conversation</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                value={pSearch}
+                onChange={(e) => setPSearch(e.target.value)}
+                placeholder="Search patients..."
+                className="pl-10"
+              />
             </div>
-            <div className="p-4">
-              <div className="relative mb-3">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search patients…"
-                  className="pl-9"
-                  value={pSearch}
-                  onChange={(e) => setPSearch(e.target.value)}
-                  autoFocus
-                  aria-label="Search patients to start a message"
-                />
-              </div>
-              <div className="max-h-80 overflow-y-auto divide-y">
-                {filteredPatients.length === 0 && (
-                  <div className="p-6 text-sm text-gray-500">No matches.</div>
-                )}
-                {filteredPatients.map((p) => (
-                  <button
-                    key={p.user_id}
-                    className="w-full text-left p-3 hover:bg-gray-50 dark:hover:bg-gray-900 flex items-center gap-3"
-                    onClick={() => startNewMessage(p)}
-                    aria-label={`Message ${p.full_name ?? p.email ?? "patient"}`}
+            
+            <div className="max-h-60 overflow-y-auto space-y-2">
+              {filteredPatients.map((patient) => (
+                <div
+                  key={patient.user_id}
+                  onClick={async () => {
+                    try {
+                      const conv = await ensureConversation(patient.user_id, {
+                        id: meId!,
+                        name: meName,
+                        role: meRole
+                      });
+                      setModalOpen(false);
+                      openConversation(conv.id);
+                    } catch (err) {
+                      notify("Failed to start conversation", "err");
+                    }
+                  }}
+                  className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-cyan-300 hover:bg-cyan-50 cursor-pointer transition-colors"
+                >
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage src={patient.avatar || undefined} />
+                    <AvatarFallback className="bg-cyan-100 text-cyan-700 text-xs">
+                      {initials(patient.full_name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-slate-900 truncate">
+                      {patient.full_name || "Unknown Patient"}
+                    </p>
+                    <p className="text-sm text-slate-500 truncate">
+                      {patient.email}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              
+              {filteredPatients.length === 0 && (
+                <div className="text-center py-8 text-slate-500">
+                  <p className="text-sm">No patients found</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Settings Modal */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Message Settings</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            <div>
+              <label className="text-sm font-medium text-slate-700 mb-2 block">Theme</label>
+              <div className="grid grid-cols-3 gap-2">
+                {(["light", "dark", "system"] as const).map((theme) => (
+                  <Button
+                    key={theme}
+                    variant={settings.theme === theme ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSettings(s => ({ ...s, theme }))}
+                    className="capitalize"
                   >
-                    <Avatar>
-                      <AvatarImage src={p.avatar ?? undefined} />
-                      <AvatarFallback>{initials(p.full_name)}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{p.full_name ?? "Patient"}</div>
-                      <div className="text-xs text-gray-500 truncate">{p.email ?? ""}</div>
-                    </div>
-                  </button>
+                    {theme}
+                  </Button>
                 ))}
               </div>
             </div>
-          </div>
-        </div>
-      )}
-      <IncomingCallNotification />
-      
-      {/* Debug Panel for localhost */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="fixed bottom-4 right-4 z-50">
-          <div className="bg-gray-800 text-white p-4 rounded-lg shadow-lg max-w-xs">
-            <h3 className="text-sm font-bold mb-2">Debug Panel</h3>
-            <div className="space-y-2">
-              <button
-                onClick={async () => {
-                  try {
-                    const { data: { user } } = await supabase.auth.getUser();
-                    if (!user) return;
-                    
-                    console.log('🧪 Testing incoming call for user:', user.id);
-                    
-                    // Test incoming call
-                    const channel = supabase.channel(`staff-calls-${user.id}`, {
-                      config: { broadcast: { ack: true } }
-                    });
-                    
-                    await channel.subscribe();
-                    
-                    const response = await channel.send({
-                      type: "broadcast",
-                      event: "incoming-call",
-                      payload: {
-                        conversationId: "test-conversation",
-                        callerId: "test-caller",
-                        callerName: "Test Patient",
-                        mode: "video",
-                        timestamp: new Date().toISOString(),
-                      }
-                    });
-                    
-                    console.log('✅ Test call sent:', response);
-                    supabase.removeChannel(channel);
-                  } catch (error) {
-                    console.error('❌ Test call failed:', error);
-                  }
-                }}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs w-full"
-              >
-                Test Video Call
-              </button>
+            
+            <div>
+              <label className="text-sm font-medium text-slate-700 mb-2 block">Density</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["comfortable", "compact"] as const).map((density) => (
+                  <Button
+                    key={density}
+                    variant={settings.density === density ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSettings(s => ({ ...s, density }))}
+                    className="capitalize"
+                  >
+                    {density}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium text-slate-700 mb-2 block">Bubble Style</label>
+              <div className="grid grid-cols-3 gap-2">
+                {(["rounded-lg", "rounded-xl", "rounded-2xl"] as const).map((radius) => (
+                  <Button
+                    key={radius}
+                    variant={settings.bubbleRadius === radius ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSettings(s => ({ ...s, bubbleRadius: radius }))}
+                  >
+                    <div className={`w-4 h-4 bg-slate-200 ${radius}`} />
+                  </Button>
+                ))}
+              </div>
+            </div>
+            
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-slate-700">Enter to Send</label>
+                <Button
+                  variant={settings.enterToSend ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSettings(s => ({ ...s, enterToSend: !s.enterToSend }))}
+                >
+                  {settings.enterToSend ? "On" : "Off"}
+                </Button>
+              </div>
               
-              <button
-                onClick={async () => {
-                  try {
-                    const { data: { user } } = await supabase.auth.getUser();
-                    if (!user) return;
-                    
-                    console.log('🧪 Testing audio call for user:', user.id);
-                    
-                    const channel = supabase.channel(`staff-calls-${user.id}`, {
-                      config: { broadcast: { ack: true } }
-                    });
-                    
-                    await channel.subscribe();
-                    
-                    const response = await channel.send({
-                      type: "broadcast",
-                      event: "incoming-call",
-                      payload: {
-                        conversationId: "test-conversation-audio",
-                        callerId: "test-caller-audio",
-                        callerName: "Test Patient Audio",
-                        mode: "audio",
-                        timestamp: new Date().toISOString(),
-                      }
-                    });
-                    
-                    console.log('✅ Test audio call sent:', response);
-                    supabase.removeChannel(channel);
-                  } catch (error) {
-                    console.error('❌ Test audio call failed:', error);
-                  }
-                }}
-                className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs w-full"
-              >
-                Test Audio Call
-              </button>
-              
-              <div className="text-xs text-gray-300 mt-2">
-                Check console for logs
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-slate-700">Sound Notifications</label>
+                <Button
+                  variant={settings.sound ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSettings(s => ({ ...s, sound: !s.sound }))}
+                >
+                  {settings.sound ? "On" : "Off"}
+                </Button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

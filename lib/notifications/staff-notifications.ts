@@ -40,10 +40,10 @@ export async function createSubmissionNotification(
   const supabase = createClient();
   
   try {
-    // Get all staff members who should receive notifications
+    // Get all active staff members who should receive notifications
     const { data: staffMembers, error: staffError } = await supabase
-      .from('staff_members')
-      .select('user_id, first_name, last_name, notification_preferences')
+      .from('staff')
+      .select('user_id, first_name, last_name')
       .eq('active', true);
 
     if (staffError) {
@@ -93,10 +93,10 @@ export async function createMessageNotification(
   const supabase = createClient();
   
   try {
-    // Get all staff members who should receive notifications
+    // Get all active staff members who should receive notifications
     const { data: staffMembers, error: staffError } = await supabase
-      .from('staff_members')
-      .select('user_id, first_name, last_name, notification_preferences')
+      .from('staff')
+      .select('user_id, first_name, last_name')
       .eq('active', true);
 
     if (staffError) {
@@ -141,6 +141,12 @@ export async function getStaffNotifications(staffId: string, limit: number = 50)
   const supabase = createClient();
   
   try {
+    // Check if staffId is provided
+    if (!staffId) {
+      console.warn('getStaffNotifications: No staffId provided');
+      return [];
+    }
+
     const { data, error } = await supabase
       .from('staff_notifications')
       .select('*')
@@ -149,13 +155,78 @@ export async function getStaffNotifications(staffId: string, limit: number = 50)
       .limit(limit);
 
     if (error) {
-      console.error('Error fetching staff notifications:', error);
+      // Log everything about the error - it might be an object with unexpected structure
+      console.error('Error fetching staff notifications - full error object:', JSON.stringify(error, null, 2));
+      console.error('Error type:', typeof error);
+      console.error('Error constructor:', error?.constructor?.name);
+      console.error('Error keys:', error ? Object.keys(error) : 'error is null/undefined');
+      
+      // Try to extract error information in multiple ways
+      const errorMessage = 
+        error?.message || 
+        error?.error?.message ||
+        (typeof error === 'string' ? error : null) ||
+        JSON.stringify(error);
+      
+      const errorCode = 
+        error?.code || 
+        error?.error?.code ||
+        error?.statusCode ||
+        null;
+      
+      const errorDetails = error?.details || error?.error?.details || null;
+      const errorHint = error?.hint || error?.error?.hint || null;
+      
+      console.error('Extracted error info:', {
+        message: errorMessage,
+        code: errorCode,
+        details: errorDetails,
+        hint: errorHint,
+        fullError: error
+      });
+      
+      // Check for common error scenarios
+      // PGRST205 = table not found in schema cache
+      // PGRST116 = relation does not exist
+      if (errorCode === 'PGRST205' || 
+          errorCode === 'PGRST116' || 
+          errorMessage?.includes('relation "staff_notifications" does not exist') || 
+          errorMessage?.includes('Could not find the table') ||
+          errorMessage?.includes('does not exist') ||
+          (errorMessage?.includes('relation') && errorMessage?.includes('not found'))) {
+        console.warn('⚠️ staff_notifications table does not exist in the database.');
+        console.warn('   Please run the migration script: scripts/create_staff_notifications_table.sql');
+        console.warn('   Or use the existing notifications table if that is your preferred setup.');
+        return [];
+      }
+      
+      // If RLS policy issue
+      if (errorCode === '42501' || 
+          errorMessage?.includes('permission denied') || 
+          errorMessage?.includes('RLS') ||
+          errorMessage?.includes('row-level security')) {
+        console.warn('⚠️ Permission denied accessing staff_notifications. Check RLS policies.');
+        return [];
+      }
+      
+      // If authentication issue
+      if (errorCode === '401' || errorMessage?.includes('JWT') || errorMessage?.includes('unauthorized')) {
+        console.warn('⚠️ Authentication error. User may not be logged in.');
+        return [];
+      }
+      
+      // For any other error, log it but return empty array to prevent breaking the UI
+      console.warn('⚠️ Unknown error fetching staff notifications, returning empty array:', errorMessage || 'Unknown error');
       return [];
     }
 
-    return data as StaffNotification[];
+    // Success - return the data
+    return (data || []) as StaffNotification[];
   } catch (error) {
-    console.error('Error in getStaffNotifications:', error);
+    // Catch any unexpected errors
+    console.error('❌ Unexpected error in getStaffNotifications:', error);
+    console.error('Error type:', typeof error);
+    console.error('Error details:', error instanceof Error ? error.message : String(error));
     return [];
   }
 }

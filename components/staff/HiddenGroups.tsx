@@ -1,6 +1,19 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogTrigger 
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 
 export type HiddenGroup = {
   id: string;
@@ -15,10 +28,11 @@ type Props = {
   onAdd?: () => void;
 };
 
-const IconBtn: React.FC<React.PropsWithChildren<{ title?: string }>> = ({ title, children }) => (
+const IconBtn: React.FC<React.PropsWithChildren<{ title?: string; onClick?: () => void }>> = ({ title, children, onClick }) => (
   <button
     aria-label={title}
     title={title}
+    onClick={onClick}
     className="h-8 w-8 rounded-full border border-slate-200 grid place-items-center hover:bg-slate-50 active:scale-[.98] transition"
   >
     {children}
@@ -55,6 +69,57 @@ const SEED: HiddenGroup[] = [
 
 export default function HiddenGroups({ items = SEED, onAdd }: Props) {
   const [q, setQ] = useState("");
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [newGroup, setNewGroup] = useState({
+    name: "",
+    subtitleTop: "",
+    subtitleBottom: ""
+  });
+  const router = useRouter();
+
+  const handleActionClick = (action: string) => {
+    switch (action) {
+      case 'home':
+        router.push('/staff/dashboard');
+        break;
+      case 'teams':
+        router.push('/staff/hidden-groups');
+        break;
+      case 'record':
+        router.push('/staff/recordings');
+        break;
+      case 'alerts':
+        router.push('/staff/notifications');
+        break;
+      case 'calendar':
+        router.push('/staff/schedule');
+        break;
+      default:
+        break;
+    }
+  };
+
+  const handleAddGroup = () => {
+    if (!newGroup.name.trim()) {
+      toast.error('Group name is required');
+      return;
+    }
+    
+    // Here you would typically make an API call to add the group
+    toast.success('Group added successfully');
+    setIsAddDialogOpen(false);
+    setNewGroup({ name: "", subtitleTop: "", subtitleBottom: "" });
+  };
+
+  const handleGroupClick = (group: HiddenGroup) => {
+    // Navigate to group details or open group management
+    router.push(`/staff/hidden-groups/${group.id}`);
+  };
+
+  const handleFilterClick = () => {
+    // Open filter options modal or dropdown
+    toast.info('Filter options coming soon');
+  };
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -68,16 +133,7 @@ export default function HiddenGroups({ items = SEED, onAdd }: Props) {
   }, [items, q]);
 
   return (
-    <section className="rounded-2xl bg-white/95 border border-slate-100 shadow-sm p-4 space-y-3">
-      {/* top actions like Figma pill strip */}
-      <div className="mx-auto w-full max-w-xs rounded-full bg-slate-100 flex items-center justify-center gap-3 px-2 py-2">
-        <IconBtn title="Home">{Icons.home}</IconBtn>
-        <IconBtn title="Teams">{Icons.people}</IconBtn>
-        <IconBtn title="Record">{Icons.mic}</IconBtn>
-        <IconBtn title="Alerts">{Icons.bell}</IconBtn>
-        <IconBtn title="Mute">{Icons.calendar}</IconBtn>
-      </div>
-
+    <section className="rounded-2xl bg-white border border-slate-200 shadow-sm p-4 space-y-3">
       {/* search + filter */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
@@ -85,26 +141,82 @@ export default function HiddenGroups({ items = SEED, onAdd }: Props) {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search"
-            className="w-full pl-9 pr-3 py-2 rounded-full bg-white/70 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-300"
+            placeholder="Search hidden groups..."
+            className="w-full pl-9 pr-3 py-2 rounded-full bg-white border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-300"
           />
         </div>
-        <IconBtn title="Filter">{Icons.filter}</IconBtn>
+        <IconBtn title="Filter" onClick={handleFilterClick}>{Icons.filter}</IconBtn>
       </div>
 
       {/* header row */}
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold text-slate-700">Hidden Groups <span className="font-normal text-slate-400">({items.length})</span></div>
-        <button onClick={onAdd} className="text-sm text-cyan-600 hover:underline">Add Group</button>
+        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+          <DialogTrigger asChild>
+            <button className="text-sm text-cyan-600 hover:underline">Add Group</button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[425px] bg-white">
+            <DialogHeader>
+              <DialogTitle>Add New Hidden Group</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="group-name">Group Name</Label>
+                <Input
+                  id="group-name"
+                  value={newGroup.name}
+                  onChange={(e) => setNewGroup(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Enter group name..."
+                  className="bg-white"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="subtitle-top">Status/Description</Label>
+                <Input
+                  id="subtitle-top"
+                  value={newGroup.subtitleTop}
+                  onChange={(e) => setNewGroup(prev => ({ ...prev, subtitleTop: e.target.value }))}
+                  placeholder="e.g., Vitals stable. All services active."
+                  className="bg-white"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="subtitle-bottom">Provider/Insurance</Label>
+                <Input
+                  id="subtitle-bottom"
+                  value={newGroup.subtitleBottom}
+                  onChange={(e) => setNewGroup(prev => ({ ...prev, subtitleBottom: e.target.value }))}
+                  placeholder="e.g., Dr. Isaac – Medicare Plus Blue"
+                  className="bg-white"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleAddGroup}
+                disabled={!newGroup.name.trim()}
+              >
+                Add Group
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* list */}
       <ul className="space-y-3">
         {filtered.length === 0 ? (
-          <li className="py-10 text-center text-slate-400 text-sm">No hidden groups</li>
+          <li className="py-10 text-center text-slate-400 text-sm">No hidden groups found</li>
         ) : (
           filtered.map((g) => (
-            <li key={g.id} className="flex items-start gap-3 rounded-xl border bg-white p-3">
+            <li 
+              key={g.id} 
+              className="flex items-start gap-3 rounded-xl border bg-white p-3 cursor-pointer hover:bg-slate-50 transition"
+              onClick={() => handleGroupClick(g)}
+            >
               <div className="h-10 w-10 rounded-full bg-cyan-100 text-cyan-700 grid place-items-center">{Icons.groupAva}</div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold text-slate-800">{g.name}</div>

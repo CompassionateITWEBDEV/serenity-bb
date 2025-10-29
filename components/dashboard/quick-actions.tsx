@@ -10,8 +10,10 @@ import {
   MessageSquare, 
   FileText,
   Clock,
-  Bell
+  Bell,
+  TestTube2
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 interface QuickActionsProps {
   onBookAppointment?: () => void;
@@ -28,8 +30,12 @@ export function QuickActions({
   onSendMessage,
   onViewNotes,
   onSetReminder,
-  onEmergencyContact
-}: QuickActionsProps) {
+  onEmergencyContact,
+  tokenTotal,
+  nextAppointmentAt
+}: QuickActionsProps & { tokenTotal?: number; nextAppointmentAt?: string | null }) {
+  const router = useRouter();
+  
   const actions = [
     {
       id: "book",
@@ -90,6 +96,16 @@ export function QuickActions({
       hoverColor: "hover:bg-pink-700",
       iconColor: "text-white",
       onClick: onSetReminder
+    },
+    {
+      id: "drug-tests",
+      title: "Drug Tests",
+      description: "View your drug tests",
+      icon: TestTube2,
+      bgColor: "bg-cyan-600",
+      hoverColor: "hover:bg-cyan-700",
+      iconColor: "text-white",
+      onClick: () => router.push("/dashboard/drug-tests")
     }
   ];
 
