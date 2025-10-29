@@ -1254,15 +1254,15 @@ export default function AppointmentsPage() {
 
             <div className="flex flex-col sm:flex-row gap-3">
 
+              <Button 
+                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl transition-all duration-200 px-6 py-3" 
+                onClick={() => setIsBookingOpen(true)}
+              >
+                <Plus className="h-5 w-5 mr-2" /> Book Appointment
+              </Button>
+
               <Dialog open={isBookingOpen} onOpenChange={setIsBookingOpen}>
-
-                <Button className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl transition-all duration-200 px-6 py-3" onClick={() => setIsBookingOpen(true)}>
-
-                  <Plus className="h-5 w-5 mr-2" /> Book Appointment
-
-                </Button>
-
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
 
                 <DialogHeader className="pb-4 border-b">
 
