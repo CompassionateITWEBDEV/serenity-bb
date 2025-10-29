@@ -18,6 +18,7 @@ import { SubmissionHistory } from "@/components/dashboard/submission-history";
 import { HealthcareMessaging } from "@/components/dashboard/healthcare-messaging";
 import { GroupChat } from "@/components/dashboard/group-chat";
 import PatientVerificationStatus from "@/components/patient/PatientVerificationStatus";
+import PatientBroadcasts from "@/components/patient/PatientBroadcasts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getSwal } from "@/lib/sweetalert"; // <-- use CDN wrapper
 
@@ -113,8 +114,7 @@ export default function DashboardPage() {
         </div>
 
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="tracking">Tracking</TabsTrigger>
             <TabsTrigger value="recording">Recording</TabsTrigger>
             <TabsTrigger value="messages">Messages</TabsTrigger>
@@ -137,6 +137,7 @@ export default function DashboardPage() {
               </div>
 
               <div className="space-y-8">
+                <PatientBroadcasts />
                 <QuickActions
                   tokenTotal={data?.tokenStats.total ?? 0}
                   nextAppointmentAt={data?.upcomingAppointments?.[0]?.at ?? null}

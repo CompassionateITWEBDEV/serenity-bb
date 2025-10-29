@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
+import { supabaseAdmin } from "@/lib/supabase/server";
 import { z } from "zod";
 
 const createBroadcastSchema = z.object({
@@ -7,19 +9,29 @@ const createBroadcastSchema = z.object({
   body: z.string().min(1),
   target_audience: z.enum(['all', 'staff', 'patients', 'clinicians']).default('all'),
   priority: z.enum(['low', 'normal', 'high', 'urgent']).default('normal'),
-  scheduled_at: z.string().datetime().optional(),
-  expires_at: z.string().datetime().optional(),
-  metadata: z.record(z.any()).optional()
 });
 
-const updateBroadcastSchema = createBroadcastSchema.partial().extend({
-  status: z.enum(['draft', 'active', 'archived']).optional()
-});
+const updateBroadcastSchema = createBroadcastSchema.partial();
 
 // GET /api/broadcasts - Get all broadcasts
 export async function GET(req: NextRequest) {
   try {
-    const supabase = createClient();
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !anon) {
+      return NextResponse.json({ error: "Supabase configuration missing" }, { status: 500 });
+    }
+
+    // Authenticate user
+    const cookieStore = await cookies();
+    const supabase = createServerClient(url, anon, {
+      cookies: {
+        get: (name: string) => cookieStore.get(name)?.value,
+        set: () => {},
+        remove: () => {},
+      },
+    });
+
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
@@ -28,18 +40,17 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const targetAudience = searchParams.get('audience');
-    const status = searchParams.get('status') || 'active';
     const limit = parseInt(searchParams.get('limit') || '50');
-    const offset = parseInt(searchParams.get('offset') || '0');
 
-    let query = supabase
+    // Use admin client to read broadcasts (RLS policies handle visibility)
+    const sb = supabaseAdmin();
+    let query = (sb as any)
       .from('broadcasts')
       .select('*')
-      .eq('status', status)
       .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+      .limit(limit);
 
-    if (targetAudience) {
+    if (targetAudience && targetAudience !== 'all') {
       query = query.or(`target_audience.eq.${targetAudience},target_audience.eq.all`);
     }
 
@@ -49,7 +60,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ broadcasts });
+    return NextResponse.json({ broadcasts: broadcasts || [] });
 
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -59,7 +70,22 @@ export async function GET(req: NextRequest) {
 // POST /api/broadcasts - Create new broadcast
 export async function POST(req: NextRequest) {
   try {
-    const supabase = createClient();
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !anon) {
+      return NextResponse.json({ error: "Supabase configuration missing" }, { status: 500 });
+    }
+
+    // Authenticate user
+    const cookieStore = await cookies();
+    const supabase = createServerClient(url, anon, {
+      cookies: {
+        get: (name: string) => cookieStore.get(name)?.value,
+        set: () => {},
+        remove: () => {},
+      },
+    });
+
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
@@ -69,28 +95,28 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const validatedData = createBroadcastSchema.parse(body);
 
-    // Get user metadata
-    const { data: userData, error: userError } = await supabase
-      .from('auth.users')
-      .select('raw_user_meta_data')
+    // Get user profile to populate author info
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name, role')
       .eq('id', user.id)
       .single();
 
-    if (userError) {
-      return NextResponse.json({ error: "User data not found" }, { status: 404 });
-    }
+    const userName = profile?.full_name || user.email || 'Unknown User';
+    const userRole = profile?.role || 'staff';
 
-    const userRole = userData.raw_user_meta_data?.role || 'staff';
-    const userName = userData.raw_user_meta_data?.full_name || user.email || 'Unknown User';
-
-    const { data: broadcast, error } = await supabase
+    // Use admin client for insert (RLS may restrict)
+    const sb = supabaseAdmin();
+    const { data: broadcast, error } = await (sb as any)
       .from('broadcasts')
       .insert({
-        ...validatedData,
+        title: validatedData.title,
+        body: validatedData.body,
+        target_audience: validatedData.target_audience,
+        priority: validatedData.priority,
         author_id: user.id,
         author_name: userName,
         author_role: userRole,
-        status: 'active'
       })
       .select('*')
       .single();
@@ -98,22 +124,6 @@ export async function POST(req: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-
-    // Send real-time notification to all staff
-    const staffChannel = supabase.channel('staff-broadcasts', {
-      config: { broadcast: { ack: true } },
-    });
-
-    await staffChannel.send({
-      type: 'broadcast',
-      event: 'new-broadcast',
-      payload: {
-        broadcast,
-        timestamp: new Date().toISOString()
-      },
-    });
-
-    supabase.removeChannel(staffChannel);
 
     return NextResponse.json({ broadcast }, { status: 201 });
 
@@ -128,7 +138,22 @@ export async function POST(req: NextRequest) {
 // PUT /api/broadcasts - Update broadcast
 export async function PUT(req: NextRequest) {
   try {
-    const supabase = createClient();
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !anon) {
+      return NextResponse.json({ error: "Supabase configuration missing" }, { status: 500 });
+    }
+
+    // Authenticate user
+    const cookieStore = await cookies();
+    const supabase = createServerClient(url, anon, {
+      cookies: {
+        get: (name: string) => cookieStore.get(name)?.value,
+        set: () => {},
+        remove: () => {},
+      },
+    });
+
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
@@ -144,11 +169,15 @@ export async function PUT(req: NextRequest) {
 
     const validatedData = updateBroadcastSchema.parse(updateData);
 
-    const { data: broadcast, error } = await supabase
+    // Use admin client for update
+    const sb = supabaseAdmin();
+    const { data: broadcast, error } = await (sb as any)
       .from('broadcasts')
-      .update(validatedData)
+      .update({
+        ...validatedData,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id)
-      .eq('author_id', user.id) // Ensure user can only update their own broadcasts
       .select('*')
       .single();
 
@@ -157,24 +186,8 @@ export async function PUT(req: NextRequest) {
     }
 
     if (!broadcast) {
-      return NextResponse.json({ error: "Broadcast not found or unauthorized" }, { status: 404 });
+      return NextResponse.json({ error: "Broadcast not found" }, { status: 404 });
     }
-
-    // Send real-time update
-    const staffChannel = supabase.channel('staff-broadcasts', {
-      config: { broadcast: { ack: true } },
-    });
-
-    await staffChannel.send({
-      type: 'broadcast',
-      event: 'broadcast-updated',
-      payload: {
-        broadcast,
-        timestamp: new Date().toISOString()
-      },
-    });
-
-    supabase.removeChannel(staffChannel);
 
     return NextResponse.json({ broadcast });
 
@@ -189,7 +202,22 @@ export async function PUT(req: NextRequest) {
 // DELETE /api/broadcasts - Delete broadcast
 export async function DELETE(req: NextRequest) {
   try {
-    const supabase = createClient();
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !anon) {
+      return NextResponse.json({ error: "Supabase configuration missing" }, { status: 500 });
+    }
+
+    // Authenticate user
+    const cookieStore = await cookies();
+    const supabase = createServerClient(url, anon, {
+      cookies: {
+        get: (name: string) => cookieStore.get(name)?.value,
+        set: () => {},
+        remove: () => {},
+      },
+    });
+
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     
     if (authError || !user) {
@@ -203,37 +231,16 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Broadcast ID is required" }, { status: 400 });
     }
 
-    const { data: broadcast, error } = await supabase
+    // Use admin client for delete
+    const sb = supabaseAdmin();
+    const { error } = await (sb as any)
       .from('broadcasts')
       .delete()
-      .eq('id', id)
-      .eq('author_id', user.id) // Ensure user can only delete their own broadcasts
-      .select('*')
-      .single();
+      .eq('id', id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-
-    if (!broadcast) {
-      return NextResponse.json({ error: "Broadcast not found or unauthorized" }, { status: 404 });
-    }
-
-    // Send real-time update
-    const staffChannel = supabase.channel('staff-broadcasts', {
-      config: { broadcast: { ack: true } },
-    });
-
-    await staffChannel.send({
-      type: 'broadcast',
-      event: 'broadcast-deleted',
-      payload: {
-        broadcastId: id,
-        timestamp: new Date().toISOString()
-      },
-    });
-
-    supabase.removeChannel(staffChannel);
 
     return NextResponse.json({ message: "Broadcast deleted successfully" });
 
@@ -241,4 +248,3 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-

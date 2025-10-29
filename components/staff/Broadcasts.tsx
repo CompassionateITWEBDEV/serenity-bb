@@ -95,40 +95,29 @@ export default function Broadcasts({ items, onNew, variant = "web", showActions 
   useEffect(() => {
     fetchBroadcasts();
     
-    // Set up real-time subscription
-    const channel = supabase.channel('staff-broadcasts', {
-      config: { broadcast: { ack: true } },
-    });
-
-    channel
-      .on('broadcast', { event: 'new-broadcast' }, (payload) => {
-        console.log('New broadcast received:', payload);
-        const newBroadcast = {
-          ...payload.payload.broadcast,
-          timeLabel: formatTimeLabel(payload.payload.broadcast.created_at)
-        };
-        setBroadcasts(prev => [newBroadcast, ...prev]);
-        toast.success('New broadcast received!');
+    // Realtime via postgres_changes on broadcasts table
+    const ch = supabase
+      .channel('rt-broadcasts')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'broadcasts' }, (payload) => {
+        const row: any = payload.new;
+        const b = { ...row, timeLabel: formatTimeLabel(row.created_at) };
+        setBroadcasts((prev) => [b, ...prev]);
+        toast.success('New broadcast received');
       })
-      .on('broadcast', { event: 'broadcast-updated' }, (payload) => {
-        console.log('Broadcast updated:', payload);
-        const updatedBroadcast = {
-          ...payload.payload.broadcast,
-          timeLabel: formatTimeLabel(payload.payload.broadcast.updated_at || payload.payload.broadcast.created_at)
-        };
-        setBroadcasts(prev => prev.map(b => b.id === updatedBroadcast.id ? updatedBroadcast : b));
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'broadcasts' }, (payload) => {
+        const row: any = payload.new;
+        const b = { ...row, timeLabel: formatTimeLabel(row.updated_at || row.created_at) };
+        setBroadcasts((prev) => prev.map((x) => (x.id === b.id ? b : x)));
         toast.info('Broadcast updated');
       })
-      .on('broadcast', { event: 'broadcast-deleted' }, (payload) => {
-        console.log('Broadcast deleted:', payload);
-        setBroadcasts(prev => prev.filter(b => b.id !== payload.payload.broadcastId));
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'broadcasts' }, (payload) => {
+        const row: any = payload.old;
+        setBroadcasts((prev) => prev.filter((x) => x.id !== row.id));
         toast.info('Broadcast deleted');
       })
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(ch); };
   }, []);
 
   const fetchBroadcasts = async () => {

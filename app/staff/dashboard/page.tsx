@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,7 @@ import NotificationBell from "@/components/staff/NotificationBell";
 import AppointmentsList from "@/components/staff/AppointmentsList";
 import VideoSubmissionsList from "@/components/staff/VideoSubmissionsList";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 import {
   ShieldCheck,
@@ -110,6 +111,7 @@ type View = "home" | "tests" | "appointments" | "submissions" | "settings";
 
 function StaffDashboardContent() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
 
   // Gate all data work behind a ready flag
@@ -120,6 +122,9 @@ function StaffDashboardContent() {
   const [tests, setTests] = useState<DrugTest[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | TestStatus>("all");
+  const [selectedTest, setSelectedTest] = useState<DrugTest | null>(null);
+  const [isTestOpen, setIsTestOpen] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
   
   // Initialize view from URL param or default to "home"
   const tabParam = searchParams?.get("tab");
@@ -129,6 +134,21 @@ function StaffDashboardContent() {
     tabParam === "submissions" ? "submissions" : 
     "home";
   const [view, setView] = useState<View>(initialView);
+
+  // Navigation guards
+  function pushSafe(targetPath: string): void {
+    if (!targetPath || pathname === targetPath || isNavigating) return;
+    setIsNavigating(true);
+    try {
+      router.push(targetPath);
+    } finally {
+      setTimeout(() => setIsNavigating(false), 800);
+    }
+  }
+
+  function setViewSafe(nextView: View): void {
+    setView((prev) => (prev === nextView ? prev : nextView));
+  }
   
   // Update view when URL param changes
   useEffect(() => {
@@ -261,6 +281,11 @@ function StaffDashboardContent() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+        {/* Hero: Dashboard Overview */}
+        <div className="-mt-2">
+          <div className="text-sm text-slate-600 font-medium">Dashboard Overview</div>
+        </div>
+
         {/* Enhanced Navigation */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
           <div className="flex items-center justify-between mb-4">
@@ -271,79 +296,67 @@ function StaffDashboardContent() {
             </Badge>
           </div>
           
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
-            <NavButton 
-              active={view === "home"} 
-              onClick={() => setView("home")} 
-              icon={HomeIcon}
-              label="Dashboard"
-              description="Overview"
-            />
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
             <NavButton 
               active={view === "tests"} 
-              onClick={() => setView("tests")} 
+              onClick={() => setViewSafe("tests")} 
               icon={TestTube2}
               label="Drug Tests"
               description="Random Tests"
             />
             <NavButton 
               active={view === "appointments"} 
-              onClick={() => setView("appointments")} 
+              onClick={() => setViewSafe("appointments")} 
               icon={Calendar}
               label="Appointments"
               description="Patient Appointments"
             />
             <NavButton 
               active={view === "submissions"} 
-              onClick={() => setView("submissions")} 
+              onClick={() => setViewSafe("submissions")} 
               icon={Video}
               label="Video Submissions"
               description="Patient Videos"
             />
             <NavButton 
-              onClick={() => router.push("/staff/messages")} 
+              onClick={() => pushSafe("/staff/messages")} 
               icon={MessageSquare}
               label="Messages"
               description="Patient Chat"
             />
             <NavButton 
-              onClick={() => router.push("/staff/broadcasts")} 
+              onClick={() => pushSafe("/staff/broadcasts")} 
               icon={RadioIcon}
               label="Broadcasts"
               description="Announcements"
             />
             <NavButton 
-              onClick={() => router.push("/staff/hidden-groups")} 
+              onClick={() => pushSafe("/staff/hidden-groups")} 
               icon={EyeOff}
               label="Groups"
               description="Hidden Groups"
             />
             <NavButton 
-              onClick={() => router.push("/staff/group-chat")} 
+              onClick={() => pushSafe("/staff/group-chat")} 
               icon={MessageSquare}
               label="Group Chat"
               description="Team Chat"
             />
+            {/* Removed Alerts nav button; the bell in header will navigate to /staff/notifications */}
             <NavButton 
-              onClick={() => router.push("/staff/notifications")} 
-              icon={Bell}
-              label="Alerts"
-              description="Notifications"
-            />
-            <NavButton 
-              onClick={() => router.push("/staff/patient-verification")} 
+              onClick={() => pushSafe("/staff/patient-verification")} 
               icon={Users}
               label="Patient Verification"
               description="Verify Patients"
             />
             <NavButton 
-              onClick={() => router.push("/clinician/dashboard")} 
+              onClick={() => pushSafe("/clinician/dashboard")} 
               icon={Users}
               label="Clinicians"
               description="Medical Staff"
             />
             <NavButton 
-              onClick={() => router.push("/staff/profile")} 
+              onClick={() => pushSafe("/staff/profile")} 
               icon={SettingsIcon}
               label="Settings"
               description="Profile"
@@ -351,86 +364,7 @@ function StaffDashboardContent() {
           </div>
         </div>
 
-        {/* Enhanced Search / Filter */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4 flex-1">
-              <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search patients, tests, or records..."
-                  className="pl-10 h-11 rounded-lg border-slate-300 focus:border-cyan-500 focus:ring-cyan-500"
-                />
-              </div>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button 
-                    variant="outline" 
-                    className="h-11 px-6 rounded-lg border-slate-300 hover:border-cyan-400 hover:bg-cyan-50 text-slate-700 hover:text-cyan-700 transition-colors"
-                    aria-label="Open filters"
-                  >
-                    <Filter className="h-4 w-4 mr-2" />
-                    Filter
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-64 p-4">
-                  <div className="space-y-3">
-                    <div className="text-sm font-semibold text-slate-700">Status</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button 
-                        variant={filter === "all" ? "default" : "outline"}
-                        className={filter === "all" ? "bg-cyan-600 hover:bg-cyan-700 text-white" : "border-slate-300"}
-                        onClick={() => setFilter("all")}
-                      >
-                        All
-                      </Button>
-                      <Button 
-                        variant={filter === "pending" ? "default" : "outline"}
-                        className={filter === "pending" ? "bg-amber-500 hover:bg-amber-600 text-white" : "border-slate-300"}
-                        onClick={() => setFilter("pending")}
-                      >
-                        Pending
-                      </Button>
-                      <Button 
-                        variant={filter === "completed" ? "default" : "outline"}
-                        className={filter === "completed" ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "border-slate-300"}
-                        onClick={() => setFilter("completed")}
-                      >
-                        Completed
-                      </Button>
-                      <Button 
-                        variant={filter === "missed" ? "default" : "outline"}
-                        className={filter === "missed" ? "bg-rose-600 hover:bg-rose-700 text-white" : "border-slate-300"}
-                        onClick={() => setFilter("missed")}
-                      >
-                        Missed
-                      </Button>
-                    </div>
-                    <div className="pt-2">
-                      <Button 
-                        variant="ghost" 
-                        className="w-full text-slate-600 hover:text-slate-800"
-                        onClick={() => setFilter("all")}
-                      >
-                        Reset
-                      </Button>
-                    </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
-          </div>
-          <div className="flex items-center gap-3">
-              <Badge variant="secondary" className="bg-slate-100 text-slate-700 border-slate-200 px-3 py-1">
-                {patients.length} Patients
-              </Badge>
-              <Badge variant="secondary" className="bg-blue-100 text-blue-700 border-blue-200 px-3 py-1">
-                {tests.length} Tests
-              </Badge>
-            </div>
-          </div>
-        </div>
+        {/* Removed surface search/filter block for Drug Test Management */}
 
         {view === "home" && (
           <>
@@ -552,7 +486,8 @@ function StaffDashboardContent() {
                   {filteredTests.map((t) => (
                     <div
                       key={t.id}
-                      className="group rounded-xl border-2 border-slate-200 bg-white p-6 hover:border-cyan-300 hover:shadow-lg transition-all duration-200"
+                      onClick={() => { setSelectedTest(t); setIsTestOpen(true); }}
+                      className="group rounded-xl border-2 border-slate-200 bg-white p-6 hover:border-cyan-300 hover:shadow-lg transition-all duration-200 cursor-pointer"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4 flex-1">
@@ -591,6 +526,67 @@ function StaffDashboardContent() {
             </Card>
           </section>
         )}
+
+        {/* Drug Test Details Dialog */}
+        <Dialog open={isTestOpen} onOpenChange={(o) => { if (!o) { setIsTestOpen(false); setSelectedTest(null); } }}>
+          <DialogContent className="sm:max-w-[520px]">
+            <DialogHeader>
+              <DialogTitle>Drug Test Details</DialogTitle>
+              <DialogDescription>Patient and scheduling information</DialogDescription>
+            </DialogHeader>
+            {selectedTest && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-12 w-12 rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 flex items-center justify-center text-white font-bold">
+                    {selectedTest.patient.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-800">{selectedTest.patient.name}</div>
+                    {selectedTest.patient.email && (
+                      <div className="text-sm text-slate-500">{selectedTest.patient.email}</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="p-3 rounded-lg border bg-slate-50">
+                    <div className="text-slate-500">Scheduled For</div>
+                    <div className="font-medium text-slate-800">{fmtWhen(selectedTest.scheduledFor)}</div>
+                  </div>
+                  <div className="p-3 rounded-lg border bg-slate-50">
+                    <div className="text-slate-500">Status</div>
+                    <div><StatusChip status={selectedTest.status} /></div>
+                  </div>
+                </div>
+
+                {/* Add more fields here if available, e.g., collection site or attachments */}
+
+                <div className="flex items-center justify-between pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => { setIsTestOpen(false); setSelectedTest(null); }}
+                  >
+                    Close
+                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => pushSafe(`/staff/patients/${selectedTest.patient.id}`)}
+                    >
+                      View Patient
+                    </Button>
+                    <Button
+                      onClick={() => pushSafe(`/staff/drug-tests/${selectedTest.id}`)}
+                      className="bg-cyan-600 hover:bg-cyan-700 text-white"
+                    >
+                      Open Test
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         {view === "settings" && (
           <section>
