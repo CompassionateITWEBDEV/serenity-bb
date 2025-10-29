@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -108,7 +108,7 @@ const fmtWhen = (iso?: string | null) =>
 
 type View = "home" | "tests" | "appointments" | "submissions" | "settings";
 
-export default function StaffDashboardPage() {
+function StaffDashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -625,6 +625,18 @@ export default function StaffDashboardPage() {
       await sweetAlert({ icon: "error", title: "Failed to create test", text: err?.message ?? "Please try again." });
     }
   }
+}
+
+export default function StaffDashboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen grid place-items-center bg-slate-50">
+        <div className="text-sm text-slate-500">Loading…</div>
+      </div>
+    }>
+      <StaffDashboardContent />
+    </Suspense>
+  );
 }
 
 /* --------- IconPill with size control --------- */
