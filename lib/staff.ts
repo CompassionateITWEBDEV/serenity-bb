@@ -16,13 +16,43 @@ export async function getCurrentStaff(): Promise<StaffProfile | null> {
   const uid = auth?.user?.id;
   if (!uid) return null;
 
-  const { data, error } = await supabase
-    .from("staff")
-    .select("user_id,email,first_name,last_name,title,department,phone,avatar_url")
-    .eq("user_id", uid)
-    .single();
-  if (error) throw error;
-  return data as StaffProfile;
+  try {
+    const { data, error } = await supabase
+      .from("staff")
+      .select("user_id,email,first_name,last_name,title,department,phone,avatar_url")
+      .eq("user_id", uid)
+      .maybeSingle();
+
+    if (error) {
+      // Gracefully handle common cases so UI doesn't break with empty error {}
+      const code = (error as any)?.code || "UNKNOWN";
+      const message = (error as any)?.message || String(error);
+      const details = (error as any)?.details;
+      const hint = (error as any)?.hint;
+
+      // If table missing or RLS denied, return null so caller can show fallback
+      if (
+        code === "PGRST116" || // relation does not exist
+        code === "PGRST205" || // not in schema cache
+        message?.toLowerCase().includes("does not exist") ||
+        message?.toLowerCase().includes("permission denied") ||
+        message?.toLowerCase().includes("row-level security")
+      ) {
+        console.warn("getCurrentStaff: returning null due to schema/RLS:", { code, message, details, hint });
+        return null;
+      }
+
+      // Other errors: rethrow with useful message
+      throw new Error(message || "Failed to load staff profile");
+    }
+
+    return (data as StaffProfile) || null;
+  } catch (e) {
+    // Ensure a meaningful error reaches the caller
+    const err = e as any;
+    const msg = err?.message || "Failed to load staff profile";
+    throw new Error(msg);
+  }
 }
 
 export async function updateCurrentStaff(patch: Partial<Omit<StaffProfile, "user_id" | "email">>) {
