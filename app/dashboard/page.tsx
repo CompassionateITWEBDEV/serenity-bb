@@ -114,12 +114,9 @@ export default function DashboardPage() {
         </div>
 
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="tracking">Tracking</TabsTrigger>
             <TabsTrigger value="recording">Recording</TabsTrigger>
-            <TabsTrigger value="messages">Messages</TabsTrigger>
-            <TabsTrigger value="groups">Groups</TabsTrigger>
-            <TabsTrigger value="verification">Verification</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-8">
@@ -156,17 +153,7 @@ export default function DashboardPage() {
             <VideoRecording />
           </TabsContent>
 
-          <TabsContent value="messages" className="space-y-8">
-            <HealthcareMessaging />
-          </TabsContent>
-
-          <TabsContent value="groups" className="space-y-8">
-            <GroupChat />
-          </TabsContent>
-
-          <TabsContent value="verification" className="space-y-8">
-            <PatientVerificationStatus />
-          </TabsContent>
+          
         </Tabs>
       </main>
     </div>
