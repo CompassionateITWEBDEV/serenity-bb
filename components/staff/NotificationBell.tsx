@@ -50,6 +50,26 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
     }
   }, [staffId]);
 
+  // Development resilience: poll periodically and on window focus/visibility
+  useEffect(() => {
+    if (!staffId) return;
+
+    let interval: number | null = null;
+    const onFocus = () => { void loadNotificationCount(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') void loadNotificationCount(); };
+
+    // Light polling to cover cases where realtime isn't enabled in dev
+    interval = window.setInterval(() => { void loadNotificationCount(); }, 15000);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      if (interval) window.clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [staffId]);
+
   // Real-time subscriptions for notifications and source events
   useEffect(() => {
     if (!staffId) return;
