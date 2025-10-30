@@ -46,6 +46,29 @@ export async function getCurrentStaff(): Promise<StaffProfile | null> {
       throw new Error(message || "Failed to load staff profile");
     }
 
+    // If no row exists, try to create one via server API (service role) then refetch once
+    if (!data) {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        await fetch("/api/staff/profile/ensure", {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+      } catch {}
+
+      const { data: refetched } = await supabase
+        .from("staff")
+        .select("user_id,email,first_name,last_name,title,department,phone,avatar_url")
+        .eq("user_id", uid)
+        .maybeSingle();
+      return (refetched as StaffProfile) || null;
+    }
+
     return (data as StaffProfile) || null;
   } catch (e) {
     // Ensure a meaningful error reaches the caller
