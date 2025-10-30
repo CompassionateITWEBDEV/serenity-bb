@@ -53,9 +53,9 @@ export async function GET() {
     supabase.from("reward_tokens").select("tokens_earned,tokens_spent,total_tokens,level").eq("patient_id", pid).maybeSingle(),
     supabase
       .from("weekly_data")
-      .select("id,week,wellness,attendance,goals,updated_at")
+      .select("id,week,wellness,attendance,goals")
       .eq("patient_id", pid)
-      .order("updated_at", { ascending: false })
+      .order("week", { ascending: false })
       .limit(1),
     supabase
       .from("notifications")
