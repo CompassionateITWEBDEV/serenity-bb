@@ -19,6 +19,23 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
   // Load notification count
   const loadNotificationCount = async () => {
     try {
+      // Prefer server API using service role to bypass RLS for count
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch('/api/staff/notifications/unread-count', {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (res.ok) {
+        const body = await res.json().catch(() => ({ count: 0 }));
+        setUnreadCount(typeof body.count === 'number' ? body.count : 0);
+        return;
+      }
+      // Fallback to client query if API not available
       const count = await getUnreadNotificationCount(staffId);
       setUnreadCount(count);
     } catch (error) {
