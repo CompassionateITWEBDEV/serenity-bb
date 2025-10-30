@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase/client";
 
 export interface RealNotification {
   id: string;
-  type: 'appointment' | 'message' | 'group_message' | 'video_submission' | 'video_recording' | 'medication' | 'activity' | 'progress';
+  type: 'appointment' | 'message' | 'group_message' | 'video_submission' | 'video_recording' | 'medication' | 'activity' | 'progress' | 'drug_test';
   title: string;
   message: string;
   timestamp: string;
@@ -27,6 +27,7 @@ export interface NotificationStats {
     medications: number;
     activities: number;
     progress: number;
+    drug_tests?: number;
   };
 }
 
@@ -393,6 +394,42 @@ class RealDataNotificationService {
     }
   }
 
+  // Get drug test notifications
+  async getDrugTestNotifications(patientId: string): Promise<RealNotification[]> {
+    try {
+      const { data: tests, error } = await supabase
+        .from('random_drug_tests')
+        .select('*')
+        .eq('patient_id', patientId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) {
+        console.log('Drug tests query error:', error);
+        return [];
+      }
+
+      const notifications: RealNotification[] = tests?.map(test => ({
+        id: `drug-${test.id}`,
+        type: 'drug_test',
+        title: test.status === 'completed' ? 'Drug Test Completed' : 'Drug Test Assigned',
+        message: test.scheduled_for
+          ? `Scheduled for ${new Date(test.scheduled_for).toLocaleString()}`
+          : 'Please schedule your drug test.',
+        timestamp: test.created_at,
+        read: false,
+        urgent: test.status === 'pending',
+        data: test,
+        source_id: test.id.toString()
+      })) || [];
+
+      return notifications;
+    } catch (error) {
+      console.error('Error fetching drug test notifications:', error);
+      return [];
+    }
+  }
+
   // Get all notifications for a patient
   async getAllNotifications(patientId: string): Promise<RealNotification[]> {
     try {
@@ -404,7 +441,8 @@ class RealDataNotificationService {
         videoRecordings,
         medications,
         activities,
-        progress
+        progress,
+        drugTests
       ] = await Promise.all([
         this.getAppointmentNotifications(patientId),
         this.getMessageNotifications(patientId),
@@ -413,7 +451,8 @@ class RealDataNotificationService {
         this.getVideoRecordingNotifications(patientId),
         this.getMedicationNotifications(patientId),
         this.getActivityNotifications(patientId),
-        this.getProgressNotifications(patientId)
+        this.getProgressNotifications(patientId),
+        this.getDrugTestNotifications(patientId)
       ]);
 
       const allNotifications = [
@@ -424,7 +463,8 @@ class RealDataNotificationService {
         ...videoRecordings,
         ...medications,
         ...activities,
-        ...progress
+        ...progress,
+        ...drugTests
       ];
 
       // Sort by timestamp (most recent first)
@@ -450,7 +490,8 @@ class RealDataNotificationService {
       video_recordings: notifications.filter(n => n.type === 'video_recording').length,
       medications: notifications.filter(n => n.type === 'medication').length,
       activities: notifications.filter(n => n.type === 'activity').length,
-      progress: notifications.filter(n => n.type === 'progress').length
+      progress: notifications.filter(n => n.type === 'progress').length,
+      drug_tests: notifications.filter(n => n.type === 'drug_test').length
     };
 
     return {
@@ -542,6 +583,16 @@ class RealDataNotificationService {
           event: '*',
           schema: 'public',
           table: 'progress_tracking',
+          filter: `patient_id=eq.${patientId}`
+        }, () => onUpdate()),
+
+      // Drug tests
+      supabase
+        .channel(`real-drug-tests:${patientId}`)
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'random_drug_tests',
           filter: `patient_id=eq.${patientId}`
         }, () => onUpdate())
     ];

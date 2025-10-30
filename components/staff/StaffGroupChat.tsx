@@ -592,7 +592,7 @@ export default function StaffGroupChat() {
             <div>
                 <h3 className="font-semibold text-slate-800">{currentGroupInfo?.name || "Staff Team Chat"}</h3>
                 <p className="text-xs text-slate-500">{currentGroupInfo?.description || "All staff members"}</p>
-              </div>
+            </div>
           </div>
           <Badge variant="secondary" className="bg-green-100 text-green-700 border-green-200">
             {messages.length} messages

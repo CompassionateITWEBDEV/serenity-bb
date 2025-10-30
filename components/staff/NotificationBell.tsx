@@ -15,6 +15,7 @@ interface NotificationBellProps {
 export default function NotificationBell({ staffId }: NotificationBellProps) {
   const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingApptCount, setPendingApptCount] = useState(0);
 
   // Load notification count
   const loadNotificationCount = async () => {
@@ -32,8 +33,12 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
       });
       if (res.ok) {
         const body = await res.json().catch(() => ({ count: 0 }));
-        setUnreadCount(typeof body.count === 'number' ? body.count : 0);
-        return;
+        // If API signals a warning/error in payload, fall back to client query instead of forcing 0
+        const hasServerIssue = Boolean((body as any)?.warning || (body as any)?.error);
+        if (!hasServerIssue && typeof body.count === 'number') {
+          setUnreadCount(body.count);
+          return;
+        }
       }
       // Fallback to client query if API not available
       const count = await getUnreadNotificationCount(staffId);
@@ -43,10 +48,35 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
     }
   };
 
+  // Count pending appointment requests (optionally scoped to this staff member)
+  const loadPendingAppointments = async () => {
+    try {
+      const q = supabase
+        .from('appointments' as any)
+        .select('id', { count: 'exact', head: true } as any)
+        .eq('status', 'pending');
+      // If appointments are assigned to a specific staff member, include those for this staff
+      if (staffId) {
+        (q as any).or(`staff_id.is.null,staff_id.eq.${staffId}`);
+      }
+      const { count, error } = await (q as any);
+      if (error) {
+        console.warn('Pending appointments count failed:', error);
+        setPendingApptCount(0);
+        return;
+      }
+      setPendingApptCount(count ?? 0);
+    } catch (e) {
+      console.warn('Error counting pending appointments:', e);
+      setPendingApptCount(0);
+    }
+  };
+
   // Load notification count on mount
   useEffect(() => {
     if (staffId) {
       loadNotificationCount();
+      loadPendingAppointments();
     }
   }, [staffId]);
 
@@ -55,11 +85,11 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
     if (!staffId) return;
 
     let interval: number | null = null;
-    const onFocus = () => { void loadNotificationCount(); };
-    const onVisibility = () => { if (document.visibilityState === 'visible') void loadNotificationCount(); };
+    const onFocus = () => { void loadNotificationCount(); void loadPendingAppointments(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') { void loadNotificationCount(); void loadPendingAppointments(); } };
 
     // Light polling to cover cases where realtime isn't enabled in dev
-    interval = window.setInterval(() => { void loadNotificationCount(); }, 15000);
+    interval = window.setInterval(() => { void loadNotificationCount(); void loadPendingAppointments(); }, 15000);
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
 
@@ -87,7 +117,8 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
         },
         (payload) => {
           console.log('Real-time notification update:', payload);
-          loadNotificationCount(); // Reload notification count
+          loadNotificationCount();
+          loadPendingAppointments();
         }
       )
       .subscribe();
@@ -106,7 +137,7 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
         (payload) => {
           console.log('New patient message detected:', payload);
           // Trigger notification count reload (the API will create the notification)
-          setTimeout(() => loadNotificationCount(), 500);
+          setTimeout(() => { loadNotificationCount(); loadPendingAppointments(); }, 500);
         }
       )
       .subscribe();
@@ -124,7 +155,7 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
         (payload) => {
           console.log('Drug test status update detected:', payload);
           // Trigger notification count reload (the API will create the notification)
-          setTimeout(() => loadNotificationCount(), 500);
+          setTimeout(() => { loadNotificationCount(); loadPendingAppointments(); }, 500);
         }
       )
       .subscribe();
@@ -140,7 +171,7 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
         },
         (payload) => {
           console.log('Random drug test status update detected:', payload);
-          setTimeout(() => loadNotificationCount(), 500);
+          setTimeout(() => { loadNotificationCount(); loadPendingAppointments(); }, 500);
         }
       )
       .subscribe();
@@ -158,7 +189,7 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
         (payload) => {
           console.log('New appointment detected:', payload);
           // Trigger notification count reload (the API will create the notification)
-          setTimeout(() => loadNotificationCount(), 500);
+          setTimeout(() => { loadNotificationCount(); loadPendingAppointments(); }, 500);
         }
       )
       .subscribe();

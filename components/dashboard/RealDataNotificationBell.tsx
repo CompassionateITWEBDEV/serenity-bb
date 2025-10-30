@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, Loader2, Calendar, MessageSquare, Users, FileText, Video, Pill, Activity, TrendingUp, AlertTriangle } from "lucide-react";
+import { Bell, Loader2, Calendar, MessageSquare, Users, FileText, Video, Pill, Activity, TrendingUp, AlertTriangle, TestTube2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
@@ -31,6 +31,7 @@ export default function RealDataNotificationBell() {
       case 'medication': return <Pill className="h-4 w-4" />;
       case 'activity': return <Activity className="h-4 w-4" />;
       case 'progress': return <TrendingUp className="h-4 w-4" />;
+      case 'drug_test': return <TestTube2 className="h-4 w-4" />;
       default: return <Bell className="h-4 w-4" />;
     }
   };
@@ -47,6 +48,7 @@ export default function RealDataNotificationBell() {
       case 'medication': return 'text-pink-600 bg-pink-50 border-pink-200';
       case 'activity': return 'text-cyan-600 bg-cyan-50 border-cyan-200';
       case 'progress': return 'text-emerald-600 bg-emerald-50 border-emerald-200';
+      case 'drug_test': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
       default: return 'text-gray-600 bg-gray-50 border-gray-200';
     }
   };
@@ -76,6 +78,7 @@ export default function RealDataNotificationBell() {
       case 'medication': return 'Medication';
       case 'activity': return 'Activity';
       case 'progress': return 'Progress';
+      case 'drug_test': return 'Drug Test';
       default: return 'Notification';
     }
   };
