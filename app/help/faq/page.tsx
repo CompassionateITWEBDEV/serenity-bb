@@ -1,4 +1,6 @@
 "use client";
+export const dynamic = "error"; // static
+export const revalidate = 86400; // 24h ISR
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";

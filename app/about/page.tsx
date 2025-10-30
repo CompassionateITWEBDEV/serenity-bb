@@ -1,4 +1,7 @@
 // app/about/page.tsx
+export const dynamic = "error"; // make static
+export const revalidate = 86400; // ISR: 24h
+
 import Link from "next/link";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";

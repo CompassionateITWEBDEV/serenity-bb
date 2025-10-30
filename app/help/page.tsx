@@ -1,4 +1,6 @@
 "use client";
+export const dynamic = "error";
+export const revalidate = 604800;
 
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
