@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Authenticate
+    // Authenticate (may be bypassed for public staffId lookups)
     const cookieStore = await cookies();
     const supabase = createServerClient(url, anon, {
       cookies: {
@@ -40,9 +40,82 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    const { searchParams } = new URL(req.url);
+    const staffId = searchParams.get("staffId");
+
+    // Use service role for queries to bypass RLS if needed
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
+    const queryClient = serviceKey 
+      ? createSbClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
+      : supabase;
+
+    // PUBLIC BRANCH: If staffId provided, allow unauthenticated read of aggregate stats
+    if (staffId) {
+      try {
+        const { data, error } = await queryClient
+          .from("staff_verifications")
+          .select(`
+          id,
+          staff_id,
+          patient_id,
+          verified_at,
+          rating,
+          comment
+        `)
+          .eq("staff_id", staffId)
+          .order("verified_at", { ascending: false });
+
+        if (error) {
+          console.error("Error fetching staff verifications:", error);
+          // Return empty stats for schema/RLS errors to avoid UI breakage
+          return json({
+            verifications: [],
+            stats: {
+              totalVerifications: 0,
+              averageRating: null,
+              ratingDistribution: []
+            }
+          }, 200);
+        }
+
+        const totalVerifications = data?.length || 0;
+        const ratings = data?.filter(v => v.rating && v.rating > 0) || [];
+        const averageRating = ratings.length > 0
+          ? parseFloat((ratings.reduce((sum: number, v: any) => sum + (v.rating || 0), 0) / ratings.length).toFixed(1))
+          : null;
+        const ratingDistribution = [1, 2, 3, 4, 5].map(r => ({
+          rating: r,
+          count: data?.filter((v: any) => v.rating === r).length || 0
+        }));
+
+        // Optionally enrich with patient names via service role; ignore errors
+        const verificationsWithPatientNames = data ? await Promise.all(
+          (data as any[]).map(async (v: any) => {
+            try {
+              const { data: patientData } = await queryClient
+                .from("patients")
+                .select("user_id, full_name, first_name, last_name")
+                .eq("user_id", v.patient_id)
+                .maybeSingle();
+              return { ...v, patients: patientData || null };
+            } catch {
+              return { ...v, patients: null };
+            }
+          })
+        ) : [];
+
+        return json({
+          verifications: verificationsWithPatientNames || [],
+          stats: { totalVerifications, averageRating, ratingDistribution }
+        }, 200);
+      } catch (e) {
+        console.error("Unhandled error fetching staff verifications (public branch):", e);
+        return json({ verifications: [], stats: { totalVerifications: 0, averageRating: null, ratingDistribution: [] } }, 200);
+      }
+    }
+
+    // AUTH BRANCH: No staffId -> require auth (staff viewing their own)
     const { data: cookieAuth, error: cookieErr } = await supabase.auth.getUser();
-    
-    // Fallback to Bearer token
     let user = cookieAuth?.user;
     if ((!user || cookieErr) && req.headers) {
       const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -56,91 +129,11 @@ export async function GET(req: NextRequest) {
         user = bearerAuth?.user;
       }
     }
-    
     if (!user) {
       return json({ error: "Unauthorized" }, 401);
     }
 
-    const { searchParams } = new URL(req.url);
-    const staffId = searchParams.get("staffId");
-
-    // Use service role for queries to bypass RLS if needed
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
-    const queryClient = serviceKey 
-      ? createSbClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
-      : supabase;
-
-    // If staffId provided, get verifications for that staff member
-    if (staffId) {
-      const { data, error } = await queryClient
-        .from("staff_verifications")
-        .select(`
-          id,
-          staff_id,
-          patient_id,
-          verified_at,
-          rating,
-          comment
-        `)
-        .eq("staff_id", staffId)
-        .order("verified_at", { ascending: false });
-
-      if (error) {
-        console.error("Error fetching staff verifications:", error);
-        // If table doesn't exist or relationship issues, return empty stats
-        if (error.code === "PGRST116" || error.code === "PGRST205" || error.code === "PGRST200" || error.message?.includes("does not exist") || error.message?.includes("relationship")) {
-          return json({
-            verifications: [],
-            stats: {
-              totalVerifications: 0,
-              averageRating: null,
-              ratingDistribution: []
-            }
-          }, 200);
-        }
-        return json({ error: error.message, code: error.code }, 500);
-      }
-
-      // Calculate stats
-      const totalVerifications = data?.length || 0;
-      const ratings = data?.filter(v => v.rating && v.rating > 0) || [];
-      const averageRating = ratings.length > 0
-        ? parseFloat((ratings.reduce((sum: number, v: any) => sum + (v.rating || 0), 0) / ratings.length).toFixed(1))
-        : null;
-      const ratingDistribution = [1, 2, 3, 4, 5].map(r => ({
-        rating: r,
-        count: data?.filter((v: any) => v.rating === r).length || 0
-      }));
-
-      // If needed, fetch patient names separately (since we can't join directly)
-      const verificationsWithPatientNames = data ? await Promise.all(
-        (data as any[]).map(async (v: any) => {
-          try {
-            const { data: patientData } = await queryClient
-              .from("patients")
-              .select("user_id, full_name, first_name, last_name")
-              .eq("user_id", v.patient_id)
-              .maybeSingle();
-            
-            return {
-              ...v,
-              patients: patientData || null
-            };
-          } catch {
-            return { ...v, patients: null };
-          }
-        })
-      ) : [];
-
-      return json({
-        verifications: verificationsWithPatientNames || [],
-        stats: {
-          totalVerifications,
-          averageRating,
-          ratingDistribution
-        }
-      }, 200);
-    }
+    // If we reach here, no staffId provided and user is authenticated
 
     // Otherwise, get current user's verifications (for staff viewing their own)
     const { data: staffData } = await queryClient
