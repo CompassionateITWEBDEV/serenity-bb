@@ -1,13 +1,11 @@
-"use client";
 export const dynamic = "error"; // static
 export const revalidate = 604800; // 7 days
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChevronLeft } from "lucide-react";
 
 export default function TermsPage() {
-  const router = useRouter();
 
   const items = [
     {
@@ -52,13 +50,9 @@ export default function TermsPage() {
       {/* Header */}
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
         <div className="max-w-md mx-auto px-4 py-3 flex items-center gap-3">
-          <button
-            onClick={() => router.push("/staff/profile")}
-            className="h-9 w-9 rounded-full bg-slate-100 grid place-items-center"
-            aria-label="Back"
-          >
+          <Link href="/staff/profile" aria-label="Back" className="h-9 w-9 rounded-full bg-slate-100 grid place-items-center">
             <ChevronLeft className="h-5 w-5 text-slate-600" />
-          </button>
+          </Link>
           <h1 className="text-lg font-semibold">Terms and Conditions</h1>
         </div>
       </header>
@@ -91,18 +85,12 @@ export default function TermsPage() {
         </Card>
 
         <div className="flex gap-2">
-          <button
-            className="flex-1 h-10 rounded-full bg-cyan-500 text-white text-sm font-medium hover:bg-cyan-600"
-            onClick={() => router.push("/staff/profile")}
-          >
-            Agree
-          </button>
-          <button
-            className="flex-1 h-10 rounded-full border border-slate-300 text-sm font-medium text-slate-700 bg-white hover:bg-slate-50"
-            onClick={() => router.push("/staff/profile")}
-          >
-            Disagree
-          </button>
+          <Link href="/staff/profile" className="flex-1">
+            <button className="w-full h-10 rounded-full bg-cyan-500 text-white text-sm font-medium hover:bg-cyan-600">Agree</button>
+          </Link>
+          <Link href="/staff/profile" className="flex-1">
+            <button className="w-full h-10 rounded-full border border-slate-300 text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">Disagree</button>
+          </Link>
         </div>
       </main>
     </div>
