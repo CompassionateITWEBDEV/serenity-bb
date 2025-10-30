@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
     }${status ? ` • status: ${status}` : ""}.`;
 
     const notifications = eligibleStaffIds.map((staffUserId: string) => ({
-      type: "submission" as const,
+      type: "video_submission" as const,
       title: titleText,
       message: messageText,
       patient_id: patientId,

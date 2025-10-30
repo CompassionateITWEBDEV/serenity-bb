@@ -58,11 +58,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Use the appropriate client for database operations
-    const dbClient = user === cookieAuth?.user ? supabase : createSbClient(url, anon, {
-      global: { headers: { Authorization: `Bearer ${req.headers.get("authorization")?.slice(7) || req.headers.get("Authorization")?.slice(7) || ""}` } },
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
+    // Use service role for database operations to bypass RLS safely while filtering by user.id
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
+    const dbClient = serviceKey
+      ? createSbClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
+      : (user === cookieAuth?.user ? supabase : createSbClient(url, anon, {
+          global: { headers: { Authorization: `Bearer ${req.headers.get("authorization")?.slice(7) || req.headers.get("Authorization")?.slice(7) || ""}` } },
+          auth: { persistSession: false, autoRefreshToken: false },
+        }));
 
     const { searchParams } = new URL(req.url);
     const limit = parseInt(searchParams.get('limit') || '50');
@@ -151,11 +154,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Use the appropriate client for database operations
-    const dbClient = user === cookieAuth?.user ? supabase : createSbClient(url, anon, {
-      global: { headers: { Authorization: `Bearer ${req.headers.get("authorization")?.slice(7) || req.headers.get("Authorization")?.slice(7) || ""}` } },
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
+    // Use service role to insert safely
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
+    const dbClient = serviceKey
+      ? createSbClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
+      : (user === cookieAuth?.user ? supabase : createSbClient(url, anon, {
+          global: { headers: { Authorization: `Bearer ${req.headers.get("authorization")?.slice(7) || req.headers.get("Authorization")?.slice(7) || ""}` } },
+          auth: { persistSession: false, autoRefreshToken: false },
+        }));
 
     const body = await req.json();
     const { type, title, message, patient_id, patient_name } = body;
@@ -252,11 +258,14 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Use the appropriate client for database operations
-    const dbClient = user === cookieAuth?.user ? supabase : createSbClient(url, anon, {
-      global: { headers: { Authorization: `Bearer ${req.headers.get("authorization")?.slice(7) || req.headers.get("Authorization")?.slice(7) || ""}` } },
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
+    // Use service role to update safely
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
+    const dbClient = serviceKey
+      ? createSbClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
+      : (user === cookieAuth?.user ? supabase : createSbClient(url, anon, {
+          global: { headers: { Authorization: `Bearer ${req.headers.get("authorization")?.slice(7) || req.headers.get("Authorization")?.slice(7) || ""}` } },
+          auth: { persistSession: false, autoRefreshToken: false },
+        }));
 
     const { searchParams } = new URL(req.url);
     const notificationId = searchParams.get('id');
