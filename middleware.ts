@@ -21,32 +21,64 @@ export async function middleware(req: NextRequest) {
 
   // Always touch the session to refresh cookies when needed
   // (critical for API routes and any SSR/edge paths)
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return req.cookies.get(name)?.value;
-        },
-        set(name: string, value: string, options: any) {
-          res.cookies.set({
-            name,
-            value,
-            ...options,
-          });
-        },
-        remove(name: string, options: any) {
-          res.cookies.set({
-            name,
-            value: "",
-            ...options,
-          });
-        },
-      },
+  // For API routes, we need to be more careful - don't block if env vars are missing
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (supabaseUrl && supabaseAnonKey) {
+      const supabase = createServerClient(
+        supabaseUrl,
+        supabaseAnonKey,
+        {
+          cookies: {
+            get(name: string) {
+              return req.cookies.get(name)?.value;
+            },
+            set(name: string, value: string, options: any) {
+              res.cookies.set({
+                name,
+                value,
+                ...options,
+              });
+            },
+            remove(name: string, options: any) {
+              res.cookies.set({
+                name,
+                value: "",
+                ...options,
+              });
+            },
+          },
+        }
+      );
+      // For API routes, don't block if session check fails
+      if (pathname.startsWith('/api/')) {
+        try {
+          await supabase.auth.getSession();
+        } catch (apiError) {
+          // Don't block API routes if session check fails
+          console.warn('[Middleware] API route session check failed, continuing:', apiError);
+        }
+      } else {
+        await supabase.auth.getSession();
+      }
+    } else {
+      // If env vars are missing, still allow API routes to pass (they'll handle auth themselves)
+      if (pathname.startsWith('/api/')) {
+        console.warn('[Middleware] Supabase env vars missing, but allowing API route to proceed');
+        return res;
+      }
     }
-  );
-  await supabase.auth.getSession();
+  } catch (middlewareError) {
+    // If middleware fails, don't block API routes
+    if (pathname.startsWith('/api/')) {
+      console.warn('[Middleware] Error in middleware, but allowing API route:', middlewareError);
+      return res;
+    }
+    // For non-API routes, rethrow or handle differently
+    console.error('[Middleware] Error in middleware:', middlewareError);
+  }
 
   // Public pages (no SSR hard-block; we may redirect if user already authed)
   const PUBLIC = new Set<string>([
