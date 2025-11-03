@@ -130,13 +130,15 @@ export async function GET(
       hasData: !!drugTest,
       hasError: !!drugTestError,
       errorCode: drugTestError?.code,
-      errorMessage: drugTestError?.message
+      errorMessage: drugTestError?.message,
+      patientId: user.id,
+      testId: finalTestId
     });
     
-    // If RLS is blocking and we got no results, use service role as fallback
-    // This is a temporary workaround - the proper fix is to add RLS policies
+    // If RLS is blocking and we got no results (no error but no data), use service role as fallback
+    // This handles cases where RLS silently blocks access
     if (!drugTest && !drugTestError) {
-      console.log(`[API] No results from regular query, trying with service role client (RLS may be blocking)`);
+      console.log(`[API] No results from regular query (RLS may be silently blocking), trying with service role client`);
       
       const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
       if (serviceKey) {
@@ -146,7 +148,7 @@ export async function GET(
             auth: { persistSession: false, autoRefreshToken: false },
           });
           
-          // Query with service role (bypasses RLS)
+          // Query with service role (bypasses RLS) to verify if test exists and belongs to patient
           const { data: adminTest, error: adminError } = await adminClient
             .from("drug_tests")
             .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
@@ -156,13 +158,15 @@ export async function GET(
           
           if (adminError) {
             console.error(`[API] Service role query error:`, adminError);
+            // If service role also fails, use the error
+            drugTestError = adminError;
           } else if (adminTest) {
             // Drug test exists and belongs to this patient - use service role result
             console.log(`[API] Using service role result (RLS workaround): Drug test found for patient ${user.id}`);
             drugTest = adminTest;
             drugTestError = null;
           } else {
-            // Check if test exists but belongs to different patient
+            // Check if test exists but belongs to different patient (for better error message)
             const { data: anyTest } = await adminClient
               .from("drug_tests")
               .select("id, patient_id")
@@ -171,6 +175,13 @@ export async function GET(
             
             if (anyTest) {
               console.log(`[API] Drug test exists but belongs to different patient: ${anyTest.patient_id} vs ${user.id}`);
+              // Return 403 Forbidden instead of 404 Not Found
+              return NextResponse.json({ 
+                error: "Access denied",
+                details: `Drug test exists but belongs to a different patient. Expected patient_id: ${user.id}, Found: ${anyTest.patient_id}`,
+                testId: finalTestId,
+                userId: user.id
+              }, { status: 403 });
             } else {
               console.log(`[API] Drug test ${finalTestId} does not exist in database`);
             }
@@ -179,7 +190,7 @@ export async function GET(
           console.error(`[API] Error in service role check:`, adminCheckError);
         }
       } else {
-        console.warn(`[API] Service role key not available - cannot bypass RLS. Please add RLS policies or set SUPABASE_SERVICE_ROLE_KEY.`);
+        console.warn(`[API] Service role key not available. RLS may be blocking access. Please run the RLS policy SQL script or set SUPABASE_SERVICE_ROLE_KEY.`);
       }
     }
 
@@ -222,9 +233,12 @@ export async function GET(
     if (!drugTest) {
       console.log(`[API] Drug test ${finalTestId} not found for patient ${user.id}`);
       
+      // Check if service role key is available - if not, that's likely the issue
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
+      const hasServiceKey = !!serviceKey;
+      
       // Try to check if test exists but belongs to different patient (for debugging)
       // Use service role to bypass RLS for this check
-      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
       if (serviceKey) {
         try {
           const { createClient: createSbClient } = await import("@supabase/supabase-js");
@@ -261,10 +275,6 @@ export async function GET(
           console.error(`[API] Error in admin check:`, adminCheckError);
         }
       }
-      
-      // Check if service role key is available - if not, that's likely the issue
-      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
-      const hasServiceKey = !!serviceKey;
       
       const errorResponse = { 
         error: "Drug test not found",
