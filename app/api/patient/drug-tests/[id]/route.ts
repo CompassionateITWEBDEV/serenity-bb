@@ -262,14 +262,24 @@ export async function GET(
         }
       }
       
+      // Check if service role key is available - if not, that's likely the issue
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
+      const hasServiceKey = !!serviceKey;
+      
       const errorResponse = { 
         error: "Drug test not found",
-        details: `No drug test found with ID ${finalTestId} for patient ${user.id}`,
+        details: hasServiceKey 
+          ? `No drug test found with ID ${finalTestId} for patient ${user.id}. This may be due to RLS policies blocking access.`
+          : `No drug test found with ID ${finalTestId} for patient ${user.id}. Service role key not configured - cannot bypass RLS to verify. Please set SUPABASE_SERVICE_ROLE_KEY in Vercel.`,
+        hint: hasServiceKey
+          ? "Check RLS policies on drug_tests table. Expected: Patients can SELECT where auth.uid() = patient_id"
+          : "Set SUPABASE_SERVICE_ROLE_KEY in Vercel environment variables to enable RLS bypass fallback.",
         testId: finalTestId,
-        userId: user.id
+        userId: user.id,
+        serviceRoleConfigured: hasServiceKey
       };
       
-      console.log(`[API] Returning 404 with error response:`, JSON.stringify(errorResponse));
+      console.error(`[API] Returning 404 - Drug test not found:`, JSON.stringify(errorResponse, null, 2));
       
       return NextResponse.json(errorResponse, { 
         status: 404,
