@@ -1,7 +1,3 @@
-// Enable static generation for help contact page
-export const dynamic = "error"; // Force static generation
-export const revalidate = 3600; // Revalidate every hour (ISR)
-
 "use client";
 
 import { useRouter } from "next/navigation";
