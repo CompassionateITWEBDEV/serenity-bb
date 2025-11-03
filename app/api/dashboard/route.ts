@@ -163,8 +163,20 @@ export async function GET() {
     failedQueries.push("transactions");
   }
   if (drugTests.error) {
-    console.warn("Dashboard: Failed to load drug_tests:", drugTests.error);
+    console.error("Dashboard: Failed to load drug_tests:", {
+      error: drugTests.error,
+      code: drugTests.error?.code,
+      message: drugTests.error?.message,
+      details: drugTests.error?.details,
+      hint: drugTests.error?.hint,
+      patientId: pid,
+    });
     failedQueries.push("drug tests");
+  } else {
+    console.log("Dashboard: Successfully loaded drug_tests:", {
+      count: drugTests.data?.length || 0,
+      patientId: pid,
+    });
   }
 
   const overallProgress = Number(overview.data?.overall_progress ?? 0);
