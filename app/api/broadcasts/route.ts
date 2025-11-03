@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { createClient as createSbClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { z } from "zod";
 
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Supabase configuration missing" }, { status: 500 });
     }
 
-    // Authenticate user
+    // Authenticate user - support both cookies and Bearer token
     const cookieStore = await cookies();
     const supabase = createServerClient(url, anon, {
       cookies: {
@@ -32,7 +33,26 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    let { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    // Bearer token fallback if cookie-based auth fails
+    if ((!user || authError) && req.headers) {
+      const authHeader = req.headers.get('authorization') || req.headers.get('Authorization') || '';
+      const bearer = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : null;
+      if (url && anon && bearer) {
+        const bearerClient = createSbClient(url, anon, {
+          global: { headers: { Authorization: `Bearer ${bearer}` } },
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+        const { data: bearerUser, error: bearerError } = await bearerClient.auth.getUser();
+        if (bearerUser?.user) {
+          user = bearerUser.user;
+          authError = null;
+        } else {
+          authError = bearerError || authError;
+        }
+      }
+    }
     
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -42,25 +62,43 @@ export async function GET(req: NextRequest) {
     const targetAudience = searchParams.get('audience');
     const limit = parseInt(searchParams.get('limit') || '50');
 
-    // Use admin client to read broadcasts (RLS policies handle visibility)
-    const sb = supabaseAdmin();
-    let query = (sb as any)
-      .from('broadcasts')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(limit);
+    try {
+      // Try admin client first, fallback to user's client if service role not available
+      let dbClient: any;
+      try {
+        dbClient = supabaseAdmin();
+      } catch (adminError: any) {
+        console.warn('Admin client not available, using authenticated client:', adminError.message);
+        // Fallback to user's authenticated client
+        dbClient = supabase;
+      }
 
-    if (targetAudience && targetAudience !== 'all') {
-      query = query.or(`target_audience.eq.${targetAudience},target_audience.eq.all`);
+      let query = (dbClient as any)
+        .from('broadcasts')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (targetAudience && targetAudience !== 'all') {
+        query = query.or(`target_audience.eq.${targetAudience},target_audience.eq.all`);
+      }
+
+      const { data: broadcasts, error } = await query;
+
+      if (error) {
+        console.error('Error fetching broadcasts:', error);
+        // If table doesn't exist, return empty array instead of error
+        if (error.code === 'PGRST116' || error.message.includes('does not exist')) {
+          return NextResponse.json({ broadcasts: [] });
+        }
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ broadcasts: broadcasts || [] });
+    } catch (error: any) {
+      console.error('Error in broadcasts GET:', error);
+      return NextResponse.json({ error: error?.message || 'Failed to fetch broadcasts' }, { status: 500 });
     }
-
-    const { data: broadcasts, error } = await query;
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ broadcasts: broadcasts || [] });
 
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

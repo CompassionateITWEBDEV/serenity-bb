@@ -7,6 +7,7 @@ type DashboardApi = {
   kpis: { sessions: number; goals: number; tokens: number; progressPercent: number; unreadMessages: number };
   treatmentProgress: Array<{ id: string | number; name: string; status: string; type: "major" | "minor"; date: string | null }>;
   upcomingAppointments: Array<{ id: string | number; at: string; staff: string | null; status: string; notes: string }>;
+  upcomingDrugTests: Array<{ id: string | number; scheduledFor: string | null; status: string; testType: string; createdAt: string; metadata: Record<string, any> }>;
   weeklyGoals: Array<{ id: string | number; name: string; current: number; target: number }>;
   tokenStats: { total: number; earned: number; spent: number; level: number };
   wellness: { week: string; wellness: number; attendance: number; goals: number } | null;

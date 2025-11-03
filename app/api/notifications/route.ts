@@ -1,7 +1,8 @@
 // FILE: app/api/notifications/route.ts
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
 export const dynamic = "force-dynamic";
 
@@ -31,21 +32,58 @@ function err(status: number, message: string) {
 
 // ---------- GET /api/notifications ----------
 export async function GET(req: Request) {
-  const supabase = createClient(); // SSR client (cookies)
-  const url = new URL(req.url);
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anon) {
+    return err(500, "Supabase configuration missing");
+  }
 
-  // Auth
-  const {
-    data: { user },
-    error: authErr,
-  } = await supabase.auth.getUser();
-  if (authErr || !user) return err(401, "Unauthorized");
+  const store = await cookies();
+  const supabase = createServerClient(url, anon, {
+    cookies: {
+      get: (k) => store.get(k)?.value,
+      set: (k, v, o) => store.set(k, v, o),
+      remove: (k, o) => store.set(k, "", { ...o, maxAge: 0 }),
+    },
+  });
+  
+  const requestUrl = new URL(req.url);
+
+  // Auth - try cookie-based first, fallback to Bearer token
+  const { data: cookieAuth, error: cookieErr } = await supabase.auth.getUser();
+  let user = cookieAuth?.user;
+  let authError = cookieErr;
+
+  // Fallback to Bearer token if cookie auth fails
+  if ((!user || cookieErr) && req.headers) {
+    const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
+    const bearer = authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7).trim()
+      : null;
+
+    if (bearer) {
+      const { createClient: createSbClient } = await import("@supabase/supabase-js");
+      const supabaseBearer = createSbClient(url, anon, {
+        global: { headers: { Authorization: `Bearer ${bearer}` } },
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data: bearerAuth, error: bearerErr } = await supabaseBearer.auth.getUser();
+      if (bearerErr) {
+        authError = bearerErr;
+      } else {
+        user = bearerAuth?.user;
+        authError = null;
+      }
+    }
+  }
+
+  if (authError || !user) return err(401, "Unauthorized");
 
   // Validate query
   const parsed = GetQuery.safeParse({
-    patientId: url.searchParams.get("patientId"),
-    limit: url.searchParams.get("limit") ?? undefined,
-    before: url.searchParams.get("before") ?? undefined,
+    patientId: requestUrl.searchParams.get("patientId"),
+    limit: requestUrl.searchParams.get("limit") ?? undefined,
+    before: requestUrl.searchParams.get("before") ?? undefined,
   });
   if (!parsed.success) return err(400, parsed.error.issues[0]?.message ?? "Invalid query");
 
@@ -55,6 +93,7 @@ export async function GET(req: Request) {
   if (patientId !== user.id) return err(403, "Forbidden");
 
   try {
+    // Use patient_id (this is the actual schema column per your schema)
     let q = supabase
       .from("notifications")
       .select("*")
@@ -63,14 +102,44 @@ export async function GET(req: Request) {
       .limit(limit);
 
     if (before) {
-      // keyset pagination: created_at < before
       q = q.lt("created_at", before);
     }
 
-    const { data, error } = await q;
-    if (error) {
-      console.error("DB error[GET]/notifications:", error);
-      return err(500, error.message);
+    const { data, error: firstError } = await q;
+    
+    // If patient_id fails with column error, try user_id (fallback for schema variations)
+    if (firstError && (firstError.code === '42703' || 
+        (firstError.message?.includes('column') && firstError.message?.includes('does not exist')))) {
+      console.log('patient_id column not found in notifications, trying user_id...');
+      q = supabase
+        .from("notifications")
+        .select("*")
+        .eq("user_id", patientId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+      if (before) {
+        q = q.lt("created_at", before);
+      }
+
+      const { data: fallbackData, error: fallbackError } = await q;
+      if (fallbackError) {
+        console.error("DB error[GET]/notifications (fallback):", fallbackError);
+        return err(500, fallbackError.message);
+      }
+
+      return NextResponse.json({
+        data: fallbackData,
+        paging: {
+          nextBefore: fallbackData?.length ? fallbackData[fallbackData.length - 1].created_at : null,
+          limit,
+        },
+      });
+    }
+
+    if (firstError) {
+      console.error("DB error[GET]/notifications:", firstError);
+      return err(500, firstError.message);
     }
 
     return NextResponse.json({
@@ -88,7 +157,20 @@ export async function GET(req: Request) {
 
 // ---------- POST /api/notifications ----------
 export async function POST(req: Request) {
-  const supabase = createClient();
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anon) {
+    return err(500, "Supabase configuration missing");
+  }
+
+  const store = await cookies();
+  const supabase = createServerClient(url, anon, {
+    cookies: {
+      get: (k) => store.get(k)?.value,
+      set: (k, v, o) => store.set(k, v, o),
+      remove: (k, o) => store.set(k, "", { ...o, maxAge: 0 }),
+    },
+  });
 
   // Auth
   const {
@@ -133,7 +215,20 @@ export async function POST(req: Request) {
 // ---------- PATCH /api/notifications ----------
 // Body: { ids: string[], read: boolean }  → bulk mark read/unread
 export async function PATCH(req: Request) {
-  const supabase = createClient();
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anon) {
+    return err(500, "Supabase configuration missing");
+  }
+
+  const store = await cookies();
+  const supabase = createServerClient(url, anon, {
+    cookies: {
+      get: (k) => store.get(k)?.value,
+      set: (k, v, o) => store.set(k, v, o),
+      remove: (k, o) => store.set(k, "", { ...o, maxAge: 0 }),
+    },
+  });
 
   // Auth
   const {

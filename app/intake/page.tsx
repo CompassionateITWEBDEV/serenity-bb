@@ -1,5 +1,9 @@
 import { PatientIntakeForm } from "@/components/patient-intake-form"
 
+// Enable static generation for intake page
+export const dynamic = "error"; // Force static generation
+export const revalidate = 3600; // Revalidate every hour (ISR)
+
 export default function IntakePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-cyan-50 to-indigo-50 py-12 px-4">

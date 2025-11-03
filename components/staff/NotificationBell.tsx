@@ -142,36 +142,43 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
       )
       .subscribe();
 
-    // Subscribe to drug_tests/random_drug_tests table for status changes
+    // Subscribe to drug_tests table for INSERT and UPDATE events
     const drugTestsChannel = supabase
       .channel(`staff-drug-tests:${staffId}`)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*', // Listen to both INSERT and UPDATE
           schema: 'public',
           table: 'drug_tests',
         },
         (payload) => {
-          console.log('Drug test status update detected:', payload);
-          // Trigger notification count reload (the API will create the notification)
+          console.log('Drug test change detected:', payload.eventType, payload);
+          // Trigger notification count reload when new drug tests are created
+          // (the API will create staff notifications)
           setTimeout(() => { loadNotificationCount(); loadPendingAppointments(); }, 500);
         }
       )
       .subscribe();
 
-    const randomTestsChannel = supabase
-      .channel(`staff-random-drug-tests:${staffId}`)
+    // Subscribe to staff_notifications table for drug_test type
+    const drugTestNotificationsChannel = supabase
+      .channel(`staff-drug-test-notifications:${staffId}`)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: 'INSERT',
           schema: 'public',
-          table: 'random_drug_tests',
+          table: 'staff_notifications',
+          filter: `staff_id=eq.${staffId}`,
         },
         (payload) => {
-          console.log('Random drug test status update detected:', payload);
-          setTimeout(() => { loadNotificationCount(); loadPendingAppointments(); }, 500);
+          const notification = payload.new as any;
+          // Only reload if it's a drug_test notification
+          if (notification.type === 'drug_test') {
+            console.log('New drug test notification received:', notification);
+            loadNotificationCount();
+          }
         }
       )
       .subscribe();
@@ -217,7 +224,7 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
       supabase.removeChannel(notificationsChannel);
       supabase.removeChannel(messagesChannel);
       supabase.removeChannel(drugTestsChannel);
-      supabase.removeChannel(randomTestsChannel);
+      supabase.removeChannel(drugTestNotificationsChannel);
       supabase.removeChannel(appointmentsChannel);
       supabase.removeChannel(videoSubmissionsChannel);
     };

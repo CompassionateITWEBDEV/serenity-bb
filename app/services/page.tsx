@@ -1,4 +1,7 @@
 // app/services/page.tsx
+// Enable static generation for services page
+export const dynamic = "error"; // Force static generation
+export const revalidate = 3600; // Revalidate every hour (ISR)
 
 import { Suspense } from "react";
 import type { Metadata } from "next";

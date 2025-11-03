@@ -155,8 +155,26 @@ export async function createDrugTestNotificationServer(
       return;
     }
 
+    // Get the creator ID from the drug test (if available) to exclude them from notifications
+    let creatorId: string | null = null;
+    try {
+      const { data: drugTest } = await supabase
+        .from('drug_tests')
+        .select('created_by')
+        .eq('id', drugTestId)
+        .maybeSingle();
+      creatorId = drugTest?.created_by || null;
+    } catch (e) {
+      // Ignore error, just proceed without filtering
+    }
+
     // Filter staff by notification preferences - only create notifications for staff who have drug_test_alerts enabled
+    // Also exclude the creator of the drug test (they already know they created it)
     const eligibleStaff = staffMembers?.filter((staff: any) => {
+      // Don't notify the creator
+      if (creatorId && staff.user_id === creatorId) {
+        return false;
+      }
       const prefs = staff.notification_preferences || {};
       return prefs.drug_test_alerts !== false; // Default to true if not set
     }) || [];

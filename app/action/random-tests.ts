@@ -34,7 +34,7 @@ export async function createRandomTest(payload: {
 
   // Example table. Change to your real table/columns.
   const { error: insertErr } = await supabase
-    .from("random_drug_tests")
+    .from("drug_tests")
     .insert({
       patient_id: patientId,
       scheduled_for: scheduledFor, // null or ISO string is fine for timestamptz

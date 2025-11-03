@@ -1,3 +1,6 @@
+// Enable static generation for contact page
+export const dynamic = "error"; // Force static generation
+export const revalidate = 3600; // Revalidate every hour (ISR)
 
 "use client";
 

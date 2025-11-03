@@ -10,6 +10,7 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { DashboardStats } from "@/components/dashboard/dashboard-stats";
 import { TreatmentProgress } from "@/components/dashboard/treatment-progress";
 import { UpcomingAppointments } from "@/components/dashboard/upcoming-appointments";
+import { UpcomingDrugTests } from "@/components/dashboard/upcoming-drug-tests";
 import { QuickActions } from "@/components/dashboard/quick-actions";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { WellnessTracker } from "@/components/dashboard/wellness-tracker";
@@ -131,6 +132,7 @@ export default function DashboardPage() {
                 />
                 <TreatmentProgress items={data?.treatmentProgress ?? []} />
                 <UpcomingAppointments items={data?.upcomingAppointments ?? []} />
+                <UpcomingDrugTests items={data?.upcomingDrugTests ?? []} />
               </div>
 
               <div className="space-y-8">

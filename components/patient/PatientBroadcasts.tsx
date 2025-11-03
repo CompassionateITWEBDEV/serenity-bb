@@ -80,7 +80,25 @@ export default function PatientBroadcasts({ items }: Props) {
   const fetchBroadcasts = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/broadcasts?audience=patients');
+      // Get session token for authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+
+      // Add Bearer token if available
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch('/api/broadcasts?audience=patients', {
+        method: 'GET',
+        headers,
+        credentials: 'include', // Include cookies as well
+      });
+
       if (response.ok) {
         const data = await response.json();
         const formattedBroadcasts = data.broadcasts.map((b: any) => ({
@@ -88,6 +106,9 @@ export default function PatientBroadcasts({ items }: Props) {
           timeLabel: formatTimeLabel(b.created_at)
         }));
         setBroadcasts(formattedBroadcasts);
+      } else if (response.status === 401) {
+        console.warn('Unauthorized - user may need to re-authenticate');
+        // Optionally refresh session or redirect to login
       }
     } catch (error) {
       console.error('Error fetching broadcasts:', error);

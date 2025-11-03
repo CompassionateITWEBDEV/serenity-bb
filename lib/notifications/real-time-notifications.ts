@@ -400,7 +400,7 @@ class RealTimeNotificationService {
         .on('postgres_changes', {
           event: 'INSERT',
           schema: 'public',
-          table: 'random_drug_tests',
+          table: 'drug_tests',
           filter: `patient_id=eq.${userId}`
         }, async (payload) => {
           // Create notification for new drug test

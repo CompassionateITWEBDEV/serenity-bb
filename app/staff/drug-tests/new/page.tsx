@@ -1,7 +1,7 @@
 // app/staff/drug-tests/new/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,8 +23,12 @@ import {
   Plus,
   Save,
   X,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { fetchPatients, type StaffPatient } from "@/lib/patients";
+import { createDrugTest } from "@/lib/drug-tests";
+import { supabase } from "@/lib/supabase-browser";
 
 type DrugTestType = {
   id: string;
@@ -33,13 +37,6 @@ type DrugTestType = {
   substances: string[];
   collectionMethod: string;
   detectionWindow: string;
-};
-
-type Patient = {
-  id: string;
-  name: string;
-  room: string;
-  status: string;
 };
 
 const DRUG_TEST_TYPES: DrugTestType[] = [
@@ -77,15 +74,6 @@ const DRUG_TEST_TYPES: DrugTestType[] = [
   }
 ];
 
-const MOCK_PATIENTS: Patient[] = [
-  { id: "1", name: "John Smith", room: "Room 101", status: "Active" },
-  { id: "2", name: "Sarah Johnson", room: "Room 102", status: "Active" },
-  { id: "3", name: "Michael Brown", room: "Room 103", status: "Active" },
-  { id: "4", name: "Emily Davis", room: "Room 104", status: "Active" },
-  { id: "5", name: "David Wilson", room: "Room 105", status: "Active" },
-  { id: "6", name: "Lisa Anderson", room: "Room 106", status: "Active" },
-];
-
 export default function NewDrugTestPage() {
   const router = useRouter();
   const [selectedTestType, setSelectedTestType] = useState<string>("");
@@ -95,23 +83,66 @@ export default function NewDrugTestPage() {
   const [notes, setNotes] = useState<string>("");
   const [isRandom, setIsRandom] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [patients, setPatients] = useState<StaffPatient[]>([]);
+  const [loadingPatients, setLoadingPatients] = useState<boolean>(true);
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
   const selectedTest = DRUG_TEST_TYPES.find(test => test.id === selectedTestType);
 
+  // Fetch patients from Supabase
+  useEffect(() => {
+    async function loadPatients() {
+      try {
+        setLoadingPatients(true);
+        const patientList = await fetchPatients();
+        setPatients(patientList);
+      } catch (error: any) {
+        console.error("Error loading patients:", error);
+        toast.error("Failed to load patients. Please refresh the page.");
+      } finally {
+        setLoadingPatients(false);
+      }
+    }
+    loadPatients();
+  }, []);
+
+  // Filter patients based on search query
+  const filteredPatients = patients.filter((patient) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      patient.name.toLowerCase().includes(query) ||
+      (patient.email && patient.email.toLowerCase().includes(query))
+    );
+  });
+
   const handlePatientToggle = (patientId: string) => {
     setSelectedPatients(prev => 
-      prev.includes(patientId) 
+      prev.includes(patientId)
         ? prev.filter(id => id !== patientId)
         : [...prev, patientId]
     );
   };
 
   const handleSelectAll = () => {
-    if (selectedPatients.length === MOCK_PATIENTS.length) {
+    if (selectedPatients.length === filteredPatients.length) {
       setSelectedPatients([]);
     } else {
-      setSelectedPatients(MOCK_PATIENTS.map(p => p.id));
+      setSelectedPatients(filteredPatients.map(p => p.id));
     }
+  };
+
+  // Get patient initials for avatar
+  const getPatientInitials = (patient: StaffPatient) => {
+    if (patient.name) {
+      return patient.name
+        .split(' ')
+        .map(n => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2);
+    }
+    return patient.email?.[0]?.toUpperCase() || '??';
   };
 
   const handleSubmit = async () => {
@@ -125,7 +156,7 @@ export default function NewDrugTestPage() {
       return;
     }
 
-    if (!scheduledDate || !scheduledTime) {
+    if (!isRandom && (!scheduledDate || !scheduledTime)) {
       toast.error("Please select date and time");
       return;
     }
@@ -133,19 +164,42 @@ export default function NewDrugTestPage() {
     setIsSubmitting(true);
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Combine date and time for scheduled tests
+      let scheduledFor: string | null = null;
+      if (!isRandom && scheduledDate && scheduledTime) {
+        const [year, month, day] = scheduledDate.split('-');
+        const [hours, minutes] = scheduledTime.split(':');
+        scheduledFor = new Date(
+          parseInt(year),
+          parseInt(month) - 1,
+          parseInt(day),
+          parseInt(hours),
+          parseInt(minutes)
+        ).toISOString();
+      }
 
-      toast.success(`Drug test scheduled for ${selectedPatients.length} patient(s)`);
+      // Create drug tests for each selected patient
+      const promises = selectedPatients.map(patientId =>
+        createDrugTest({
+          patientId,
+          scheduledFor,
+          testType: selectedTestType, // Pass the selected test type (urine, saliva, hair, blood)
+        })
+      );
+
+      await Promise.all(promises);
+
+      toast.success(`Drug test${selectedPatients.length > 1 ? 's' : ''} created for ${selectedPatients.length} patient(s)`);
       router.push("/staff/dashboard?tab=tests");
-    } catch (error) {
-      toast.error("Failed to create drug test");
+    } catch (error: any) {
+      console.error("Error creating drug test:", error);
+      toast.error(error?.message || "Failed to create drug test");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const selectedPatientsData = MOCK_PATIENTS.filter(p => selectedPatients.includes(p.id));
+  const selectedPatientsData = patients.filter(p => selectedPatients.includes(p.id));
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -235,44 +289,74 @@ export default function NewDrugTestPage() {
                 <Users className="h-5 w-5 text-emerald-600" />
                 Patient Selection
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSelectAll}
-                className="text-xs"
-              >
-                {selectedPatients.length === MOCK_PATIENTS.length ? "Deselect All" : "Select All"}
-              </Button>
+              {filteredPatients.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSelectAll}
+                  className="text-xs"
+                  disabled={loadingPatients}
+                >
+                  {selectedPatients.length === filteredPatients.length ? "Deselect All" : "Select All"}
+                </Button>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {MOCK_PATIENTS.map((patient) => (
-                <div
-                  key={patient.id}
-                  className={`p-3 border rounded-lg cursor-pointer transition-all ${
-                    selectedPatients.includes(patient.id)
-                      ? "border-emerald-500 bg-emerald-50"
-                      : "border-slate-200 hover:border-slate-300"
-                  }`}
-                  onClick={() => handlePatientToggle(patient.id)}
-                >
-                  <div className="flex items-center gap-3">
-                    <Checkbox
-                      checked={selectedPatients.includes(patient.id)}
-                      onChange={() => handlePatientToggle(patient.id)}
-                    />
-                    <div className="h-8 w-8 rounded-full bg-gradient-to-br from-cyan-100 to-blue-200 flex items-center justify-center text-cyan-700 font-semibold text-sm">
-                      {patient.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-medium text-slate-800">{patient.name}</div>
-                      <div className="text-sm text-slate-500">{patient.room} • {patient.status}</div>
+            {/* Search Input */}
+            <div className="mb-4">
+              <Input
+                placeholder="Search patients by name or email..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            {loadingPatients ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-emerald-600 mr-2" />
+                <span className="text-slate-600">Loading patients...</span>
+              </div>
+            ) : filteredPatients.length === 0 ? (
+              <div className="text-center py-12">
+                <Users className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+                <p className="text-slate-600">
+                  {searchQuery ? "No patients found matching your search." : "No patients found."}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {filteredPatients.map((patient) => (
+                  <div
+                    key={patient.id}
+                    className={`p-3 border rounded-lg cursor-pointer transition-all ${
+                      selectedPatients.includes(patient.id)
+                        ? "border-emerald-500 bg-emerald-50"
+                        : "border-slate-200 hover:border-slate-300"
+                    }`}
+                    onClick={() => handlePatientToggle(patient.id)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Checkbox
+                        checked={selectedPatients.includes(patient.id)}
+                        onChange={() => handlePatientToggle(patient.id)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <div className="h-10 w-10 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center text-white font-semibold text-sm">
+                        {getPatientInitials(patient)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-slate-800 truncate">{patient.name}</div>
+                        <div className="text-sm text-slate-500 truncate">
+                          {patient.email || "No email"}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
 
             {selectedPatients.length > 0 && (
               <div className="mt-4 p-3 bg-slate-50 rounded-lg">
@@ -282,7 +366,7 @@ export default function NewDrugTestPage() {
                 <div className="flex flex-wrap gap-2">
                   {selectedPatientsData.map((patient) => (
                     <Badge key={patient.id} variant="secondary" className="text-xs">
-                      {patient.name} ({patient.room})
+                      {patient.name}
                     </Badge>
                   ))}
                 </div>
@@ -377,7 +461,7 @@ export default function NewDrugTestPage() {
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={!selectedTestType || selectedPatients.length === 0 || !scheduledDate || !scheduledTime || isSubmitting}
+            disabled={!selectedTestType || selectedPatients.length === 0 || (!isRandom && (!scheduledDate || !scheduledTime)) || isSubmitting}
             className="bg-emerald-600 hover:bg-emerald-700"
           >
             {isSubmitting ? (

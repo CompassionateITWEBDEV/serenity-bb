@@ -1,4 +1,8 @@
 // app/blog/page.tsx
+// Enable static generation for blog page
+export const dynamic = "error"; // Force static generation
+export const revalidate = 86400; // Revalidate daily (ISR)
+
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 import { Button } from "@/components/ui/button";

@@ -152,7 +152,7 @@ export async function POST(req: Request) {
     // If drugTestId provided, verify it exists and belongs to the patient
     if (body.drugTestId) {
       const { data: drugTest, error: drugTestError } = await admin
-        .from("random_drug_tests")
+        .from("drug_tests")
         .select("id, patient_id, scheduled_for, status")
         .eq("id", body.drugTestId)
         .eq("patient_id", body.patientId)
@@ -208,16 +208,20 @@ export async function POST(req: Request) {
     let notificationError: any = null;
 
     // Try with patient_id (matches /api/random-tests and /api/dashboard patterns)
+    // Note: notifications table type constraint only allows 'message', 'medicine', 'alert'
+    // We'll use 'alert' type and store 'drug_test' in data.notification_type
     const insertResult = await admin
       .from("notifications")
       .insert({
         patient_id: body.patientId,
-        type: "drug_test",
+        type: "alert", // Use 'alert' type (allowed by schema constraint)
         title: "Drug Test Assigned",
         message: notificationMessage,
-        data: notificationData,
+        data: {
+          ...notificationData,
+          notification_type: "drug_test", // Store actual type in data
+        },
         read: false,
-        urgent: body.urgent,
       })
       .select()
       .single();
@@ -229,12 +233,14 @@ export async function POST(req: Request) {
           .from("notifications")
           .insert({
             user_id: body.patientId,
-            type: "drug_test",
+            type: "alert", // Use 'alert' type (allowed by schema constraint)
             title: "Drug Test Assigned",
             message: notificationMessage,
-            data: notificationData,
+            data: {
+              ...notificationData,
+              notification_type: "drug_test", // Store actual type in data
+            },
             read: false,
-            urgent: body.urgent,
           })
           .select()
           .single();

@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase/client";
 
 export interface SafeNotification {
   id: string;
-  type: 'appointment' | 'message' | 'group_message' | 'video_submission' | 'video_recording' | 'medication' | 'activity' | 'progress' | 'system';
+  type: 'appointment' | 'message' | 'group_message' | 'video_submission' | 'video_recording' | 'medication' | 'activity' | 'progress' | 'system' | 'drug_test';
   title: string;
   message: string;
   timestamp: string;
@@ -28,6 +28,7 @@ export interface SafeNotificationStats {
     activities: number;
     progress: number;
     system: number;
+    drug_tests: number;
   };
 }
 
@@ -50,14 +51,19 @@ class SafeNotificationService {
     errorMessage: string
   ): Promise<T> {
     try {
-      const { data, error } = await queryFn();
-      if (error) {
-        console.log(`${errorMessage}:`, error);
+      const result = await queryFn();
+      // The queryFn itself handles error logging, so we just extract the data
+      // If there's an error but data exists (partial success), return the data
+      if (result.error && !result.data) {
+        // Only log if queryFn didn't already log it
+        if (!result.error._logged) {
+          console.log(`${errorMessage}:`, result.error);
+        }
         return fallback;
       }
-      return data || fallback;
+      return result.data || fallback;
     } catch (error) {
-      console.log(`${errorMessage}:`, error);
+      console.log(`${errorMessage} (exception):`, error);
       return fallback;
     }
   }
@@ -213,6 +219,180 @@ class SafeNotificationService {
     return [];
   }
 
+  // Get drug test notifications from notifications table (safe version)
+  async getDrugTestNotifications(patientId: string): Promise<SafeNotification[]> {
+    if (!patientId) {
+      console.warn('getDrugTestNotifications: patientId is missing');
+      return [];
+    }
+
+    // Try API endpoint first (handles authentication better)
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      console.log(`Attempting to fetch notifications via API for patientId: ${patientId}`);
+      
+      const apiResponse = await fetch(`/api/notifications?patientId=${patientId}&limit=50`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+      });
+
+      console.log(`API response status: ${apiResponse.status}`);
+
+      if (apiResponse.ok) {
+        const apiData = await apiResponse.json();
+        console.log(`API returned ${apiData.data?.length || 0} total notifications`);
+        
+        // Filter for drug_test notifications
+        // Note: actual type is 'alert' but we check data.notification_type === 'drug_test'
+        const drugTestNotifications = (apiData.data || [])
+          .filter((n: any) => n.type === 'drug_test' || n.data?.notification_type === 'drug_test')
+          .map((notif: any) => ({
+            id: notif.id,
+            type: 'drug_test' as const,
+            title: notif.title || 'Drug Test Scheduled',
+            message: notif.message || 'You have a drug test scheduled',
+            timestamp: notif.created_at,
+            read: notif.read || false,
+            urgent: notif.urgent || notif.data?.urgent || false, // Fallback to data.urgent if column doesn't exist
+            data: notif.data || {},
+            source_id: notif.id
+          }));
+        
+        console.log(`Found ${drugTestNotifications.length} drug test notifications via API for patient ${patientId}`);
+        return drugTestNotifications;
+      } else {
+        const errorText = await apiResponse.text().catch(() => '');
+        console.warn(`API endpoint failed with status ${apiResponse.status}:`, errorText);
+      }
+    } catch (apiError: any) {
+      console.warn('API endpoint failed with exception, falling back to direct query:', apiError?.message || apiError);
+    }
+
+    // Fallback to direct query
+    // patientId is the user_id from auth.users
+    // The notifications table schema uses 'user_id' column (per migration 003_add_notifications_table.sql)
+    // However, some APIs might insert with 'patient_id' as fallback, so we try both
+    const notifications = await this.safeQuery(
+      async () => {
+        console.log(`Querying drug test notifications directly for patientId: ${patientId}`);
+        
+        // Use patient_id (this is the actual schema column per your schema)
+        // Note: notifications table type constraint only allows 'message', 'medicine', 'alert'
+        // We store drug_test notifications as type 'alert' with data.notification_type = 'drug_test'
+        // So we query all 'alert' type notifications and filter by data.notification_type
+        let result = await supabase
+          .from('notifications')
+          .select('id, type, title, message, read, created_at, data')
+          .eq('patient_id', patientId)
+          .eq('type', 'alert') // Drug tests are stored as 'alert' type
+          .order('created_at', { ascending: false })
+          .limit(50); // Get more to filter after
+        
+        // Filter results to only include drug_test notifications (check data.notification_type)
+        if (result.data) {
+          result.data = result.data.filter((n: any) => 
+            n.data?.notification_type === 'drug_test'
+          );
+        }
+        
+        console.log('Direct query result (user_id):', { 
+          hasError: !!result.error, 
+          error: result.error, 
+          dataCount: result.data?.length || 0 
+        });
+        
+        // If user_id query fails with column error, try patient_id (fallback for some schema variations)
+        if (result.error) {
+          const errorCode = result.error.code;
+          const errorMessage = result.error.message || '';
+          const isColumnError = errorCode === '42703' || 
+            (errorMessage.includes('column') && errorMessage.includes('does not exist'));
+          
+          if (isColumnError) {
+            // This shouldn't happen since schema uses patient_id, but keep for safety
+            console.log('Unexpected: patient_id column not found, trying user_id as fallback...');
+            result = await supabase
+              .from('notifications')
+              .select('id, type, title, message, read, created_at, data')
+              .eq('user_id', patientId)
+              .eq('type', 'alert') // Drug tests are stored as 'alert' type
+              .order('created_at', { ascending: false })
+              .limit(50);
+            
+            // Filter results to only include drug_test notifications
+            if (result.data) {
+              result.data = result.data.filter((n: any) => 
+                n.data?.notification_type === 'drug_test'
+              );
+            }
+            
+            console.log('Direct query result (patient_id):', { 
+              hasError: !!result.error, 
+              error: result.error, 
+              dataCount: result.data?.length || 0 
+            });
+          }
+        }
+        
+        if (result.error) {
+          // Log the raw error object to see what's actually in it
+          const errorInfo: any = {
+            hasError: true,
+            errorType: typeof result.error,
+            errorKeys: result.error ? Object.keys(result.error) : [],
+            patientId
+          };
+          
+          // Try to extract error properties safely
+          try {
+            errorInfo.errorStringified = JSON.stringify(result.error);
+            errorInfo.code = result.error?.code;
+            errorInfo.message = result.error?.message;
+            errorInfo.details = result.error?.details;
+            errorInfo.hint = result.error?.hint;
+            errorInfo.name = result.error?.name;
+          } catch (e) {
+            errorInfo.errorExtractionError = String(e);
+          }
+          
+          console.error('Final error fetching drug test notifications:', errorInfo);
+          
+          // Return empty array on error instead of throwing
+          return { data: [], error: null };
+        } else {
+          console.log(`Successfully found ${result.data?.length || 0} drug test notifications for patient ${patientId}`);
+        }
+        
+        return result;
+      },
+      [],
+      'Drug test notifications query error'
+    );
+
+    if (!notifications || notifications.length === 0) {
+      console.log(`No drug test notifications found for patient ${patientId}`);
+      return [];
+    }
+
+    return notifications.map((notif: any) => ({
+      id: notif.id,
+      type: 'drug_test' as const, // Always return as drug_test for UI
+      title: notif.title || 'Drug Test Scheduled',
+      message: notif.message || 'You have a drug test scheduled',
+      timestamp: notif.created_at,
+      read: notif.read || false,
+      urgent: notif.data?.urgent || false, // Get from data since urgent column doesn't exist
+      data: notif.data || {},
+      source_id: notif.id
+    }));
+  }
+
   // Get system notifications (fallback)
   async getSystemNotifications(): Promise<SafeNotification[]> {
     return [
@@ -242,6 +422,7 @@ class SafeNotificationService {
         medications,
         activities,
         progress,
+        drugTests,
         system
       ] = await Promise.all([
         this.getAppointmentNotifications(patientId),
@@ -252,6 +433,7 @@ class SafeNotificationService {
         this.getMedicationNotifications(patientId),
         this.getActivityNotifications(patientId),
         this.getProgressNotifications(patientId),
+        this.getDrugTestNotifications(patientId),
         this.getSystemNotifications()
       ]);
 
@@ -264,6 +446,7 @@ class SafeNotificationService {
         ...medications,
         ...activities,
         ...progress,
+        ...drugTests,
         ...system
       ];
 
@@ -292,7 +475,8 @@ class SafeNotificationService {
       medications: notifications.filter(n => n.type === 'medication').length,
       activities: notifications.filter(n => n.type === 'activity').length,
       progress: notifications.filter(n => n.type === 'progress').length,
-      system: notifications.filter(n => n.type === 'system').length
+      system: notifications.filter(n => n.type === 'system').length,
+      drug_tests: notifications.filter(n => n.type === 'drug_test').length
     };
 
     return {
@@ -308,7 +492,42 @@ class SafeNotificationService {
     // Clear existing subscriptions
     this.clearSubscriptions();
 
-    // Set up periodic refresh instead of complex real-time subscriptions
+    // Subscribe to notifications table for drug_test and other types
+    // patientId is the user_id from auth.users
+    // Schema uses patient_id column and type 'alert' for drug tests
+    const notificationsChannel = supabase
+      .channel(`safe-notifications:${patientId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `patient_id=eq.${patientId}`
+        },
+        () => {
+          console.log('Notification change detected (patient_id), refreshing...');
+          onUpdate();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'drug_tests',
+          filter: `patient_id=eq.${patientId}`
+        },
+        () => {
+          console.log('Drug test change detected, refreshing...');
+          onUpdate();
+        }
+      )
+      .subscribe();
+
+    this.channels.set(`notifications:${patientId}`, notificationsChannel);
+
+    // Set up periodic refresh as backup
     this.refreshInterval = setInterval(() => {
       onUpdate();
     }, 30000); // Refresh every 30 seconds

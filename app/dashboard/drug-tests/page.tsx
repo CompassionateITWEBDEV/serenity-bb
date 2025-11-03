@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TestTube2, Calendar, Clock, CheckCircle2, XCircle, AlertCircle, RefreshCw } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
-import { supabase } from "@/lib/supabase-browser";
+import { supabase } from "@/lib/supabase/client";
 
 interface DrugTest {
   id: string;
@@ -39,9 +39,22 @@ export default function PatientDrugTestsPage() {
       setLoading(true);
       setError(null);
       
-      const response = await fetch("/api/patient/drug-tests");
+      // Get session token for authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      const response = await fetch("/api/patient/drug-tests", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: "include",
+      });
+      
       if (!response.ok) {
-        throw new Error("Failed to load drug tests");
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to load drug tests: ${response.status}`);
       }
       
       const data = await response.json();
@@ -71,7 +84,7 @@ export default function PatientDrugTestsPage() {
         {
           event: "*",
           schema: "public",
-          table: "random_drug_tests",
+          table: "drug_tests",
           filter: `patient_id=eq.${patient.id}`,
         },
         () => {
@@ -181,7 +194,14 @@ export default function PatientDrugTestsPage() {
         ) : (
           <div className="space-y-4">
             {drugTests.map((test) => (
-              <Card key={test.id} className="hover:shadow-md transition-shadow">
+              <Card 
+                key={test.id} 
+                className="hover:shadow-md transition-shadow cursor-pointer"
+                onClick={() => {
+                  console.log('Navigating to drug test detail:', test.id);
+                  router.push(`/dashboard/drug-tests/${test.id}`);
+                }}
+              >
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-4 flex-1">
@@ -215,12 +235,21 @@ export default function PatientDrugTestsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {test.metadata?.test_type && (
-                      <div className="text-sm text-gray-600">
-                        <span className="font-medium">Type:</span>{" "}
-                        {test.metadata.test_type.charAt(0).toUpperCase() + test.metadata.test_type.slice(1)}
-                      </div>
-                    )}
+                    {test.metadata?.test_type && (() => {
+                      const testTypeMap: Record<string, string> = {
+                        urine: "Urine Drug Test",
+                        saliva: "Saliva Drug Test",
+                        hair: "Hair Follicle Test",
+                        blood: "Blood Drug Test",
+                      };
+                      const testTypeId = test.metadata.test_type;
+                      const testTypeDisplay = testTypeMap[testTypeId] || testTypeId.charAt(0).toUpperCase() + testTypeId.slice(1) + " Test";
+                      return (
+                        <div className="text-sm text-gray-600">
+                          <span className="font-medium">Type:</span> {testTypeDisplay}
+                        </div>
+                      );
+                    })()}
                     {test.status === "pending" && !test.scheduledFor && (
                       <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                         <p className="text-sm text-amber-800">

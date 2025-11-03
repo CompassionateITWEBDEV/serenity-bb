@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     
     // Create a test drug test record
     const { data: drugTest, error: drugTestError } = await supabase
-      .from('random_drug_tests')
+      .from('drug_tests')
       .insert({
         patient_id: patientId,
         scheduled_for: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Tomorrow

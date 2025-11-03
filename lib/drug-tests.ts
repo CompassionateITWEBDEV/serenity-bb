@@ -78,7 +78,11 @@ export function subscribeDrugTests(onChange: () => void): () => void {
 }
 
 /** Create a test – now surfaces server x-debug to SweetAlert. */
-export async function createDrugTest(args: { patientId: string; scheduledFor: string | null }): Promise<DrugTest> {
+export async function createDrugTest(args: { 
+  patientId: string; 
+  scheduledFor: string | null;
+  testType?: string; // e.g., "urine", "saliva", "hair", "blood"
+}): Promise<DrugTest> {
   const token = await getAccessToken();
   if (!token) {
     const err: any = new Error("Not signed in");
@@ -95,6 +99,7 @@ export async function createDrugTest(args: { patientId: string; scheduledFor: st
     body: JSON.stringify({
       patientId: args.patientId,
       scheduledFor: args.scheduledFor,
+      testType: args.testType || "urine", // Default to urine if not specified
     }),
   });
 

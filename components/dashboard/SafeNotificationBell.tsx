@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, Loader2, Calendar, MessageSquare, Users, FileText, Video, Pill, Activity, TrendingUp, AlertTriangle, Settings } from "lucide-react";
+import { Bell, Loader2, Calendar, MessageSquare, Users, FileText, Video, Pill, Activity, TrendingUp, AlertTriangle, Settings, TestTube2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
@@ -31,6 +31,7 @@ export default function SafeNotificationBell() {
       case 'medication': return <Pill className="h-4 w-4" />;
       case 'activity': return <Activity className="h-4 w-4" />;
       case 'progress': return <TrendingUp className="h-4 w-4" />;
+      case 'drug_test': return <TestTube2 className="h-4 w-4" />;
       case 'system': return <Settings className="h-4 w-4" />;
       default: return <Bell className="h-4 w-4" />;
     }
@@ -48,6 +49,7 @@ export default function SafeNotificationBell() {
       case 'medication': return 'text-pink-600 bg-pink-50 border-pink-200';
       case 'activity': return 'text-cyan-600 bg-cyan-50 border-cyan-200';
       case 'progress': return 'text-emerald-600 bg-emerald-50 border-emerald-200';
+      case 'drug_test': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
       case 'system': return 'text-gray-600 bg-gray-50 border-gray-200';
       default: return 'text-gray-600 bg-gray-50 border-gray-200';
     }
@@ -78,6 +80,7 @@ export default function SafeNotificationBell() {
       case 'medication': return 'Medication';
       case 'activity': return 'Activity';
       case 'progress': return 'Progress';
+      case 'drug_test': return 'Drug Test';
       case 'system': return 'System';
       default: return 'Notification';
     }
@@ -153,6 +156,10 @@ export default function SafeNotificationBell() {
                 <span>{stats.byType.video_submissions} videos</span>
               </div>
               <div className="flex items-center gap-1">
+                <TestTube2 className="h-3 w-3 text-yellow-500" />
+                <span>{stats.byType.drug_tests} drug tests</span>
+              </div>
+              <div className="flex items-center gap-1">
                 <Pill className="h-3 w-3 text-pink-500" />
                 <span>{stats.byType.medications} meds</span>
               </div>
@@ -189,7 +196,18 @@ export default function SafeNotificationBell() {
                   className={`p-3 border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${
                     !notification.read ? 'bg-blue-50' : ''
                   }`}
-                  onClick={() => markAsRead(notification.id)}
+                  onClick={() => {
+                    markAsRead(notification.id);
+                    // Navigate to drug test detail page if it's a drug test notification
+                    if (notification.type === 'drug_test') {
+                      const drugTestId = notification.data?.drug_test_id;
+                      if (drugTestId) {
+                        window.location.href = `/dashboard/drug-tests/${drugTestId}`;
+                      } else {
+                        window.location.href = '/dashboard/drug-tests';
+                      }
+                    }
+                  }}
                 >
                   <div className="flex items-start gap-3">
                     <div className={`p-2 rounded-full border ${getNotificationColor(notification.type, notification.urgent)}`}>

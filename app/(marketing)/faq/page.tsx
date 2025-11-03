@@ -1,4 +1,8 @@
 // app/(marketing)/faq/page.tsx
+// Enable static generation for FAQ page
+export const dynamic = "error"; // Force static generation
+export const revalidate = 86400; // Revalidate daily (ISR)
+
 import type { Metadata } from "next"
 import Script from "next/script"
 

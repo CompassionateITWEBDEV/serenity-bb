@@ -398,7 +398,7 @@ class RealDataNotificationService {
   async getDrugTestNotifications(patientId: string): Promise<RealNotification[]> {
     try {
       const { data: tests, error } = await supabase
-        .from('random_drug_tests')
+        .from('drug_tests')
         .select('*')
         .eq('patient_id', patientId)
         .order('created_at', { ascending: false })
@@ -592,7 +592,7 @@ class RealDataNotificationService {
         .on('postgres_changes', {
           event: '*',
           schema: 'public',
-          table: 'random_drug_tests',
+          table: 'drug_tests',
           filter: `patient_id=eq.${patientId}`
         }, () => onUpdate())
     ];

@@ -7,6 +7,7 @@ import { z } from "zod";
 const Body = z.object({
   patientId: z.string().uuid(),
   scheduledFor: z.string().datetime().nullable(),
+  testType: z.enum(["urine", "saliva", "hair", "blood"]).optional().default("urine"), // Actual test types
 });
 
 function json(data: any, status = 200, headers: Record<string, string> = {}) {
@@ -110,6 +111,13 @@ export async function POST(req: Request) {
         scheduled_for: body.scheduledFor,
         created_by: authed.id,
         status: "pending",
+        metadata: {
+          test_type: body.testType, // Store actual test type (urine, saliva, hair, blood)
+          collection_method: body.testType === "urine" ? "Urine Collection" 
+            : body.testType === "saliva" ? "Oral Swab"
+            : body.testType === "hair" ? "Hair Sample"
+            : "Blood Draw",
+        }
       })
       .select(
         `id, status, scheduled_for, created_at, patient_id,
@@ -119,6 +127,120 @@ export async function POST(req: Request) {
 
     if (ins.error) {
       return json({ error: ins.error.message }, 400, { "x-debug": "insert-error" });
+    }
+
+    // Create patient notification (async, don't block response)
+    try {
+      const patientName = ins.data.patients?.full_name || 
+        [ins.data.patients?.first_name, ins.data.patients?.last_name].filter(Boolean).join(" ").trim() || 
+        "Patient";
+      
+      const scheduledDate = ins.data.scheduled_for 
+        ? new Date(ins.data.scheduled_for).toLocaleDateString('en-US', {
+            weekday: 'long',
+            month: 'long', 
+            day: 'numeric',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          })
+        : "as soon as possible";
+
+      const notificationMessage = ins.data.scheduled_for
+        ? `A drug test has been scheduled for you on ${scheduledDate}. Please be prepared to take the test at the scheduled time.`
+        : `A drug test has been assigned to you. Please contact the facility to schedule your test.`;
+
+      // Insert notification into the notifications table
+      // Try patient_id first, fallback to user_id if needed
+      let notificationError: any = null;
+      let notificationSuccess = false;
+
+      // First attempt: use patient_id (preferred)
+      // Note: notifications table type constraint only allows 'message', 'medicine', 'alert'
+      // We'll use 'alert' type and store 'drug_test' in data.type
+      const insertResult = await admin
+        .from("notifications")
+        .insert({
+          patient_id: body.patientId,
+          type: "alert", // Use 'alert' type (allowed by schema constraint)
+          title: "Drug Test Assigned",
+          message: notificationMessage,
+          read: false,
+          data: {
+            notification_type: "drug_test", // Store actual type in data
+            drug_test_id: ins.data.id,
+            scheduled_for: ins.data.scheduled_for,
+            created_by: authed.id,
+            test_type: body.testType || "urine"
+          }
+        })
+        .select()
+        .single();
+
+      if (insertResult.error) {
+        // If patient_id fails, try user_id (fallback for schema compatibility)
+        if (insertResult.error.code === "42703" || 
+            (insertResult.error.message.includes("column") && insertResult.error.message.includes("does not exist"))) {
+          const fallbackResult = await admin
+            .from("notifications")
+            .insert({
+              user_id: body.patientId,
+              type: "alert", // Use 'alert' type (allowed by schema constraint)
+              title: "Drug Test Assigned",
+              message: notificationMessage,
+              read: false,
+              data: {
+                notification_type: "drug_test", // Store actual type in data
+                drug_test_id: ins.data.id,
+                scheduled_for: ins.data.scheduled_for,
+                created_by: authed.id,
+                test_type: body.testType || "urine"
+              }
+            })
+            .select()
+            .single();
+
+          if (!fallbackResult.error) {
+            notificationSuccess = true;
+          } else {
+            notificationError = fallbackResult.error;
+          }
+        } else {
+          notificationError = insertResult.error;
+        }
+      } else {
+        notificationSuccess = true;
+      }
+
+      // Send real-time notification broadcast if notification was created
+      if (notificationSuccess) {
+        try {
+          const channel = admin.channel(`patient-notifications:${body.patientId}`);
+          await channel.send({
+            type: 'broadcast',
+            event: 'drug_test_scheduled',
+            payload: {
+              drug_test_id: ins.data.id,
+              patient_id: body.patientId,
+              scheduled_for: ins.data.scheduled_for,
+              message: notificationMessage,
+              created_at: new Date().toISOString()
+            }
+          });
+          admin.removeChannel(channel);
+        } catch (channelError) {
+          console.error("Error sending real-time notification:", channelError);
+        }
+      }
+
+      if (notificationError) {
+        console.error("Error creating patient notification:", notificationError);
+      } else {
+        console.log(`Patient notification created successfully for drug test ${ins.data.id}`);
+      }
+    } catch (error) {
+      console.error("Error in patient notification creation:", error);
+      // Don't fail the drug test creation if notification fails
     }
 
     // Notify staff when drug test is created (async, don't block response)
@@ -145,11 +267,14 @@ export async function POST(req: Request) {
         : `A drug test has been assigned to ${patientName} (not yet scheduled)`;
       
       // Create notification for all active staff (runs async, won't block response)
+      // Note: createDrugTestNotificationServer will exclude the creator automatically
       createDrugTestNotificationServer(
         body.patientId,
         ins.data.id,
         patientName,
-        message
+        message,
+        undefined, // testStatus - will be 'pending' for new tests
+        "random" // testType
       ).catch((err) => {
         console.error("Failed to create staff notification for drug test:", err);
       });

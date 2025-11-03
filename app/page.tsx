@@ -7,6 +7,10 @@ import { HeroSection } from "@/components/hero-section";
 import { Footer } from "@/components/footer";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+// Enable static generation for homepage
+export const dynamic = "error"; // Force static generation
+export const revalidate = 3600; // Revalidate every hour (ISR)
+
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
   "https://serenity-b9.onrender.com";

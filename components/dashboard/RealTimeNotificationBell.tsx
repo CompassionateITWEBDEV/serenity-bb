@@ -308,7 +308,7 @@ export default function RealTimeNotificationBell() {
         .on('postgres_changes', {
           event: '*',
           schema: 'public',
-          table: 'random_drug_tests',
+          table: 'drug_tests',
           filter: `patient_id=eq.${patient.id}`
         }, () => loadNotifications()),
       

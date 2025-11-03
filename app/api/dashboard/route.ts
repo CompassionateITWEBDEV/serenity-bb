@@ -69,6 +69,13 @@ export async function GET() {
       .eq("patient_id", pid)
       .order("created_at", { ascending: false })
       .limit(10),
+    supabase
+      .from("drug_tests")
+      .select("id,status,scheduled_for,created_at,metadata")
+      .eq("patient_id", pid)
+      .in("status", ["pending", "completed", "missed"])
+      .order("created_at", { ascending: false })
+      .limit(10),
   ]);
 
   // Extract results with error handling
@@ -81,6 +88,7 @@ export async function GET() {
     weeklyResult,
     noticesResult,
     txnsResult,
+    drugTestsResult,
   ] = results;
 
   // Extract results and handle errors gracefully
@@ -115,6 +123,10 @@ export async function GET() {
   const txns = txnsResult.status === "fulfilled" && !txnsResult.value.error 
     ? txnsResult.value 
     : { data: [], error: txnsResult.status === "rejected" ? { message: "Query failed" } : txnsResult.value?.error || null };
+    
+  const drugTests = drugTestsResult.status === "fulfilled" && !drugTestsResult.value.error 
+    ? drugTestsResult.value 
+    : { data: [], error: drugTestsResult.status === "rejected" ? { message: "Query failed" } : drugTestsResult.value?.error || null };
 
   // Log warnings for failed queries (but don't fail the entire request)
   const failedQueries: string[] = [];
@@ -150,6 +162,10 @@ export async function GET() {
     console.warn("Dashboard: Failed to load token_transactions:", txns.error);
     failedQueries.push("transactions");
   }
+  if (drugTests.error) {
+    console.warn("Dashboard: Failed to load drug_tests:", drugTests.error);
+    failedQueries.push("drug tests");
+  }
 
   const overallProgress = Number(overview.data?.overall_progress ?? 0);
   const weeklyGoals = (goals.data ?? []).map((g) => ({
@@ -163,6 +179,14 @@ export async function GET() {
   }));
   const upcomingAppointments = (appts.data ?? []).map((a) => ({
     id: a.id, at: a.appointment_time, staff: a.staff ?? null, status: a.status, notes: a.notes ?? "",
+  }));
+  const upcomingDrugTests = (drugTests.data ?? []).map((t) => ({
+    id: t.id,
+    scheduledFor: t.scheduled_for,
+    status: t.status || "pending",
+    testType: (t as any).metadata?.test_type || "urine",
+    createdAt: t.created_at,
+    metadata: (t as any).metadata || {},
   }));
   const tokenStats = {
     total: Number(tokens.data?.total_tokens ?? 0),
@@ -193,6 +217,7 @@ export async function GET() {
     kpis: { sessions: upcomingAppointments.length, goals: weeklyGoals.length, tokens: tokenStats.total, progressPercent: overallProgress, unreadMessages: unread },
     treatmentProgress,
     upcomingAppointments,
+    upcomingDrugTests,
     weeklyGoals,
     tokenStats,
     wellness,

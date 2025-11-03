@@ -18,7 +18,8 @@ export function useSafeNotifications(patientId?: string | null) {
       medications: 0,
       activities: 0,
       progress: 0,
-      system: 0
+      system: 0,
+      drug_tests: 0
     }
   });
   const [loading, setLoading] = useState(true);
