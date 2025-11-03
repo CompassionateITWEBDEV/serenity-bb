@@ -38,6 +38,8 @@ export default function StaffSettingsMedicationCallbacksPage() {
   const [editingCallback, setEditingCallback] = useState<MedicationCallback | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [staffId, setStaffId] = useState<string | null>(null);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -62,27 +64,49 @@ export default function StaffSettingsMedicationCallbacksPage() {
     init();
   }, []);
 
-  // Real-time subscription
+  // Enhanced real-time subscription with detailed event handling
   useEffect(() => {
     if (!staffId) return;
 
+    console.log('[Medication Callbacks] Setting up real-time subscription for staff:', staffId);
+
     const channel = supabase
-      .channel('medication-callbacks-changes')
+      .channel(`medication-callbacks-realtime:${staffId}`)
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: '*', // Listen to INSERT, UPDATE, DELETE
           schema: 'public',
           table: 'medication_callbacks',
           filter: `staff_id=eq.${staffId}`,
         },
-        () => {
+        (payload) => {
+          console.log('[Medication Callbacks] Real-time update received:', {
+            eventType: payload.eventType,
+            new: payload.new,
+            old: payload.old,
+          });
+          
+          // Immediately reload callbacks when any change occurs
+          setLastUpdate(new Date());
           loadCallbacks(staffId);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[Medication Callbacks] Subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('[Medication Callbacks] Successfully subscribed to real-time updates');
+          setRealtimeConnected(true);
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('[Medication Callbacks] Real-time subscription error');
+          setRealtimeConnected(false);
+        } else {
+          setRealtimeConnected(false);
+        }
+      });
 
     return () => {
+      console.log('[Medication Callbacks] Cleaning up real-time subscription');
       supabase.removeChannel(channel);
     };
   }, [staffId]);
@@ -274,6 +298,7 @@ export default function StaffSettingsMedicationCallbacksPage() {
       });
 
       if (response.ok && staffId) {
+        // Real-time subscription will automatically update, but reload for immediate feedback
         await loadCallbacks(staffId);
       }
     } catch (err) {
@@ -304,6 +329,7 @@ export default function StaffSettingsMedicationCallbacksPage() {
       });
 
       if (response.ok && staffId) {
+        // Real-time subscription will automatically update, but reload for immediate feedback
         await loadCallbacks(staffId);
       }
     } catch (err) {
@@ -332,19 +358,30 @@ export default function StaffSettingsMedicationCallbacksPage() {
       </header>
 
       <main className="max-w-2xl mx-auto p-4 space-y-4">
-        {/* Filter */}
-        <div className="flex items-center gap-2">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Callbacks</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="done">Done</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-            </SelectContent>
-          </Select>
+        {/* Real-time Status Indicator */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Callbacks</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="done">Done</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <div className={`h-2 w-2 rounded-full ${realtimeConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+            <span>{realtimeConnected ? 'Live updates active' : 'Connecting...'}</span>
+            {lastUpdate && (
+              <span className="text-slate-400">
+                • Updated {lastUpdate.toLocaleTimeString()}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Error Alert */}
