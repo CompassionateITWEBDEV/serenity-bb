@@ -80,21 +80,70 @@ export default function DrugTestDetailPage() {
         baseUrl: window.location.origin
       });
       
+      // Build the full URL for better error handling
+      const apiUrl = `/api/patient/drug-tests/${testId}`;
+      const fullUrl = `${window.location.origin}${apiUrl}`;
+      
+      console.log('[Detail Page] Attempting fetch:', {
+        apiUrl,
+        fullUrl,
+        origin: window.location.origin,
+        protocol: window.location.protocol
+      });
+      
+      // Check if we're in development and server might not be running
+      if (process.env.NODE_ENV === 'development' && !window.location.origin.includes('localhost')) {
+        console.warn('[Detail Page] Development mode but not on localhost - API routes may not be available');
+      }
+      
       let response: Response;
       try {
-        response = await fetch(`/api/patient/drug-tests/${testId}`, {
+        // Add timeout to fetch request (30 seconds)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        
+        response = await fetch(apiUrl, {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           credentials: "include",
+          signal: controller.signal,
         });
+        
+        clearTimeout(timeoutId);
       } catch (fetchError: any) {
         // Network error - fetch failed completely
         console.error('[Detail Page] Fetch failed (network error):', fetchError);
+        console.error('[Detail Page] Error details:', {
+          name: fetchError?.name,
+          message: fetchError?.message,
+          stack: fetchError?.stack,
+          cause: fetchError?.cause
+        });
+        
+        // Check if it's an abort (timeout) or actual network error
+        if (fetchError?.name === 'AbortError') {
+          throw new Error(
+            "Request timeout: The server took too long to respond. Please check if the development server is running and try again."
+          );
+        }
+        
+        // Check if server is reachable
+        const errorMsg = fetchError?.message || 'Unknown network error';
+        if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError') || errorMsg.includes('ERR_')) {
+          throw new Error(
+            `Network error: Unable to connect to the server at ${window.location.origin}. ` +
+            `Please ensure:\n` +
+            `1. The development server is running (npm run dev)\n` +
+            `2. The server is accessible on ${window.location.origin}\n` +
+            `3. There are no firewall or proxy issues blocking the connection.`
+          );
+        }
+        
         throw new Error(
-          `Network error: Failed to connect to server. ${fetchError?.message || 'Please check your internet connection and try again.'}`
+          `Network error: ${errorMsg}. Please check your internet connection and try again.`
         );
       }
       
