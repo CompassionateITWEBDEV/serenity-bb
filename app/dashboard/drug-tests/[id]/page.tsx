@@ -62,23 +62,41 @@ export default function DrugTestDetailPage() {
       });
       
       // Get session token for authentication
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
+      let token: string | undefined;
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+          console.error('[Detail Page] Error getting session:', sessionError);
+        }
+        token = session?.access_token;
+      } catch (sessionErr) {
+        console.error('[Detail Page] Exception getting session:', sessionErr);
+      }
       
       console.log('[Detail Page] Fetching from API:', {
         hasToken: !!token,
         tokenPrefix: token ? token.substring(0, 20) + '...' : 'none',
-        url: `/api/patient/drug-tests/${testId}`
+        url: `/api/patient/drug-tests/${testId}`,
+        baseUrl: window.location.origin
       });
       
-      const response = await fetch(`/api/patient/drug-tests/${testId}`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        credentials: "include",
-      });
+      let response: Response;
+      try {
+        response = await fetch(`/api/patient/drug-tests/${testId}`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          credentials: "include",
+        });
+      } catch (fetchError: any) {
+        // Network error - fetch failed completely
+        console.error('[Detail Page] Fetch failed (network error):', fetchError);
+        throw new Error(
+          `Network error: Failed to connect to server. ${fetchError?.message || 'Please check your internet connection and try again.'}`
+        );
+      }
       
       console.log('[Detail Page] API response:', { 
         status: response.status, 
@@ -174,7 +192,27 @@ export default function DrugTestDetailPage() {
       setDrugTest(data.drugTest);
     } catch (err: any) {
       console.error("[Detail Page] Error loading drug test:", err);
-      setError(err.message || "Failed to load drug test");
+      console.error("[Detail Page] Error details:", {
+        name: err?.name,
+        message: err?.message,
+        stack: err?.stack,
+        cause: err?.cause
+      });
+      
+      // Provide more helpful error messages
+      let errorMessage = err.message || "Failed to load drug test";
+      
+      if (err.message?.includes("Network error") || err.message?.includes("Failed to fetch")) {
+        errorMessage = "Network error: Unable to connect to the server. Please check your internet connection and try again.";
+      } else if (err.message?.includes("Unauthorized") || err.message?.includes("401")) {
+        errorMessage = "Authentication error: Please log in again to view this drug test.";
+      } else if (err.message?.includes("Drug test not found") || err.message?.includes("404")) {
+        errorMessage = "Drug test not found. This may be due to Row Level Security (RLS) policies. Please contact support if this persists.";
+      } else if (err.message?.includes("500") || err.message?.includes("Internal server")) {
+        errorMessage = "Server error: Please try again later. If the problem persists, contact support.";
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
