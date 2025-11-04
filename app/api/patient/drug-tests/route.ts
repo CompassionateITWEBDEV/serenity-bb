@@ -83,10 +83,11 @@ export async function GET(req: Request) {
     console.log(`[API] Fetching drug tests for user: ${user.id}`);
 
     // Query with explicit patient_id filter (RLS might require this)
+    // Include all fields for full details display
     const startTime = Date.now();
     let { data: drugTests, error: drugTestsError } = await supabase
       .from("drug_tests")
-      .select("id, status, scheduled_for, created_at, metadata, patient_id")
+      .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
       .eq("patient_id", user.id)
       .order("created_at", { ascending: false });
     

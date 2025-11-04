@@ -15,7 +15,9 @@ interface DrugTest {
   status: "pending" | "completed" | "missed";
   scheduledFor: string | null;
   createdAt: string;
+  updatedAt?: string | null;
   metadata: Record<string, any>;
+  patient_id?: string;
 }
 
 export default function PatientDrugTestsPage() {
@@ -417,7 +419,8 @@ export default function PatientDrugTestsPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
+                    {/* Test Type */}
                     {test.metadata?.test_type && (() => {
                       const testTypeMap: Record<string, string> = {
                         urine: "Urine Drug Test",
@@ -429,15 +432,46 @@ export default function PatientDrugTestsPage() {
                       const testTypeDisplay = testTypeMap[testTypeId] || testTypeId.charAt(0).toUpperCase() + testTypeId.slice(1) + " Test";
                       return (
                         <div className="text-sm text-gray-600">
-                          <span className="font-medium">Type:</span> {testTypeDisplay}
+                          <span className="font-medium">Test Type:</span> {testTypeDisplay}
                         </div>
                       );
                     })()}
+                    
+                    {/* Collection Method */}
+                    {test.metadata?.collection_method && (
+                      <div className="text-sm text-gray-600">
+                        <span className="font-medium">Collection Method:</span> {test.metadata.collection_method}
+                      </div>
+                    )}
+                    
+                    {/* Test ID */}
+                    <div className="text-xs text-gray-500">
+                      <span className="font-medium">Test ID:</span> {test.id}
+                    </div>
+                    
+                    {/* Last Updated */}
+                    {test.updatedAt && test.updatedAt !== test.createdAt && (
+                      <div className="text-xs text-gray-500">
+                        <span className="font-medium">Last Updated:</span> {formatDistanceToNow(new Date(test.updatedAt), { addSuffix: true })}
+                      </div>
+                    )}
+                    
+                    {/* Action Required */}
                     {test.status === "pending" && !test.scheduledFor && (
                       <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                         <p className="text-sm text-amber-800">
                           <AlertCircle className="h-4 w-4 inline mr-2" />
                           Please contact the facility to schedule your test.
+                        </p>
+                      </div>
+                    )}
+                    
+                    {/* Scheduled Test Reminder */}
+                    {test.status === "pending" && test.scheduledFor && new Date(test.scheduledFor) > new Date() && (
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p className="text-sm text-blue-800">
+                          <Clock className="h-4 w-4 inline mr-2" />
+                          Your test is scheduled. Please arrive on time.
                         </p>
                       </div>
                     )}
