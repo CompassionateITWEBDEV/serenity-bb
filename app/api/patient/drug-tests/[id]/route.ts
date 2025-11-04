@@ -112,7 +112,7 @@ export async function GET(
     });
     
     // Warn about whitespace issues
-    if (anonHasWhitespace) {
+    if (anonHasWhitespace && anon) {
       console.error(`[API] [${requestId}] ⚠️ WARNING: API key contains whitespace! This can cause PGRST302 errors.`);
       console.error(`[API] [${requestId}] API key has spaces: ${anon.includes(' ')}`);
       console.error(`[API] [${requestId}] API key has newlines: ${anon.includes('\n') || anon.includes('\r')}`);
