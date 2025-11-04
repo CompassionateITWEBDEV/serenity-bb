@@ -157,7 +157,6 @@ export async function GET(
     }
     
     // Check if the key appears to be for the correct project
-    const expectedProjectRef = "cycakdfxcsjknxkqpasp"; // From the working client-side URL
     if (!supabaseUrl.includes(expectedProjectRef)) {
       console.warn(`[API] [${requestId}] ⚠️ Supabase URL doesn't match expected project ref: ${expectedProjectRef}`);
     }
