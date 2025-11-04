@@ -15,3 +15,6 @@ WHERE pubname = 'supabase_realtime'
 -- If the above query returns a row, real-time is enabled
 -- If no row is returned, run the ALTER PUBLICATION command above
 
+
+
+

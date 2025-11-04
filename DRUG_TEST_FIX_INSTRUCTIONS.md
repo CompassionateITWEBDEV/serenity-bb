@@ -130,3 +130,6 @@ The API route includes a service role fallback that:
 1. `app/api/patient/drug-tests/[id]/route.ts` - Improved RLS handling and service role fallback
 2. `scripts/fix_drug_tests_rls_for_patients.sql` - RLS policy creation script
 
+
+
+

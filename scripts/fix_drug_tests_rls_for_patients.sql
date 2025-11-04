@@ -37,3 +37,6 @@ WHERE tablename = 'drug_tests' AND policyname = 'Patients can view own drug test
 -- Expected result: The policy should allow patients to SELECT their own drug tests
 -- where auth.uid() matches drug_tests.patient_id
 
+
+
+
