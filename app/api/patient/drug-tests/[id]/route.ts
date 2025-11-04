@@ -204,8 +204,7 @@ export async function GET(
           code: testError.code,
           message: testError.message,
           details: testError.details,
-          hint: testError.hint,
-          status: testError.status
+          hint: testError.hint
         });
         
         // Check specifically for API key errors
@@ -214,7 +213,7 @@ export async function GET(
             testError.message?.toLowerCase().includes("api key") ||
             testError.code === "PGRST301" ||
             testError.code === "PGRST302" ||
-            testError.status === 401) {
+            testError.code === "PGRST401") {
           console.error(`[API] [${requestId}] ❌ CRITICAL: API key authentication failed`);
           console.error(`[API] [${requestId}] Expected Supabase URL: https://cycakdfxcsjknxkqpasp.supabase.co`);
           console.error(`[API] [${requestId}] Actual Supabase URL: ${supabaseUrl}`);
