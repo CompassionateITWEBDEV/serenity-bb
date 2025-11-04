@@ -100,15 +100,16 @@ FROM pg_tables
 WHERE schemaname = 'public' AND tablename = 'drug_tests';
 
 -- List all policies (should only show 4 clean policies)
+-- Note: INSERT policies use WITH CHECK, SELECT/UPDATE use USING (qual)
 SELECT 
   policyname,
   cmd as operation,
   roles as applied_to,
-  qual as policy_condition,
+  COALESCE(qual, with_check) as policy_condition,
   CASE 
     WHEN policyname = 'Patients can view own drug tests' AND qual LIKE '%patient_id%' AND qual LIKE '%auth.uid()%' THEN '✅ Correct'
     WHEN policyname = 'Staff can view all drug tests' AND qual LIKE '%staff%' AND qual LIKE '%auth.uid()%' THEN '✅ Correct'
-    WHEN policyname = 'Staff can create drug tests' AND qual LIKE '%staff%' AND qual LIKE '%auth.uid()%' THEN '✅ Correct'
+    WHEN policyname = 'Staff can create drug tests' AND (with_check LIKE '%staff%' AND with_check LIKE '%auth.uid()%') THEN '✅ Correct'
     WHEN policyname = 'Staff can update drug tests' AND qual LIKE '%staff%' AND qual LIKE '%auth.uid()%' THEN '✅ Correct'
     ELSE '⚠️ Review needed'
   END as verification
