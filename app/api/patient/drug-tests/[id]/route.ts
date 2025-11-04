@@ -269,10 +269,17 @@ export async function GET(
     // We'll check patient record only if needed for debugging
     const startTime = Date.now();
     
-    // Test the connection first to catch API key errors early
-    // Note: This test query might fail due to RLS, so we'll check for specific API key errors only
+    // Skip connection test since we've already authenticated successfully
+    // If the API key was invalid, auth.getUser() would have failed
+    // This test query can fail due to RLS even with valid API key, so we skip it
+    console.log(`[API] [${requestId}] Skipping connection test - authentication already successful`);
+    let connectionTestPassed = true;
+    
+    // Only run connection test if you really need to verify API key before query
+    // Since we've already authenticated, the API key is valid
+    // Uncomment below if you want to test anyway:
+    /*
     console.log(`[API] [${requestId}] Testing Supabase connection with configured key...`);
-    let connectionTestPassed = false;
     try {
       // Try a simple query that should work even with RLS (if authenticated)
       const { data: testConnection, error: testError } = await supabase
@@ -299,9 +306,12 @@ export async function GET(
           testError.message?.includes("JWT") ||
           testError.message?.toLowerCase().includes("invalid api key") ||
           testError.message?.toLowerCase().includes("authentication failed") ||
+          testError.message?.toLowerCase().includes("invalid") && testError.message?.toLowerCase().includes("key") ||
           testError.code === "PGRST302" || // Invalid API key
           testError.code === "PGRST401" || // Unauthorized
-          (testError.code === "PGRST301" && testError.message?.toLowerCase().includes("api key")); // Some 301s are API key issues
+          testError.code === "PGRST301" || // Some 301s are API key issues
+          testError.code === "bad_jwt" || // JWT parsing error
+          testError.code === "invalid_token"; // Token validation error
         
         if (isApiKeyError) {
           console.error(`[API] [${requestId}] ❌ CRITICAL: API key authentication failed`);
@@ -310,10 +320,19 @@ export async function GET(
           console.error(`[API] [${requestId}] Key length: ${anon.length}, starts with: ${anon.substring(0, 10)}`);
           console.error(`[API] [${requestId}] Full error object:`, JSON.stringify(testError, Object.getOwnPropertyNames(testError)));
           
+          // Log the full Supabase error for debugging
+          console.error(`[API] [${requestId}] ========== FULL SUPABASE ERROR OBJECT ==========`);
+          console.error(`[API] [${requestId}] Error Code:`, testError.code);
+          console.error(`[API] [${requestId}] Error Message:`, testError.message);
+          console.error(`[API] [${requestId}] Error Details:`, testError.details);
+          console.error(`[API] [${requestId}] Error Hint:`, testError.hint);
+          console.error(`[API] [${requestId}] Full Error (JSON):`, JSON.stringify(testError, Object.getOwnPropertyNames(testError)));
+          console.error(`[API] [${requestId}] ================================================`);
+          
           return NextResponse.json({ 
             error: "Server configuration error",
             details: "Invalid API key detected. The Supabase API key in Vercel environment variables is incorrect, expired, or doesn't match the Supabase project.",
-            hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application\n6. Check for hidden characters (spaces, newlines) in the key",
+            hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application\n6. Check for hidden characters (spaces, newlines) in the key\n7. Make sure the key matches the project ref: cycakdfxcsjknxkqpasp",
             debug: {
               errorCode: testError.code,
               errorMessage: testError.message,
@@ -325,7 +344,9 @@ export async function GET(
               keySuffix: anon.substring(anon.length - 10),
               keyHasSpaces: anon.includes(' '),
               keyHasNewlines: anon.includes('\n') || anon.includes('\r'),
+              keyStartsWithEyJ: anon.startsWith('eyJ'),
               urlMatchesProject: supabaseUrl.includes("cycakdfxcsjknxkqpasp"),
+              expectedProjectRef: "cycakdfxcsjknxkqpasp",
               requestId: requestId
             }
           }, { status: 500 });
@@ -359,6 +380,7 @@ export async function GET(
       // For other exceptions, log but continue - the actual query will provide better error info
       console.warn(`[API] [${requestId}] ⚠️ Connection test exception, but continuing with actual query...`);
     }
+    */
     
     let { data: drugTest, error: drugTestError } = await supabase
       .from("drug_tests")
