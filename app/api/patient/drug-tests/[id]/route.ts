@@ -178,16 +178,39 @@ export async function GET(
     });
 
     // Auth - try cookie-based first, fallback to Bearer token
+    console.log(`[API] [${requestId}] Attempting authentication...`);
+    
+    // Check for cookies
+    const cookieNames = cookieStore.getAll().map(c => c.name);
+    const supabaseCookies = cookieNames.filter(name => name.includes('supabase') || name.includes('sb-'));
+    console.log(`[API] [${requestId}] Found cookies: ${cookieNames.length} total, ${supabaseCookies.length} Supabase-related`);
+    console.log(`[API] [${requestId}] Supabase cookie names:`, supabaseCookies);
+    
     const { data: cookieAuth, error: cookieErr } = await supabase.auth.getUser();
     let user = cookieAuth?.user;
     let authError = cookieErr;
 
+    console.log(`[API] [${requestId}] Cookie auth result:`, {
+      hasUser: !!user,
+      userId: user?.id,
+      errorCode: cookieErr?.code,
+      errorMessage: cookieErr?.message,
+    });
+
     // Fallback to Bearer token if cookie auth fails
     if ((!user || cookieErr) && req.headers) {
       const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
+      const hasAuthHeader = !!authHeader;
       const bearer = authHeader.toLowerCase().startsWith("bearer ")
         ? authHeader.slice(7).trim()
         : null;
+
+      console.log(`[API] [${requestId}] Bearer token check:`, {
+        hasAuthHeader,
+        headerLength: authHeader.length,
+        hasBearer: !!bearer,
+        bearerPrefix: bearer ? bearer.substring(0, 20) + '...' : null,
+      });
 
       if (bearer) {
         const { createClient: createSbClient } = await import("@supabase/supabase-js");
@@ -196,6 +219,14 @@ export async function GET(
           auth: { persistSession: false, autoRefreshToken: false },
         });
         const { data: bearerAuth, error: bearerErr } = await supabaseBearer.auth.getUser();
+        
+        console.log(`[API] [${requestId}] Bearer auth result:`, {
+          hasUser: !!bearerAuth?.user,
+          userId: bearerAuth?.user?.id,
+          errorCode: bearerErr?.code,
+          errorMessage: bearerErr?.message,
+        });
+        
         if (bearerErr) {
           authError = bearerErr;
         } else {
@@ -206,8 +237,29 @@ export async function GET(
     }
 
     if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      console.error(`[API] [${requestId}] ❌ Authentication failed:`, {
+        cookieAuthError: cookieErr?.message,
+        bearerAuthError: authError?.message,
+        hasUser: !!user,
+        cookieCount: cookieNames.length,
+        supabaseCookieCount: supabaseCookies.length,
+      });
+      
+      return NextResponse.json({ 
+        error: "Unauthorized",
+        details: "Please log in again to view this drug test.",
+        hint: authError?.message || "Your session may have expired. Please refresh the page or log in again.",
+        debug: {
+          requestId: requestId,
+          cookieCount: cookieNames.length,
+          supabaseCookieCount: supabaseCookies.length,
+          authErrorCode: authError?.code,
+          authErrorMessage: authError?.message,
+        }
+      }, { status: 401 });
     }
+
+    console.log(`[API] [${requestId}] ✅ Authentication successful for user: ${user.id}`);
 
     console.log(`[API] Fetching drug test: ${finalTestId} for user: ${user.id}`);
     
