@@ -80,25 +80,51 @@ export async function GET(
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    // Log environment variable status for debugging
+    console.log(`[API] [${requestId}] Environment variable check:`, {
+      urlExists: !!supabaseUrl,
+      urlLength: supabaseUrl?.length || 0,
+      urlPreview: supabaseUrl ? `${supabaseUrl.substring(0, 30)}...` : "MISSING",
+      anonExists: !!anon,
+      anonLength: anon?.length || 0,
+      anonPrefix: anon ? `${anon.substring(0, 20)}...` : "MISSING",
+      allEnvKeys: Object.keys(process.env).filter(k => k.includes("SUPABASE")).join(", ")
+    });
+    
     if (!supabaseUrl || !anon) {
-      console.error("[API] ❌ CRITICAL: Supabase environment variables missing");
-      console.error("[API] NEXT_PUBLIC_SUPABASE_URL:", supabaseUrl ? "SET" : "MISSING");
-      console.error("[API] NEXT_PUBLIC_SUPABASE_ANON_KEY:", anon ? "SET" : "MISSING");
+      console.error(`[API] [${requestId}] ❌ CRITICAL: Supabase environment variables missing`);
+      console.error(`[API] [${requestId}] NEXT_PUBLIC_SUPABASE_URL:`, supabaseUrl ? "SET" : "MISSING");
+      console.error(`[API] [${requestId}] NEXT_PUBLIC_SUPABASE_ANON_KEY:`, anon ? "SET" : "MISSING");
+      console.error(`[API] [${requestId}] Available env vars with SUPABASE:`, Object.keys(process.env).filter(k => k.includes("SUPABASE")));
       return NextResponse.json({ 
         error: "Server configuration error",
         details: "Supabase configuration missing. Please check environment variables.",
-        hint: "Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel"
+        hint: "Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel",
+        debug: {
+          urlExists: !!supabaseUrl,
+          anonExists: !!anon,
+          availableEnvVars: Object.keys(process.env).filter(k => k.includes("SUPABASE")),
+          requestId: requestId
+        }
       }, { status: 500 });
     }
     
     // Validate API key format (basic check)
     if (anon.length < 100 || !anon.startsWith("eyJ")) {
-      console.error("[API] ❌ CRITICAL: Supabase API key format appears invalid");
-      console.error("[API] API key length:", anon.length, "starts with:", anon.substring(0, 10));
+      console.error(`[API] [${requestId}] ❌ CRITICAL: Supabase API key format appears invalid`);
+      console.error(`[API] [${requestId}] API key length:`, anon.length, "starts with:", anon.substring(0, 10));
+      console.error(`[API] [${requestId}] Full key (first 50 chars):`, anon.substring(0, 50));
       return NextResponse.json({ 
         error: "Server configuration error",
         details: "Invalid API key format detected. Please verify NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel.",
-        hint: "The API key should be a JWT token starting with 'eyJ'. Get it from your Supabase project settings."
+        hint: "The API key should be a JWT token starting with 'eyJ'. Get it from your Supabase project settings.",
+        debug: {
+          keyLength: anon.length,
+          keyPrefix: anon.substring(0, 50),
+          keyStartsWithEyJ: anon.startsWith("eyJ"),
+          requestId: requestId
+        }
       }, { status: 500 });
     }
     
