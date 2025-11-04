@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs"; // Ensure Node.js runtime for Vercel (not Edge)
 // Increase timeout for Vercel Pro plan (60s) or Hobby plan (10s)
 // This route may need more time due to database queries and RLS fallback
 export const maxDuration = 60; // Maximum for Pro plan, will be capped at 10s for Hobby
@@ -26,12 +27,24 @@ export async function GET(req: Request) {
       }, { status: 500 });
     }
 
-    const store = await cookies();
+    const cookieStore = await cookies();
     const supabase = createServerClient(url, anon, {
       cookies: {
-        get: (k) => store.get(k)?.value,
-        set: (k, v, o) => store.set(k, v, o),
-        remove: (k, o) => store.set(k, "", { ...o, maxAge: 0 }),
+        get: (name: string) => cookieStore.get(name)?.value,
+        set: (name: string, value: string, options: any) => {
+          try {
+            cookieStore.set({ name, value, ...options });
+          } catch {
+            // Edge runtime limitations
+          }
+        },
+        remove: (name: string, options: any) => {
+          try {
+            cookieStore.set({ name, value: "", ...options, maxAge: 0 });
+          } catch {
+            // Edge runtime limitations
+          }
+        },
       },
     });
 

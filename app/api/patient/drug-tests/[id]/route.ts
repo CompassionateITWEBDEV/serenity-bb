@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs"; // Ensure Node.js runtime for Vercel (not Edge)
 // Increase timeout for Vercel Pro plan (60s) or Hobby plan (10s)
 // This route may need more time due to multiple database queries and RLS fallback
 export const maxDuration = 60; // Maximum for Pro plan, will be capped at 10s for Hobby
@@ -18,11 +19,24 @@ export async function GET(
   // CRITICAL: Log immediately - this confirms the route is being called
   // Generate requestId outside try block so it's available in catch
   const requestId = Math.random().toString(36).substring(7);
+  
+  // Log to multiple outputs to ensure visibility
+  const logMessage = `[API] [${requestId}] Route handler executing at ${new Date().toISOString()}`;
   console.error(`[API] [${requestId}] ========== ROUTE HANDLER EXECUTING ==========`);
   console.error(`[API] [${requestId}] GET /api/patient/drug-tests/[id] CALLED`);
   console.error(`[API] [${requestId}] Request URL:`, req.url);
   console.error(`[API] [${requestId}] Request method:`, req.method);
   console.error(`[API] [${requestId}] Timestamp:`, new Date().toISOString());
+  console.error(`[API] [${requestId}] Runtime: nodejs`);
+  
+  // Try to write to stderr as well (for Vercel logs)
+  try {
+    if (typeof process !== 'undefined' && process.stderr && process.stderr.write) {
+      process.stderr.write(`${logMessage}\n`);
+    }
+  } catch (e) {
+    // Ignore if stderr is not available
+  }
   
   try {
     // Handle params as either Promise or direct object (for Next.js version compatibility)
@@ -77,12 +91,24 @@ export async function GET(
       }, { status: 500 });
     }
 
-    const store = await cookies();
+    const cookieStore = await cookies();
     const supabase = createServerClient(supabaseUrl, anon, {
       cookies: {
-        get: (k) => store.get(k)?.value,
-        set: (k, v, o) => store.set(k, v, o),
-        remove: (k, o) => store.set(k, "", { ...o, maxAge: 0 }),
+        get: (name: string) => cookieStore.get(name)?.value,
+        set: (name: string, value: string, options: any) => {
+          try {
+            cookieStore.set({ name, value, ...options });
+          } catch {
+            // Edge runtime limitations
+          }
+        },
+        remove: (name: string, options: any) => {
+          try {
+            cookieStore.set({ name, value: "", ...options, maxAge: 0 });
+          } catch {
+            // Edge runtime limitations
+          }
+        },
       },
     });
 
