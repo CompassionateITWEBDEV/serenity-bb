@@ -123,10 +123,25 @@ export default function PatientDrugTestsPage() {
               `Current URL: ${currentOrigin}`
             );
           } else {
-            // Production error
+            // Production error with helpful troubleshooting
+            const isVercel = window.location.hostname.includes('vercel.app') || 
+                           window.location.hostname.includes('src.health');
+            const troubleshooting = isVercel
+              ? `\n\nThis may be due to:\n` +
+                `1. Vercel serverless function timeout or error\n` +
+                `2. Missing environment variables (NEXT_PUBLIC_SUPABASE_URL, etc.)\n` +
+                `3. API route error - check Vercel Function logs\n` +
+                `4. Database connection issue\n\n` +
+                `Please contact support or check Vercel deployment logs.`
+              : `\n\nPlease check:\n` +
+                `1. Your internet connection\n` +
+                `2. Server status\n` +
+                `3. Try refreshing the page\n` +
+                `4. Contact support if the issue persists`;
+            
             throw new Error(
-              `Network error: Unable to connect to the server at ${window.location.origin}. ` +
-              `Please check your internet connection and try again.`
+              `Network error: Unable to connect to the server at ${window.location.origin}.` +
+              troubleshooting
             );
           }
         }
@@ -143,8 +158,20 @@ export default function PatientDrugTestsPage() {
           );
         }
         
+        // Production generic network error
+        const isVercel = window.location.hostname.includes('vercel.app') || 
+                        window.location.hostname.includes('src.health');
+        const prodTroubleshooting = isVercel
+          ? `\n\nPossible causes:\n` +
+            `• Vercel serverless function error (check deployment logs)\n` +
+            `• Missing environment variables\n` +
+            `• Function timeout (max 10s on Hobby, 60s on Pro)\n` +
+            `• Database connection issue\n\n` +
+            `Please check Vercel Function logs or contact support.`
+          : `\n\nPlease check your internet connection and try again. If the issue persists, contact support.`;
+        
         throw new Error(
-          `Network error: ${errorMsg}. Please check your internet connection and try again.`
+          `Network error: ${errorMsg}${prodTroubleshooting}`
         );
       }
       
