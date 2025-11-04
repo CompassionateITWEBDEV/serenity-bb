@@ -263,7 +263,17 @@ export default function PatientDrugTestsPage() {
       }
       
       const data = await response.json();
-      setDrugTests(data.drugTests || []);
+      const tests = data.drugTests || [];
+      
+      // Sort by created_at DESC to ensure newest is always first
+      const sortedTests = [...tests].sort((a, b) => {
+        const dateA = new Date(a.createdAt).getTime();
+        const dateB = new Date(b.createdAt).getTime();
+        return dateB - dateA; // Descending order (newest first)
+      });
+      
+      console.log('[Drug Tests] Loaded', sortedTests.length, 'drug tests. Latest:', sortedTests[0]?.id);
+      setDrugTests(sortedTests);
     } catch (err: any) {
       console.error("Error loading drug tests:", err);
       
@@ -312,6 +322,8 @@ export default function PatientDrugTestsPage() {
   useEffect(() => {
     if (!patient?.id) return;
 
+    console.log('[Drug Tests] Setting up real-time subscription for patient:', patient.id);
+
     const channel = supabase
       .channel(`patient-drug-tests:${patient.id}`)
       .on(
@@ -322,13 +334,43 @@ export default function PatientDrugTestsPage() {
           table: "drug_tests",
           filter: `patient_id=eq.${patient.id}`,
         },
-        () => {
-          loadDrugTests();
+        (payload) => {
+          console.log('[Drug Tests] Real-time update received:', payload.eventType, payload);
+          
+          // If it's an INSERT, we know it's a new test - reload immediately
+          if (payload.eventType === 'INSERT') {
+            console.log('[Drug Tests] New drug test inserted, reloading list...');
+            // Immediately reload to show the new test
+            loadDrugTests();
+          } else if (payload.eventType === 'UPDATE') {
+            console.log('[Drug Tests] Drug test updated, reloading list...');
+            // Reload to show updated info
+            loadDrugTests();
+          } else if (payload.eventType === 'DELETE') {
+            console.log('[Drug Tests] Drug test deleted, reloading list...');
+            // Reload to remove deleted test
+            loadDrugTests();
+          } else {
+            // For any other event type, reload
+            loadDrugTests();
+          }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[Drug Tests] Real-time subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('[Drug Tests] ✅ Real-time subscription active');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('[Drug Tests] ❌ Real-time subscription error');
+        } else if (status === 'TIMED_OUT') {
+          console.warn('[Drug Tests] ⚠️ Real-time subscription timed out');
+        } else if (status === 'CLOSED') {
+          console.log('[Drug Tests] Real-time subscription closed');
+        }
+      });
 
     return () => {
+      console.log('[Drug Tests] Cleaning up real-time subscription');
       supabase.removeChannel(channel);
     };
   }, [patient?.id]);
@@ -442,15 +484,20 @@ export default function PatientDrugTestsPage() {
           <div className="space-y-4">
             {drugTests.map((test, index) => {
               // Mark the first (newest) test as "Latest"
+              // Since API sorts by created_at DESC, index 0 is always the newest
               const isLatest = index === 0;
               const createdDate = new Date(test.createdAt);
               const isRecent = (Date.now() - createdDate.getTime()) < 24 * 60 * 60 * 1000; // Within last 24 hours
+              
+              // Always show "Latest" badge for the newest test (first in array)
+              // Not just if it's recent - if it's the newest, mark it
+              const shouldShowLatest = isLatest;
               
               return (
               <Card 
                 key={test.id} 
                 className={`hover:shadow-md transition-shadow cursor-pointer ${
-                  isLatest && isRecent ? 'border-l-4 border-l-cyan-500' : ''
+                  shouldShowLatest ? 'border-l-4 border-l-cyan-500 shadow-sm' : ''
                 }`}
                 onClick={() => {
                   console.log('Navigating to drug test detail:', test.id);
@@ -468,8 +515,8 @@ export default function PatientDrugTestsPage() {
                           <CardTitle className="text-lg">
                             Drug Test Assignment
                           </CardTitle>
-                          {isLatest && isRecent && (
-                            <Badge className="bg-cyan-100 text-cyan-800 hover:bg-cyan-100 text-xs">
+                          {shouldShowLatest && (
+                            <Badge className="bg-cyan-100 text-cyan-800 hover:bg-cyan-100 text-xs animate-pulse">
                               Latest
                             </Badge>
                           )}
