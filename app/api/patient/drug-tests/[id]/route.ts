@@ -78,48 +78,16 @@ export async function GET(
       }, { status: 400 });
     }
 
-    // Get environment variables with detailed diagnostics
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
-    
-    // Expected values based on working client-side connection
-    const expectedUrl = "https://cycakdfxcsjknxkqpasp.supabase.co";
-    const expectedProjectRef = "cycakdfxcsjknxkqpasp";
-    
     if (!supabaseUrl || !anon) {
-      console.error(`[API] [${requestId}] ❌ CRITICAL: Supabase environment variables missing`);
-      console.error(`[API] [${requestId}] NEXT_PUBLIC_SUPABASE_URL:`, supabaseUrl ? "SET" : "MISSING");
-      console.error(`[API] [${requestId}] NEXT_PUBLIC_SUPABASE_ANON_KEY:`, anon ? "SET" : "MISSING");
-      console.error(`[API] [${requestId}] Expected URL: ${expectedUrl}`);
-      console.error(`[API] [${requestId}] Actual URL: ${supabaseUrl || "NOT SET"}`);
-      
+      console.error("[API] ❌ CRITICAL: Supabase environment variables missing");
+      console.error("[API] NEXT_PUBLIC_SUPABASE_URL:", supabaseUrl ? "SET" : "MISSING");
+      console.error("[API] NEXT_PUBLIC_SUPABASE_ANON_KEY:", anon ? "SET" : "MISSING");
       return NextResponse.json({ 
         error: "Server configuration error",
-        details: "Supabase configuration missing. Please check environment variables in Vercel.",
-        hint: `1. Go to Vercel Dashboard → Your Project → Settings → Environment Variables
-2. Set NEXT_PUBLIC_SUPABASE_URL to: ${expectedUrl}
-3. Set NEXT_PUBLIC_SUPABASE_ANON_KEY to the anon/public key from Supabase Dashboard
-4. Make sure both are set for "Production" environment
-5. Redeploy the application`,
-        diagnostics: {
-          urlSet: !!supabaseUrl,
-          keySet: !!anon,
-          expectedUrl,
-          serviceKeySet: !!serviceKey
-        }
-      }, { status: 500 });
-    }
-    
-    // Check if URL matches expected project
-    if (supabaseUrl !== expectedUrl && !supabaseUrl.includes(expectedProjectRef)) {
-      console.error(`[API] [${requestId}] ❌ CRITICAL: Supabase URL mismatch`);
-      console.error(`[API] [${requestId}] Expected: ${expectedUrl}`);
-      console.error(`[API] [${requestId}] Actual: ${supabaseUrl}`);
-      return NextResponse.json({ 
-        error: "Server configuration error",
-        details: `Supabase URL mismatch. Expected ${expectedUrl}, but got ${supabaseUrl}`,
-        hint: `Update NEXT_PUBLIC_SUPABASE_URL in Vercel to: ${expectedUrl}`
+        details: "Supabase configuration missing. Please check environment variables.",
+        hint: "Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel"
       }, { status: 500 });
     }
     
@@ -157,6 +125,7 @@ export async function GET(
     }
     
     // Check if the key appears to be for the correct project
+    const expectedProjectRef = "cycakdfxcsjknxkqpasp"; // From the working client-side URL
     if (!supabaseUrl.includes(expectedProjectRef)) {
       console.warn(`[API] [${requestId}] ⚠️ Supabase URL doesn't match expected project ref: ${expectedProjectRef}`);
     }
@@ -223,68 +192,76 @@ export async function GET(
     const startTime = Date.now();
     
     // Test the connection first to catch API key errors early
+    // Note: This test query might fail due to RLS, so we'll check for specific API key errors only
     console.log(`[API] [${requestId}] Testing Supabase connection with configured key...`);
+    let connectionTestPassed = false;
     try {
+      // Try a simple query that should work even with RLS (if authenticated)
       const { data: testConnection, error: testError } = await supabase
         .from("drug_tests")
         .select("id")
         .limit(1);
       
       if (testError) {
-        console.error(`[API] [${requestId}] ❌ Supabase connection test failed:`, {
+        // Log the full error for debugging
+        const fullError = {
           code: testError.code,
           message: testError.message,
           details: testError.details,
-          hint: testError.hint
-        });
+          hint: testError.hint,
+          status: (testError as any).status,
+          statusCode: (testError as any).statusCode,
+        };
+        console.error(`[API] [${requestId}] ❌ Supabase connection test failed:`, JSON.stringify(fullError, null, 2));
         
-        // Check specifically for API key errors
-        if (testError.message?.includes("Invalid API key") || 
-            testError.message?.includes("JWT") ||
-            testError.message?.toLowerCase().includes("api key") ||
-            testError.code === "PGRST301" ||
-            testError.code === "PGRST302" ||
-            testError.code === "PGRST401") {
+        // Only return error if it's specifically an API key authentication error
+        // RLS errors (PGRST301) or other errors might be acceptable at this stage
+        const isApiKeyError = 
+          testError.message?.includes("Invalid API key") || 
+          testError.message?.includes("JWT") ||
+          testError.message?.toLowerCase().includes("invalid api key") ||
+          testError.message?.toLowerCase().includes("authentication failed") ||
+          testError.code === "PGRST302" || // Invalid API key
+          testError.code === "PGRST401" || // Unauthorized
+          (testError.code === "PGRST301" && testError.message?.toLowerCase().includes("api key")); // Some 301s are API key issues
+        
+        if (isApiKeyError) {
           console.error(`[API] [${requestId}] ❌ CRITICAL: API key authentication failed`);
           console.error(`[API] [${requestId}] Expected Supabase URL: https://cycakdfxcsjknxkqpasp.supabase.co`);
           console.error(`[API] [${requestId}] Actual Supabase URL: ${supabaseUrl}`);
           console.error(`[API] [${requestId}] Key length: ${anon.length}, starts with: ${anon.substring(0, 10)}`);
-          
-          // Provide detailed fix instructions
-          const fixInstructions = {
-            step1: "Go to Supabase Dashboard → Your Project → Settings → API",
-            step2: "Copy the 'anon/public' key (starts with eyJ...)",
-            step3: "Go to Vercel Dashboard → Your Project → Settings → Environment Variables",
-            step4: `Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the copied value`,
-            step5: "Ensure it's set for 'Production' environment (not just Development)",
-            step6: "Save and redeploy the application",
-            expectedUrl: expectedUrl,
-            actualUrl: supabaseUrl,
-            keyLength: anon.length,
-            keyFormat: anon.startsWith("eyJ") ? "valid" : "invalid"
-          };
-          
-          console.error(`[API] [${requestId}] ❌ CRITICAL: API key authentication failed`);
-          console.error(`[API] [${requestId}] Fix instructions:`, fixInstructions);
+          console.error(`[API] [${requestId}] Full error object:`, JSON.stringify(testError, Object.getOwnPropertyNames(testError)));
           
           return NextResponse.json({ 
             error: "Server configuration error",
             details: "Invalid API key detected. The Supabase API key in Vercel environment variables is incorrect, expired, or doesn't match the Supabase project.",
-            hint: `1. ${fixInstructions.step1}\n2. ${fixInstructions.step2}\n3. ${fixInstructions.step3}\n4. ${fixInstructions.step4}\n5. ${fixInstructions.step5}\n6. ${fixInstructions.step6}`,
-            diagnostics: {
-              expectedUrl: fixInstructions.expectedUrl,
-              actualUrl: fixInstructions.actualUrl,
-              keyLength: fixInstructions.keyLength,
-              keyFormat: fixInstructions.keyFormat,
-              keyPrefix: anon.substring(0, 20) + "..."
+            hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application",
+            debug: {
+              errorCode: testError.code,
+              errorMessage: testError.message,
+              supabaseUrl: supabaseUrl,
+              keyLength: anon.length,
+              keyPrefix: anon.substring(0, 20)
             }
           }, { status: 500 });
+        } else {
+          // Not an API key error - might be RLS or other issue, continue
+          console.log(`[API] [${requestId}] ⚠️ Connection test failed but not due to API key (likely RLS): ${testError.code} - ${testError.message}`);
+          connectionTestPassed = true; // We'll continue, the actual query will handle the error
         }
       } else {
+        connectionTestPassed = true;
         console.log(`[API] [${requestId}] ✅ Supabase connection test passed`);
       }
     } catch (testConnErr: any) {
       console.error(`[API] [${requestId}] ❌ Exception testing Supabase connection:`, testConnErr);
+      console.error(`[API] [${requestId}] Exception details:`, {
+        name: testConnErr?.name,
+        message: testConnErr?.message,
+        code: testConnErr?.code,
+        stack: testConnErr?.stack?.substring(0, 500)
+      });
+      
       // If it's a network error, that's different from an API key error
       if (testConnErr.message?.includes("ECONNREFUSED") || testConnErr.message?.includes("ENOTFOUND")) {
         return NextResponse.json({ 
@@ -293,6 +270,9 @@ export async function GET(
           hint: "Check if your Supabase project is active and accessible"
         }, { status: 503 });
       }
+      
+      // For other exceptions, log but continue - the actual query will provide better error info
+      console.warn(`[API] [${requestId}] ⚠️ Connection test exception, but continuing with actual query...`);
     }
     
     let { data: drugTest, error: drugTestError } = await supabase
@@ -341,11 +321,11 @@ export async function GET(
           try {
             // Set a timeout of 5 seconds for the admin query
             const queryPromise = adminClient
-            .from("drug_tests")
-            .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
-            .eq("id", finalTestId)
-            .eq("patient_id", user.id) // Verify ownership
-            .maybeSingle();
+              .from("drug_tests")
+              .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
+              .eq("id", finalTestId)
+              .eq("patient_id", user.id) // Verify ownership
+              .maybeSingle();
             
             const timeoutPromise = new Promise((_, reject) => 
               setTimeout(() => reject(new Error("Service role query timeout")), 5000)
@@ -604,12 +584,12 @@ export async function GET(
       console.error(`[API] [${requestId}] Failed to create JSON response:`, responseError);
       // Last resort - return plain text response that will definitely work
       try {
-      return new Response(
-        JSON.stringify(errorResponse),
-        {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
+        return new Response(
+          JSON.stringify(errorResponse),
+          {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
               'X-Request-ID': requestId
             }
           }
