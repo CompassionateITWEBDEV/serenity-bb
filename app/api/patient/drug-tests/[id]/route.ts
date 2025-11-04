@@ -3,6 +3,9 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 export const dynamic = "force-dynamic";
+// Increase timeout for Vercel Pro plan (60s) or Hobby plan (10s)
+// This route may need more time due to multiple database queries and RLS fallback
+export const maxDuration = 60; // Maximum for Pro plan, will be capped at 10s for Hobby
 
 /**
  * GET /api/patient/drug-tests/[id]
@@ -40,19 +43,45 @@ export async function GET(
     }
     
     // Fallback: extract ID from URL if params.id is not available
-    const requestUrl = new URL(req.url);
+    let requestUrl: URL;
+    try {
+      requestUrl = new URL(req.url);
+    } catch (urlError) {
+      console.error("[API] Error parsing request URL:", urlError);
+      return NextResponse.json({ error: "Invalid request URL" }, { status: 400 });
+    }
+    
     const finalTestId = testId || requestUrl.pathname.split('/').pop() || '';
     
     console.log(`[API] Extracted test ID: ${finalTestId} from URL: ${requestUrl.pathname}`);
     
     if (!finalTestId || finalTestId === 'drug-tests' || finalTestId === '[id]') {
-      return NextResponse.json({ error: "Invalid drug test ID" }, { status: 400 });
+      return NextResponse.json({ 
+        error: "Invalid drug test ID",
+        details: `Could not extract valid test ID from URL: ${requestUrl.pathname}`
+      }, { status: 400 });
+    }
+    
+    // Validate UUID format (basic check)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(finalTestId)) {
+      return NextResponse.json({ 
+        error: "Invalid drug test ID format",
+        details: `Test ID must be a valid UUID. Received: ${finalTestId}`
+      }, { status: 400 });
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !anon) {
-      return NextResponse.json({ error: "Supabase configuration missing" }, { status: 500 });
+      console.error("[API] ❌ CRITICAL: Supabase environment variables missing");
+      console.error("[API] NEXT_PUBLIC_SUPABASE_URL:", supabaseUrl ? "SET" : "MISSING");
+      console.error("[API] NEXT_PUBLIC_SUPABASE_ANON_KEY:", anon ? "SET" : "MISSING");
+      return NextResponse.json({ 
+        error: "Server configuration error",
+        details: "Supabase configuration missing. Please check environment variables.",
+        hint: "Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel"
+      }, { status: 500 });
     }
 
     const store = await cookies();
@@ -98,33 +127,23 @@ export async function GET(
 
     console.log(`[API] Fetching drug test: ${finalTestId} for user: ${user.id}`);
     
-    // First, verify the user has a patient record
-    const { data: patientRecord, error: patientError } = await supabase
-      .from("patients")
-      .select("user_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    
-    if (patientError) {
-      console.error(`[API] Error checking patient record:`, patientError);
-    }
-    
-    console.log(`[API] Patient record check:`, {
-      hasPatient: !!patientRecord,
-      patientUserId: patientRecord?.user_id,
-      authUserId: user.id,
-      match: patientRecord?.user_id === user.id
-    });
-    
     // Fetch the specific drug test for this patient
     // Note: drug_tests.patient_id references patients.user_id, so we use user.id directly
     // RLS might require the patient_id filter, so we use it explicitly
+    // We'll check patient record only if needed for debugging
+    const startTime = Date.now();
     let { data: drugTest, error: drugTestError } = await supabase
       .from("drug_tests")
       .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
       .eq("id", finalTestId)
       .eq("patient_id", user.id)  // Explicit filter for RLS
       .maybeSingle();
+    
+    const queryTime = Date.now() - startTime;
+    console.log(`[API] Initial query completed in ${queryTime}ms`);
+    
+    // Track if we had to bypass RLS (for logging and response headers)
+    let rlsBypassed = false;
     
     console.log(`[API] Initial query result:`, {
       hasData: !!drugTest,
@@ -138,7 +157,8 @@ export async function GET(
     // If RLS is blocking and we got no results (no error but no data), use service role as fallback
     // This handles cases where RLS silently blocks access
     if (!drugTest && !drugTestError) {
-      console.log(`[API] No results from regular query (RLS may be silently blocking), trying with service role client`);
+      console.warn(`[API] ⚠️ RLS BLOCKING DETECTED: No results from regular query (RLS may be silently blocking)`);
+      console.warn(`[API] Attempting service role fallback to verify if test exists...`);
       
       const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
       if (serviceKey) {
@@ -149,12 +169,45 @@ export async function GET(
           });
           
           // Query with service role (bypasses RLS) to verify if test exists and belongs to patient
-          const { data: adminTest, error: adminError } = await adminClient
-            .from("drug_tests")
-            .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
-            .eq("id", finalTestId)
-            .eq("patient_id", user.id) // Verify ownership
-            .maybeSingle();
+          // Add timeout to prevent hanging
+          const adminStartTime = Date.now();
+          
+          let adminTest: any = null;
+          let adminError: any = null;
+          
+          try {
+            // Set a timeout of 5 seconds for the admin query
+            const queryPromise = adminClient
+              .from("drug_tests")
+              .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
+              .eq("id", finalTestId)
+              .eq("patient_id", user.id) // Verify ownership
+              .maybeSingle();
+            
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error("Service role query timeout")), 5000)
+            );
+            
+            const result = await Promise.race([queryPromise, timeoutPromise]) as { data: any; error: any } | Error;
+            
+            if (result instanceof Error) {
+              // Timeout occurred
+              console.error(`[API] Service role query timed out after 5 seconds`);
+              adminError = { message: "Query timeout", code: "TIMEOUT" };
+            } else {
+              // Query completed
+              adminTest = result.data || null;
+              adminError = result.error || null;
+            }
+          } catch (timeoutError: any) {
+            console.error(`[API] Error in service role query:`, timeoutError);
+            adminError = timeoutError?.message?.includes("timeout") 
+              ? { message: "Query timeout", code: "TIMEOUT" }
+              : timeoutError;
+          }
+          
+          const adminQueryTime = Date.now() - adminStartTime;
+          console.log(`[API] Service role query completed in ${adminQueryTime}ms`);
           
           if (adminError) {
             console.error(`[API] Service role query error:`, adminError);
@@ -162,9 +215,13 @@ export async function GET(
             drugTestError = adminError;
           } else if (adminTest) {
             // Drug test exists and belongs to this patient - use service role result
-            console.log(`[API] Using service role result (RLS workaround): Drug test found for patient ${user.id}`);
+            console.warn(`[API] ⚠️ RLS WORKAROUND ACTIVE: Using service role result (bypassing RLS)`);
+            console.warn(`[API] ⚠️ FIX REQUIRED: Run scripts/SIMPLE_FIX_DRUG_TESTS_RLS.sql in Supabase SQL Editor`);
+            console.warn(`[API] ⚠️ The RLS policy should be: USING (patient_id = auth.uid())`);
+            console.log(`[API] Drug test found for patient ${user.id} via service role fallback`);
             drugTest = adminTest;
             drugTestError = null;
+            rlsBypassed = true; // Mark that we bypassed RLS
           } else {
             // Check if test exists but belongs to different patient (for better error message)
             const { data: anyTest } = await adminClient
@@ -186,11 +243,18 @@ export async function GET(
               console.log(`[API] Drug test ${finalTestId} does not exist in database`);
             }
           }
-        } catch (adminCheckError) {
+        } catch (adminCheckError: any) {
           console.error(`[API] Error in service role check:`, adminCheckError);
+          // If it's a timeout, log it but continue
+          if (adminCheckError?.message?.includes("timeout")) {
+            console.warn(`[API] ⚠️ Service role query timed out - this may indicate a slow database connection`);
+          }
         }
       } else {
-        console.warn(`[API] Service role key not available. RLS may be blocking access. Please run the RLS policy SQL script or set SUPABASE_SERVICE_ROLE_KEY.`);
+        console.error(`[API] ❌ CRITICAL: Service role key not available and RLS is blocking access`);
+        console.error(`[API] ❌ FIX REQUIRED: Either:`);
+        console.error(`[API]   1. Run scripts/SIMPLE_FIX_DRUG_TESTS_RLS.sql in Supabase SQL Editor (RECOMMENDED)`);
+        console.error(`[API]   2. Set SUPABASE_SERVICE_ROLE_KEY environment variable (temporary workaround)`);
       }
     }
 
@@ -311,7 +375,17 @@ export async function GET(
       metadata: drugTest.metadata || {},
     };
 
-    return NextResponse.json({ drugTest: formattedTest });
+    // Add warning header if RLS was bypassed (for monitoring)
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    
+    if (rlsBypassed) {
+      headers['X-RLS-Bypassed'] = 'true';
+      headers['X-RLS-Warning'] = 'RLS policy may be misconfigured. See logs for details.';
+    }
+
+    return NextResponse.json({ drugTest: formattedTest }, { headers });
   } catch (error: any) {
     console.error("[API] ====== UNCAUGHT ERROR IN GET /api/patient/drug-tests/[id] ======");
     console.error("[API] Error:", error);
