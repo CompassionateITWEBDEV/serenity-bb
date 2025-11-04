@@ -90,6 +90,17 @@ export async function GET(
         hint: "Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel"
       }, { status: 500 });
     }
+    
+    // Validate API key format (basic check)
+    if (anon.length < 100 || !anon.startsWith("eyJ")) {
+      console.error("[API] ❌ CRITICAL: Supabase API key format appears invalid");
+      console.error("[API] API key length:", anon.length, "starts with:", anon.substring(0, 10));
+      return NextResponse.json({ 
+        error: "Server configuration error",
+        details: "Invalid API key format detected. Please verify NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel.",
+        hint: "The API key should be a JWT token starting with 'eyJ'. Get it from your Supabase project settings."
+      }, { status: 500 });
+    }
 
     const cookieStore = await cookies();
     const supabase = createServerClient(supabaseUrl, anon, {
@@ -293,6 +304,18 @@ export async function GET(
         details: drugTestError.details,
         hint: drugTestError.hint
       });
+      
+      // Check for API key errors
+      if (drugTestError.message?.includes("Invalid API key") || 
+          drugTestError.message?.includes("JWT") ||
+          drugTestError.message?.includes("invalid") && drugTestError.message?.includes("key")) {
+        console.error("[API] ❌ CRITICAL: Invalid Supabase API key detected");
+        return NextResponse.json({ 
+          error: "Server configuration error",
+          details: "Invalid API key. Please check Supabase environment variables in Vercel.",
+          hint: "Verify NEXT_PUBLIC_SUPABASE_ANON_KEY is correct and matches your Supabase project"
+        }, { status: 500 });
+      }
       
       if (drugTestError.code === "PGRST116" || drugTestError.code === "42P01") {
         return NextResponse.json({ error: "Drug test not found" }, { status: 404 });
