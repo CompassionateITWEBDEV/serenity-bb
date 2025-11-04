@@ -16,20 +16,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   // CRITICAL: Log immediately - this confirms the route is being called
-  console.error("[API] ========== ROUTE HANDLER EXECUTING ==========");
-  console.error("[API] GET /api/patient/drug-tests/[id] CALLED");
-  console.error("[API] Request URL:", req.url);
-  console.error("[API] Request method:", req.method);
-  console.error("[API] Timestamp:", new Date().toISOString());
-  
-  // Also try to write directly to stderr
-  try {
-    if (typeof process !== 'undefined' && process.stderr) {
-      process.stderr.write(`[API] Route handler executing at ${new Date().toISOString()}\n`);
-    }
-  } catch (e) {
-    // Ignore if process is not available
-  }
+  // Generate requestId outside try block so it's available in catch
+  const requestId = Math.random().toString(36).substring(7);
+  console.error(`[API] [${requestId}] ========== ROUTE HANDLER EXECUTING ==========`);
+  console.error(`[API] [${requestId}] GET /api/patient/drug-tests/[id] CALLED`);
+  console.error(`[API] [${requestId}] Request URL:`, req.url);
+  console.error(`[API] [${requestId}] Request method:`, req.method);
+  console.error(`[API] [${requestId}] Timestamp:`, new Date().toISOString());
   
   try {
     // Handle params as either Promise or direct object (for Next.js version compatibility)
@@ -53,7 +46,7 @@ export async function GET(
     
     const finalTestId = testId || requestUrl.pathname.split('/').pop() || '';
     
-    console.log(`[API] Extracted test ID: ${finalTestId} from URL: ${requestUrl.pathname}`);
+    console.log(`[API] [${requestId}] Extracted test ID: ${finalTestId} from URL: ${requestUrl.pathname}`);
     
     if (!finalTestId || finalTestId === 'drug-tests' || finalTestId === '[id]') {
       return NextResponse.json({ 
@@ -387,44 +380,72 @@ export async function GET(
 
     return NextResponse.json({ drugTest: formattedTest }, { headers });
   } catch (error: any) {
-    console.error("[API] ====== UNCAUGHT ERROR IN GET /api/patient/drug-tests/[id] ======");
-    console.error("[API] Error:", error);
-    console.error("[API] Error type:", typeof error);
-    console.error("[API] Error name:", error?.name);
-    console.error("[API] Error message:", error?.message);
-    console.error("[API] Error stack:", error?.stack);
-    console.error("[API] Error code:", error?.code);
-    console.error("[API] Full error object:", JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    // requestId is available from outer scope
+    console.error(`[API] [${requestId}] ====== UNCAUGHT ERROR IN GET /api/patient/drug-tests/[id] ======`);
+    console.error(`[API] [${requestId}] Error:`, error);
+    console.error(`[API] [${requestId}] Error type:`, typeof error);
+    console.error(`[API] [${requestId}] Error name:`, error?.name);
+    console.error(`[API] [${requestId}] Error message:`, error?.message);
+    console.error(`[API] [${requestId}] Error stack:`, error?.stack);
+    console.error(`[API] [${requestId}] Error code:`, error?.code);
+    
+    // Try to stringify error safely
+    let errorString = "Unknown error occurred";
+    try {
+      errorString = JSON.stringify(error, Object.getOwnPropertyNames(error));
+    } catch (e) {
+      errorString = String(error) || error?.message || "Unknown error occurred";
+    }
+    console.error(`[API] [${requestId}] Full error:`, errorString);
     
     const errorResponse = {
       error: "Internal server error",
       details: error?.message || String(error) || "Unknown error occurred",
       code: error?.code || "UNKNOWN_ERROR",
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      requestId: requestId
     };
     
-    console.log("[API] Returning 500 error response:", JSON.stringify(errorResponse, null, 2));
+    console.log(`[API] [${requestId}] Returning 500 error response`);
     
+    // Always try to return a response
     try {
       return NextResponse.json(errorResponse, { 
         status: 500,
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-store',
+          'X-Request-ID': requestId
         }
       });
     } catch (responseError) {
-      console.error("[API] Failed to create JSON response:", responseError);
-      // Last resort - return plain text
-      return new Response(
-        JSON.stringify(errorResponse),
-        {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
+      console.error(`[API] [${requestId}] Failed to create JSON response:`, responseError);
+      // Last resort - return plain text response that will definitely work
+      try {
+        return new Response(
+          JSON.stringify(errorResponse),
+          {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Request-ID': requestId
+            }
           }
-        }
-      );
+        );
+      } catch (finalError) {
+        // Absolute last resort - return a simple text response
+        console.error(`[API] [${requestId}] Complete failure to create response`);
+        return new Response(
+          "Internal Server Error",
+          {
+            status: 500,
+            headers: {
+              'Content-Type': 'text/plain',
+              'X-Request-ID': requestId
+            }
+          }
+        );
+      }
     }
   }
 }
