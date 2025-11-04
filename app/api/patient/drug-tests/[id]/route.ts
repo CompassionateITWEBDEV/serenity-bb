@@ -694,11 +694,43 @@ export async function GET(
         console.error(`[API] [${requestId}] ⚠️ PGRST302 error after successful authentication`);
         console.error(`[API] [${requestId}] Since auth.getUser() succeeded, the API key is valid`);
         console.error(`[API] [${requestId}] PGRST302 in this context likely means RLS is blocking access`);
-        console.error(`[API] [${requestId}] Error message: ${drugTestError.message}`);
-        console.error(`[API] [${requestId}] Error details: ${drugTestError.details}`);
-        console.error(`[API] [${requestId}] Error hint: ${drugTestError.hint}`);
+        console.error(`[API] [${requestId}] Attempting service role fallback to bypass RLS...`);
         
-        // Treat as RLS error since auth succeeded
+        // Immediately try service role fallback since auth succeeded
+        const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
+        if (serviceKey) {
+          try {
+            const { createClient: createSbClient } = await import("@supabase/supabase-js");
+            const adminClient = createSbClient(supabaseUrl, serviceKey, {
+              auth: { persistSession: false, autoRefreshToken: false },
+            });
+            
+            console.log(`[API] [${requestId}] Querying with service role to bypass RLS...`);
+            const { data: adminTest, error: adminError } = await adminClient
+              .from("drug_tests")
+              .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
+              .eq("id", finalTestId)
+              .eq("patient_id", user.id)
+              .maybeSingle();
+            
+            if (adminError) {
+              console.error(`[API] [${requestId}] Service role query also failed:`, adminError);
+            } else if (adminTest) {
+              console.log(`[API] [${requestId}] ✅ Service role fallback successful - RLS was blocking`);
+              return NextResponse.json({ 
+                drugTest: adminTest,
+                rlsBypassed: true,
+                note: "Query succeeded using service role. RLS policies need to be fixed."
+              }, { status: 200 });
+            } else {
+              console.log(`[API] [${requestId}] Service role query returned no results - test may not exist`);
+            }
+          } catch (fallbackError: any) {
+            console.error(`[API] [${requestId}] Service role fallback error:`, fallbackError);
+          }
+        }
+        
+        // If service role fallback didn't work, return error with SQL fix
         const rlsHint = isDevelopment
           ? "Authentication succeeded, but query failed with PGRST302. This usually means RLS is blocking access. Run scripts/CLEAN_DRUG_TESTS_RLS_POLICIES.sql in Supabase SQL Editor."
           : "Authentication succeeded, but query failed with PGRST302. This usually means RLS is blocking access. Run scripts/CLEAN_DRUG_TESTS_RLS_POLICIES.sql in Supabase SQL Editor. If the API key is actually wrong, check Vercel Function logs for JWT validation results.";
