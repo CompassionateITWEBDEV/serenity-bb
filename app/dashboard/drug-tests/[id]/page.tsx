@@ -91,9 +91,29 @@ export default function DrugTestDetailPage() {
         protocol: window.location.protocol
       });
       
-      // Check if we're in development and server might not be running
-      if (process.env.NODE_ENV === 'development' && !window.location.origin.includes('localhost')) {
-        console.warn('[Detail Page] Development mode but not on localhost - API routes may not be available');
+      // Helper function to detect development environment
+      const isDevelopment = () => {
+        const hostname = window.location.hostname;
+        const isLocalhost = hostname === 'localhost' || 
+                           hostname === '127.0.0.1' || 
+                           hostname === '[::1]' ||
+                           hostname.startsWith('192.168.') ||
+                           hostname.startsWith('10.') ||
+                           hostname.endsWith('.local');
+        const isLocalPort = window.location.port !== '' && 
+                           parseInt(window.location.port) >= 3000 && 
+                           parseInt(window.location.port) < 10000;
+        return isLocalhost || (isLocalPort && hostname.includes('localhost'));
+      };
+      
+      const isDev = isDevelopment();
+      
+      if (isDev) {
+        console.log('[Detail Page] Development mode detected:', {
+          hostname: window.location.hostname,
+          port: window.location.port,
+          origin: window.location.origin
+        });
       }
       
       let response: Response;
@@ -125,20 +145,69 @@ export default function DrugTestDetailPage() {
         
         // Check if it's an abort (timeout) or actual network error
         if (fetchError?.name === 'AbortError') {
-          throw new Error(
-            "Request timeout: The server took too long to respond. Please check if the development server is running and try again."
-          );
+          const devMessage = isDev
+            ? "Request timeout: The development server took too long to respond.\n\n" +
+              "Please check:\n" +
+              "1. Is 'npm run dev' running in a terminal?\n" +
+              "2. Check the terminal for errors\n" +
+              "3. Try restarting the dev server\n" +
+              "4. Verify the server is responding by visiting http://localhost:" + (window.location.port || '3000')
+            : "Request timeout: The server took too long to respond. Please try again.";
+          throw new Error(devMessage);
         }
         
         // Check if server is reachable
-        const errorMsg = fetchError?.message || 'Unknown network error';
-        if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError') || errorMsg.includes('ERR_')) {
+        const errorMsg = fetchError?.message || String(fetchError) || 'Unknown network error';
+        const isConnectionRefused = errorMsg.includes('Failed to fetch') || 
+                                   errorMsg.includes('NetworkError') || 
+                                   errorMsg.includes('ERR_') ||
+                                   errorMsg.includes('ERR_CONNECTION_REFUSED') ||
+                                   errorMsg.includes('ECONNREFUSED') ||
+                                   errorMsg.includes('ENOTFOUND') ||
+                                   errorMsg.includes('ETIMEDOUT') ||
+                                   fetchError?.cause?.code === 'ECONNREFUSED' ||
+                                   fetchError?.cause?.code === 'ENOTFOUND' ||
+                                   fetchError?.cause?.code === 'ETIMEDOUT';
+        
+        if (isConnectionRefused) {
+          if (isDev) {
+            // Development-specific helpful error
+            const currentOrigin = window.location.origin;
+            const port = window.location.port || '3000';
+            throw new Error(
+              `🚨 Development Server Not Running\n\n` +
+              `Unable to connect to the development server at ${currentOrigin}.\n\n` +
+              `To fix this:\n` +
+              `1. Open a terminal in your project directory\n` +
+              `2. Run: npm run dev (or pnpm dev / yarn dev)\n` +
+              `3. Wait for "Ready" message\n` +
+              `4. Refresh this page\n\n` +
+              `Expected server: http://localhost:${port}\n` +
+              `Current URL: ${currentOrigin}\n\n` +
+              `If the server is running, check:\n` +
+              `- Is the port correct? (check terminal output)\n` +
+              `- Are there any errors in the terminal?\n` +
+              `- Try restarting the dev server`
+            );
+          } else {
+            // Production error
+            throw new Error(
+              `Network error: Unable to connect to the server at ${window.location.origin}. ` +
+              `Please check your internet connection and try again.`
+            );
+          }
+        }
+        
+        // Generic network error
+        if (isDev) {
           throw new Error(
-            `Network error: Unable to connect to the server at ${window.location.origin}. ` +
+            `Network error in development: ${errorMsg}\n\n` +
             `Please ensure:\n` +
             `1. The development server is running (npm run dev)\n` +
             `2. The server is accessible on ${window.location.origin}\n` +
-            `3. There are no firewall or proxy issues blocking the connection.`
+            `3. Check the terminal for any errors\n` +
+            `4. Try restarting the dev server\n` +
+            `5. Verify firewall/antivirus isn't blocking the connection`
           );
         }
         
@@ -248,17 +317,48 @@ export default function DrugTestDetailPage() {
         cause: err?.cause
       });
       
+      // Helper function to detect development environment
+      const isDevelopment = () => {
+        const hostname = window.location.hostname;
+        const isLocalhost = hostname === 'localhost' || 
+                           hostname === '127.0.0.1' || 
+                           hostname === '[::1]' ||
+                           hostname.startsWith('192.168.') ||
+                           hostname.startsWith('10.') ||
+                           hostname.endsWith('.local');
+        const isLocalPort = window.location.port !== '' && 
+                           parseInt(window.location.port) >= 3000 && 
+                           parseInt(window.location.port) < 10000;
+        return isLocalhost || (isLocalPort && hostname.includes('localhost'));
+      };
+      
       // Provide more helpful error messages
       let errorMessage = err.message || "Failed to load drug test";
+      const isDev = isDevelopment();
       
-      if (err.message?.includes("Network error") || err.message?.includes("Failed to fetch")) {
+      // Check for development server connection issues
+      if (err.message?.includes("Development Server Not Running") || 
+          err.message?.includes("Request timeout") ||
+          (isDev && (err.message?.includes("Network error") || err.message?.includes("Failed to fetch")))) {
+        // Keep the detailed development error message
+        errorMessage = err.message;
+      } else if (err.message?.includes("Network error") || err.message?.includes("Failed to fetch")) {
+        // Production network error
         errorMessage = "Network error: Unable to connect to the server. Please check your internet connection and try again.";
       } else if (err.message?.includes("Unauthorized") || err.message?.includes("401")) {
         errorMessage = "Authentication error: Please log in again to view this drug test.";
       } else if (err.message?.includes("Drug test not found") || err.message?.includes("404")) {
-        errorMessage = "Drug test not found. This may be due to Row Level Security (RLS) policies. Please contact support if this persists.";
+        if (isDev) {
+          errorMessage = "Drug test not found.\n\nThis may be due to:\n1. Row Level Security (RLS) policies - check Supabase\n2. The drug test doesn't exist\n3. Server-side error - check terminal logs";
+        } else {
+          errorMessage = "Drug test not found. This may be due to Row Level Security (RLS) policies. Please contact support if this persists.";
+        }
       } else if (err.message?.includes("500") || err.message?.includes("Internal server")) {
-        errorMessage = "Server error: Please try again later. If the problem persists, contact support.";
+        if (isDev) {
+          errorMessage = "Server error occurred.\n\nPlease check:\n1. Terminal logs for detailed error messages\n2. Supabase connection\n3. Environment variables (.env.local)";
+        } else {
+          errorMessage = "Server error: Please try again later. If the problem persists, contact support.";
+        }
       }
       
       setError(errorMessage);
@@ -349,6 +449,10 @@ export default function DrugTestDetailPage() {
   }
 
   if (error) {
+    // Check if error contains newlines (development error messages)
+    const isMultiLine = error.includes('\n');
+    const isDevError = error.includes('Development Server') || error.includes('development server');
+    
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -360,12 +464,24 @@ export default function DrugTestDetailPage() {
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Drug Tests
           </Button>
-          <Card className="border-red-200 bg-red-50">
+          <Card className={isDevError ? "border-orange-200 bg-orange-50" : "border-red-200 bg-red-50"}>
             <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <AlertCircle className="h-5 w-5 text-red-600" />
-                <p className="text-red-800">{error}</p>
+              <div className="flex items-start gap-3">
+                <AlertCircle className={`h-5 w-5 ${isDevError ? 'text-orange-600' : 'text-red-600'} flex-shrink-0 mt-0.5`} />
+                {isMultiLine ? (
+                  <div className="flex-1">
+                    <pre className="text-sm text-red-800 whitespace-pre-wrap font-sans">{error}</pre>
+                  </div>
+                ) : (
+                  <p className={`text-sm ${isDevError ? 'text-orange-800' : 'text-red-800'}`}>{error}</p>
+                )}
               </div>
+              {isDevError && (
+                <div className="mt-4 p-3 bg-white rounded border border-orange-200">
+                  <p className="text-xs text-orange-700 font-medium mb-1">Quick Fix:</p>
+                  <code className="text-xs bg-gray-100 px-2 py-1 rounded block">npm run dev</code>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

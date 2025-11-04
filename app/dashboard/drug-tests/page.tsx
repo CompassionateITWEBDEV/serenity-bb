@@ -39,18 +39,114 @@ export default function PatientDrugTestsPage() {
       setLoading(true);
       setError(null);
       
+      // Helper function to detect development environment
+      const isDevelopment = () => {
+        const hostname = window.location.hostname;
+        const isLocalhost = hostname === 'localhost' || 
+                           hostname === '127.0.0.1' || 
+                           hostname === '[::1]' ||
+                           hostname.startsWith('192.168.') ||
+                           hostname.startsWith('10.') ||
+                           hostname.endsWith('.local');
+        const isLocalPort = window.location.port !== '' && 
+                           parseInt(window.location.port) >= 3000 && 
+                           parseInt(window.location.port) < 10000;
+        return isLocalhost || (isLocalPort && hostname.includes('localhost'));
+      };
+      
+      const isDev = isDevelopment();
+      
       // Get session token for authentication
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       
-      const response = await fetch("/api/patient/drug-tests", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        credentials: "include",
-      });
+      let response: Response;
+      try {
+        // Add timeout to fetch request (30 seconds)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        
+        response = await fetch("/api/patient/drug-tests", {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          credentials: "include",
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+      } catch (fetchError: any) {
+        // Network error - fetch failed completely
+        console.error('[Drug Tests Page] Fetch failed (network error):', fetchError);
+        
+        // Check if it's an abort (timeout) or actual network error
+        if (fetchError?.name === 'AbortError') {
+          const devMessage = isDev
+            ? "Request timeout: The development server took too long to respond.\n\n" +
+              "Please check:\n" +
+              "1. Is 'npm run dev' running in a terminal?\n" +
+              "2. Check the terminal for errors\n" +
+              "3. Try restarting the dev server"
+            : "Request timeout: The server took too long to respond. Please try again.";
+          throw new Error(devMessage);
+        }
+        
+        // Check if server is reachable
+        const errorMsg = fetchError?.message || String(fetchError) || 'Unknown network error';
+        const isConnectionRefused = errorMsg.includes('Failed to fetch') || 
+                                   errorMsg.includes('NetworkError') || 
+                                   errorMsg.includes('ERR_') ||
+                                   errorMsg.includes('ERR_CONNECTION_REFUSED') ||
+                                   errorMsg.includes('ECONNREFUSED') ||
+                                   errorMsg.includes('ENOTFOUND') ||
+                                   errorMsg.includes('ETIMEDOUT') ||
+                                   fetchError?.cause?.code === 'ECONNREFUSED' ||
+                                   fetchError?.cause?.code === 'ENOTFOUND' ||
+                                   fetchError?.cause?.code === 'ETIMEDOUT';
+        
+        if (isConnectionRefused) {
+          if (isDev) {
+            // Development-specific helpful error
+            const currentOrigin = window.location.origin;
+            const port = window.location.port || '3000';
+            throw new Error(
+              `🚨 Development Server Not Running\n\n` +
+              `Unable to connect to the development server at ${currentOrigin}.\n\n` +
+              `To fix this:\n` +
+              `1. Open a terminal in your project directory\n` +
+              `2. Run: npm run dev (or pnpm dev / yarn dev)\n` +
+              `3. Wait for "Ready" message\n` +
+              `4. Refresh this page\n\n` +
+              `Expected server: http://localhost:${port}\n` +
+              `Current URL: ${currentOrigin}`
+            );
+          } else {
+            // Production error
+            throw new Error(
+              `Network error: Unable to connect to the server at ${window.location.origin}. ` +
+              `Please check your internet connection and try again.`
+            );
+          }
+        }
+        
+        // Generic network error
+        if (isDev) {
+          throw new Error(
+            `Network error in development: ${errorMsg}\n\n` +
+            `Please ensure:\n` +
+            `1. The development server is running (npm run dev)\n` +
+            `2. The server is accessible on ${window.location.origin}\n` +
+            `3. Check the terminal for any errors\n` +
+            `4. Try restarting the dev server`
+          );
+        }
+        
+        throw new Error(
+          `Network error: ${errorMsg}. Please check your internet connection and try again.`
+        );
+      }
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -61,7 +157,37 @@ export default function PatientDrugTestsPage() {
       setDrugTests(data.drugTests || []);
     } catch (err: any) {
       console.error("Error loading drug tests:", err);
-      setError(err.message || "Failed to load drug tests");
+      
+      // Provide more helpful error messages for development
+      let errorMessage = err.message || "Failed to load drug tests";
+      const isDevelopment = () => {
+        const hostname = window.location.hostname;
+        const isLocalhost = hostname === 'localhost' || 
+                           hostname === '127.0.0.1' || 
+                           hostname === '[::1]' ||
+                           hostname.startsWith('192.168.') ||
+                           hostname.startsWith('10.') ||
+                           hostname.endsWith('.local');
+        const isLocalPort = window.location.port !== '' && 
+                           parseInt(window.location.port) >= 3000 && 
+                           parseInt(window.location.port) < 10000;
+        return isLocalhost || (isLocalPort && hostname.includes('localhost'));
+      };
+      
+      const isDev = isDevelopment();
+      
+      // Check for development server connection issues
+      if (err.message?.includes("Development Server Not Running") || 
+          err.message?.includes("Request timeout") ||
+          (isDev && (err.message?.includes("Network error") || err.message?.includes("Failed to fetch")))) {
+        // Keep the detailed development error message
+        errorMessage = err.message;
+      } else if (err.message?.includes("Network error") || err.message?.includes("Failed to fetch")) {
+        // Production network error
+        errorMessage = "Network error: Unable to connect to the server. Please check your internet connection and try again.";
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -170,12 +296,24 @@ export default function PatientDrugTestsPage() {
         </div>
 
         {error && (
-          <Card className="mb-6 border-red-200 bg-red-50">
+          <Card className={`mb-6 ${error.includes('Development Server') || error.includes('development server') ? 'border-orange-200 bg-orange-50' : 'border-red-200 bg-red-50'}`}>
             <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <AlertCircle className="h-5 w-5 text-red-600" />
-                <p className="text-red-800">{error}</p>
+              <div className="flex items-start gap-3">
+                <AlertCircle className={`h-5 w-5 ${error.includes('Development Server') || error.includes('development server') ? 'text-orange-600' : 'text-red-600'} flex-shrink-0 mt-0.5`} />
+                {error.includes('\n') ? (
+                  <div className="flex-1">
+                    <pre className="text-sm whitespace-pre-wrap font-sans">{error.includes('Development Server') || error.includes('development server') ? <span className="text-orange-800">{error}</span> : <span className="text-red-800">{error}</span>}</pre>
+                  </div>
+                ) : (
+                  <p className={error.includes('Development Server') || error.includes('development server') ? 'text-orange-800' : 'text-red-800'}>{error}</p>
+                )}
               </div>
+              {(error.includes('Development Server') || error.includes('development server')) && (
+                <div className="mt-4 p-3 bg-white rounded border border-orange-200">
+                  <p className="text-xs text-orange-700 font-medium mb-1">Quick Fix:</p>
+                  <code className="text-xs bg-gray-100 px-2 py-1 rounded block">npm run dev</code>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
