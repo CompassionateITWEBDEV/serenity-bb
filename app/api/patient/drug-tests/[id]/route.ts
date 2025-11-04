@@ -97,14 +97,19 @@ export async function GET(
       console.error(`[API] [${requestId}] NEXT_PUBLIC_SUPABASE_URL:`, supabaseUrl ? "SET" : "MISSING");
       console.error(`[API] [${requestId}] NEXT_PUBLIC_SUPABASE_ANON_KEY:`, anon ? "SET" : "MISSING");
       console.error(`[API] [${requestId}] Available env vars with SUPABASE:`, Object.keys(process.env).filter(k => k.includes("SUPABASE")));
+      const envHint = isDevelopment
+        ? "Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in .env.local file"
+        : "Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel Environment Variables";
+      
       return NextResponse.json({ 
         error: "Server configuration error",
         details: "Supabase configuration missing. Please check environment variables.",
-        hint: "Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel",
+        hint: envHint,
         debug: {
           urlExists: !!supabaseUrl,
           anonExists: !!anon,
           availableEnvVars: Object.keys(process.env).filter(k => k.includes("SUPABASE")),
+          environment: isDevelopment ? "development" : "production",
           requestId: requestId
         }
       }, { status: 500 });
@@ -115,14 +120,19 @@ export async function GET(
       console.error(`[API] [${requestId}] ❌ CRITICAL: Supabase API key format appears invalid`);
       console.error(`[API] [${requestId}] API key length:`, anon.length, "starts with:", anon.substring(0, 10));
       console.error(`[API] [${requestId}] Full key (first 50 chars):`, anon.substring(0, 50));
+      const envHint = isDevelopment
+        ? "Check your .env.local file - the API key should be a JWT token starting with 'eyJ'. Get it from Supabase Dashboard → Settings → API"
+        : "Check Vercel Environment Variables - the API key should be a JWT token starting with 'eyJ'. Get it from Supabase Dashboard → Settings → API";
+      
       return NextResponse.json({ 
         error: "Server configuration error",
-        details: "Invalid API key format detected. Please verify NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel.",
-        hint: "The API key should be a JWT token starting with 'eyJ'. Get it from your Supabase project settings.",
+        details: "Invalid API key format detected. Please verify NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+        hint: envHint,
         debug: {
           keyLength: anon.length,
           keyPrefix: anon.substring(0, 50),
           keyStartsWithEyJ: anon.startsWith("eyJ"),
+          environment: isDevelopment ? "development" : "production",
           requestId: requestId
         }
       }, { status: 500 });
@@ -549,10 +559,14 @@ export async function GET(
         console.error(`[API] [${requestId}] Supabase URL: ${supabaseUrl}`);
         console.error(`[API] [${requestId}] API key length: ${anon.length}, prefix: ${anon.substring(0, 20)}`);
         
+        const envHint = isDevelopment
+          ? "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Check your .env.local file\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Restart your development server (npm run dev)\n5. Check terminal logs for detailed error information"
+          : "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application\n6. Check Vercel Function logs for detailed error information";
+        
         return NextResponse.json({ 
           error: "Server configuration error",
-          details: "Invalid API key detected in query (VERY unusual since authentication succeeded). The Supabase API key in Vercel environment variables may be incorrect or doesn't match the Supabase project.",
-          hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application\n6. Check Vercel Function logs for detailed error information",
+          details: "Invalid API key detected in query (VERY unusual since authentication succeeded). The Supabase API key may be incorrect or doesn't match the Supabase project.",
+          hint: envHint,
           debug: {
             errorCode: drugTestError.code,
             errorMessage: drugTestError.message,
@@ -580,10 +594,14 @@ export async function GET(
           drugTestError.message?.includes("policy")) {
         console.error(`[API] [${requestId}] RLS policy blocking access - Error code: ${drugTestError.code}`);
         console.error(`[API] [${requestId}] This is likely an RLS policy issue, not an API key issue`);
+        const rlsHint = isDevelopment
+          ? "Run scripts/COMPLETE_DRUG_TESTS_SETUP.sql in Supabase SQL Editor to fix RLS policies. This is a common issue in development."
+          : "Run scripts/COMPLETE_DRUG_TESTS_SETUP.sql in Supabase SQL Editor to fix RLS policies";
+        
         return NextResponse.json({ 
           error: "Drug test not found or access denied",
           details: "Row Level Security (RLS) policy is blocking access to this drug test. Please ensure RLS policies are correctly configured.",
-          hint: "Run scripts/COMPLETE_DRUG_TESTS_SETUP.sql in Supabase SQL Editor to fix RLS policies",
+          hint: rlsHint,
           debug: {
             errorCode: drugTestError.code,
             errorMessage: drugTestError.message,
