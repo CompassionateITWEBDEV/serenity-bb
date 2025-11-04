@@ -525,19 +525,24 @@ export async function GET(
         hint: drugTestError.hint
       });
       
-      // Check for API key errors - but be more strict since we've already authenticated
-      // If auth.getUser() succeeded, the API key is valid, so this is likely an RLS or other issue
-      const isApiKeyError = 
-        (drugTestError.message?.includes("Invalid API key") && !drugTestError.message?.includes("row-level")) || 
-        (drugTestError.code === "PGRST302") || // Invalid API key (specific error code)
-        (drugTestError.code === "PGRST401" && drugTestError.message?.toLowerCase().includes("api key")); // Only if explicitly about API key
+      // Check for API key errors - be VERY strict since we've already authenticated
+      // If auth.getUser() succeeded, the API key is valid, so this is almost certainly NOT an API key error
+      // Only treat it as API key error if we get the SPECIFIC error code PGRST302
+      const isApiKeyError = drugTestError.code === "PGRST302"; // Only this specific code
       
-      // Don't treat PGRST301 as API key error - it's usually RLS
-      // Don't treat generic "JWT" or "invalid" as API key error - could be token expiry
+      // Log the actual error for debugging
+      console.error(`[API] [${requestId}] Query error details:`, {
+        code: drugTestError.code,
+        message: drugTestError.message,
+        details: drugTestError.details,
+        hint: drugTestError.hint,
+        fullError: JSON.stringify(drugTestError, Object.getOwnPropertyNames(drugTestError))
+      });
       
       if (isApiKeyError) {
+        // Only if we get the specific PGRST302 error code
         console.error(`[API] [${requestId}] ❌ CRITICAL: Invalid Supabase API key detected in query`);
-        console.error(`[API] [${requestId}] ⚠️ NOTE: This is unusual since authentication succeeded`);
+        console.error(`[API] [${requestId}] ⚠️ NOTE: This is VERY unusual since authentication succeeded`);
         console.error(`[API] [${requestId}] Error code: ${drugTestError.code}`);
         console.error(`[API] [${requestId}] Error message: ${drugTestError.message}`);
         console.error(`[API] [${requestId}] Full error:`, JSON.stringify(drugTestError, Object.getOwnPropertyNames(drugTestError)));
@@ -546,7 +551,7 @@ export async function GET(
         
         return NextResponse.json({ 
           error: "Server configuration error",
-          details: "Invalid API key detected in query (unusual since authentication succeeded). The Supabase API key in Vercel environment variables may be incorrect or doesn't match the Supabase project.",
+          details: "Invalid API key detected in query (VERY unusual since authentication succeeded). The Supabase API key in Vercel environment variables may be incorrect or doesn't match the Supabase project.",
           hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application\n6. Check Vercel Function logs for detailed error information",
           debug: {
             errorCode: drugTestError.code,
@@ -556,13 +561,14 @@ export async function GET(
             keyLength: anon.length,
             keyPrefix: anon.substring(0, 20),
             requestId: requestId,
-            note: "Authentication succeeded, but query failed with API key error - this is unusual"
+            note: "Authentication succeeded, but query failed with PGRST302 - this is very unusual"
           }
         }, { status: 500 });
       }
       
-      // If it's not an API key error, it's likely RLS or another issue
-      // Log it but don't return API key error
+      // If it's not PGRST302, it's NOT an API key error
+      // It's likely RLS, query syntax, or another issue
+      // Log the actual error code and message for debugging
       
       if (drugTestError.code === "PGRST116" || drugTestError.code === "42P01") {
         return NextResponse.json({ error: "Drug test not found" }, { status: 404 });
