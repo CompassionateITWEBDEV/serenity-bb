@@ -61,16 +61,48 @@ export default function DrugTestDetailPage() {
         fullUrl: `/api/patient/drug-tests/${testId}`
       });
       
-      // Get session token for authentication
+      // Get session token for authentication - refresh if needed
       let token: string | undefined;
       try {
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        // First, try to get the current session
+        let { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        // If no session or session is expired, try to refresh
+        if (!session || !session.access_token || sessionError) {
+          console.log('[Detail Page] Session expired or missing, attempting refresh...');
+          const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+          
+          if (refreshError) {
+            console.error('[Detail Page] Error refreshing session:', refreshError);
+            // If refresh fails, user needs to log in again
+            throw new Error('Session expired. Please log in again.');
+          }
+          
+          session = refreshedSession;
+          sessionError = null;
+        }
+        
         if (sessionError) {
           console.error('[Detail Page] Error getting session:', sessionError);
         }
+        
         token = session?.access_token;
-      } catch (sessionErr) {
+        
+        if (!token) {
+          throw new Error('No valid authentication token. Please log in again.');
+        }
+      } catch (sessionErr: any) {
         console.error('[Detail Page] Exception getting session:', sessionErr);
+        // If it's an auth error, redirect to login
+        if (sessionErr?.message?.includes('expired') || sessionErr?.message?.includes('log in')) {
+          setError(sessionErr.message);
+          // Redirect to login after a short delay
+          setTimeout(() => {
+            router.push('/login');
+          }, 2000);
+          return;
+        }
+        throw sessionErr;
       }
       
       console.log('[Detail Page] Fetching from API:', {
@@ -325,6 +357,60 @@ export default function DrugTestDetailPage() {
         }
         console.error('[Detail Page] Response URL:', response.url);
         console.error('[Detail Page] ================================');
+        
+        // Handle 401 Unauthorized with expired token - try to refresh and retry
+        if (response.status === 401 && (errorData?.hint?.includes("expired") || errorData?.hint?.includes("JWT"))) {
+          console.log('[Detail Page] Token expired (401), attempting to refresh and retry...');
+          try {
+            // Refresh the session
+            const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+            
+            if (refreshError || !refreshedSession?.access_token) {
+              console.error('[Detail Page] Failed to refresh session:', refreshError);
+              setError('Your session has expired. Please log in again.');
+              setTimeout(() => {
+                router.push('/login');
+              }, 2000);
+              return;
+            }
+            
+            // Retry the request with the new token
+            console.log('[Detail Page] Retrying request with refreshed token...');
+            const retryResponse = await fetch(apiUrl, {
+              method: "GET",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${refreshedSession.access_token}`,
+              },
+              credentials: "include",
+            });
+            
+            if (retryResponse.ok) {
+              // Success! Parse and set the data
+              const retryData = await retryResponse.json();
+              if (retryData.drugTest) {
+                setDrugTest(retryData.drugTest);
+                setLoading(false);
+                return;
+              }
+            } else {
+              // Still failed after refresh, redirect to login
+              console.error('[Detail Page] Retry failed with status:', retryResponse.status);
+              setError('Your session has expired. Please log in again.');
+              setTimeout(() => {
+                router.push('/login');
+              }, 2000);
+              return;
+            }
+          } catch (retryError: any) {
+            console.error('[Detail Page] Error during retry:', retryError);
+            setError('Your session has expired. Please log in again.');
+            setTimeout(() => {
+              router.push('/login');
+            }, 2000);
+            return;
+          }
+        }
         
         if (response.status === 404) {
           throw new Error(errorData.error || errorData.details || "Drug test not found");

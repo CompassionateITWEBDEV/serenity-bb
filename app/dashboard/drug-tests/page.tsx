@@ -56,9 +56,27 @@ export default function PatientDrugTestsPage() {
       
       const isDev = isDevelopment();
       
-      // Get session token for authentication
-      const { data: { session } } = await supabase.auth.getSession();
+      // Get session token for authentication - refresh if needed
+      let { data: { session } } = await supabase.auth.getSession();
+      
+      // If no session or session is expired, try to refresh
+      if (!session || !session.access_token) {
+        console.log('[Drug Tests Page] Session expired or missing, attempting refresh...');
+        const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+        
+        if (refreshError) {
+          console.error('[Drug Tests Page] Error refreshing session:', refreshError);
+          throw new Error('Session expired. Please log in again.');
+        }
+        
+        session = refreshedSession;
+      }
+      
       const token = session?.access_token;
+      
+      if (!token) {
+        throw new Error('No valid authentication token. Please log in again.');
+      }
       
       let response: Response;
       try {
