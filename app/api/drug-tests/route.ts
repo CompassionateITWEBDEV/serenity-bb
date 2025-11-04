@@ -5,9 +5,15 @@ import { createClient as createSbClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 const Body = z.object({
-  patientId: z.string().uuid(),
-  scheduledFor: z.string().datetime().nullable(),
-  testType: z.enum(["urine", "saliva", "hair", "blood"]).optional().default("urine"), // Actual test types
+  patientId: z.string().uuid("patientId must be a valid UUID"),
+  scheduledFor: z.union([
+    z.string().datetime("scheduledFor must be a valid ISO 8601 datetime string"),
+    z.null(),
+    z.string().length(0).transform(() => null) // Convert empty string to null
+  ]).optional(),
+  testType: z.enum(["urine", "saliva", "hair", "blood"], {
+    errorMap: () => ({ message: "testType must be one of: urine, saliva, hair, blood" })
+  }).optional().default("urine"),
 });
 
 function json(data: any, status = 200, headers: Record<string, string> = {}) {
@@ -34,9 +40,34 @@ export async function POST(req: Request) {
   // 1) Validate body
   let body: z.infer<typeof Body>;
   try {
-    body = Body.parse(await req.json());
+    const rawBody = await req.json();
+    console.log('[API] POST /api/drug-tests - Raw body received:', JSON.stringify(rawBody, null, 2));
+    
+    const result = Body.safeParse(rawBody);
+    if (!result.success) {
+      const errors = result.error.errors.map(err => ({
+        field: err.path.join('.'),
+        message: err.message,
+        received: err.path.length > 0 ? (rawBody as any)[err.path[0]] : undefined
+      }));
+      
+      console.error('[API] POST /api/drug-tests - Validation failed:', JSON.stringify(errors, null, 2));
+      
+      return json({ 
+        error: "Validation failed",
+        details: errors,
+        received: rawBody
+      }, 400, { "x-debug": "zod-parse-failed" });
+    }
+    
+    body = result.data;
+    console.log('[API] POST /api/drug-tests - Validated body:', JSON.stringify(body, null, 2));
   } catch (e: any) {
-    return json({ error: e?.message ?? "Invalid body" }, 400, { "x-debug": "zod-parse-failed" });
+    console.error('[API] POST /api/drug-tests - JSON parse error:', e);
+    return json({ 
+      error: "Invalid JSON body",
+      details: e?.message ?? "Failed to parse request body"
+    }, 400, { "x-debug": "json-parse-failed" });
   }
 
   try {
@@ -104,11 +135,21 @@ export async function POST(req: Request) {
 
     const admin = createSbClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
+    // Normalize scheduledFor - convert empty string to null
+    const scheduledFor = body.scheduledFor === "" || body.scheduledFor === undefined ? null : body.scheduledFor;
+    
+    console.log('[API] POST /api/drug-tests - Inserting drug test:', {
+      patient_id: body.patientId,
+      scheduled_for: scheduledFor,
+      created_by: authed.id,
+      test_type: body.testType
+    });
+    
     const ins = await admin
       .from("drug_tests")
       .insert({
         patient_id: body.patientId,
-        scheduled_for: body.scheduledFor,
+        scheduled_for: scheduledFor,
         created_by: authed.id,
         status: "pending",
         metadata: {
