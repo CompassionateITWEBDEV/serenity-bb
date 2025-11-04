@@ -404,6 +404,34 @@ export async function GET(
       .eq("id", finalTestId)
       .eq("patient_id", user.id)  // Explicit filter for RLS
       .maybeSingle();
+
+    // Log the RAW error immediately, before any processing
+    if (drugTestError) {
+      console.error(`[API] [${requestId}] ========== RAW SUPABASE ERROR (BEFORE PROCESSING) ==========`);
+      console.error(`[API] [${requestId}] Error type:`, typeof drugTestError);
+      console.error(`[API] [${requestId}] Error constructor:`, drugTestError.constructor?.name);
+      console.error(`[API] [${requestId}] Error as string:`, String(drugTestError));
+      console.error(`[API] [${requestId}] Error as JSON:`, JSON.stringify(drugTestError, null, 2));
+      console.error(`[API] [${requestId}] Error keys:`, Object.keys(drugTestError));
+      console.error(`[API] [${requestId}] Error properties:`, Object.getOwnPropertyNames(drugTestError));
+      
+      // Try to access code in multiple ways
+      const code1 = drugTestError.code;
+      const code2 = (drugTestError as any)?.code;
+      const code3 = (drugTestError as any)?.['code'];
+      const code4 = Reflect.get(drugTestError, 'code');
+      const code5 = (drugTestError as any)?.status;
+      const code6 = (drugTestError as any)?.error_code;
+      const code7 = (drugTestError as any)?.errorCode;
+      
+      console.error(`[API] [${requestId}] Code extraction attempts:`, {
+        code1, code2, code3, code4, code5, code6, code7,
+        message: drugTestError.message,
+        details: drugTestError.details,
+        hint: drugTestError.hint
+      });
+      console.error(`[API] [${requestId}] ==========================================================`);
+    }
     
     const queryTime = Date.now() - startTime;
     console.log(`[API] Initial query completed in ${queryTime}ms`);
@@ -535,12 +563,35 @@ export async function GET(
 
     if (drugTestError) {
       // Extract error code from multiple possible locations
-      const errorCode = drugTestError.code || 
+      // Try direct property access first
+      let errorCode = drugTestError.code || 
                        (drugTestError as any)?.status || 
                        (drugTestError as any)?.error_code ||
-                       (drugTestError.message?.match(/PGRST\d{3}/)?.[0]) ||
-                       (drugTestError.details?.match(/PGRST\d{3}/)?.[0]) ||
+                       (drugTestError as any)?.errorCode ||
                        null;
+      
+      // If still null, try to extract from message/details/hint using regex
+      if (!errorCode) {
+        const codeFromMessage = drugTestError.message?.match(/PGRST\d{3}/)?.[0] ||
+                                drugTestError.message?.match(/PGRST\d{2,3}/)?.[0];
+        const codeFromDetails = drugTestError.details?.match(/PGRST\d{3}/)?.[0] ||
+                                drugTestError.details?.match(/PGRST\d{2,3}/)?.[0];
+        const codeFromHint = drugTestError.hint?.match(/PGRST\d{3}/)?.[0] ||
+                             drugTestError.hint?.match(/PGRST\d{2,3}/)?.[0];
+        
+        errorCode = codeFromMessage || codeFromDetails || codeFromHint || null;
+      }
+      
+      // If still null, try to infer from error message content
+      if (!errorCode) {
+        if (drugTestError.message?.includes("Invalid API key") || drugTestError.message?.includes("JWT")) {
+          errorCode = "PGRST302"; // Most likely API key error
+        } else if (drugTestError.message?.includes("row-level security") || drugTestError.message?.includes("policy")) {
+          errorCode = "PGRST301"; // Most likely RLS error
+        } else if (drugTestError.message?.includes("not found") || drugTestError.message?.includes("does not exist")) {
+          errorCode = "PGRST116"; // Not found error
+        }
+      }
       
       // Log the full error structure for debugging
       const errorKeys = Object.keys(drugTestError);
