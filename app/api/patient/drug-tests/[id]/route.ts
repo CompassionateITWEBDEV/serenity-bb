@@ -78,16 +78,48 @@ export async function GET(
       }, { status: 400 });
     }
 
+    // Get environment variables with detailed diagnostics
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
+    
+    // Expected values based on working client-side connection
+    const expectedUrl = "https://cycakdfxcsjknxkqpasp.supabase.co";
+    const expectedProjectRef = "cycakdfxcsjknxkqpasp";
+    
     if (!supabaseUrl || !anon) {
-      console.error("[API] ❌ CRITICAL: Supabase environment variables missing");
-      console.error("[API] NEXT_PUBLIC_SUPABASE_URL:", supabaseUrl ? "SET" : "MISSING");
-      console.error("[API] NEXT_PUBLIC_SUPABASE_ANON_KEY:", anon ? "SET" : "MISSING");
+      console.error(`[API] [${requestId}] ❌ CRITICAL: Supabase environment variables missing`);
+      console.error(`[API] [${requestId}] NEXT_PUBLIC_SUPABASE_URL:`, supabaseUrl ? "SET" : "MISSING");
+      console.error(`[API] [${requestId}] NEXT_PUBLIC_SUPABASE_ANON_KEY:`, anon ? "SET" : "MISSING");
+      console.error(`[API] [${requestId}] Expected URL: ${expectedUrl}`);
+      console.error(`[API] [${requestId}] Actual URL: ${supabaseUrl || "NOT SET"}`);
+      
       return NextResponse.json({ 
         error: "Server configuration error",
-        details: "Supabase configuration missing. Please check environment variables.",
-        hint: "Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel"
+        details: "Supabase configuration missing. Please check environment variables in Vercel.",
+        hint: `1. Go to Vercel Dashboard → Your Project → Settings → Environment Variables
+2. Set NEXT_PUBLIC_SUPABASE_URL to: ${expectedUrl}
+3. Set NEXT_PUBLIC_SUPABASE_ANON_KEY to the anon/public key from Supabase Dashboard
+4. Make sure both are set for "Production" environment
+5. Redeploy the application`,
+        diagnostics: {
+          urlSet: !!supabaseUrl,
+          keySet: !!anon,
+          expectedUrl,
+          serviceKeySet: !!serviceKey
+        }
+      }, { status: 500 });
+    }
+    
+    // Check if URL matches expected project
+    if (supabaseUrl !== expectedUrl && !supabaseUrl.includes(expectedProjectRef)) {
+      console.error(`[API] [${requestId}] ❌ CRITICAL: Supabase URL mismatch`);
+      console.error(`[API] [${requestId}] Expected: ${expectedUrl}`);
+      console.error(`[API] [${requestId}] Actual: ${supabaseUrl}`);
+      return NextResponse.json({ 
+        error: "Server configuration error",
+        details: `Supabase URL mismatch. Expected ${expectedUrl}, but got ${supabaseUrl}`,
+        hint: `Update NEXT_PUBLIC_SUPABASE_URL in Vercel to: ${expectedUrl}`
       }, { status: 500 });
     }
     
@@ -219,10 +251,34 @@ export async function GET(
           console.error(`[API] [${requestId}] Actual Supabase URL: ${supabaseUrl}`);
           console.error(`[API] [${requestId}] Key length: ${anon.length}, starts with: ${anon.substring(0, 10)}`);
           
+          // Provide detailed fix instructions
+          const fixInstructions = {
+            step1: "Go to Supabase Dashboard → Your Project → Settings → API",
+            step2: "Copy the 'anon/public' key (starts with eyJ...)",
+            step3: "Go to Vercel Dashboard → Your Project → Settings → Environment Variables",
+            step4: `Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the copied value`,
+            step5: "Ensure it's set for 'Production' environment (not just Development)",
+            step6: "Save and redeploy the application",
+            expectedUrl: expectedUrl,
+            actualUrl: supabaseUrl,
+            keyLength: anon.length,
+            keyFormat: anon.startsWith("eyJ") ? "valid" : "invalid"
+          };
+          
+          console.error(`[API] [${requestId}] ❌ CRITICAL: API key authentication failed`);
+          console.error(`[API] [${requestId}] Fix instructions:`, fixInstructions);
+          
           return NextResponse.json({ 
             error: "Server configuration error",
             details: "Invalid API key detected. The Supabase API key in Vercel environment variables is incorrect, expired, or doesn't match the Supabase project.",
-            hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application"
+            hint: `1. ${fixInstructions.step1}\n2. ${fixInstructions.step2}\n3. ${fixInstructions.step3}\n4. ${fixInstructions.step4}\n5. ${fixInstructions.step5}\n6. ${fixInstructions.step6}`,
+            diagnostics: {
+              expectedUrl: fixInstructions.expectedUrl,
+              actualUrl: fixInstructions.actualUrl,
+              keyLength: fixInstructions.keyLength,
+              keyFormat: fixInstructions.keyFormat,
+              keyPrefix: anon.substring(0, 20) + "..."
+            }
           }, { status: 500 });
         }
       } else {
@@ -286,11 +342,11 @@ export async function GET(
           try {
             // Set a timeout of 5 seconds for the admin query
             const queryPromise = adminClient
-              .from("drug_tests")
-              .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
-              .eq("id", finalTestId)
-              .eq("patient_id", user.id) // Verify ownership
-              .maybeSingle();
+            .from("drug_tests")
+            .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
+            .eq("id", finalTestId)
+            .eq("patient_id", user.id) // Verify ownership
+            .maybeSingle();
             
             const timeoutPromise = new Promise((_, reject) => 
               setTimeout(() => reject(new Error("Service role query timeout")), 5000)
@@ -549,12 +605,12 @@ export async function GET(
       console.error(`[API] [${requestId}] Failed to create JSON response:`, responseError);
       // Last resort - return plain text response that will definitely work
       try {
-        return new Response(
-          JSON.stringify(errorResponse),
-          {
-            status: 500,
-            headers: {
-              'Content-Type': 'application/json',
+      return new Response(
+        JSON.stringify(errorResponse),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
               'X-Request-ID': requestId
             }
           }
