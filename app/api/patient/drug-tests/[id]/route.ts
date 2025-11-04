@@ -619,17 +619,34 @@ export async function GET(
       }
       
       // For all other errors, return with error code for debugging
-      console.error(`[API] [${requestId}] Query failed with error code: ${drugTestError.code}`);
+      console.error(`[API] [${requestId}] Query failed with error code: ${drugTestError.code || 'NO_CODE'}`);
+      console.error(`[API] [${requestId}] Error message: ${drugTestError.message}`);
+      console.error(`[API] [${requestId}] Full error object:`, JSON.stringify(drugTestError, Object.getOwnPropertyNames(drugTestError)));
+      
+      // Don't use the error message directly if it says "Invalid API key" - that's misleading
+      // Since auth succeeded, the API key is valid, so this is likely RLS or another issue
+      const errorDetails = drugTestError.message?.includes("Invalid API key") && drugTestError.code !== "PGRST302"
+        ? `Query failed with error code ${drugTestError.code || 'unknown'}. The message mentions "Invalid API key" but authentication succeeded, so this is likely an RLS policy issue. Check the error code in debug.`
+        : drugTestError.message || "Unknown error";
+      
+      const errorHint = isDevelopment
+        ? `Error code: ${drugTestError.code || 'unknown'}. Check your terminal logs for details. If error code is PGRST301, run scripts/COMPLETE_DRUG_TESTS_SETUP.sql in Supabase.`
+        : `Error code: ${drugTestError.code || 'unknown'}. Check Vercel Function logs for detailed error information. If error code is PGRST301, run scripts/COMPLETE_DRUG_TESTS_SETUP.sql in Supabase.`;
+      
       return NextResponse.json(
         { 
           error: "Failed to fetch drug test", 
-          details: drugTestError.message || "Unknown error",
-          hint: drugTestError.hint || "Check Vercel Function logs for detailed error information",
+          details: errorDetails,
+          hint: drugTestError.hint || errorHint,
           debug: {
-            errorCode: drugTestError.code,
+            errorCode: drugTestError.code || null,
             errorMessage: drugTestError.message,
             errorDetails: drugTestError.details,
             errorHint: drugTestError.hint,
+            environment: isDevelopment ? "development" : "production",
+            note: drugTestError.message?.includes("Invalid API key") && drugTestError.code !== "PGRST302"
+              ? "Message says 'Invalid API key' but authentication succeeded - this is likely RLS or another issue, not API key"
+              : null,
             requestId: requestId
           }
         },
