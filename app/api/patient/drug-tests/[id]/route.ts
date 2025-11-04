@@ -534,34 +534,43 @@ export async function GET(
     });
 
     if (drugTestError) {
-      console.error("[API] Error fetching drug test:", {
+      // Extract error code from multiple possible locations
+      const errorCode = drugTestError.code || 
+                       (drugTestError as any)?.status || 
+                       (drugTestError as any)?.error_code ||
+                       (drugTestError.message?.match(/PGRST\d{3}/)?.[0]) ||
+                       (drugTestError.details?.match(/PGRST\d{3}/)?.[0]) ||
+                       null;
+      
+      // Log the full error structure for debugging
+      const errorKeys = Object.keys(drugTestError);
+      const errorProps = Object.getOwnPropertyNames(drugTestError);
+      console.error(`[API] [${requestId}] Query error - Full structure:`, {
         code: drugTestError.code,
+        errorCode: errorCode,
         message: drugTestError.message,
         details: drugTestError.details,
-        hint: drugTestError.hint
+        hint: drugTestError.hint,
+        errorKeys: errorKeys,
+        errorProps: errorProps,
+        fullError: JSON.stringify(drugTestError, null, 2),
+        errorString: String(drugTestError),
+        errorType: typeof drugTestError,
+        errorConstructor: drugTestError.constructor?.name
       });
       
       // Check for API key errors - be VERY strict since we've already authenticated
       // If auth.getUser() succeeded, the API key is valid, so this is almost certainly NOT an API key error
       // Only treat it as API key error if we get the SPECIFIC error code PGRST302
-      const isApiKeyError = drugTestError.code === "PGRST302"; // Only this specific code
-      
-      // Log the actual error for debugging
-      console.error(`[API] [${requestId}] Query error details:`, {
-        code: drugTestError.code,
-        message: drugTestError.message,
-        details: drugTestError.details,
-        hint: drugTestError.hint,
-        fullError: JSON.stringify(drugTestError, Object.getOwnPropertyNames(drugTestError))
-      });
+      const isApiKeyError = errorCode === "PGRST302"; // Only this specific code
       
       if (isApiKeyError) {
         // Only if we get the specific PGRST302 error code
         console.error(`[API] [${requestId}] ❌ CRITICAL: Invalid Supabase API key detected in query`);
         console.error(`[API] [${requestId}] ⚠️ NOTE: This is VERY unusual since authentication succeeded`);
-        console.error(`[API] [${requestId}] Error code: ${drugTestError.code}`);
+        console.error(`[API] [${requestId}] Error code: ${errorCode}`);
         console.error(`[API] [${requestId}] Error message: ${drugTestError.message}`);
-        console.error(`[API] [${requestId}] Full error:`, JSON.stringify(drugTestError, Object.getOwnPropertyNames(drugTestError)));
+        console.error(`[API] [${requestId}] Full error:`, JSON.stringify(drugTestError, null, 2));
         console.error(`[API] [${requestId}] Supabase URL: ${supabaseUrl}`);
         console.error(`[API] [${requestId}] API key length: ${anon.length}, prefix: ${anon.substring(0, 20)}`);
         
@@ -574,7 +583,7 @@ export async function GET(
           details: "Invalid API key detected in query (VERY unusual since authentication succeeded). The Supabase API key may be incorrect or doesn't match the Supabase project.",
           hint: envHint,
           debug: {
-            errorCode: drugTestError.code,
+            errorCode: errorCode,
             errorMessage: drugTestError.message,
             errorDetails: drugTestError.details,
             supabaseUrl: supabaseUrl,
@@ -590,28 +599,31 @@ export async function GET(
       // It's likely RLS, query syntax, or another issue
       // Log the actual error code and message for debugging
       
-      if (drugTestError.code === "PGRST116" || drugTestError.code === "42P01") {
+      if (errorCode === "PGRST116" || errorCode === "42P01") {
         return NextResponse.json({ error: "Drug test not found" }, { status: 404 });
       }
       
       // Check for RLS errors (PGRST301 is usually RLS, even if message says "Invalid API key")
-      if (drugTestError.code === "PGRST301" || 
+      if (errorCode === "PGRST301" || 
           drugTestError.message?.includes("row-level security") || 
-          drugTestError.message?.includes("policy")) {
-        console.error(`[API] [${requestId}] RLS policy blocking access - Error code: ${drugTestError.code}`);
+          drugTestError.message?.includes("policy") ||
+          drugTestError.message?.includes("permission denied") ||
+          drugTestError.message?.includes("RLS")) {
+        console.error(`[API] [${requestId}] RLS policy blocking access - Error code: ${errorCode}`);
         console.error(`[API] [${requestId}] This is likely an RLS policy issue, not an API key issue`);
         const rlsHint = isDevelopment
-          ? "Run scripts/COMPLETE_DRUG_TESTS_SETUP.sql in Supabase SQL Editor to fix RLS policies. This is a common issue in development."
-          : "Run scripts/COMPLETE_DRUG_TESTS_SETUP.sql in Supabase SQL Editor to fix RLS policies";
+          ? "Run scripts/CLEAN_DRUG_TESTS_RLS_POLICIES.sql in Supabase SQL Editor to fix RLS policies. This is a common issue in development."
+          : "Run scripts/CLEAN_DRUG_TESTS_RLS_POLICIES.sql in Supabase SQL Editor to fix RLS policies";
         
         return NextResponse.json({ 
           error: "Drug test not found or access denied",
           details: "Row Level Security (RLS) policy is blocking access to this drug test. Please ensure RLS policies are correctly configured.",
           hint: rlsHint,
           debug: {
-            errorCode: drugTestError.code,
+            errorCode: errorCode,
             errorMessage: drugTestError.message,
             errorDetails: drugTestError.details,
+            errorHint: drugTestError.hint,
             note: "PGRST301 usually means RLS is blocking, even if message mentions API key",
             requestId: requestId
           }
@@ -619,19 +631,20 @@ export async function GET(
       }
       
       // For all other errors, return with error code for debugging
-      console.error(`[API] [${requestId}] Query failed with error code: ${drugTestError.code || 'NO_CODE'}`);
+      console.error(`[API] [${requestId}] Query failed with error code: ${errorCode || 'NO_CODE'}`);
       console.error(`[API] [${requestId}] Error message: ${drugTestError.message}`);
-      console.error(`[API] [${requestId}] Full error object:`, JSON.stringify(drugTestError, Object.getOwnPropertyNames(drugTestError)));
+      console.error(`[API] [${requestId}] Error details: ${drugTestError.details}`);
+      console.error(`[API] [${requestId}] Error hint: ${drugTestError.hint}`);
       
       // Don't use the error message directly if it says "Invalid API key" - that's misleading
       // Since auth succeeded, the API key is valid, so this is likely RLS or another issue
-      const errorDetails = drugTestError.message?.includes("Invalid API key") && drugTestError.code !== "PGRST302"
-        ? `Query failed with error code ${drugTestError.code || 'unknown'}. The message mentions "Invalid API key" but authentication succeeded, so this is likely an RLS policy issue. Check the error code in debug.`
+      const errorDetails = drugTestError.message?.includes("Invalid API key") && errorCode !== "PGRST302"
+        ? `Query failed with error code ${errorCode || 'unknown'}. The message mentions "Invalid API key" but authentication succeeded, so this is likely an RLS policy issue. Check the error code in debug.`
         : drugTestError.message || "Unknown error";
       
       const errorHint = isDevelopment
-        ? `Error code: ${drugTestError.code || 'unknown'}. Check your terminal logs for details. If error code is PGRST301, run scripts/COMPLETE_DRUG_TESTS_SETUP.sql in Supabase.`
-        : `Error code: ${drugTestError.code || 'unknown'}. Check Vercel Function logs for detailed error information. If error code is PGRST301, run scripts/COMPLETE_DRUG_TESTS_SETUP.sql in Supabase.`;
+        ? `Error code: ${errorCode || 'unknown'}. Check your terminal logs for details. If error code is PGRST301, run scripts/CLEAN_DRUG_TESTS_RLS_POLICIES.sql in Supabase.`
+        : `Error code: ${errorCode || 'unknown'}. Check Vercel Function logs for detailed error information. If error code is PGRST301, run scripts/CLEAN_DRUG_TESTS_RLS_POLICIES.sql in Supabase.`;
       
       return NextResponse.json(
         { 
@@ -639,12 +652,12 @@ export async function GET(
           details: errorDetails,
           hint: drugTestError.hint || errorHint,
           debug: {
-            errorCode: drugTestError.code || null,
+            errorCode: errorCode,
             errorMessage: drugTestError.message,
             errorDetails: drugTestError.details,
             errorHint: drugTestError.hint,
             environment: isDevelopment ? "development" : "production",
-            note: drugTestError.message?.includes("Invalid API key") && drugTestError.code !== "PGRST302"
+            note: drugTestError.message?.includes("Invalid API key") && errorCode !== "PGRST302"
               ? "Message says 'Invalid API key' but authentication succeeded - this is likely RLS or another issue, not API key"
               : null,
             requestId: requestId
