@@ -470,12 +470,28 @@ export async function GET(
     }
     */
     
+    // Query without explicit patient_id filter first - let RLS handle it
+    // If that fails, we'll add the filter as a fallback
     let { data: drugTest, error: drugTestError } = await supabase
       .from("drug_tests")
       .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
       .eq("id", finalTestId)
-      .eq("patient_id", user.id)  // Explicit filter for RLS
       .maybeSingle();
+    
+    // If no results and no error, RLS might be silently blocking
+    // Try with explicit filter
+    if (!drugTest && !drugTestError) {
+      console.log(`[API] [${requestId}] No results without patient_id filter, trying with explicit filter...`);
+      const { data: drugTestWithFilter, error: drugTestErrorWithFilter } = await supabase
+        .from("drug_tests")
+        .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
+        .eq("id", finalTestId)
+        .eq("patient_id", user.id)
+        .maybeSingle();
+      
+      drugTest = drugTestWithFilter;
+      drugTestError = drugTestErrorWithFilter;
+    }
 
     // Log the RAW error immediately, before any processing
     if (drugTestError) {
