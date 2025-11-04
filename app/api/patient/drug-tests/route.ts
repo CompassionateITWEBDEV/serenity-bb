@@ -49,12 +49,27 @@ export async function GET(req: Request) {
     });
 
     // Auth - try cookie-based first, fallback to Bearer token
-    const { data: cookieAuth, error: cookieErr } = await supabase.auth.getUser();
+    let { data: cookieAuth, error: cookieErr } = await supabase.auth.getUser();
     let user = cookieAuth?.user;
     let authError = cookieErr;
 
+    // If session expired, try to refresh
+    if ((!user || cookieErr) && cookieErr?.message?.includes("expired")) {
+      console.log("[API] Session expired, attempting refresh...");
+      const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+      
+      if (!refreshError && refreshedSession) {
+        const { data: refreshedAuth, error: refreshedErr } = await supabase.auth.getUser();
+        if (!refreshedErr && refreshedAuth?.user) {
+          user = refreshedAuth.user;
+          authError = null;
+          console.log("[API] Session refreshed successfully");
+        }
+      }
+    }
+
     // Fallback to Bearer token if cookie auth fails
-    if ((!user || cookieErr) && req.headers) {
+    if ((!user || authError) && req.headers) {
       const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
       const bearer = authHeader.toLowerCase().startsWith("bearer ")
         ? authHeader.slice(7).trim()
@@ -77,7 +92,16 @@ export async function GET(req: Request) {
     }
 
     if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      console.error("[API] Authentication failed:", {
+        cookieError: cookieErr?.message,
+        bearerError: authError?.message,
+        hasUser: !!user
+      });
+      return NextResponse.json({ 
+        error: "Unauthorized",
+        details: "Please log in again to view your drug tests.",
+        hint: authError?.message || "Your session may have expired. Please refresh the page or log in again."
+      }, { status: 401 });
     }
 
     console.log(`[API] Fetching drug tests for user: ${user.id}`);
