@@ -525,18 +525,19 @@ export async function GET(
         hint: drugTestError.hint
       });
       
-      // Check for API key errors
+      // Check for API key errors - but be more strict since we've already authenticated
+      // If auth.getUser() succeeded, the API key is valid, so this is likely an RLS or other issue
       const isApiKeyError = 
-        drugTestError.message?.includes("Invalid API key") || 
-        drugTestError.message?.includes("JWT") ||
-        (drugTestError.message?.includes("invalid") && drugTestError.message?.includes("key")) ||
-        drugTestError.message?.toLowerCase().includes("authentication failed") ||
-        drugTestError.code === "PGRST302" || // Invalid API key
-        drugTestError.code === "PGRST401" || // Unauthorized
-        (drugTestError.code === "PGRST301" && drugTestError.message?.toLowerCase().includes("api key"));
+        (drugTestError.message?.includes("Invalid API key") && !drugTestError.message?.includes("row-level")) || 
+        (drugTestError.code === "PGRST302") || // Invalid API key (specific error code)
+        (drugTestError.code === "PGRST401" && drugTestError.message?.toLowerCase().includes("api key")); // Only if explicitly about API key
+      
+      // Don't treat PGRST301 as API key error - it's usually RLS
+      // Don't treat generic "JWT" or "invalid" as API key error - could be token expiry
       
       if (isApiKeyError) {
         console.error(`[API] [${requestId}] ❌ CRITICAL: Invalid Supabase API key detected in query`);
+        console.error(`[API] [${requestId}] ⚠️ NOTE: This is unusual since authentication succeeded`);
         console.error(`[API] [${requestId}] Error code: ${drugTestError.code}`);
         console.error(`[API] [${requestId}] Error message: ${drugTestError.message}`);
         console.error(`[API] [${requestId}] Full error:`, JSON.stringify(drugTestError, Object.getOwnPropertyNames(drugTestError)));
@@ -545,8 +546,8 @@ export async function GET(
         
         return NextResponse.json({ 
           error: "Server configuration error",
-          details: "Invalid API key detected. The Supabase API key in Vercel environment variables is incorrect, expired, or doesn't match the Supabase project.",
-          hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application",
+          details: "Invalid API key detected in query (unusual since authentication succeeded). The Supabase API key in Vercel environment variables may be incorrect or doesn't match the Supabase project.",
+          hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application\n6. Check Vercel Function logs for detailed error information",
           debug: {
             errorCode: drugTestError.code,
             errorMessage: drugTestError.message,
@@ -554,10 +555,14 @@ export async function GET(
             supabaseUrl: supabaseUrl,
             keyLength: anon.length,
             keyPrefix: anon.substring(0, 20),
-            requestId: requestId
+            requestId: requestId,
+            note: "Authentication succeeded, but query failed with API key error - this is unusual"
           }
         }, { status: 500 });
       }
+      
+      // If it's not an API key error, it's likely RLS or another issue
+      // Log it but don't return API key error
       
       if (drugTestError.code === "PGRST116" || drugTestError.code === "42P01") {
         return NextResponse.json({ error: "Drug test not found" }, { status: 404 });
