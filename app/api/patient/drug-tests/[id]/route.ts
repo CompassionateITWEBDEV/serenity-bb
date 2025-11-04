@@ -419,14 +419,36 @@ export async function GET(
       });
       
       // Check for API key errors
-      if (drugTestError.message?.includes("Invalid API key") || 
-          drugTestError.message?.includes("JWT") ||
-          drugTestError.message?.includes("invalid") && drugTestError.message?.includes("key")) {
-        console.error("[API] ❌ CRITICAL: Invalid Supabase API key detected");
+      const isApiKeyError = 
+        drugTestError.message?.includes("Invalid API key") || 
+        drugTestError.message?.includes("JWT") ||
+        (drugTestError.message?.includes("invalid") && drugTestError.message?.includes("key")) ||
+        drugTestError.message?.toLowerCase().includes("authentication failed") ||
+        drugTestError.code === "PGRST302" || // Invalid API key
+        drugTestError.code === "PGRST401" || // Unauthorized
+        (drugTestError.code === "PGRST301" && drugTestError.message?.toLowerCase().includes("api key"));
+      
+      if (isApiKeyError) {
+        console.error(`[API] [${requestId}] ❌ CRITICAL: Invalid Supabase API key detected in query`);
+        console.error(`[API] [${requestId}] Error code: ${drugTestError.code}`);
+        console.error(`[API] [${requestId}] Error message: ${drugTestError.message}`);
+        console.error(`[API] [${requestId}] Full error:`, JSON.stringify(drugTestError, Object.getOwnPropertyNames(drugTestError)));
+        console.error(`[API] [${requestId}] Supabase URL: ${supabaseUrl}`);
+        console.error(`[API] [${requestId}] API key length: ${anon.length}, prefix: ${anon.substring(0, 20)}`);
+        
         return NextResponse.json({ 
           error: "Server configuration error",
-          details: "Invalid API key. Please check Supabase environment variables in Vercel.",
-          hint: "Verify NEXT_PUBLIC_SUPABASE_ANON_KEY is correct and matches your Supabase project"
+          details: "Invalid API key detected. The Supabase API key in Vercel environment variables is incorrect, expired, or doesn't match the Supabase project.",
+          hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application",
+          debug: {
+            errorCode: drugTestError.code,
+            errorMessage: drugTestError.message,
+            errorDetails: drugTestError.details,
+            supabaseUrl: supabaseUrl,
+            keyLength: anon.length,
+            keyPrefix: anon.substring(0, 20),
+            requestId: requestId
+          }
         }, { status: 500 });
       }
       
