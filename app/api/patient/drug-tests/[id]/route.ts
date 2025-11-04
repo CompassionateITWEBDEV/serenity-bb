@@ -722,28 +722,45 @@ export async function GET(
             });
             
             console.log(`[API] [${requestId}] Querying with service role to bypass RLS...`);
-            const { data: adminTest, error: adminError } = await adminClient
+            console.log(`[API] [${requestId}] Test ID: ${finalTestId}, User ID: ${user.id}`);
+            
+            // First check if test exists at all
+            const { data: anyTest, error: anyTestError } = await adminClient
               .from("drug_tests")
-              .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
+              .select("id, patient_id")
               .eq("id", finalTestId)
-              .eq("patient_id", user.id)
               .maybeSingle();
             
-            if (adminError) {
-              console.error(`[API] [${requestId}] Service role query also failed:`, adminError);
-            } else if (adminTest) {
-              console.log(`[API] [${requestId}] ✅ Service role fallback successful - RLS was blocking`);
-              return NextResponse.json({ 
-                drugTest: adminTest,
-                rlsBypassed: true,
-                note: "Query succeeded using service role. RLS policies need to be fixed."
-              }, { status: 200 });
+            if (anyTestError) {
+              console.error(`[API] [${requestId}] Service role query error:`, anyTestError);
+            } else if (anyTest) {
+              console.log(`[API] [${requestId}] Test exists! patient_id: ${anyTest.patient_id}, user.id: ${user.id}, match: ${anyTest.patient_id === user.id}`);
+              
+              // Now get full test data
+              const { data: adminTest, error: adminError } = await adminClient
+                .from("drug_tests")
+                .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
+                .eq("id", finalTestId)
+                .maybeSingle();
+              
+              if (adminError) {
+                console.error(`[API] [${requestId}] Service role full query error:`, adminError);
+              } else if (adminTest) {
+                console.log(`[API] [${requestId}] ✅ Service role fallback successful - RLS was blocking`);
+                return NextResponse.json({ 
+                  drugTest: adminTest,
+                  rlsBypassed: true,
+                  note: "Query succeeded using service role. RLS policies need to be fixed. The policy condition 'patient_id = auth.uid()' should work, but it's not. Please run DIAGNOSE_AND_FIX.sql in Supabase."
+                }, { status: 200 });
+              }
             } else {
-              console.log(`[API] [${requestId}] Service role query returned no results - test may not exist`);
+              console.log(`[API] [${requestId}] Service role query: Test ${finalTestId} does not exist in database`);
             }
           } catch (fallbackError: any) {
             console.error(`[API] [${requestId}] Service role fallback error:`, fallbackError);
           }
+        } else {
+          console.error(`[API] [${requestId}] Service role key not available - cannot bypass RLS`);
         }
         
         // If service role fallback didn't work, return error with SQL fix
