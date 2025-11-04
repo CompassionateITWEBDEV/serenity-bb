@@ -36,7 +36,21 @@ SELECT
 FROM pg_policies
 WHERE tablename = 'drug_tests' AND policyname = 'Patients can view own drug tests';
 
--- Step 5: Verify RLS is enabled
+-- Step 5: Create policy for staff to view ALL drug tests (required for staff dashboard)
+-- This allows staff members to view all drug tests for patient management
+DROP POLICY IF EXISTS "Staff can view all drug tests" ON public.drug_tests;
+CREATE POLICY "Staff can view all drug tests"
+ON public.drug_tests
+FOR SELECT
+USING (
+  -- Check if the authenticated user is a staff member
+  EXISTS (
+    SELECT 1 FROM staff
+    WHERE staff.user_id = auth.uid()
+  )
+);
+
+-- Step 6: Verify RLS is enabled
 SELECT 
   tablename,
   rowsecurity as rls_enabled,
@@ -47,16 +61,32 @@ SELECT
 FROM pg_tables
 WHERE schemaname = 'public' AND tablename = 'drug_tests';
 
+-- Step 7: Verify all policies were created
+SELECT 
+  policyname,
+  cmd,
+  qual as policy_condition,
+  CASE 
+    WHEN policyname = 'Patients can view own drug tests' AND qual LIKE '%patient_id%' AND qual LIKE '%auth.uid()%' THEN '✅ Policy looks correct'
+    WHEN policyname = 'Staff can view all drug tests' AND qual LIKE '%staff%' AND qual LIKE '%auth.uid()%' THEN '✅ Policy looks correct'
+    ELSE '⚠️ Policy may need review'
+  END as verification
+FROM pg_policies
+WHERE tablename = 'drug_tests'
+ORDER BY policyname;
+
 -- ============================================
 -- SUCCESS MESSAGE
 -- ============================================
 -- After running this script:
 -- 1. ✅ RLS will be enabled on drug_tests table
 -- 2. ✅ Patients can view their own drug tests (where patient_id = auth.uid())
--- 3. ✅ The API route will no longer need service role fallback
--- 4. ✅ Check Vercel Function logs - "RLS BLOCKING DETECTED" warnings should stop
+-- 3. ✅ Staff can view ALL drug tests (for staff dashboard)
+-- 4. ✅ The API route will no longer need service role fallback
+-- 5. ✅ Staff dashboard will show all drug tests
 --
 -- Test by:
--- 1. Refresh your browser on the drug test detail page
--- 2. Check Vercel Function logs - you should see "Successfully fetched drug test" without RLS bypass warnings
+-- 1. Refresh your browser on the drug test detail page (as patient)
+-- 2. Check staff dashboard - drug tests should now appear
+-- 3. Check Vercel Function logs - "RLS BLOCKING DETECTED" warnings should stop
 
