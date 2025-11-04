@@ -56,40 +56,40 @@ export async function POST(req: Request) {
     
     console.log(`[API] [${requestId}] ✅ Supabase environment variables configured`);
 
-  // 1) Validate body
-  let body: z.infer<typeof Body>;
-  try {
-    const rawBody = await req.json();
-    console.log('[API] POST /api/drug-tests - Raw body received:', JSON.stringify(rawBody, null, 2));
-    
-    const result = Body.safeParse(rawBody);
-    if (!result.success) {
-      const errors = result.error.errors.map(err => ({
-        field: err.path.join('.'),
-        message: err.message,
-        received: err.path.length > 0 ? (rawBody as any)[err.path[0]] : undefined
-      }));
+    // 1) Validate body
+    let body: z.infer<typeof Body>;
+    try {
+      const rawBody = await req.json();
+      console.log(`[API] [${requestId}] POST /api/drug-tests - Raw body received:`, JSON.stringify(rawBody, null, 2));
       
-      console.error('[API] POST /api/drug-tests - Validation failed:', JSON.stringify(errors, null, 2));
+      const result = Body.safeParse(rawBody);
+      if (!result.success) {
+        const errors = result.error.errors.map(err => ({
+          field: err.path.join('.'),
+          message: err.message,
+          received: err.path.length > 0 ? (rawBody as any)[err.path[0]] : undefined
+        }));
+        
+        console.error(`[API] [${requestId}] POST /api/drug-tests - Validation failed:`, JSON.stringify(errors, null, 2));
+        
+        return json({ 
+          error: "Validation failed",
+          details: errors,
+          received: rawBody
+        }, 400, { "x-debug": "zod-parse-failed" });
+      }
       
+      body = result.data;
+      console.log(`[API] [${requestId}] POST /api/drug-tests - Validated body:`, JSON.stringify(body, null, 2));
+    } catch (e: any) {
+      console.error(`[API] [${requestId}] POST /api/drug-tests - JSON parse error:`, e);
       return json({ 
-        error: "Validation failed",
-        details: errors,
-        received: rawBody
-      }, 400, { "x-debug": "zod-parse-failed" });
+        error: "Invalid JSON body",
+        details: e?.message ?? "Failed to parse request body"
+      }, 400, { "x-debug": "json-parse-failed" });
     }
-    
-    body = result.data;
-    console.log('[API] POST /api/drug-tests - Validated body:', JSON.stringify(body, null, 2));
-  } catch (e: any) {
-    console.error('[API] POST /api/drug-tests - JSON parse error:', e);
-    return json({ 
-      error: "Invalid JSON body",
-      details: e?.message ?? "Failed to parse request body"
-    }, 400, { "x-debug": "json-parse-failed" });
-  }
 
-  try {
+    try {
     // 2) Try cookie-bound client
     const jar = await cookies();
     const supaCookie = createServerClient(url, anon, {
@@ -382,34 +382,42 @@ export async function POST(req: Request) {
       // Don't fail the drug test creation if notification fails
     }
 
-    return json({ data: ins.data }, 200, { "x-debug": "ok" });
-  } catch (e: any) {
-    console.error(`[API] [${requestId}] ❌ Unhandled error:`, e);
-    
-    // Check for network/connection errors
-    const errorMessage = e?.message || String(e) || 'Unknown error';
-    const isNetworkError = errorMessage.includes('ECONNREFUSED') ||
-                          errorMessage.includes('ENOTFOUND') ||
-                          errorMessage.includes('ETIMEDOUT') ||
-                          errorMessage.includes('NetworkError') ||
-                          errorMessage.includes('Failed to fetch') ||
-                          e?.code === 'ECONNREFUSED' ||
-                          e?.code === 'ENOTFOUND' ||
-                          e?.code === 'ETIMEDOUT';
-    
-    if (isNetworkError) {
+      return json({ data: ins.data }, 200, { "x-debug": "ok" });
+    } catch (e: any) {
+      console.error(`[API] [${requestId}] ❌ Unhandled error:`, e);
+      
+      // Check for network/connection errors
+      const errorMessage = e?.message || String(e) || 'Unknown error';
+      const isNetworkError = errorMessage.includes('ECONNREFUSED') ||
+                            errorMessage.includes('ENOTFOUND') ||
+                            errorMessage.includes('ETIMEDOUT') ||
+                            errorMessage.includes('NetworkError') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            e?.code === 'ECONNREFUSED' ||
+                            e?.code === 'ENOTFOUND' ||
+                            e?.code === 'ETIMEDOUT';
+      
+      if (isNetworkError) {
+        return json({ 
+          error: "Network error: Unable to connect to the server",
+          details: "The server could not connect to the database. Please check your internet connection and try again.",
+          hint: "If this persists, check Supabase project status and network connectivity"
+        }, 503, { "x-debug": "network-error" });
+      }
+      
+      // Last-resort detail to help you see the exact failure
       return json({ 
-        error: "Network error: Unable to connect to the server",
-        details: "The server could not connect to the database. Please check your internet connection and try again.",
-        hint: "If this persists, check Supabase project status and network connectivity"
-      }, 503, { "x-debug": "network-error" });
+        error: e?.message ?? "Unexpected error",
+        details: String(e),
+        hint: "Check server logs for more details"
+      }, 500, { "x-debug": "unhandled" });
     }
-    
-    // Last-resort detail to help you see the exact failure
+  } catch (outerError: any) {
+    console.error(`[API] [${requestId}] ❌ Outer catch error:`, outerError);
     return json({ 
-      error: e?.message ?? "Unexpected error",
-      details: String(e),
+      error: outerError?.message ?? "Unexpected error",
+      details: String(outerError),
       hint: "Check server logs for more details"
-    }, 500, { "x-debug": "unhandled" });
+    }, 500, { "x-debug": "outer-error" });
   }
 }
