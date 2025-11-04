@@ -13,16 +13,15 @@
 }
 
 /* Mozilla font smoothing - only for Firefox on macOS */
+/* Note: -moz-osx-font-smoothing may show warnings during build but is valid CSS */
 @-moz-document url-prefix() {
   * {
     -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/* Ensure proper font display for all text elements */
-body, h1, h2, h3, h4, h5, h6, p, span, div, a, button {
-  font-display: swap;
-}
+/* Note: font-display is only valid in @font-face rules, not on elements */
+/* If you need font-display, add it to your @font-face declarations */
 
 /* WebKit font smoothing for text elements */
 @supports (-webkit-appearance: none) {
@@ -32,6 +31,7 @@ body, h1, h2, h3, h4, h5, h6, p, span, div, a, button {
 }
 
 /* Mozilla font smoothing for text elements */
+/* Note: -moz-osx-font-smoothing may show warnings during build but is valid CSS */
 @-moz-document url-prefix() {
   body, h1, h2, h3, h4, h5, h6, p, span, div, a, button {
     -moz-osx-font-smoothing: grayscale;
