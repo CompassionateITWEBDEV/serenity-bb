@@ -574,17 +574,41 @@ export async function GET(
         return NextResponse.json({ error: "Drug test not found" }, { status: 404 });
       }
       
-      // If it's an RLS error, provide more helpful message
-      if (drugTestError.message?.includes("row-level security") || drugTestError.message?.includes("policy")) {
-        console.error("[API] RLS policy may be blocking access");
+      // Check for RLS errors (PGRST301 is usually RLS, even if message says "Invalid API key")
+      if (drugTestError.code === "PGRST301" || 
+          drugTestError.message?.includes("row-level security") || 
+          drugTestError.message?.includes("policy")) {
+        console.error(`[API] [${requestId}] RLS policy blocking access - Error code: ${drugTestError.code}`);
+        console.error(`[API] [${requestId}] This is likely an RLS policy issue, not an API key issue`);
         return NextResponse.json({ 
           error: "Drug test not found or access denied",
-          details: "You may not have permission to view this drug test"
-        }, { status: 404 });
+          details: "Row Level Security (RLS) policy is blocking access to this drug test. Please ensure RLS policies are correctly configured.",
+          hint: "Run scripts/COMPLETE_DRUG_TESTS_SETUP.sql in Supabase SQL Editor to fix RLS policies",
+          debug: {
+            errorCode: drugTestError.code,
+            errorMessage: drugTestError.message,
+            errorDetails: drugTestError.details,
+            note: "PGRST301 usually means RLS is blocking, even if message mentions API key",
+            requestId: requestId
+          }
+        }, { status: 403 });
       }
       
+      // For all other errors, return with error code for debugging
+      console.error(`[API] [${requestId}] Query failed with error code: ${drugTestError.code}`);
       return NextResponse.json(
-        { error: "Failed to fetch drug test", details: drugTestError.message },
+        { 
+          error: "Failed to fetch drug test", 
+          details: drugTestError.message || "Unknown error",
+          hint: drugTestError.hint || "Check Vercel Function logs for detailed error information",
+          debug: {
+            errorCode: drugTestError.code,
+            errorMessage: drugTestError.message,
+            errorDetails: drugTestError.details,
+            errorHint: drugTestError.hint,
+            requestId: requestId
+          }
+        },
         { status: 500 }
       );
     }
