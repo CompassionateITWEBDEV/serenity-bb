@@ -95,8 +95,56 @@ export async function GET(
       anonExists: !!anon,
       anonLength: anon?.length || 0,
       anonPrefix: anon ? `${anon.substring(0, 20)}...` : "MISSING",
+      anonSuffix: anon ? `...${anon.substring(anon.length - 10)}` : "MISSING",
       allEnvKeys: Object.keys(process.env).filter(k => k.includes("SUPABASE")).join(", ")
     });
+
+    // Validate API key format and project match
+    if (anon) {
+      const expectedProjectRef = "cycakdfxcsjknxkqpasp";
+      
+      // Check if API key is a valid JWT
+      if (!anon.startsWith('eyJ')) {
+        console.error(`[API] [${requestId}] ❌ WARNING: API key does not start with 'eyJ' (not a valid JWT)`);
+        console.error(`[API] [${requestId}] API key starts with: ${anon.substring(0, 10)}`);
+      } else {
+        // Try to decode JWT payload to verify project ref
+        try {
+          const jwtParts = anon.split('.');
+          if (jwtParts.length === 3) {
+            const jwtPayload = JSON.parse(Buffer.from(jwtParts[1], 'base64').toString());
+            const jwtProjectRef = jwtPayload?.ref;
+            const jwtRole = jwtPayload?.role;
+            
+            console.log(`[API] [${requestId}] JWT decoded:`, {
+              ref: jwtProjectRef,
+              role: jwtRole,
+              matchesExpected: jwtProjectRef === expectedProjectRef,
+              urlProjectRef: supabaseUrl?.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1]
+            });
+            
+            if (jwtProjectRef && jwtProjectRef !== expectedProjectRef) {
+              console.error(`[API] [${requestId}] ❌ CRITICAL: API key project ref mismatch!`);
+              console.error(`[API] [${requestId}] Expected: ${expectedProjectRef}, Found in JWT: ${jwtProjectRef}`);
+              return NextResponse.json({
+                error: "Server configuration error",
+                details: `API key project ref mismatch. The API key in Vercel is for project '${jwtProjectRef}', but should be for '${expectedProjectRef}'.`,
+                hint: `Go to Supabase Dashboard → Project ${expectedProjectRef} → Settings → API → Copy the 'anon/public' key and update NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel`,
+                debug: {
+                  expectedProjectRef,
+                  jwtProjectRef,
+                  urlProjectRef: supabaseUrl?.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1],
+                  requestId: requestId
+                }
+              }, { status: 500 });
+            }
+          }
+        } catch (jwtError: any) {
+          console.error(`[API] [${requestId}] Failed to decode JWT:`, jwtError?.message);
+          // Don't fail here, just log - the key might still be valid
+        }
+      }
+    }
     
     if (!supabaseUrl || !anon) {
       console.error(`[API] [${requestId}] ❌ CRITICAL: Supabase environment variables missing`);
