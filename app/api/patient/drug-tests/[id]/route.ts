@@ -101,6 +101,15 @@ export async function GET(
         hint: "The API key should be a JWT token starting with 'eyJ'. Get it from your Supabase project settings."
       }, { status: 500 });
     }
+    
+    // Log API key info for debugging (without exposing the full key)
+    console.log(`[API] Supabase configuration check:`, {
+      url: supabaseUrl,
+      keyLength: anon.length,
+      keyPrefix: anon.substring(0, 20) + "...",
+      keyEnd: "..." + anon.substring(anon.length - 10),
+      urlMatches: supabaseUrl.includes("supabase.co")
+    });
 
     const cookieStore = await cookies();
     const supabase = createServerClient(supabaseUrl, anon, {
@@ -162,6 +171,38 @@ export async function GET(
     // RLS might require the patient_id filter, so we use it explicitly
     // We'll check patient record only if needed for debugging
     const startTime = Date.now();
+    
+    // Test the connection first to catch API key errors early
+    try {
+      const { data: testConnection, error: testError } = await supabase
+        .from("drug_tests")
+        .select("id")
+        .limit(1);
+      
+      if (testError) {
+        console.error("[API] ❌ Supabase connection test failed:", {
+          code: testError.code,
+          message: testError.message,
+          details: testError.details,
+          hint: testError.hint
+        });
+        
+        // Check specifically for API key errors
+        if (testError.message?.includes("Invalid API key") || 
+            testError.message?.includes("JWT") ||
+            testError.code === "PGRST301" ||
+            testError.code === "PGRST302") {
+          return NextResponse.json({ 
+            error: "Server configuration error",
+            details: "Invalid API key detected. The Supabase API key in Vercel environment variables is incorrect or expired.",
+            hint: "Go to Vercel → Settings → Environment Variables → Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value from Supabase Dashboard → Settings → API"
+          }, { status: 500 });
+        }
+      }
+    } catch (testConnErr: any) {
+      console.error("[API] ❌ Error testing Supabase connection:", testConnErr);
+    }
+    
     let { data: drugTest, error: drugTestError } = await supabase
       .from("drug_tests")
       .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
