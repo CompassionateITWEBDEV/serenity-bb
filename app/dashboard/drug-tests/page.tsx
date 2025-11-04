@@ -378,10 +378,18 @@ export default function PatientDrugTestsPage() {
           </Card>
         ) : (
           <div className="space-y-4">
-            {drugTests.map((test) => (
+            {drugTests.map((test, index) => {
+              // Mark the first (newest) test as "Latest"
+              const isLatest = index === 0;
+              const createdDate = new Date(test.createdAt);
+              const isRecent = (Date.now() - createdDate.getTime()) < 24 * 60 * 60 * 1000; // Within last 24 hours
+              
+              return (
               <Card 
                 key={test.id} 
-                className="hover:shadow-md transition-shadow cursor-pointer"
+                className={`hover:shadow-md transition-shadow cursor-pointer ${
+                  isLatest && isRecent ? 'border-l-4 border-l-cyan-500' : ''
+                }`}
                 onClick={() => {
                   console.log('Navigating to drug test detail:', test.id);
                   router.push(`/dashboard/drug-tests/${test.id}`);
@@ -394,9 +402,16 @@ export default function PatientDrugTestsPage() {
                         <TestTube2 className="h-6 w-6 text-yellow-600" />
                       </div>
                       <div className="flex-1">
-                        <CardTitle className="text-lg mb-1">
-                          Drug Test Assignment
-                        </CardTitle>
+                        <div className="flex items-center gap-2 mb-1">
+                          <CardTitle className="text-lg">
+                            Drug Test Assignment
+                          </CardTitle>
+                          {isLatest && isRecent && (
+                            <Badge className="bg-cyan-100 text-cyan-800 hover:bg-cyan-100 text-xs">
+                              Latest
+                            </Badge>
+                          )}
+                        </div>
                         <CardDescription className="flex items-center gap-4 mt-2">
                           <div className="flex items-center gap-2">
                             <Calendar className="h-4 w-4" />
@@ -478,7 +493,8 @@ export default function PatientDrugTestsPage() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            );
+            })}
           </div>
         )}
       </div>
