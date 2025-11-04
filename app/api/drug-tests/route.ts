@@ -4,6 +4,11 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient as createSbClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
+// Ensure Node.js runtime for Vercel (not Edge)
+// Increase timeout for Vercel Pro plan (60s) or Hobby plan (10s)
+export const runtime = "nodejs";
+export const maxDuration = 60; // Maximum for Pro plan, will be capped at 10s for Hobby
+
 const Body = z.object({
   patientId: z.string().uuid("patientId must be a valid UUID"),
   scheduledFor: z.union([
@@ -29,13 +34,27 @@ function json(data: any, status = 200, headers: Record<string, string> = {}) {
 }
 
 export async function POST(req: Request) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anon) {
-    return json({ error: "Supabase env missing (NEXT_PUBLIC_SUPABASE_URL/_ANON_KEY)" }, 500, {
-      "x-debug": "env-missing",
-    });
-  }
+  const requestId = Math.random().toString(36).substring(7);
+  console.log(`[API] [${requestId}] POST /api/drug-tests - Request received at ${new Date().toISOString()}`);
+  
+  try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!url || !anon) {
+      console.error(`[API] [${requestId}] ❌ CRITICAL: Supabase environment variables missing`);
+      console.error(`[API] [${requestId}] NEXT_PUBLIC_SUPABASE_URL:`, url ? "SET" : "MISSING");
+      console.error(`[API] [${requestId}] NEXT_PUBLIC_SUPABASE_ANON_KEY:`, anon ? "SET" : "MISSING");
+      return json({ 
+        error: "Server configuration error",
+        details: "Supabase configuration missing. Please check environment variables.",
+        hint: "Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel"
+      }, 500, {
+        "x-debug": "env-missing",
+      });
+    }
+    
+    console.log(`[API] [${requestId}] ✅ Supabase environment variables configured`);
 
   // 1) Validate body
   let body: z.infer<typeof Body>;
@@ -135,16 +154,44 @@ export async function POST(req: Request) {
 
     const admin = createSbClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
+    // Test Supabase connection before proceeding
+    console.log(`[API] [${requestId}] Testing Supabase connection...`);
+    try {
+      const { data: testConnection, error: connectionError } = await admin
+        .from("drug_tests")
+        .select("id")
+        .limit(1);
+      
+      if (connectionError) {
+        console.error(`[API] [${requestId}] ❌ Supabase connection failed:`, connectionError);
+        return json({ 
+          error: "Database connection failed",
+          details: connectionError.message,
+          hint: "Check Supabase project status and network connectivity"
+        }, 503, { "x-debug": "supabase-connection-failed" });
+      }
+      
+      console.log(`[API] [${requestId}] ✅ Supabase connection successful`);
+    } catch (connErr: any) {
+      console.error(`[API] [${requestId}] ❌ Supabase connection error:`, connErr);
+      return json({ 
+        error: "Unable to connect to database",
+        details: connErr?.message || "Network error connecting to Supabase",
+        hint: "Check your internet connection and Supabase project status"
+      }, 503, { "x-debug": "supabase-connection-error" });
+    }
+
     // Normalize scheduledFor - convert empty string to null
     const scheduledFor = body.scheduledFor === "" || body.scheduledFor === undefined ? null : body.scheduledFor;
     
-    console.log('[API] POST /api/drug-tests - Inserting drug test:', {
+    console.log(`[API] [${requestId}] Inserting drug test:`, {
       patient_id: body.patientId,
       scheduled_for: scheduledFor,
       created_by: authed.id,
       test_type: body.testType
     });
     
+    const insStartTime = Date.now();
     const ins = await admin
       .from("drug_tests")
       .insert({
@@ -166,9 +213,20 @@ export async function POST(req: Request) {
       )
       .single();
 
+    const insTime = Date.now() - insStartTime;
+    console.log(`[API] [${requestId}] Insert query completed in ${insTime}ms`);
+    
     if (ins.error) {
-      return json({ error: ins.error.message }, 400, { "x-debug": "insert-error" });
+      console.error(`[API] [${requestId}] ❌ Insert failed:`, ins.error);
+      return json({ 
+        error: "Failed to create drug test",
+        details: ins.error.message,
+        code: ins.error.code,
+        hint: ins.error.code === "PGRST116" ? "Database constraint violation" : "Check database connection and permissions"
+      }, 400, { "x-debug": "insert-error" });
     }
+    
+    console.log(`[API] [${requestId}] ✅ Drug test created successfully:`, ins.data.id);
 
     // Create patient notification (async, don't block response)
     try {
@@ -326,7 +384,32 @@ export async function POST(req: Request) {
 
     return json({ data: ins.data }, 200, { "x-debug": "ok" });
   } catch (e: any) {
+    console.error(`[API] [${requestId}] ❌ Unhandled error:`, e);
+    
+    // Check for network/connection errors
+    const errorMessage = e?.message || String(e) || 'Unknown error';
+    const isNetworkError = errorMessage.includes('ECONNREFUSED') ||
+                          errorMessage.includes('ENOTFOUND') ||
+                          errorMessage.includes('ETIMEDOUT') ||
+                          errorMessage.includes('NetworkError') ||
+                          errorMessage.includes('Failed to fetch') ||
+                          e?.code === 'ECONNREFUSED' ||
+                          e?.code === 'ENOTFOUND' ||
+                          e?.code === 'ETIMEDOUT';
+    
+    if (isNetworkError) {
+      return json({ 
+        error: "Network error: Unable to connect to the server",
+        details: "The server could not connect to the database. Please check your internet connection and try again.",
+        hint: "If this persists, check Supabase project status and network connectivity"
+      }, 503, { "x-debug": "network-error" });
+    }
+    
     // Last-resort detail to help you see the exact failure
-    return json({ error: e?.message ?? "Unexpected error" }, 500, { "x-debug": "unhandled" });
+    return json({ 
+      error: e?.message ?? "Unexpected error",
+      details: String(e),
+      hint: "Check server logs for more details"
+    }, 500, { "x-debug": "unhandled" });
   }
 }
