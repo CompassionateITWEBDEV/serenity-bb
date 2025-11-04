@@ -20,6 +20,11 @@ export async function GET(
   // Generate requestId outside try block so it's available in catch
   const requestId = Math.random().toString(36).substring(7);
   
+  // Detect development environment
+  const isDevelopment = process.env.NODE_ENV === 'development' || 
+                        process.env.VERCEL_ENV !== 'production' ||
+                        !process.env.VERCEL;
+  
   // Log to multiple outputs to ensure visibility
   const logMessage = `[API] [${requestId}] Route handler executing at ${new Date().toISOString()}`;
   console.error(`[API] [${requestId}] ========== ROUTE HANDLER EXECUTING ==========`);
@@ -28,6 +33,7 @@ export async function GET(
   console.error(`[API] [${requestId}] Request method:`, req.method);
   console.error(`[API] [${requestId}] Timestamp:`, new Date().toISOString());
   console.error(`[API] [${requestId}] Runtime: nodejs`);
+  console.error(`[API] [${requestId}] Environment: ${isDevelopment ? 'DEVELOPMENT' : 'PRODUCTION'}`);
   
   // Try to write to stderr as well (for Vercel logs)
   try {
