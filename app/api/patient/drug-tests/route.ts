@@ -3,6 +3,9 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 export const dynamic = "force-dynamic";
+// Increase timeout for Vercel Pro plan (60s) or Hobby plan (10s)
+// This route may need more time due to database queries and RLS fallback
+export const maxDuration = 60; // Maximum for Pro plan, will be capped at 10s for Hobby
 
 /**
  * GET /api/patient/drug-tests
@@ -13,7 +16,14 @@ export async function GET(req: Request) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!url || !anon) {
-      return NextResponse.json({ error: "Supabase configuration missing" }, { status: 500 });
+      console.error("[API] ❌ CRITICAL: Supabase environment variables missing");
+      console.error("[API] NEXT_PUBLIC_SUPABASE_URL:", url ? "SET" : "MISSING");
+      console.error("[API] NEXT_PUBLIC_SUPABASE_ANON_KEY:", anon ? "SET" : "MISSING");
+      return NextResponse.json({ 
+        error: "Server configuration error",
+        details: "Supabase configuration missing. Please check environment variables.",
+        hint: "Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel"
+      }, { status: 500 });
     }
 
     const store = await cookies();
@@ -59,29 +69,16 @@ export async function GET(req: Request) {
 
     console.log(`[API] Fetching drug tests for user: ${user.id}`);
 
-    // First, verify the user has a patient record
-    const { data: patientRecord, error: patientError } = await supabase
-      .from("patients")
-      .select("user_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (patientError) {
-      console.error(`[API] Error checking patient record:`, patientError);
-    }
-
-    console.log(`[API] Patient record check:`, {
-      hasPatient: !!patientRecord,
-      patientUserId: patientRecord?.user_id,
-      authUserId: user.id
-    });
-
     // Query with explicit patient_id filter (RLS might require this)
+    const startTime = Date.now();
     let { data: drugTests, error: drugTestsError } = await supabase
       .from("drug_tests")
       .select("id, status, scheduled_for, created_at, metadata, patient_id")
       .eq("patient_id", user.id)
       .order("created_at", { ascending: false });
+    
+    const queryTime = Date.now() - startTime;
+    console.log(`[API] Initial query completed in ${queryTime}ms`);
 
     console.log(`[API] Query result - Count: ${drugTests?.length || 0}, Error:`, drugTestsError?.message || 'none');
 
