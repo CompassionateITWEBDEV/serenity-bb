@@ -84,8 +84,16 @@ export async function GET(
       }, { status: 400 });
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    let anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    // Trim whitespace from environment variables (common issue)
+    if (supabaseUrl) supabaseUrl = supabaseUrl.trim();
+    if (anon) anon = anon.trim();
+    
+    // Check for hidden characters or encoding issues
+    const anonHasWhitespace = anon && (anon.includes(' ') || anon.includes('\n') || anon.includes('\r') || anon.includes('\t'));
+    const anonHasInvalidChars = anon && /[^\x20-\x7E]/.test(anon); // Check for non-printable ASCII
     
     // Log environment variable status for debugging
     console.log(`[API] [${requestId}] Environment variable check:`, {
@@ -96,8 +104,24 @@ export async function GET(
       anonLength: anon?.length || 0,
       anonPrefix: anon ? `${anon.substring(0, 20)}...` : "MISSING",
       anonSuffix: anon ? `...${anon.substring(anon.length - 10)}` : "MISSING",
+      anonHasWhitespace: anonHasWhitespace,
+      anonHasInvalidChars: anonHasInvalidChars,
+      anonFirstChar: anon ? anon.charCodeAt(0) : null,
+      anonLastChar: anon ? anon.charCodeAt(anon.length - 1) : null,
       allEnvKeys: Object.keys(process.env).filter(k => k.includes("SUPABASE")).join(", ")
     });
+    
+    // Warn about whitespace issues
+    if (anonHasWhitespace) {
+      console.error(`[API] [${requestId}] ⚠️ WARNING: API key contains whitespace! This can cause PGRST302 errors.`);
+      console.error(`[API] [${requestId}] API key has spaces: ${anon.includes(' ')}`);
+      console.error(`[API] [${requestId}] API key has newlines: ${anon.includes('\n') || anon.includes('\r')}`);
+      // Don't fail here - try to use the trimmed version
+    }
+    
+    if (anonHasInvalidChars) {
+      console.error(`[API] [${requestId}] ⚠️ WARNING: API key contains non-printable characters!`);
+    }
 
     // Validate API key format and project match
     if (anon) {
@@ -520,11 +544,11 @@ export async function GET(
           try {
             // Set a timeout of 5 seconds for the admin query
             const queryPromise = adminClient
-              .from("drug_tests")
-              .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
-              .eq("id", finalTestId)
-              .eq("patient_id", user.id) // Verify ownership
-              .maybeSingle();
+            .from("drug_tests")
+            .select("id, status, scheduled_for, created_at, updated_at, metadata, patient_id")
+            .eq("id", finalTestId)
+            .eq("patient_id", user.id) // Verify ownership
+            .maybeSingle();
             
             const timeoutPromise = new Promise((_, reject) => 
               setTimeout(() => reject(new Error("Service role query timeout")), 5000)
@@ -901,12 +925,12 @@ export async function GET(
       console.error(`[API] [${requestId}] Failed to create JSON response:`, responseError);
       // Last resort - return plain text response that will definitely work
       try {
-        return new Response(
-          JSON.stringify(errorResponse),
-          {
-            status: 500,
-            headers: {
-              'Content-Type': 'application/json',
+      return new Response(
+        JSON.stringify(errorResponse),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
               'X-Request-ID': requestId
             }
           }
