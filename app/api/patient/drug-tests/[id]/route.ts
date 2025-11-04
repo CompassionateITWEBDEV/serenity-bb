@@ -682,40 +682,40 @@ export async function GET(
         errorConstructor: drugTestError.constructor?.name
       });
       
-      // Check for API key errors - be VERY strict since we've already authenticated
-      // If auth.getUser() succeeded, the API key is valid, so this is almost certainly NOT an API key error
-      // Only treat it as API key error if we get the SPECIFIC error code PGRST302
-      const isApiKeyError = errorCode === "PGRST302"; // Only this specific code
+      // IMPORTANT: Since authentication succeeded, the API key is VALID
+      // If we get PGRST302 after successful auth, it's almost certainly NOT an API key issue
+      // Supabase sometimes returns PGRST302 for RLS/permission errors, which is misleading
+      // So we treat PGRST302 as a potential RLS error if auth succeeded
+      
+      const isApiKeyError = errorCode === "PGRST302";
       
       if (isApiKeyError) {
-        // Only if we get the specific PGRST302 error code
-        console.error(`[API] [${requestId}] ❌ CRITICAL: Invalid Supabase API key detected in query`);
-        console.error(`[API] [${requestId}] ⚠️ NOTE: This is VERY unusual since authentication succeeded`);
-        console.error(`[API] [${requestId}] Error code: ${errorCode}`);
+        // Auth succeeded, so API key is valid - this is likely RLS or permission issue
+        console.error(`[API] [${requestId}] ⚠️ PGRST302 error after successful authentication`);
+        console.error(`[API] [${requestId}] Since auth.getUser() succeeded, the API key is valid`);
+        console.error(`[API] [${requestId}] PGRST302 in this context likely means RLS is blocking access`);
         console.error(`[API] [${requestId}] Error message: ${drugTestError.message}`);
-        console.error(`[API] [${requestId}] Full error:`, JSON.stringify(drugTestError, null, 2));
-        console.error(`[API] [${requestId}] Supabase URL: ${supabaseUrl}`);
-        console.error(`[API] [${requestId}] API key length: ${anon.length}, prefix: ${anon.substring(0, 20)}`);
+        console.error(`[API] [${requestId}] Error details: ${drugTestError.details}`);
+        console.error(`[API] [${requestId}] Error hint: ${drugTestError.hint}`);
         
-        const envHint = isDevelopment
-          ? "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Check your .env.local file\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Restart your development server (npm run dev)\n5. Check terminal logs for detailed error information"
-          : "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application\n6. Check Vercel Function logs for detailed error information";
+        // Treat as RLS error since auth succeeded
+        const rlsHint = isDevelopment
+          ? "Authentication succeeded, but query failed with PGRST302. This usually means RLS is blocking access. Run scripts/CLEAN_DRUG_TESTS_RLS_POLICIES.sql in Supabase SQL Editor."
+          : "Authentication succeeded, but query failed with PGRST302. This usually means RLS is blocking access. Run scripts/CLEAN_DRUG_TESTS_RLS_POLICIES.sql in Supabase SQL Editor. If the API key is actually wrong, check Vercel Function logs for JWT validation results.";
         
         return NextResponse.json({ 
-          error: "Server configuration error",
-          details: "Invalid API key detected in query (VERY unusual since authentication succeeded). The Supabase API key may be incorrect or doesn't match the Supabase project.",
-          hint: envHint,
+          error: "Drug test not found or access denied",
+          details: "Row Level Security (RLS) policy is likely blocking access. Since authentication succeeded, the API key is valid, but the query is being rejected - this is typically an RLS policy issue.",
+          hint: rlsHint,
           debug: {
             errorCode: errorCode,
             errorMessage: drugTestError.message,
             errorDetails: drugTestError.details,
-            supabaseUrl: supabaseUrl,
-            keyLength: anon.length,
-            keyPrefix: anon.substring(0, 20),
-            requestId: requestId,
-            note: "Authentication succeeded, but query failed with PGRST302 - this is very unusual"
+            errorHint: drugTestError.hint,
+            note: "Authentication succeeded, so API key is valid. PGRST302 in this context likely indicates RLS blocking, not API key issue.",
+            requestId: requestId
           }
-        }, { status: 500 });
+        }, { status: 403 });
       }
       
       // If it's not PGRST302, it's NOT an API key error
