@@ -261,13 +261,20 @@ export async function GET(
           return NextResponse.json({ 
             error: "Server configuration error",
             details: "Invalid API key detected. The Supabase API key in Vercel environment variables is incorrect, expired, or doesn't match the Supabase project.",
-            hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application",
+            hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application\n6. Check for hidden characters (spaces, newlines) in the key",
             debug: {
               errorCode: testError.code,
               errorMessage: testError.message,
+              errorDetails: testError.details,
+              errorHint: testError.hint,
               supabaseUrl: supabaseUrl,
               keyLength: anon.length,
-              keyPrefix: anon.substring(0, 20)
+              keyPrefix: anon.substring(0, 20),
+              keySuffix: anon.substring(anon.length - 10),
+              keyHasSpaces: anon.includes(' '),
+              keyHasNewlines: anon.includes('\n') || anon.includes('\r'),
+              urlMatchesProject: supabaseUrl.includes("cycakdfxcsjknxkqpasp"),
+              requestId: requestId
             }
           }, { status: 500 });
         } else {
