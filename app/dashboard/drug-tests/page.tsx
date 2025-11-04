@@ -59,16 +59,28 @@ export default function PatientDrugTestsPage() {
       const isDev = isDevelopment();
       
       // Get session token for authentication - refresh if needed
-      let { data: { session } } = await supabase.auth.getSession();
+      let { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
       // If no session or session is expired, try to refresh
-      if (!session || !session.access_token) {
+      if (!session || !session.access_token || sessionError) {
         console.log('[Drug Tests Page] Session expired or missing, attempting refresh...');
         const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
         
         if (refreshError) {
           console.error('[Drug Tests Page] Error refreshing session:', refreshError);
-          throw new Error('Session expired. Please log in again.');
+          setError('Session expired. Please log in again.');
+          setTimeout(() => {
+            router.push('/login');
+          }, 2000);
+          return;
+        }
+        
+        if (!refreshedSession || !refreshedSession.access_token) {
+          setError('Session expired. Please log in again.');
+          setTimeout(() => {
+            router.push('/login');
+          }, 2000);
+          return;
         }
         
         session = refreshedSession;
@@ -77,7 +89,11 @@ export default function PatientDrugTestsPage() {
       const token = session?.access_token;
       
       if (!token) {
-        throw new Error('No valid authentication token. Please log in again.');
+        setError('No valid authentication token. Please log in again.');
+        setTimeout(() => {
+          router.push('/login');
+        }, 2000);
+        return;
       }
       
       let response: Response;
@@ -197,7 +213,53 @@ export default function PatientDrugTestsPage() {
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to load drug tests: ${response.status}`);
+        
+        // Handle 401 Unauthorized - try to refresh session and retry
+        if (response.status === 401) {
+          console.log('[Drug Tests Page] Got 401, attempting session refresh and retry...');
+          try {
+            const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+            
+            if (refreshError || !refreshedSession?.access_token) {
+              console.error('[Drug Tests Page] Failed to refresh session:', refreshError);
+              setError('Your session has expired. Please log in again.');
+              setTimeout(() => {
+                router.push('/login');
+              }, 2000);
+              return;
+            }
+            
+            // Retry with refreshed token
+            console.log('[Drug Tests Page] Retrying request with refreshed token...');
+            const retryResponse = await fetch("/api/patient/drug-tests", {
+              method: "GET",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${refreshedSession.access_token}`,
+              },
+              credentials: "include",
+            });
+            
+            if (retryResponse.ok) {
+              const retryData = await retryResponse.json();
+              setDrugTests(retryData.drugTests || []);
+              setError(null);
+              return;
+            } else {
+              const retryErrorData = await retryResponse.json().catch(() => ({}));
+              throw new Error(retryErrorData.error || retryErrorData.details || 'Session expired. Please log in again.');
+            }
+          } catch (retryError: any) {
+            console.error('[Drug Tests Page] Error during retry:', retryError);
+            setError(retryError.message || 'Your session has expired. Please log in again.');
+            setTimeout(() => {
+              router.push('/login');
+            }, 2000);
+            return;
+          }
+        }
+        
+        throw new Error(errorData.error || errorData.details || `Failed to load drug tests: ${response.status}`);
       }
       
       const data = await response.json();
