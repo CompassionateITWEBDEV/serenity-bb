@@ -103,13 +103,32 @@ export async function GET(
     }
     
     // Log API key info for debugging (without exposing the full key)
-    console.log(`[API] Supabase configuration check:`, {
+    const keyInfo = {
       url: supabaseUrl,
       keyLength: anon.length,
       keyPrefix: anon.substring(0, 20) + "...",
       keyEnd: "..." + anon.substring(anon.length - 10),
-      urlMatches: supabaseUrl.includes("supabase.co")
-    });
+      urlMatches: supabaseUrl.includes("supabase.co"),
+      keyStartsWithEyJ: anon.startsWith("eyJ"),
+      keyContainsCorrectRef: anon.includes("cycakdfxcsjknxkqpasp") || supabaseUrl.includes("cycakdfxcsjknxkqpasp")
+    };
+    console.log(`[API] [${requestId}] Supabase configuration check:`, keyInfo);
+    
+    // Additional validation: Check if URL and key match
+    if (!supabaseUrl.includes("supabase.co")) {
+      console.error(`[API] [${requestId}] ❌ Invalid Supabase URL format`);
+      return NextResponse.json({ 
+        error: "Server configuration error",
+        details: "Invalid Supabase URL format. Should be https://[project-ref].supabase.co",
+        hint: "Check NEXT_PUBLIC_SUPABASE_URL in Vercel environment variables"
+      }, { status: 500 });
+    }
+    
+    // Check if the key appears to be for the correct project
+    const expectedProjectRef = "cycakdfxcsjknxkqpasp"; // From the working client-side URL
+    if (!supabaseUrl.includes(expectedProjectRef)) {
+      console.warn(`[API] [${requestId}] ⚠️ Supabase URL doesn't match expected project ref: ${expectedProjectRef}`);
+    }
 
     const cookieStore = await cookies();
     const supabase = createServerClient(supabaseUrl, anon, {
@@ -173,6 +192,7 @@ export async function GET(
     const startTime = Date.now();
     
     // Test the connection first to catch API key errors early
+    console.log(`[API] [${requestId}] Testing Supabase connection with configured key...`);
     try {
       const { data: testConnection, error: testError } = await supabase
         .from("drug_tests")
@@ -180,27 +200,45 @@ export async function GET(
         .limit(1);
       
       if (testError) {
-        console.error("[API] ❌ Supabase connection test failed:", {
+        console.error(`[API] [${requestId}] ❌ Supabase connection test failed:`, {
           code: testError.code,
           message: testError.message,
           details: testError.details,
-          hint: testError.hint
+          hint: testError.hint,
+          status: testError.status
         });
         
         // Check specifically for API key errors
         if (testError.message?.includes("Invalid API key") || 
             testError.message?.includes("JWT") ||
+            testError.message?.toLowerCase().includes("api key") ||
             testError.code === "PGRST301" ||
-            testError.code === "PGRST302") {
+            testError.code === "PGRST302" ||
+            testError.status === 401) {
+          console.error(`[API] [${requestId}] ❌ CRITICAL: API key authentication failed`);
+          console.error(`[API] [${requestId}] Expected Supabase URL: https://cycakdfxcsjknxkqpasp.supabase.co`);
+          console.error(`[API] [${requestId}] Actual Supabase URL: ${supabaseUrl}`);
+          console.error(`[API] [${requestId}] Key length: ${anon.length}, starts with: ${anon.substring(0, 10)}`);
+          
           return NextResponse.json({ 
             error: "Server configuration error",
-            details: "Invalid API key detected. The Supabase API key in Vercel environment variables is incorrect or expired.",
-            hint: "Go to Vercel → Settings → Environment Variables → Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value from Supabase Dashboard → Settings → API"
+            details: "Invalid API key detected. The Supabase API key in Vercel environment variables is incorrect, expired, or doesn't match the Supabase project.",
+            hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'anon/public' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update NEXT_PUBLIC_SUPABASE_ANON_KEY with the correct value\n4. Make sure it's set for 'Production' environment\n5. Redeploy the application"
           }, { status: 500 });
         }
+      } else {
+        console.log(`[API] [${requestId}] ✅ Supabase connection test passed`);
       }
     } catch (testConnErr: any) {
-      console.error("[API] ❌ Error testing Supabase connection:", testConnErr);
+      console.error(`[API] [${requestId}] ❌ Exception testing Supabase connection:`, testConnErr);
+      // If it's a network error, that's different from an API key error
+      if (testConnErr.message?.includes("ECONNREFUSED") || testConnErr.message?.includes("ENOTFOUND")) {
+        return NextResponse.json({ 
+          error: "Network error",
+          details: "Unable to connect to Supabase. Please check your internet connection and Supabase project status.",
+          hint: "Check if your Supabase project is active and accessible"
+        }, { status: 503 });
+      }
     }
     
     let { data: drugTest, error: drugTestError } = await supabase
