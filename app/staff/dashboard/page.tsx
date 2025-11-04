@@ -163,6 +163,25 @@ function StaffDashboardContent() {
     }
   }, [tabParam]);
 
+  // Handle testId query param to open specific test dialog
+  useEffect(() => {
+    if (!ready || view !== "tests" || !tests.length) return;
+    
+    const testIdParam = searchParams?.get("testId");
+    if (testIdParam) {
+      const test = tests.find(t => t.id === testIdParam);
+      if (test && !isTestOpen) {
+        setSelectedTest(test);
+        setIsTestOpen(true);
+        // Clean up URL param after opening dialog
+        const newSearchParams = new URLSearchParams(searchParams?.toString() || '');
+        newSearchParams.delete("testId");
+        const newUrl = `${pathname}${newSearchParams.toString() ? '?' + newSearchParams.toString() : ''}`;
+        window.history.replaceState({}, '', newUrl);
+      }
+    }
+  }, [ready, view, tests, searchParams, pathname, isTestOpen]);
+
   // Session guard: wait for hydrated session before proceeding
   useEffect(() => {
     let alive = true;

@@ -381,28 +381,28 @@ export default function StaffNotificationsPage() {
                       !notification.read ? 'bg-blue-50/30 border-l-4 border-l-blue-500' : ''
                     }`}
                     onClick={() => {
+                      // Mark as read when clicked
+                      if (!notification.read) {
+                        markRead(notification.id);
+                      }
+                      
                       // Navigate based on notification type
                       if (notification.type === 'appointment') {
                         router.push('/staff/dashboard?tab=appointments');
-                        // Mark as read when clicked
-                        if (!notification.read) {
-                          markRead(notification.id);
-                        }
                       } else if (notification.type === 'drug_test') {
-                        router.push('/staff/dashboard?tab=tests');
-                        if (!notification.read) {
-                          markRead(notification.id);
+                        // Check if we have a specific drug test ID in metadata
+                        const drugTestId = notification.metadata?.drug_test_id;
+                        if (drugTestId) {
+                          // Navigate to staff dashboard with testId query param to open specific test dialog
+                          router.push(`/staff/dashboard?tab=tests&testId=${drugTestId}`);
+                        } else {
+                          // Fallback to drug tests list
+                          router.push('/staff/dashboard?tab=tests');
                         }
                       } else if (notification.type === 'message') {
                         router.push('/staff/patient-inbox');
-                        if (!notification.read) {
-                          markRead(notification.id);
-                        }
                       } else if (notification.type === 'video_submission') {
                         router.push('/staff/dashboard?tab=submissions');
-                        if (!notification.read) {
-                          markRead(notification.id);
-                        }
                       }
                     }}
                   >
