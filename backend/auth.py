@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Annotated
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends
@@ -64,7 +64,7 @@ def authenticate_user(db: Session, email: str, password: str):
         return False
     return user
 
-def get_current_user(db: Session, token_data: schemas.TokenData = Depends(verify_token)):
+def get_current_user(db: Session = Depends(get_db), token_data: schemas.TokenData = Depends(verify_token)) -> models.User:
     """Get current authenticated user."""
     user = db.query(models.User).filter(models.User.email == token_data.email).first()
     if user is None:
@@ -75,7 +75,7 @@ def get_current_user(db: Session, token_data: schemas.TokenData = Depends(verify
         )
     return user
 
-def get_current_active_user(current_user: models.User = Depends(get_current_user)):
+def get_current_active_user(current_user: Annotated[models.User, Depends(get_current_user)]) -> models.User:
     """Get current active user."""
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")

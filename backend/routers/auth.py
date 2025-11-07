@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Optional
+from typing import Optional, Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -140,17 +140,17 @@ async def login_for_access_token(
         "user": user
     }
 
-@router.get("/me", response_model=schemas.User)
-async def read_users_me(current_user: models.User = Depends(get_current_active_user)):
+@router.get("/me")
+async def read_users_me(current_user: Annotated[models.User, Depends(get_current_active_user)]) -> schemas.User:
     """Get current user information."""
-    return current_user
+    return schemas.User.model_validate(current_user)
 
-@router.put("/me", response_model=schemas.User)
+@router.put("/me")
 async def update_user_me(
     user_update: schemas.UserUpdate,
-    current_user: models.User = Depends(get_current_active_user),
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
     db: Session = Depends(get_db)
-):
+) -> schemas.User:
     """Update current user information."""
     if user_update.first_name is not None:
         setattr(current_user, 'first_name', user_update.first_name)
@@ -161,13 +161,13 @@ async def update_user_me(
     
     db.commit()
     db.refresh(current_user)
-    return current_user
+    return schemas.User.model_validate(current_user)
 
 @router.post("/change-password")
 async def change_password(
     current_password: str,
     new_password: str,
-    current_user: models.User = Depends(get_current_active_user),
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
     db: Session = Depends(get_db)
 ):
     """Change user password."""
@@ -186,6 +186,6 @@ async def change_password(
     return {"message": "Password changed successfully"}
 
 @router.post("/logout")
-async def logout_user(current_user: models.User = Depends(get_current_active_user)):
+async def logout_user(current_user: Annotated[models.User, Depends(get_current_active_user)]):
     """Logout user (client should discard token)."""
     return {"message": "Successfully logged out"}

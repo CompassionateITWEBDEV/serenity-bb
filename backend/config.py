@@ -43,8 +43,8 @@ class Settings(BaseSettings):
         super().__init__(**kwargs)
         # Validate required Supabase configuration
         if not self.supabase_url or not self.supabase_anon_key:
-            print("⚠️ Warning: Supabase configuration missing. Some features may not work.")
+            print("Warning: Supabase configuration missing. Some features may not work.")
         if not self.database_url:
-            print("⚠️ Warning: Database URL not configured. Database features will not work.")
+            print("Warning: Database URL not configured. Database features will not work.")
 
 settings = Settings()

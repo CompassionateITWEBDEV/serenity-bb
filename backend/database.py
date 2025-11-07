@@ -11,7 +11,7 @@ database_url = settings.database_url
 # If no database URL is provided, use SQLite for development
 if not database_url:
     database_url = "sqlite:///./serenity_rehab.db"
-    print("⚠️ No DATABASE_URL provided, using SQLite for development")
+    print("Warning: No DATABASE_URL provided, using SQLite for development")
 
 # Create engine with appropriate configuration
 if database_url.startswith("postgresql://") or database_url.startswith("postgres://"):
@@ -26,7 +26,7 @@ if database_url.startswith("postgresql://") or database_url.startswith("postgres
             "options": "-c timezone=utc"
         } if "supabase" in database_url.lower() else {}
     )
-    print("✅ Using Supabase PostgreSQL database")
+    print("Using Supabase PostgreSQL database")
 else:
     # SQLite configuration for development
     engine = create_engine(
@@ -34,7 +34,7 @@ else:
         connect_args={"check_same_thread": False} if "sqlite" in database_url else {},
         echo=settings.debug
     )
-    print("⚠️ Using SQLite for development")
+    print("Warning: Using SQLite for development")
 
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -59,5 +59,5 @@ def check_database_connection():
             connection.execute(text("SELECT 1"))
         return True
     except Exception as e:
-        print(f"❌ Database connection failed: {e}")
+        print(f"Error: Database connection failed: {e}")
         return False

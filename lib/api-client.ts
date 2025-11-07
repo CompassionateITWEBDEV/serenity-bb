@@ -168,7 +168,7 @@ export class ApiClient {
     const formData = new FormData()
     formData.append("username", email)
     formData.append("password", password)
-    return this.request<AuthResponse>("/auth/login", {
+    return this.request<AuthResponse>("/api/auth/login", {
       method: "POST",
       headers: {},
       body: formData,
@@ -177,7 +177,7 @@ export class ApiClient {
   }
 
   async register(userData: { email: string; password: string; full_name: string }): Promise<{ message: string }> {
-    return this.request<{ message: string }>("/auth/register", {
+    return this.request<{ message: string }>("/api/auth/register", {
       method: "POST",
       body: JSON.stringify(userData as Record<string, JsonValue>),
       omitAuth: true,
@@ -185,16 +185,16 @@ export class ApiClient {
   }
 
   async getCurrentUser(): Promise<UserProfile> {
-    return this.request<UserProfile>("/patients/me")
+    return this.request<UserProfile>("/api/patients/profile")
   }
 
   // Patient
   async getPatientProfile(): Promise<UserProfile> {
-    return this.request<UserProfile>("/patients/me")
+    return this.request<UserProfile>("/api/patients/profile")
   }
 
   async updatePatientProfile(data: Record<string, JsonValue>): Promise<UserProfile> {
-    return this.request<UserProfile>("/patients/me", {
+    return this.request<UserProfile>("/api/patients/profile", {
       method: "PUT",
       body: JSON.stringify(data),
     })
@@ -202,11 +202,11 @@ export class ApiClient {
 
   // Appointments
   async getAppointments(): Promise<Appointment[]> {
-    return this.request<Appointment[]>("/appointments/")
+    return this.request<Appointment[]>("/api/appointments/my-appointments")
   }
 
   async createAppointment(appointmentData: Record<string, JsonValue>): Promise<Appointment> {
-    return this.request<Appointment>("/appointments/", {
+    return this.request<Appointment>("/api/appointments/", {
       method: "POST",
       body: JSON.stringify(appointmentData),
     })
@@ -214,11 +214,11 @@ export class ApiClient {
 
   // Messages
   async getMessages(): Promise<MessageItem[]> {
-    return this.request<MessageItem[]>("/messages/")
+    return this.request<MessageItem[]>("/api/messages/")
   }
 
   async sendMessage(messageData: Record<string, JsonValue>): Promise<MessageItem> {
-    return this.request<MessageItem>("/messages/", {
+    return this.request<MessageItem>("/api/messages/", {
       method: "POST",
       body: JSON.stringify(messageData),
     })
@@ -226,11 +226,11 @@ export class ApiClient {
 
   // Progress
   async getProgress(): Promise<ProgressData> {
-    return this.request<ProgressData>("/patients/progress")
+    return this.request<ProgressData>("/api/patients/progress")
   }
 
   async updateProgress(progressData: Record<string, JsonValue>): Promise<ProgressData> {
-    return this.request<ProgressData>("/patients/progress", {
+    return this.request<ProgressData>("/api/patients/progress", {
       method: "POST",
       body: JSON.stringify(progressData),
     })
@@ -241,7 +241,7 @@ export class ApiClient {
     const formData = new FormData()
     formData.append("video", videoFile)
     formData.append("metadata", JSON.stringify(metadata))
-    return this.request<unknown>("/videos/upload", {
+    return this.request<unknown>("/api/videos/upload", {
       method: "POST",
       headers: {},
       body: formData,
@@ -249,7 +249,7 @@ export class ApiClient {
   }
 
   async getVideos(): Promise<unknown[]> {
-    return this.request<unknown[]>("/videos/")
+    return this.request<unknown[]>("/api/videos/")
   }
 }
 

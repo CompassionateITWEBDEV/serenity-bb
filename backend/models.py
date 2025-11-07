@@ -184,7 +184,7 @@ class ActivityLog(Base):
     duration_minutes = Column(Integer)
     score = Column(Float, nullable=True)
     notes = Column(Text)
-    metadata = Column(JSON)  # Additional activity-specific data
+    activity_metadata = Column(JSON)  # Additional activity-specific data
     completed_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
