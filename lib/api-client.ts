@@ -251,6 +251,26 @@ export class ApiClient {
   async getVideos(): Promise<unknown[]> {
     return this.request<unknown[]>("/api/videos/")
   }
+
+  // Staff
+  async getStaffProfile(): Promise<UserProfile> {
+    return this.request<UserProfile>("/api/staff/profile")
+  }
+
+  async updateStaffProfile(data: Record<string, JsonValue>): Promise<UserProfile> {
+    return this.request<UserProfile>("/api/staff/profile", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async getAllStaff(): Promise<UserProfile[]> {
+    return this.request<UserProfile[]>("/api/staff/")
+  }
+
+  async getStaffById(staffId: number): Promise<UserProfile> {
+    return this.request<UserProfile>(`/api/staff/${staffId}`)
+  }
 }
 
 export const apiClient = new ApiClient()

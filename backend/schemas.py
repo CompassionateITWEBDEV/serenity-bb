@@ -237,3 +237,26 @@ class Lead(LeadBase):
 
     class Config:
         from_attributes = True
+
+# Staff Schemas
+class StaffBase(BaseModel):
+    department: Optional[str] = None
+    specialization: Optional[str] = None
+    license_number: Optional[str] = None
+
+class StaffCreate(StaffBase):
+    pass
+
+class Staff(StaffBase):
+    id: int
+    user_id: int
+    staff_id: str
+    user: Optional[User] = None
+    
+    class Config:
+        from_attributes = True
+
+class StaffUpdate(BaseModel):
+    department: Optional[str] = None
+    specialization: Optional[str] = None
+    license_number: Optional[str] = None
