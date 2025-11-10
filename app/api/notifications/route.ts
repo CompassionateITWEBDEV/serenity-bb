@@ -230,12 +230,37 @@ export async function PATCH(req: Request) {
     },
   });
 
-  // Auth
-  const {
-    data: { user },
-    error: authErr,
-  } = await supabase.auth.getUser();
-  if (authErr || !user) return err(401, "Unauthorized");
+  // Auth - try cookie-based first, fallback to Bearer token
+  const { data: cookieAuth, error: cookieErr } = await supabase.auth.getUser();
+  let user = cookieAuth?.user;
+  let authError = cookieErr;
+  let dbClient = supabase; // Default to cookie-based client
+
+  // Fallback to Bearer token if cookie auth fails
+  if ((!user || cookieErr) && req.headers) {
+    const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
+    const bearer = authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7).trim()
+      : null;
+
+    if (bearer) {
+      const { createClient: createSbClient } = await import("@supabase/supabase-js");
+      const supabaseBearer = createSbClient(url, anon, {
+        global: { headers: { Authorization: `Bearer ${bearer}` } },
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data: bearerAuth, error: bearerErr } = await supabaseBearer.auth.getUser();
+      if (bearerErr) {
+        authError = bearerErr;
+      } else {
+        user = bearerAuth?.user;
+        authError = null;
+        dbClient = supabaseBearer; // Use Bearer client for DB operations
+      }
+    }
+  }
+
+  if (authError || !user) return err(401, "Unauthorized");
 
   // Validate body
   let body: z.infer<typeof PatchBody>;
@@ -247,7 +272,7 @@ export async function PATCH(req: Request) {
 
   try {
     // Extra safety: ensure update is scoped to the authenticated patient
-    const { data, error } = await supabase
+    const { data, error } = await dbClient
       .from("notifications")
       .update({ read: body.read })
       .in("id", body.ids)

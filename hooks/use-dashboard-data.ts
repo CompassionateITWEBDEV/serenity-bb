@@ -5,6 +5,11 @@ import { getSupabaseClient } from "@/lib/supabase/client";
 
 type DashboardApi = {
   kpis: { sessions: number; goals: number; tokens: number; progressPercent: number; unreadMessages: number };
+  stats?: {
+    sessionsCompleted: number;
+    goalsAchieved: { achieved: number; total: number };
+    joinDate: string | null;
+  };
   treatmentProgress: Array<{ id: string | number; name: string; status: string; type: "major" | "minor"; date: string | null }>;
   upcomingAppointments: Array<{ id: string | number; at: string; staff: string | null; status: string; notes: string }>;
   upcomingDrugTests: Array<{ id: string | number; scheduledFor: string | null; status: string; testType: string; createdAt: string; metadata: Record<string, any> }>;
@@ -66,7 +71,17 @@ export function useDashboardData(opts?: { refreshOnFocus?: boolean }) {
 
   useEffect(() => {
     fetchOnce();
-    return () => abortRef.current?.abort();
+    
+    // Set up 1-minute interval refresh for real-time updates
+    const refreshInterval = setInterval(() => {
+      console.log('[Dashboard] 1-minute refresh triggered');
+      fetchOnce();
+    }, 60000); // Refresh every 1 minute (60000ms)
+    
+    return () => {
+      abortRef.current?.abort();
+      clearInterval(refreshInterval);
+    };
   }, [fetchOnce]);
 
   useEffect(() => {

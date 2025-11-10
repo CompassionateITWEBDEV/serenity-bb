@@ -554,15 +554,20 @@ export default function DrugTestDetailPage() {
     
     return (
       <div className="min-h-screen bg-gray-50">
+        {/* Sticky Header with Back Button */}
+        <header className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <Button
+              variant="outline"
+              onClick={() => router.push("/dashboard/drug-tests")}
+              className="border-gray-300 hover:bg-gray-50"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Drug Tests
+            </Button>
+          </div>
+        </header>
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <Button
-            variant="ghost"
-            onClick={() => router.push("/dashboard/drug-tests")}
-            className="mb-6"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Drug Tests
-          </Button>
           <Card className={isDevError ? "border-orange-200 bg-orange-50" : "border-red-200 bg-red-50"}>
             <CardContent className="pt-6">
               <div className="flex items-start gap-3">
@@ -591,15 +596,20 @@ export default function DrugTestDetailPage() {
   if (!drugTest) {
     return (
       <div className="min-h-screen bg-gray-50">
+        {/* Sticky Header with Back Button */}
+        <header className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <Button
+              variant="outline"
+              onClick={() => router.push("/dashboard/drug-tests")}
+              className="border-gray-300 hover:bg-gray-50"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Drug Tests
+            </Button>
+          </div>
+        </header>
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <Button
-            variant="ghost"
-            onClick={() => router.push("/dashboard/drug-tests")}
-            className="mb-6"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Drug Tests
-          </Button>
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">
               <TestTube2 className="h-16 w-16 text-gray-400 mb-4" />
@@ -616,16 +626,21 @@ export default function DrugTestDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Button
-          variant="ghost"
-          onClick={() => router.push("/dashboard/drug-tests")}
-          className="mb-6"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Drug Tests
-        </Button>
+      {/* Sticky Header with Back Button */}
+      <header className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <Button
+            variant="outline"
+            onClick={() => router.push("/dashboard/drug-tests")}
+            className="border-gray-300 hover:bg-gray-50"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Drug Tests
+          </Button>
+        </div>
+      </header>
 
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Card className="mb-6">
           <CardHeader>
             <div className="flex items-start justify-between">

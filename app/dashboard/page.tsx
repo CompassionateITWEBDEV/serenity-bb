@@ -11,15 +11,12 @@ import { DashboardStats } from "@/components/dashboard/dashboard-stats";
 import { TreatmentProgress } from "@/components/dashboard/treatment-progress";
 import { UpcomingAppointments } from "@/components/dashboard/upcoming-appointments";
 import { UpcomingDrugTests } from "@/components/dashboard/upcoming-drug-tests";
-import { QuickActions } from "@/components/dashboard/quick-actions";
-import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { WellnessTracker } from "@/components/dashboard/wellness-tracker";
 import { VideoRecording } from "@/components/dashboard/video-recording";
 import { SubmissionHistory } from "@/components/dashboard/submission-history";
 import { HealthcareMessaging } from "@/components/dashboard/healthcare-messaging";
 import { GroupChat } from "@/components/dashboard/group-chat";
 import PatientVerificationStatus from "@/components/patient/PatientVerificationStatus";
-import PatientBroadcasts from "@/components/patient/PatientBroadcasts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getSwal } from "@/lib/sweetalert"; // <-- use CDN wrapper
 
@@ -124,11 +121,10 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2 space-y-8">
                 <DashboardStats
-                  sessions={data?.kpis.sessions ?? 0}
-                  goals={data?.kpis.goals ?? 0}
-                  tokens={data?.kpis.tokens ?? 0}
-                  progressPercent={data?.kpis.progressPercent ?? 0}
-                  unreadMessages={data?.kpis.unreadMessages ?? 0}
+                  joinDate={data?.stats?.joinDate ?? patient?.joinDate ?? null}
+                  sessionsCompleted={data?.stats?.sessionsCompleted ?? null}
+                  goalsAchieved={data?.stats?.goalsAchieved ?? null}
+                  progressPercent={data?.kpis.progressPercent ?? null}
                 />
                 <TreatmentProgress items={data?.treatmentProgress ?? []} />
                 <UpcomingAppointments items={data?.upcomingAppointments ?? []} />
@@ -136,13 +132,7 @@ export default function DashboardPage() {
               </div>
 
               <div className="space-y-8">
-                <PatientBroadcasts />
-                <QuickActions
-                  tokenTotal={data?.tokenStats.total ?? 0}
-                  nextAppointmentAt={data?.upcomingAppointments?.[0]?.at ?? null}
-                />
                 <WellnessTracker snapshot={data?.wellness ?? null} />
-                <RecentActivity items={data?.activity ?? []} />
               </div>
             </div>
           </TabsContent>

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { TestTube2, Calendar, Clock, CheckCircle2, XCircle, AlertCircle, RefreshCw } from "lucide-react";
+import { TestTube2, Calendar, Clock, CheckCircle2, XCircle, AlertCircle, RefreshCw, ArrowLeft } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { supabase } from "@/lib/supabase/client";
 
@@ -427,6 +427,20 @@ export default function PatientDrugTestsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Sticky Header with Back Button */}
+      <header className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <Button
+            variant="outline"
+            onClick={() => router.push("/dashboard")}
+            className="border-gray-300 hover:bg-gray-50"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Dashboard
+          </Button>
+        </div>
+      </header>
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
           <div className="flex items-center justify-between">

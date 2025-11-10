@@ -196,7 +196,11 @@ export function useIncomingCall() {
             if (status === 'SUBSCRIBED') {
               console.log('[SUCCESS] Successfully subscribed to incoming call channel');
             } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-              console.error('[ERROR] Channel subscription failed:', status);
+              // Log as warning instead of error - this is often expected if real-time is not enabled
+              console.warn('[WARNING] Channel subscription issue:', status, '- Real-time may not be enabled or configured');
+              // Don't throw error - this is non-critical for app functionality
+            } else if (status === 'CLOSED') {
+              console.log('[INFO] Channel closed');
             }
           });
 
@@ -206,7 +210,9 @@ export function useIncomingCall() {
           supabase.removeChannel(channel);
         };
       } catch (error) {
-        console.error('[ERROR] Failed to setup incoming call listener:', error);
+        // Log as warning - real-time subscriptions are optional
+        console.warn('[WARNING] Failed to setup incoming call listener:', error);
+        // Don't throw - this is non-critical functionality
       }
     };
 

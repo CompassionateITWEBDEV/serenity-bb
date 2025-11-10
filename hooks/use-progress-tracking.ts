@@ -158,24 +158,32 @@ export function useProgressTracking() {
         console.warn("Some progress tables may not exist yet:", errors.map(e => e?.message).join(", "));
       }
 
-      // Calculate overall progress
+      // Get overall progress from progress_overview table if available, otherwise calculate from goals
       const goalsData = goals.data || [];
-      const completedGoals = goalsData.filter(g => g.completed).length;
-      const totalGoals = goalsData.length;
-      const overallProgress = totalGoals > 0 ? Math.round((completedGoals / totalGoals) * 100) : 0;
-
-      // Update progress overview if needed (only if table exists)
-      if (overview.data && overview.data.overall_progress !== overallProgress) {
-        try {
-          await supabase
-            .from("progress_overview")
-            .upsert({
-              patient_id: patientId,
-              overall_progress: overallProgress,
-              updated_at: new Date().toISOString(),
-            });
-        } catch (error) {
-          console.warn("Could not update progress overview:", error);
+      let overallProgress = 0;
+      if (overview.data && typeof overview.data.overall_progress === 'number') {
+        overallProgress = Math.max(0, Math.min(100, overview.data.overall_progress));
+      } else {
+        // Calculate from goals if overview doesn't exist
+        const completedGoals = goalsData.filter(g => g.completed).length;
+        const totalGoals = goalsData.length;
+        overallProgress = totalGoals > 0 ? Math.round((completedGoals / totalGoals) * 100) : 0;
+        
+        // Try to create/update progress overview if table exists
+        if (!overview.error) {
+          try {
+            await supabase
+              .from("progress_overview")
+              .upsert({
+                patient_id: patientId,
+                overall_progress: overallProgress,
+                updated_at: new Date().toISOString(),
+              }, {
+                onConflict: 'patient_id'
+              });
+          } catch (error) {
+            console.warn("Could not update progress overview:", error);
+          }
         }
       }
 
@@ -390,7 +398,7 @@ export function useProgressTracking() {
     }
   }, [isAuthenticated, patientId, fetchProgressData]);
 
-  // Set up real-time subscriptions
+  // Set up real-time subscriptions with 1-minute refresh interval
   useEffect(() => {
     if (!isAuthenticated || !patientId) return;
 
@@ -426,10 +434,26 @@ export function useProgressTracking() {
           filter: `patient_id=eq.${patientId}`,
         }, () => fetchProgressData())
         .subscribe(),
+      supabase
+        .channel("progress_overview")
+        .on("postgres_changes", {
+          event: "*",
+          schema: "public",
+          table: "progress_overview",
+          filter: `patient_id=eq.${patientId}`,
+        }, () => fetchProgressData())
+        .subscribe(),
     ];
+
+    // Set up 1-minute interval refresh to ensure data is always up-to-date
+    const refreshInterval = setInterval(() => {
+      console.log('[Progress] 1-minute refresh triggered');
+      fetchProgressData();
+    }, 60000); // Refresh every 1 minute (60000ms)
 
     return () => {
       channels.forEach(channel => channel.unsubscribe());
+      clearInterval(refreshInterval);
     };
   }, [isAuthenticated, patientId, fetchProgressData]);
 

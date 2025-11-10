@@ -38,11 +38,28 @@ export async function GET() {
   if (authErr || !user) return json({ error: "Unauthorized" }, 401);
   const pid = user.id;
 
+  // Get patient join date
+  const { data: patientData } = await supabase
+    .from("patients")
+    .select("created_at,user_id")
+    .eq("user_id", pid)
+    .maybeSingle();
+  
+  const joinDate = patientData?.created_at || null;
+
   // Fetch all pieces in parallel with graceful error handling
   const results = await Promise.allSettled([
     supabase.from("progress_overview").select("*").eq("patient_id", pid).maybeSingle(),
     supabase.from("weekly_goals").select("id,name,current,target,updated_at").eq("patient_id", pid),
     supabase.from("milestones").select("id,name,date,completed,type,updated_at").eq("patient_id", pid),
+    // Get completed appointments (sessions)
+    supabase
+      .from("appointments")
+      .select("id,appointment_time,staff,notes,status")
+      .eq("patient_id", pid)
+      .eq("status", "completed")
+      .order("appointment_time", { ascending: false }),
+    // Get upcoming appointments
     supabase
       .from("appointments")
       .select("id,appointment_time,staff,notes,status")
@@ -83,7 +100,8 @@ export async function GET() {
     overviewResult,
     goalsResult,
     milestonesResult,
-    apptsResult,
+    completedApptsResult,
+    upcomingApptsResult,
     tokensResult,
     weeklyResult,
     noticesResult,
@@ -104,9 +122,13 @@ export async function GET() {
     ? milestonesResult.value 
     : { data: [], error: milestonesResult.status === "rejected" ? { message: "Query failed" } : milestonesResult.value?.error || null };
     
-  const appts = apptsResult.status === "fulfilled" && !apptsResult.value.error 
-    ? apptsResult.value 
-    : { data: [], error: apptsResult.status === "rejected" ? { message: "Query failed" } : apptsResult.value?.error || null };
+  const completedAppts = completedApptsResult.status === "fulfilled" && !completedApptsResult.value.error 
+    ? completedApptsResult.value 
+    : { data: [], error: completedApptsResult.status === "rejected" ? { message: "Query failed" } : completedApptsResult.value?.error || null };
+    
+  const appts = upcomingApptsResult.status === "fulfilled" && !upcomingApptsResult.value.error 
+    ? upcomingApptsResult.value 
+    : { data: [], error: upcomingApptsResult.status === "rejected" ? { message: "Query failed" } : upcomingApptsResult.value?.error || null };
     
   const tokens = tokensResult.status === "fulfilled" && !tokensResult.value.error 
     ? tokensResult.value 
@@ -142,9 +164,13 @@ export async function GET() {
     console.warn("Dashboard: Failed to load milestones:", milestones.error);
     failedQueries.push("milestones");
   }
+  if (completedAppts.error) {
+    console.warn("Dashboard: Failed to load completed appointments:", completedAppts.error);
+    failedQueries.push("completed appointments");
+  }
   if (appts.error) {
-    console.warn("Dashboard: Failed to load appointments:", appts.error);
-    failedQueries.push("appointments");
+    console.warn("Dashboard: Failed to load upcoming appointments:", appts.error);
+    failedQueries.push("upcoming appointments");
   }
   if (tokens.error) {
     console.warn("Dashboard: Failed to load reward_tokens:", tokens.error);
@@ -189,6 +215,17 @@ export async function GET() {
     type: m.type === "major" ? "major" : "minor",
     date: m.date ?? null,
   }));
+  
+  // Calculate completed sessions count
+  const sessionsCompleted = (completedAppts.data ?? []).length;
+  
+  // Calculate achieved goals (from milestones)
+  const achievedMilestones = (milestones.data ?? []).filter((m) => m.completed).length;
+  const totalMilestones = (milestones.data ?? []).length;
+  const goalsAchieved = {
+    achieved: achievedMilestones,
+    total: totalMilestones,
+  };
   const upcomingAppointments = (appts.data ?? []).map((a) => ({
     id: a.id, at: a.appointment_time, staff: a.staff ?? null, status: a.status, notes: a.notes ?? "",
   }));
@@ -226,7 +263,18 @@ export async function GET() {
     .slice(0, 15);
 
   const response: any = {
-    kpis: { sessions: upcomingAppointments.length, goals: weeklyGoals.length, tokens: tokenStats.total, progressPercent: overallProgress, unreadMessages: unread },
+    kpis: { 
+      sessions: sessionsCompleted, 
+      goals: weeklyGoals.length, 
+      tokens: tokenStats.total, 
+      progressPercent: overallProgress, 
+      unreadMessages: unread 
+    },
+    stats: {
+      sessionsCompleted,
+      goalsAchieved,
+      joinDate,
+    },
     treatmentProgress,
     upcomingAppointments,
     upcomingDrugTests,

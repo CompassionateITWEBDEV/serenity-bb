@@ -5,13 +5,15 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useProgressTracking } from "@/hooks/use-progress-tracking";
+import { useDashboardData } from "@/hooks/use-dashboard-data";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,7 +47,7 @@ const iconMap: Record<string, LucideIcon> = {
 const clamp = (n: number, min = 0, max = 100) => Math.max(min, Math.min(max, n));
 
 // Progress Metrics Component
-function ProgressMetrics({ metrics }: { metrics: any[] }) {
+function ProgressMetrics({ metrics, onAddCheckIn }: { metrics: any[], onAddCheckIn: () => void }) {
   if (metrics.length === 0) {
     return (
       <div className="col-span-full bg-gradient-to-br from-blue-50 to-indigo-100 border-2 border-dashed border-blue-200 rounded-lg p-8 text-center">
@@ -54,7 +56,7 @@ function ProgressMetrics({ metrics }: { metrics: any[] }) {
         </div>
         <h3 className="text-lg font-semibold text-gray-900 mb-2">Progress Metrics</h3>
         <p className="text-gray-600 mb-4">Your progress metrics will appear here as you complete activities</p>
-        <Button className="bg-blue-600 hover:bg-blue-700">
+        <Button className="bg-blue-600 hover:bg-blue-700" onClick={onAddCheckIn}>
           <Plus className="h-4 w-4 mr-2" />
           Add Check-in
         </Button>
@@ -325,7 +327,7 @@ function Milestones({ milestones, onUpdateMilestone }: {
 }
 
 // Trends Component
-function Trends({ weeklyData, dailyCheckIns }: { weeklyData: any[], dailyCheckIns: any[] }) {
+function Trends({ weeklyData, dailyCheckIns, onAddCheckIn }: { weeklyData: any[], dailyCheckIns: any[], onAddCheckIn: () => void }) {
   const getWeekLabel = (week: string) => {
     const date = new Date(week);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -382,17 +384,23 @@ function Trends({ weeklyData, dailyCheckIns }: { weeklyData: any[], dailyCheckIn
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Heart className="h-5 w-5 text-red-600" />
-            Daily Check-ins
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Heart className="h-5 w-5 text-red-600" />
+              Daily Check-ins
+            </CardTitle>
+            <Button size="sm" onClick={onAddCheckIn}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Check-in
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {dailyCheckIns.length === 0 ? (
             <div className="text-center py-8">
               <Heart className="h-12 w-12 text-gray-300 mx-auto mb-4" />
               <p className="text-gray-500 mb-4">No check-ins recorded yet</p>
-              <Button>
+              <Button onClick={onAddCheckIn}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add Today's Check-in
               </Button>
@@ -436,6 +444,15 @@ export default function ProgressPage() {
   const { isAuthenticated, loading, patient } = useAuth();
   const router = useRouter();
   const { data, loading: progressLoading, error, updateProgress, addGoal, addCheckIn, refresh } = useProgressTracking();
+  const { data: dashboardData } = useDashboardData();
+  const [isCheckInDialogOpen, setIsCheckInDialogOpen] = useState(false);
+  const [checkInData, setCheckInData] = useState({
+    mood: 5,
+    energy: 5,
+    sleep: 8,
+    stress: 5,
+    notes: "",
+  });
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -482,6 +499,28 @@ export default function ProgressPage() {
   const handleAddGoal = (goalData: any) => {
     addGoal(goalData);
   };
+
+  const handleAddCheckIn = async () => {
+    try {
+      await addCheckIn({
+        date: new Date().toISOString().split('T')[0],
+        mood: checkInData.mood,
+        energy: checkInData.energy,
+        sleep: checkInData.sleep,
+        stress: checkInData.stress,
+        notes: checkInData.notes,
+      });
+      toast.success("Check-in added successfully!");
+      setIsCheckInDialogOpen(false);
+      setCheckInData({ mood: 5, energy: 5, sleep: 8, stress: 5, notes: "" });
+    } catch (err) {
+      console.error("Error adding check-in:", err);
+      toast.error("Failed to add check-in. Please try again.");
+    }
+  };
+
+  // Use overall progress from dashboard API if available, otherwise use local data
+  const overallProgress = dashboardData?.kpis?.progressPercent ?? data.overallProgress;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -545,12 +584,12 @@ export default function ProgressPage() {
             <CardTitle className="flex items-center justify-between">
               <span className="text-xl font-semibold">Overall Recovery Progress</span>
               <Badge variant="outline" className="text-lg px-4 py-2 bg-blue-50 text-blue-700 border-blue-200">
-                {data.overallProgress}%
+                {overallProgress}%
               </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Progress value={data.overallProgress} className="h-4 mb-4" />
+            <Progress value={overallProgress} className="h-4 mb-4" />
             <div className="flex justify-between text-sm text-gray-600 font-medium">
               <span>Started Treatment</span>
               <span>Current Progress</span>
@@ -561,8 +600,76 @@ export default function ProgressPage() {
 
         {/* Progress Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <ProgressMetrics metrics={data.progressMetrics} />
+          <ProgressMetrics metrics={data.progressMetrics} onAddCheckIn={() => setIsCheckInDialogOpen(true)} />
         </div>
+
+        {/* Add Check-in Dialog */}
+        <Dialog open={isCheckInDialogOpen} onOpenChange={setIsCheckInDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Daily Check-in</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Mood (1-10)</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={checkInData.mood}
+                  onChange={(e) => setCheckInData(prev => ({ ...prev, mood: parseInt(e.target.value) || 5 }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Energy Level (1-10)</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={checkInData.energy}
+                  onChange={(e) => setCheckInData(prev => ({ ...prev, energy: parseInt(e.target.value) || 5 }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Sleep Hours</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="24"
+                  value={checkInData.sleep}
+                  onChange={(e) => setCheckInData(prev => ({ ...prev, sleep: parseInt(e.target.value) || 8 }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Stress Level (1-10)</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={checkInData.stress}
+                  onChange={(e) => setCheckInData(prev => ({ ...prev, stress: parseInt(e.target.value) || 5 }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Notes (Optional)</Label>
+                <Textarea
+                  value={checkInData.notes}
+                  onChange={(e) => setCheckInData(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="How are you feeling today?"
+                  rows={3}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsCheckInDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAddCheckIn}>
+                Save Check-in
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Tabs */}
         <Tabs defaultValue="weekly" className="space-y-6">
@@ -600,6 +707,7 @@ export default function ProgressPage() {
             <Trends 
               weeklyData={data.weeklyData} 
               dailyCheckIns={data.dailyCheckIns}
+              onAddCheckIn={() => setIsCheckInDialogOpen(true)}
             />
           </TabsContent>
         </Tabs>
