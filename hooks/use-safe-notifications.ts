@@ -59,10 +59,33 @@ export function useSafeNotifications(patientId?: string | null) {
       setConnectionStatus('connecting');
 
       const allNotifications = await safeNotificationService.getAllNotifications(patientId);
-      const calculatedStats = safeNotificationService.calculateStats(allNotifications);
       
-      setNotifications(allNotifications);
-      setStats(calculatedStats);
+      // Apply read status from localStorage for dynamic notifications
+      const key = `notification_read_${patientId}`;
+      try {
+        const readIds = JSON.parse(localStorage.getItem(key) || '[]');
+        const notificationsWithReadStatus = allNotifications.map(notif => {
+          // For dynamic notifications, check localStorage
+          const isDynamic = notif.id.startsWith('apt-') || 
+                           notif.id.startsWith('msg-') || 
+                           notif.id.startsWith('sub-') ||
+                           notif.id.startsWith('system-');
+          
+          if (isDynamic && readIds.includes(notif.id)) {
+            return { ...notif, read: true };
+          }
+          return notif;
+        });
+        
+        const calculatedStats = safeNotificationService.calculateStats(notificationsWithReadStatus);
+        setNotifications(notificationsWithReadStatus);
+        setStats(calculatedStats);
+      } catch (error) {
+        // If localStorage fails, use original notifications
+        const calculatedStats = safeNotificationService.calculateStats(allNotifications);
+        setNotifications(allNotifications);
+        setStats(calculatedStats);
+      }
       setConnectionStatus('connected');
     } catch (err) {
       console.error('Error loading notifications:', err);
@@ -90,6 +113,33 @@ export function useSafeNotifications(patientId?: string | null) {
       isInitialized.current = false;
     };
   }, [patientId, loadNotifications]);
+
+  // Helper to save read status to localStorage for dynamic notifications
+  const saveReadStatus = useCallback((notificationId: string) => {
+    if (!patientId) return;
+    try {
+      const key = `notification_read_${patientId}`;
+      const readIds = JSON.parse(localStorage.getItem(key) || '[]');
+      if (!readIds.includes(notificationId)) {
+        readIds.push(notificationId);
+        localStorage.setItem(key, JSON.stringify(readIds));
+      }
+    } catch (error) {
+      console.warn('Failed to save read status to localStorage:', error);
+    }
+  }, [patientId]);
+
+  // Helper to check if notification is marked as read in localStorage
+  const isMarkedAsRead = useCallback((notificationId: string): boolean => {
+    if (!patientId) return false;
+    try {
+      const key = `notification_read_${patientId}`;
+      const readIds = JSON.parse(localStorage.getItem(key) || '[]');
+      return readIds.includes(notificationId);
+    } catch (error) {
+      return false;
+    }
+  }, [patientId]);
 
   // Mark notification as read - calls backend API
   const markAsRead = useCallback(async (notificationId: string) => {
@@ -172,44 +222,77 @@ export function useSafeNotifications(patientId?: string | null) {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     setStats(prev => ({ ...prev, unread: 0 }));
 
-    // Call backend API to persist the change
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
+    // Filter out dynamically generated notifications (only call API for database notifications)
+    const databaseUnreadIds = unreadIds.filter(id => 
+      !id.startsWith('apt-') && 
+      !id.startsWith('msg-') && 
+      !id.startsWith('sub-') &&
+      !id.startsWith('system-')
+    );
 
-      const response = await fetch("/api/notifications", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          ids: unreadIds,
-          read: true,
-        }),
-      });
+    // Save read status to localStorage for dynamic notifications
+    const dynamicUnreadIds = unreadIds.filter(id => 
+      id.startsWith('apt-') || 
+      id.startsWith('msg-') || 
+      id.startsWith('sub-') ||
+      id.startsWith('system-')
+    );
+    
+    dynamicUnreadIds.forEach(id => saveReadStatus(id));
 
-      if (!response.ok) {
-        // Revert optimistic update on error
+    // Only call API if there are database notifications to update
+    if (databaseUnreadIds.length > 0) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+
+        const response = await fetch("/api/notifications", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            ids: databaseUnreadIds,
+            read: true,
+          }),
+        });
+
+        if (!response.ok) {
+          // Only revert database notifications on error, keep optimistic update for dynamic ones
+          const errorText = await response.text();
+          console.error("Failed to mark all notifications as read:", errorText);
+          
+          // Revert only database notifications
+          setNotifications(prev => 
+            prev.map(n => databaseUnreadIds.includes(n.id) ? { ...n, read: false } : n)
+          );
+          
+          // Recalculate unread count
+          const remainingUnread = notifications.filter(n => 
+            !n.read && !databaseUnreadIds.includes(n.id)
+          ).length;
+          setStats(prev => ({ ...prev, unread: remainingUnread }));
+        }
+        // If successful, optimistic update remains (no need to reload)
+      } catch (error) {
+        console.error("Error marking all notifications as read:", error);
+        
+        // Revert only database notifications on error
         setNotifications(prev => 
-          prev.map(n => unreadIds.includes(n.id) ? { ...n, read: false } : n)
+          prev.map(n => databaseUnreadIds.includes(n.id) ? { ...n, read: false } : n)
         );
-        setStats(prev => ({ ...prev, unread: previousUnreadCount }));
-        console.error("Failed to mark all notifications as read:", await response.text());
-      } else {
-        // Stats already updated optimistically, real-time subscription will handle backend updates
-        // No need to reload as it would reset the count
+        
+        // Recalculate unread count
+        const remainingUnread = notifications.filter(n => 
+          !n.read && !databaseUnreadIds.includes(n.id)
+        ).length;
+        setStats(prev => ({ ...prev, unread: remainingUnread }));
       }
-    } catch (error) {
-      // Revert optimistic update on error
-      setNotifications(prev => 
-        prev.map(n => unreadIds.includes(n.id) ? { ...n, read: false } : n)
-      );
-      setStats(prev => ({ ...prev, unread: previousUnreadCount }));
-      console.error("Error marking all notifications as read:", error);
     }
-  }, [notifications, stats.unread, loadNotifications]);
+    // If all notifications are dynamic (no database IDs), optimistic update is sufficient
+  }, [notifications, stats.unread]);
 
   // Refresh notifications manually
   const refresh = useCallback(() => {

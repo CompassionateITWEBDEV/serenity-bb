@@ -22,11 +22,25 @@ import {
   Activity,
   TrendingUp,
   Smartphone,
-  Bot
+  Bot,
+  User,
+  Stethoscope
 } from "lucide-react";
 
 type SettingsRow = { user_id: string; email: boolean; sms: boolean; push: boolean; days_before: number[] | null; time_of_day: string | null; };
-type ApptRow = { id: string; user_id: string; title: string | null; start_at: string; provider: string | null; type: string | null; };
+type ApptRow = { 
+  id: string; 
+  user_id: string; 
+  title: string | null; 
+  start_at: string; 
+  appointment_time?: string;
+  provider: string | null; 
+  type: string | null;
+  status?: string;
+  updated_at?: string;
+  staff?: { id: string; first_name?: string; last_name?: string; full_name?: string } | null;
+  staff_id?: string | null;
+};
 type ReminderRow = { id: string; user_id: string; appointment_id: string; channel: "email"|"sms"|"push"; scheduled_for: string; status: "scheduled"|"sent"|"canceled"|"failed"; message: string | null; };
 
 const DEFAULT = { email: true, sms: true, push: true, daysBefore: [1,3], timeOfDay: "09:00" };
@@ -40,6 +54,7 @@ export default function AppointmentRemindersPage() {
 
   const [settings, setSettings] = useState({ ...DEFAULT });
   const [appointments, setAppointments] = useState<ApptRow[]>([]);
+  const [completedAppointments, setCompletedAppointments] = useState<ApptRow[]>([]);
   const [reminders, setReminders] = useState<ReminderRow[]>([]);
   const [automationInsights, setAutomationInsights] = useState({
     optimalReminderTime: "09:00",
@@ -79,7 +94,15 @@ export default function AppointmentRemindersPage() {
       const to = new Date(Date.now() + 30 * 864e5).toISOString();
       const { data: apps, error: appErr } = await supabase
         .from("appointments")
-        .select("*")
+        .select(`
+          *,
+          staff:staff_id (
+            id,
+            first_name,
+            last_name,
+            full_name
+          )
+        `)
         .eq("patient_id", uid)
         .gte("appointment_time", from)
         .lte("appointment_time", to)
@@ -87,6 +110,28 @@ export default function AppointmentRemindersPage() {
       
       if (!appErr) {
         setAppointments(apps ?? []);
+      }
+
+      // Also load recently completed appointments to track staff processing
+      const { data: completedApps, error: completedErr } = await supabase
+        .from("appointments")
+        .select(`
+          *,
+          staff:staff_id (
+            id,
+            first_name,
+            last_name,
+            full_name
+          )
+        `)
+        .eq("patient_id", uid)
+        .eq("status", "completed")
+        .order("updated_at", { ascending: false })
+        .limit(10);
+      
+      if (!completedErr && completedApps) {
+        // Store completed appointments for tracking staff processing
+        setCompletedAppointments(completedApps);
       }
 
       // Load reminders
@@ -99,9 +144,17 @@ export default function AppointmentRemindersPage() {
       const upcomingAppts = apps?.filter(a => new Date(a.appointment_time) > now) ?? [];
       const activeReminders = rData?.filter(r => r.status === "scheduled") ?? [];
       
-      // Calculate efficiency based on reminder coverage
-      const efficiency = upcomingAppts.length > 0 ? 
-        Math.min(100, (activeReminders.length / (upcomingAppts.length * settings.daysBefore.length)) * 100) : 0;
+      // Calculate efficiency based on reminder coverage with safe defaults
+      const daysBeforeCount = Array.isArray(settings.daysBefore) && settings.daysBefore.length > 0 
+        ? settings.daysBefore.length 
+        : 1; // Default to 1 to avoid division by zero
+      
+      const efficiency = upcomingAppts.length > 0 && daysBeforeCount > 0
+        ? Math.min(100, Math.max(0, (activeReminders.length / (upcomingAppts.length * daysBeforeCount)) * 100))
+        : 0;
+      
+      // Ensure efficiency is a valid number
+      const finalEfficiency = isNaN(efficiency) ? 0 : efficiency;
       
       // Find next scheduled reminder
       const nextScheduled = activeReminders
@@ -110,7 +163,7 @@ export default function AppointmentRemindersPage() {
       setAutomationInsights({
         optimalReminderTime: settings.timeOfDay,
         suggestedDays: settings.daysBefore,
-        efficiency: Math.round(efficiency),
+        efficiency: Math.round(finalEfficiency),
         nextScheduled
       });
 
@@ -561,6 +614,64 @@ export default function AppointmentRemindersPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Staff Processing Tracking Section */}
+      {completedAppointments.length > 0 && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Stethoscope className="h-5 w-5 text-green-600" />
+              Recently Completed Appointments
+              <Badge variant="outline" className="ml-2">{completedAppointments.length}</Badge>
+            </CardTitle>
+            <p className="text-sm text-gray-600 mt-2">
+              Track when staff processes and applies procedures to your appointments
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {completedAppointments.map((apt) => {
+                const completedDate = apt.updated_at ? new Date(apt.updated_at) : (apt.appointment_time ? new Date(apt.appointment_time) : new Date());
+                const staffName = apt.staff?.full_name || 
+                  (apt.staff?.first_name && apt.staff?.last_name 
+                    ? `${apt.staff.first_name} ${apt.staff.last_name}` 
+                    : apt.provider || "Staff Member");
+                
+                return (
+                  <div key={apt.id} className="p-4 border rounded-lg bg-green-50 border-green-200">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <CheckCircle className="h-5 w-5 text-green-600" />
+                          <h4 className="font-semibold text-gray-900">{apt.title ?? "Appointment"}</h4>
+                          <Badge className="bg-green-100 text-green-700">Completed</Badge>
+                        </div>
+                        {apt.type && (
+                          <p className="text-sm text-gray-600 mb-2">Type: {apt.type}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2 text-gray-700">
+                        <User className="h-4 w-4 text-blue-600" />
+                        <span><strong>Processed by:</strong> {staffName}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-gray-700">
+                        <Calendar className="h-4 w-4 text-purple-600" />
+                        <span><strong>Appointment Date:</strong> {toLocalDate(apt.appointment_time || apt.start_at)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-gray-700">
+                        <Clock className="h-4 w-4 text-orange-600" />
+                        <span><strong>Completed on:</strong> {completedDate.toLocaleDateString()} at {completedDate.toLocaleTimeString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

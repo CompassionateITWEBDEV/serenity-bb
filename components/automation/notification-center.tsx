@@ -258,7 +258,53 @@ export default function NotificationCenter() {
         </div>
 
         <Card>
-          <CardHeader><CardTitle>Recent Notifications</CardTitle></CardHeader>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CardTitle>Recent Notifications</CardTitle>
+                {notifs.filter(n => n.status !== "read").length > 0 && (
+                  <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                    {notifs.filter(n => n.status !== "read").length} unread
+                  </Badge>
+                )}
+              </div>
+              {notifs.filter(n => n.status !== "read").length > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    if (!uid) return;
+                    const unreadNotifs = notifs.filter(n => n.status !== "read");
+                    if (unreadNotifs.length === 0) return;
+                    
+                    // Optimistically update UI
+                    setNotifs(prev => prev.map(n => 
+                      unreadNotifs.some(u => u.id === n.id) ? { ...n, status: "read" as NotifStatus } : n
+                    ));
+                    
+                    // Update in database
+                    const unreadIds = unreadNotifs.map(n => n.id);
+                    const { error } = await supabase
+                      .from("notifications")
+                      .update({ status: "read" })
+                      .in("id", unreadIds)
+                      .eq("user_id", uid);
+                    
+                    if (error) {
+                      console.error("Error marking all as read:", error);
+                      // Revert on error
+                      setNotifs(prev => prev.map(n => 
+                        unreadNotifs.some(u => u.id === n.id) ? { ...n, status: unreadNotifs.find(u => u.id === n.id)?.status || "sent" } : n
+                      ));
+                    }
+                  }}
+                  className="text-xs"
+                >
+                  Mark All as Read
+                </Button>
+              )}
+            </div>
+          </CardHeader>
           <CardContent>
             <div className="space-y-3">
               {notifs.map((n) => (
@@ -273,13 +319,47 @@ export default function NotificationCenter() {
                   <p className="text-sm text-gray-600 mb-2">{n.message}</p>
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-gray-500">{new Date(n.timestamp).toLocaleString()}</span>
-                    <span className={
-                      n.status === "delivered" ? "text-green-600" :
-                      n.status === "read" ? "text-blue-600" :
-                      n.status === "failed" ? "text-red-600" : "text-yellow-600"
-                    }>
-                      {n.status}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={
+                        n.status === "delivered" ? "text-green-600" :
+                        n.status === "read" ? "text-blue-600" :
+                        n.status === "failed" ? "text-red-600" : "text-yellow-600"
+                      }>
+                        {n.status}
+                      </span>
+                      {n.status !== "read" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-xs"
+                          onClick={async () => {
+                            if (!uid) return;
+                            
+                            // Optimistically update UI
+                            setNotifs(prev => prev.map(notif => 
+                              notif.id === n.id ? { ...notif, status: "read" as NotifStatus } : notif
+                            ));
+                            
+                            // Update in database
+                            const { error } = await supabase
+                              .from("notifications")
+                              .update({ status: "read" })
+                              .eq("id", n.id)
+                              .eq("user_id", uid);
+                            
+                            if (error) {
+                              console.error("Error marking as read:", error);
+                              // Revert on error
+                              setNotifs(prev => prev.map(notif => 
+                                notif.id === n.id ? { ...notif, status: n.status } : notif
+                              ));
+                            }
+                          }}
+                        >
+                          Mark as Read
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}

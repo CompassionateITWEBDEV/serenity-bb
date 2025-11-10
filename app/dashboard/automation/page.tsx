@@ -58,50 +58,79 @@ export default function AutomationPage() {
     try {
       setRefreshing(true)
       
-      // Get appointment data
-      const { data: appointments } = await supabase
-        .from("appointments")
-        .select("*")
-        .eq("patient_id", patient.id)
-        .gte("appointment_time", new Date().toISOString())
-        .order("appointment_time", { ascending: true })
+      // Get appointment data (with error handling)
+      let appointments = []
+      try {
+        const { data: appointmentData, error: appointmentError } = await supabase
+          .from("appointments")
+          .select("*")
+          .eq("patient_id", patient.id)
+          .gte("appointment_time", new Date().toISOString())
+          .order("appointment_time", { ascending: true })
+        
+        if (!appointmentError && appointmentData) {
+          appointments = appointmentData
+        }
+      } catch (error) {
+        console.warn("Appointments query error:", error)
+      }
 
-      // Get reminder data
-      const { data: reminders } = await supabase
-        .from("reminders")
-        .select("*")
-        .eq("user_id", patient.id)
+      // Get reminder data (with error handling for missing table)
+      let reminders = []
+      try {
+        const { data: reminderData, error: reminderError } = await supabase
+          .from("reminders")
+          .select("*")
+          .eq("user_id", patient.id)
+        
+        if (!reminderError && reminderData) {
+          reminders = reminderData
+        }
+      } catch (error) {
+        console.warn("Reminders table may not exist:", error)
+      }
 
-      // Calculate stats
+      // Calculate stats with safe defaults
       const now = new Date()
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
       const tomorrow = new Date(today.getTime() + 86400000)
 
-      const completedToday = reminders?.filter(r => 
-        r.status === "sent" && 
+      const completedToday = Array.isArray(reminders) ? reminders.filter(r => 
+        r?.status === "sent" && 
+        r?.scheduled_for &&
         new Date(r.scheduled_for) >= today && 
         new Date(r.scheduled_for) < tomorrow
-      ).length || 0
+      ).length : 0
 
-      const activeReminders = reminders?.filter(r => r.status === "scheduled").length || 0
-      const totalReminders = reminders?.length || 0
-      const upcomingAppointments = appointments?.length || 0
+      const activeReminders = Array.isArray(reminders) ? reminders.filter(r => r?.status === "scheduled").length : 0
+      const totalReminders = Array.isArray(reminders) ? reminders.length : 0
+      const upcomingAppointments = Array.isArray(appointments) ? appointments.length : 0
 
-      // Calculate automation health (0-100)
+      // Calculate automation health (0-100) with safe number conversion
+      const activeRemindersNum = Number(activeReminders) || 0
+      const upcomingAppointmentsNum = Number(upcomingAppointments) || 0
+      const completedTodayNum = Number(completedToday) || 0
+      
       const healthScore = Math.min(100, Math.max(0, 
-        (activeReminders * 20) + 
-        (upcomingAppointments * 10) + 
-        (completedToday * 5)
+        (activeRemindersNum * 20) + 
+        (upcomingAppointmentsNum * 10) + 
+        (completedTodayNum * 5)
       ))
+      
+      // Ensure healthScore is a valid number
+      const finalHealthScore = isNaN(healthScore) ? 0 : healthScore
 
       setStats({
         totalReminders,
         activeReminders,
         completedToday,
         upcomingAppointments,
-        automationHealth: healthScore,
-        lastActivity: reminders?.length ? 
-          new Date(Math.max(...reminders.map(r => new Date(r.scheduled_for).getTime()))).toLocaleString() : 
+        automationHealth: finalHealthScore,
+        lastActivity: Array.isArray(reminders) && reminders.length > 0 ? 
+          new Date(Math.max(...reminders
+            .filter(r => r?.scheduled_for)
+            .map(r => new Date(r.scheduled_for).getTime())
+          )).toLocaleString() : 
           "Never"
       })
 
