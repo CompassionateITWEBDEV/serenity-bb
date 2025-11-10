@@ -367,6 +367,12 @@ export function useProgressTracking() {
         });
 
       if (error) {
+        // Suppress error if table doesn't exist (PGRST205)
+        if (error.code === 'PGRST205') {
+          console.log("weekly_goals table not found (PGRST205) - cannot add goal");
+          setError("Weekly goals feature is not available. The weekly_goals table needs to be created in the database.");
+          return;
+        }
         console.warn("Could not add goal:", error);
         setError("Database tables not set up yet. Please run the SQL script first.");
         return;
