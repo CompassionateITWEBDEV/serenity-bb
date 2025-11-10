@@ -1,23 +1,33 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!; // server-only
-
-// Admin client (service role) so we can set app_metadata.role
-const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+// Lazy-load admin client to avoid build-time errors when env vars aren't available
+function getAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  
+  if (!url || !serviceKey) {
+    throw new Error("Supabase configuration missing");
+  }
+  
+  return createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+}
 
 type Body = { firstName: string; lastName: string; email: string; password: string };
 
 export async function POST(req: Request) {
   try {
-    if (!serviceKey) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!url || !serviceKey) {
       return NextResponse.json(
         { error: "Service role key missing on server. Ask admin to set SUPABASE_SERVICE_ROLE_KEY." },
         { status: 500 }
       );
     }
 
+    const admin = getAdminClient();
     const { firstName, lastName, email, password } = (await req.json()) as Body;
 
     if (!firstName || !lastName || !email || !password) {
