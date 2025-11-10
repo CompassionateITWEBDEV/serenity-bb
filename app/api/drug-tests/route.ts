@@ -38,8 +38,16 @@ export async function POST(req: Request) {
   console.log(`[API] [${requestId}] POST /api/drug-tests - Request received at ${new Date().toISOString()}`);
   
   try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    // Trim whitespace from environment variables (common issue)
+    let url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    let anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (url) url = url.trim();
+    if (anon) anon = anon.trim();
+    
+    // Check for hidden characters or encoding issues
+    const anonHasWhitespace = anon && (anon.includes(' ') || anon.includes('\n') || anon.includes('\r') || anon.includes('\t'));
+    const anonHasInvalidChars = anon && /[^\x20-\x7E]/.test(anon); // Check for non-printable ASCII
     
     if (!url || !anon) {
       console.error(`[API] [${requestId}] ❌ CRITICAL: Supabase environment variables missing`);
@@ -48,10 +56,27 @@ export async function POST(req: Request) {
       return json({ 
         error: "Server configuration error",
         details: "Supabase configuration missing. Please check environment variables.",
-        hint: "Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel"
+        hint: "Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set in Vercel → Settings → Environment Variables for Production, Preview, and Development environments"
       }, 500, {
         "x-debug": "env-missing",
       });
+    }
+    
+    // Warn about whitespace issues
+    if (anonHasWhitespace) {
+      console.error(`[API] [${requestId}] ⚠️ WARNING: API key contains whitespace! This can cause authentication errors.`);
+      console.error(`[API] [${requestId}] API key has spaces: ${anon.includes(' ')}`);
+      console.error(`[API] [${requestId}] API key has newlines: ${anon.includes('\n') || anon.includes('\r')}`);
+    }
+    
+    if (anonHasInvalidChars) {
+      console.error(`[API] [${requestId}] ⚠️ WARNING: API key contains non-printable characters!`);
+    }
+    
+    // Validate API key format
+    if (!anon.startsWith('eyJ')) {
+      console.error(`[API] [${requestId}] ⚠️ WARNING: API key does not start with 'eyJ' (not a valid JWT)`);
+      console.error(`[API] [${requestId}] API key starts with: ${anon.substring(0, 10)}`);
     }
     
     console.log(`[API] [${requestId}] ✅ Supabase environment variables configured`);
@@ -145,10 +170,36 @@ export async function POST(req: Request) {
       }
 
       // 5) Insert via service role
-      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
+      let serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE;
       if (!serviceKey) {
-        return json({ error: "Service role key not configured (SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE)" }, 500, {
+        console.error(`[API] [${requestId}] ❌ CRITICAL: Service role key missing`);
+        return json({ 
+          error: "Service role key not configured",
+          details: "SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE environment variable is missing",
+          hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'service_role' key\n2. Go to Vercel → Settings → Environment Variables\n3. Add SUPABASE_SERVICE_ROLE_KEY with the service_role key value\n4. Make sure it's set for 'Production', 'Preview', and 'Development' environments\n5. Redeploy the application"
+        }, 500, {
           "x-debug": "service-role-missing",
+        });
+      }
+      
+      // Trim whitespace from service key
+      serviceKey = serviceKey.trim();
+      
+      // Validate service key format
+      if (!serviceKey.startsWith('eyJ')) {
+        console.error(`[API] [${requestId}] ⚠️ WARNING: Service role key does not start with 'eyJ' (not a valid JWT)`);
+        console.error(`[API] [${requestId}] Service key starts with: ${serviceKey.substring(0, 10)}`);
+      }
+      
+      // Check for whitespace in service key
+      if (serviceKey.includes(' ') || serviceKey.includes('\n') || serviceKey.includes('\r')) {
+        console.error(`[API] [${requestId}] ⚠️ WARNING: Service role key contains whitespace! This will cause authentication errors.`);
+        return json({ 
+          error: "Invalid service role key format",
+          details: "The SUPABASE_SERVICE_ROLE_KEY contains whitespace or invalid characters",
+          hint: "Remove any spaces, newlines, or quotes from the service role key in Vercel environment variables"
+        }, 500, {
+          "x-debug": "service-role-invalid-format",
         });
       }
 
@@ -164,16 +215,71 @@ export async function POST(req: Request) {
         
         if (connectionError) {
           console.error(`[API] [${requestId}] ❌ Supabase connection failed:`, connectionError);
+          
+          // Check if it's an API key error
+          const isApiKeyError = 
+            connectionError.message?.includes("Invalid API key") ||
+            connectionError.message?.includes("JWT") ||
+            connectionError.message?.toLowerCase().includes("invalid api key") ||
+            connectionError.message?.toLowerCase().includes("authentication failed") ||
+            connectionError.code === "PGRST302" || // Invalid API key
+            connectionError.code === "PGRST401" || // Unauthorized
+            connectionError.code === "bad_jwt" || // JWT parsing error
+            connectionError.code === "invalid_token"; // Token validation error
+          
+          if (isApiKeyError) {
+            console.error(`[API] [${requestId}] ❌ CRITICAL: Invalid API key detected`);
+            console.error(`[API] [${requestId}] Service role key length: ${serviceKey.length}`);
+            console.error(`[API] [${requestId}] Service role key starts with: ${serviceKey.substring(0, 20)}...`);
+            console.error(`[API] [${requestId}] Service role key has spaces: ${serviceKey.includes(' ')}`);
+            console.error(`[API] [${requestId}] Service role key has newlines: ${serviceKey.includes('\n') || serviceKey.includes('\r')}`);
+            
+            return json({ 
+              error: "Invalid API key",
+              details: "The Supabase service role key in Vercel environment variables is incorrect, expired, or doesn't match the Supabase project.",
+              hint: "1. Go to Supabase Dashboard → Settings → API → Copy the 'service_role' key\n2. Go to Vercel → Settings → Environment Variables\n3. Update SUPABASE_SERVICE_ROLE_KEY with the correct value\n4. Make sure it's set for 'Production', 'Preview', and 'Development' environments\n5. Redeploy the application\n6. Check for hidden characters (spaces, newlines) in the key",
+              debug: {
+                errorCode: connectionError.code,
+                errorMessage: connectionError.message,
+                keyLength: serviceKey.length,
+                keyPrefix: serviceKey.substring(0, 20),
+                keyHasSpaces: serviceKey.includes(' '),
+                keyHasNewlines: serviceKey.includes('\n') || serviceKey.includes('\r'),
+                keyStartsWithEyJ: serviceKey.startsWith('eyJ'),
+                supabaseUrl: url
+              }
+            }, 500, { "x-debug": "invalid-api-key" });
+          }
+          
+          // Not an API key error - generic connection error
           return json({ 
             error: "Database connection failed",
             details: connectionError.message,
-            hint: "Check Supabase project status and network connectivity"
+            code: connectionError.code,
+            hint: "Check Supabase project status and network connectivity. If this persists, verify your Supabase project is active."
           }, 503, { "x-debug": "supabase-connection-failed" });
         }
         
         console.log(`[API] [${requestId}] ✅ Supabase connection successful`);
       } catch (connErr: any) {
         console.error(`[API] [${requestId}] ❌ Supabase connection error:`, connErr);
+        
+        // Check if it's an API key error in the exception
+        const isApiKeyError = 
+          connErr?.message?.includes("Invalid API key") ||
+          connErr?.message?.includes("JWT") ||
+          connErr?.message?.toLowerCase().includes("invalid api key") ||
+          connErr?.code === "PGRST302" ||
+          connErr?.code === "PGRST401";
+        
+        if (isApiKeyError) {
+          return json({ 
+            error: "Invalid API key",
+            details: "The Supabase service role key is invalid. Please check your Vercel environment variables.",
+            hint: "Update SUPABASE_SERVICE_ROLE_KEY in Vercel → Settings → Environment Variables"
+          }, 500, { "x-debug": "invalid-api-key-exception" });
+        }
+        
         return json({ 
           error: "Unable to connect to database",
           details: connErr?.message || "Network error connecting to Supabase",
