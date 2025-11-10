@@ -68,3 +68,7 @@ COMMENT ON COLUMN public.drug_tests.created_at IS 'Timestamp when the test recor
 COMMENT ON COLUMN public.drug_tests.updated_at IS 'Timestamp when the test record was last updated';
 COMMENT ON COLUMN public.drug_tests.metadata IS 'JSONB field for additional test information (test_type, collection_method, etc.)';
 
+
+
+
+

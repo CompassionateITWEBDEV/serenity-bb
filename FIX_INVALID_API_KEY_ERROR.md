@@ -117,3 +117,7 @@ If the issue persists after following these steps:
 3. Ensure you're using the correct Supabase project (not a different one)
 4. Check if there are any IP restrictions or firewall rules blocking Vercel
 
+
+
+
+

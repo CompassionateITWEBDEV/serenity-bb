@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,14 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const { login, loading } = useAuth()
   const router = useRouter()
+
+  // Prevent back navigation to protected pages after logout
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      // Replace current history entry to prevent back navigation
+      window.history.replaceState(null, "", "/login");
+    }
+  }, [])
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()

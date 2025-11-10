@@ -32,3 +32,7 @@ USING (EXISTS (SELECT 1 FROM staff WHERE staff.user_id = auth.uid()));
 
 -- DONE! RLS is now enabled with correct policies.
 
+
+
+
+

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useMemo, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -62,6 +62,14 @@ function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const redirectTo = useMemo(() => params.get("redirect") || "/staff/dashboard", [params]);
+
+  // Prevent back navigation to protected pages after logout
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      // Replace current history entry to prevent back navigation
+      window.history.replaceState(null, "", "/staff/login");
+    }
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();

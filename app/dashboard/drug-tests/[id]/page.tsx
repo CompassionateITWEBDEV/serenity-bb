@@ -335,28 +335,14 @@ export default function DrugTestDetailPage() {
           };
         }
         
-        // Log the actual raw text first, before any processing
-        console.error('[Detail Page] ====== API ERROR RESPONSE ======');
-        console.error('[Detail Page] Status:', response.status);
-        console.error('[Detail Page] Status Text:', response.statusText);
-        console.error('[Detail Page] Raw Text Type:', typeof errorText);
-        console.error('[Detail Page] Raw Text Value:', errorText);
-        console.error('[Detail Page] Raw Text Length:', errorText?.length || 0);
-        if (errorText && typeof errorText === 'string' && errorText.length > 0) {
-          console.error('[Detail Page] Raw Text (first 200 chars):', errorText.substring(0, 200));
-          console.error('[Detail Page] Raw Text (JSON.stringify):', JSON.stringify(errorText));
-        } else {
-          console.error('[Detail Page] Raw Text is empty or not a string');
+        // Log error details (only in development or if detailed logging is needed)
+        if (process.env.NODE_ENV === 'development') {
+          console.error('[Detail Page] ====== API ERROR RESPONSE ======');
+          console.error('[Detail Page] Status:', response.status);
+          console.error('[Detail Page] Status Text:', response.statusText);
+          console.error('[Detail Page] Error Data:', errorData);
+          console.error('[Detail Page] ================================');
         }
-        console.error('[Detail Page] Parsed errorData:', errorData);
-        console.error('[Detail Page] errorData keys:', Object.keys(errorData || {}));
-        try {
-          console.error('[Detail Page] Response Headers:', Object.fromEntries(response.headers.entries()));
-        } catch (e) {
-          console.error('[Detail Page] Could not read response headers:', e);
-        }
-        console.error('[Detail Page] Response URL:', response.url);
-        console.error('[Detail Page] ================================');
         
         // Handle 401 Unauthorized with expired token - try to refresh and retry
         if (response.status === 401 && (errorData?.hint?.includes("expired") || errorData?.hint?.includes("JWT"))) {

@@ -270,7 +270,10 @@ export default function StaffProfilePage() {
                   className="h-10 rounded-full"
                   onClick={async () => {
                     await logout(); // WHY: ensure server session cleared
-                    router.push("/staff/login");
+                    // Use window.location.replace to prevent back navigation after logout
+                    if (typeof window !== "undefined") {
+                      window.location.replace("/staff/login");
+                    }
                   }}
                 >
                   Logout

@@ -13,6 +13,7 @@ import {
 import MobileDock from "@/components/staff/MobileDock";
 import ProfileSettings from "@/components/ProfileSettings";
 import DashboardGlyph from "@/components/icons/DashboardGlyph";
+import { supabase } from "@/lib/supabase-browser";
 
 type Clinician = { id: string; name: string; role: string; avatar?: string };
 const MOCKS: Clinician[] = [
@@ -51,7 +52,19 @@ export default function ClinicianDashboardPage() {
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="gap-1">Live</Badge>
-            <Button variant="outline" size="sm" className="gap-1" onClick={() => router.push("/logout")}>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="gap-1" 
+              onClick={async () => {
+                // Sign out from Supabase
+                await supabase.auth.signOut();
+                // Use window.location.replace to prevent back navigation after logout
+                if (typeof window !== "undefined") {
+                  window.location.replace("/staff/login");
+                }
+              }}
+            >
               <LogOut className="h-4 w-4" /> Logout
             </Button>
           </div>

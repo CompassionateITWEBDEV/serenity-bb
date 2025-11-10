@@ -90,3 +90,7 @@ The debug info will now show:
 - Key suffix (to verify it's complete)
 - Full error details
 
+
+
+
+

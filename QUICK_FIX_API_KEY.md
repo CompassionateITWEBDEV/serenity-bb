@@ -70,3 +70,7 @@ If the error persists after updating:
 3. Make sure you redeployed after updating variables
 4. Check Supabase project is active (not paused or deleted)
 
+
+
+
+

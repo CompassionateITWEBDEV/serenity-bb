@@ -90,3 +90,7 @@ ORDER BY policyname;
 
 -- DONE! Check the results above - especially STEP 4 to see if patient_id matches
 
+
+
+
+

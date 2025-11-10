@@ -56,7 +56,14 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
     return () => window.removeEventListener("profile:updated", onProfileUpdated);
   }, []);
 
-  const handleLogout = () => { logout(); router.push("/"); };
+  const handleLogout = () => { 
+    logout(); 
+    // Use window.location.replace to completely replace history entry
+    // This prevents users from navigating back to protected pages after logout
+    if (typeof window !== "undefined") {
+      window.location.replace("/login");
+    }
+  };
 
   const navigation = useMemo(
     () => [

@@ -20,6 +20,7 @@ import {
   Hourglass,
   AlertCircle,
   Activity,
+  Edit,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -51,6 +52,10 @@ export default function AppointmentsList() {
   const [dateFilter, setDateFilter] = useState<"all" | "today" | "upcoming" | "past">("all");
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [selected, setSelected] = useState<Appointment | null>(null);
+  const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleTime, setRescheduleTime] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
 
   const loadAppointments = async () => {
     try {
@@ -248,6 +253,105 @@ export default function AppointmentsList() {
     }
   };
 
+  const completeAppointment = async (apt: Appointment) => {
+    if (apt.status === "completed") return;
+    
+    if (!confirm(`Mark appointment "${apt.title || 'Appointment'}" as completed?`)) {
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        alert("Session expired. Please log in again.");
+        return;
+      }
+
+      const response = await fetch(`/api/staff/appointments/${apt.id}/complete`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to complete appointment");
+      }
+
+      alert("Appointment marked as completed. Notification sent to patient.");
+      await loadAppointments();
+      if (selected?.id === apt.id) {
+        setIsDetailOpen(false);
+      }
+    } catch (err: any) {
+      console.error("Error completing appointment:", err);
+      alert(err.message || "Failed to complete appointment");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const openReschedule = (apt: Appointment) => {
+    setSelected(apt);
+    const currentDate = new Date(apt.appointment_time);
+    setRescheduleDate(currentDate.toISOString().split('T')[0]);
+    setRescheduleTime(currentDate.toTimeString().slice(0, 5));
+    setIsRescheduleOpen(true);
+  };
+
+  const handleReschedule = async () => {
+    if (!selected || !rescheduleDate || !rescheduleTime) {
+      alert("Please select both date and time");
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        alert("Session expired. Please log in again.");
+        return;
+      }
+
+      const [year, month, day] = rescheduleDate.split('-');
+      const [hours, minutes] = rescheduleTime.split(':');
+      const appointmentTime = new Date(
+        parseInt(year),
+        parseInt(month) - 1,
+        parseInt(day),
+        parseInt(hours),
+        parseInt(minutes)
+      ).toISOString();
+
+      const response = await fetch(`/api/staff/appointments/${selected.id}/reschedule`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ appointmentTime }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to reschedule appointment");
+      }
+
+      alert("Appointment rescheduled successfully. Notification sent to patient.");
+      setIsRescheduleOpen(false);
+      await loadAppointments();
+      setIsDetailOpen(false);
+    } catch (err: any) {
+      console.error("Error rescheduling appointment:", err);
+      alert(err.message || "Failed to reschedule appointment");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const getEndTime = (apt: Appointment) => {
     const start = new Date(apt.appointment_time);
     const duration = apt.duration_min || 60;
@@ -259,8 +363,8 @@ export default function AppointmentsList() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Patient Appointments</h2>
-          <p className="text-slate-600 mt-1">Real-time appointment management</p>
+          <h2 className="text-2xl font-bold text-gray-900">Patient Appointments</h2>
+          <p className="text-gray-600 mt-1">Real-time appointment management</p>
         </div>
         <Badge variant="secondary" className="bg-cyan-100 text-cyan-700 border-cyan-200">
           <Activity className="h-3 w-3 mr-1" />
@@ -268,8 +372,8 @@ export default function AppointmentsList() {
         </Badge>
       </div>
 
-      <Card className="shadow-lg border-slate-200">
-        <CardHeader className="flex-row items-center justify-between space-y-0 p-4 border-b bg-gray-50">
+      <Card className="shadow-lg border-gray-200 bg-white">
+        <CardHeader className="flex-row items-center justify-between space-y-0 p-4 border-b bg-white">
           <div className="flex items-center gap-3 flex-1">
             <Search className="h-5 w-5 text-gray-400" />
             <Input
@@ -324,9 +428,9 @@ export default function AppointmentsList() {
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-gray-100">
+            <div className="divide-y divide-gray-200 bg-white">
               {filteredAppointments.map((apt) => (
-                <div key={apt.id} className="p-6 hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => openDetails(apt)}>
+                <div key={apt.id} className="p-6 hover:bg-gray-50 transition-colors cursor-pointer bg-white" onClick={() => openDetails(apt)}>
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 space-y-3">
                       <div className="flex items-start gap-3">
@@ -343,6 +447,30 @@ export default function AppointmentsList() {
                               {apt.title || "Appointment"}
                             </h4>
                             {getStatusBadge(apt.status)}
+                            {apt.status !== "completed" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="ml-2 bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
+                                onClick={(e) => { e.stopPropagation(); completeAppointment(apt); }}
+                                disabled={isUpdating}
+                              >
+                                <CheckCircle2 className="h-4 w-4 mr-1" />
+                                Complete
+                              </Button>
+                            )}
+                            {apt.status !== "completed" && apt.status !== "cancelled" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="ml-2"
+                                onClick={(e) => { e.stopPropagation(); openReschedule(apt); }}
+                                disabled={isUpdating}
+                              >
+                                <Edit className="h-4 w-4 mr-1" />
+                                Reschedule
+                              </Button>
+                            )}
                             {apt.status === "cancelled" && (
                               <Button
                                 variant="outline"
@@ -424,29 +552,119 @@ export default function AppointmentsList() {
 
     {/* Details Dialog */}
     <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Appointment Details</DialogTitle>
+      <DialogContent className="bg-white">
+        <DialogHeader className="bg-white">
+          <DialogTitle className="text-gray-900">Appointment Details</DialogTitle>
         </DialogHeader>
         {selected && (
-          <div className="space-y-2 text-sm">
-            <div><strong>Title:</strong> {selected.title || "Appointment"}</div>
-            <div><strong>Status:</strong> {selected.status}</div>
-            <div><strong>When:</strong> {formatDateTime(selected.appointment_time)} ({selected.duration_min || 60} min)</div>
-            <div><strong>Patient:</strong> {selected.patient_name}{selected.patient_email ? ` (${selected.patient_email})` : ""}</div>
-            {selected.provider && <div><strong>Provider:</strong> {selected.provider}</div>}
-            {selected.location && !selected.is_virtual && <div><strong>Location:</strong> {selected.location}</div>}
-            {selected.is_virtual && <div><strong>Type:</strong> Virtual Appointment</div>}
-            {selected.notes && <div><strong>Notes:</strong> {selected.notes}</div>}
+          <div className="space-y-3 text-sm bg-white">
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <div className="text-gray-700"><strong className="text-gray-900">Title:</strong> {selected.title || "Appointment"}</div>
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <div className="text-gray-700"><strong className="text-gray-900">Status:</strong> {selected.status}</div>
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <div className="text-gray-700"><strong className="text-gray-900">When:</strong> {formatDateTime(selected.appointment_time)} ({selected.duration_min || 60} min)</div>
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <div className="text-gray-700"><strong className="text-gray-900">Patient:</strong> {selected.patient_name}{selected.patient_email ? ` (${selected.patient_email})` : ""}</div>
+            </div>
+            {selected.provider && (
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <div className="text-gray-700"><strong className="text-gray-900">Provider:</strong> {selected.provider}</div>
+              </div>
+            )}
+            {selected.location && !selected.is_virtual && (
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <div className="text-gray-700"><strong className="text-gray-900">Location:</strong> {selected.location}</div>
+              </div>
+            )}
+            {selected.is_virtual && (
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <div className="text-gray-700"><strong className="text-gray-900">Type:</strong> Virtual Appointment</div>
+              </div>
+            )}
+            {selected.notes && (
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <div className="text-gray-700"><strong className="text-gray-900">Notes:</strong> {selected.notes}</div>
+              </div>
+            )}
           </div>
         )}
         <DialogFooter>
+          {selected && selected.status !== "completed" && selected.status !== "cancelled" && (
+            <>
+              <Button 
+                variant="default" 
+                className="bg-green-600 hover:bg-green-700"
+                onClick={() => selected && completeAppointment(selected)}
+                disabled={isUpdating}
+              >
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                Mark as Completed
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => selected && openReschedule(selected)}
+                disabled={isUpdating}
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                Reschedule
+              </Button>
+            </>
+          )}
           {selected?.status === "cancelled" && (
             <Button variant="destructive" onClick={() => selected && deleteCancelled(selected)}>
               Delete
             </Button>
           )}
           <Button variant="outline" onClick={() => setIsDetailOpen(false)}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Reschedule Dialog */}
+    <Dialog open={isRescheduleOpen} onOpenChange={setIsRescheduleOpen}>
+      <DialogContent className="bg-white">
+        <DialogHeader className="bg-white">
+          <DialogTitle className="text-gray-900">Reschedule Appointment</DialogTitle>
+        </DialogHeader>
+        {selected && (
+          <div className="space-y-4 bg-white">
+            <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">
+              <p className="mb-2"><strong className="text-gray-900">Current:</strong> {formatDateTime(selected.appointment_time)}</p>
+              <p><strong className="text-gray-900">Patient:</strong> {selected.patient_name}</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-900 block">New Date</label>
+              <Input
+                type="date"
+                value={rescheduleDate}
+                onChange={(e) => setRescheduleDate(e.target.value)}
+                required
+                className="bg-white border-gray-300 text-gray-900"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-900 block">New Time</label>
+              <Input
+                type="time"
+                value={rescheduleTime}
+                onChange={(e) => setRescheduleTime(e.target.value)}
+                required
+                className="bg-white border-gray-300 text-gray-900"
+              />
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setIsRescheduleOpen(false)} disabled={isUpdating}>
+            Cancel
+          </Button>
+          <Button onClick={handleReschedule} disabled={isUpdating || !rescheduleDate || !rescheduleTime}>
+            {isUpdating ? "Rescheduling..." : "Reschedule"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

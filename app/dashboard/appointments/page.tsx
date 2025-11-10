@@ -1123,24 +1123,151 @@ export default function AppointmentsPage() {
 
     if (!ans.isConfirmed) return;
 
-    const prev = items;
+    setBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        await swal({ icon: "error", title: "Session expired", text: "Please log in again." });
+        router.push("/login");
+        return;
+      }
 
-    setItems((list) => list.filter((a) => a.id !== id));
+      const response = await fetch(`/api/patient/appointments/${id}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
 
-    const { error } = await supabase.from("appointments").delete().eq("id", id).eq("patient_id", patientId);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to delete appointment");
+      }
 
-    if (error) { 
-
-      await swal({ icon: "error", title: "Delete failed", text: error.message }); 
-
-      setItems(prev); 
-
-    } else {
-
-      await swalToast("Appointment deleted", "success");
-
+      await swalToast("Appointment deleted successfully", "success");
+      await loadAppointments();
+    } catch (err: any) {
+      console.error("Error deleting appointment:", err);
+      await swal({ icon: "error", title: "Delete failed", text: err.message || "Failed to delete appointment" });
+    } finally {
+      setBusy(false);
     }
 
+  }
+
+  async function completeAppointment(id: string) {
+    const ans = await swalConfirm({ 
+      title: "Mark as completed?", 
+      text: "This will mark the appointment as completed.", 
+      confirmText: "Complete", 
+      confirmColor: "#10b981", 
+      icon: "success" 
+    });
+
+    if (!ans.isConfirmed) return;
+
+    setBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        await swal({ icon: "error", title: "Session expired", text: "Please log in again." });
+        router.push("/login");
+        return;
+      }
+
+      const response = await fetch(`/api/patient/appointments/${id}/complete`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to complete appointment");
+      }
+
+      await swalToast("Appointment marked as completed", "success");
+      await loadAppointments();
+    } catch (err: any) {
+      console.error("Error completing appointment:", err);
+      await swal({ icon: "error", title: "Update failed", text: err.message || "Failed to complete appointment" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rescheduleAppointment(id: string, currentTime: string) {
+    // Create a dialog for rescheduling
+    const Swal = (await import("sweetalert2")).default;
+    const { value: formValues } = await Swal.fire({
+      title: "Reschedule Appointment",
+      html: `
+        <div style="text-align: left;">
+          <label style="display: block; margin-bottom: 8px; font-weight: 600;">New Date & Time</label>
+          <input id="reschedule-date" type="date" class="swal2-input" style="margin-bottom: 10px;" required>
+          <input id="reschedule-time" type="time" class="swal2-input" required>
+        </div>
+      `,
+      focusConfirm: false,
+      showCancelButton: true,
+      confirmButtonText: "Reschedule",
+      confirmButtonColor: "#2563eb",
+      preConfirm: () => {
+        const date = (document.getElementById("reschedule-date") as HTMLInputElement)?.value;
+        const time = (document.getElementById("reschedule-time") as HTMLInputElement)?.value;
+        if (!date || !time) {
+          Swal.showValidationMessage("Please select both date and time");
+          return false;
+        }
+        const [year, month, day] = date.split('-');
+        const [hours, minutes] = time.split(':');
+        const appointmentTime = new Date(
+          parseInt(year),
+          parseInt(month) - 1,
+          parseInt(day),
+          parseInt(hours),
+          parseInt(minutes)
+        ).toISOString();
+        return appointmentTime;
+      }
+    });
+
+    if (!formValues) return;
+
+    setBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        await swal({ icon: "error", title: "Session expired", text: "Please log in again." });
+        router.push("/login");
+        return;
+      }
+
+      const response = await fetch(`/api/patient/appointments/${id}/reschedule`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ appointmentTime: formValues }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to reschedule appointment");
+      }
+
+      await swalToast("Appointment rescheduled successfully", "success");
+      await loadAppointments();
+    } catch (err: any) {
+      console.error("Error rescheduling appointment:", err);
+      await swal({ icon: "error", title: "Reschedule failed", text: err.message || "Failed to reschedule appointment" });
+    } finally {
+      setBusy(false);
+    }
   }
 
 
@@ -1968,21 +2095,38 @@ export default function AppointmentsPage() {
 
                           )}
 
+                          {a.status !== "completed" && (
+                            <Button 
+                              size="sm" 
+                              className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white shadow-lg" 
+                              onClick={() => completeAppointment(a.id)}
+                              disabled={busy}
+                            >
+                              <CheckCircle2 className="h-4 w-4 mr-2" />Complete
+                            </Button>
+                          )}
+
                           <div className="flex gap-1">
 
-                            <Button size="sm" variant="outline" onClick={() => openEdit(a)} className="hover:bg-blue-50 hover:text-blue-600">
+                            <Button size="sm" variant="outline" onClick={() => rescheduleAppointment(a.id, a.appointment_time)} className="hover:bg-blue-50 hover:text-blue-600" disabled={busy} title="Reschedule">
+
+                              <Clock className="h-4 w-4" />
+
+                            </Button>
+
+                            <Button size="sm" variant="outline" onClick={() => openEdit(a)} className="hover:bg-blue-50 hover:text-blue-600" disabled={busy} title="Edit">
 
                               <Edit className="h-4 w-4" />
 
                             </Button>
 
-                            <Button size="sm" variant="outline" onClick={() => updateStatus(a.id, "cancelled")} className="hover:bg-yellow-50 hover:text-yellow-600">
+                            <Button size="sm" variant="outline" onClick={() => updateStatus(a.id, "cancelled")} className="hover:bg-yellow-50 hover:text-yellow-600" disabled={busy} title="Cancel">
 
                               <XCircle className="h-4 w-4" />
 
                             </Button>
 
-                            <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => deleteAppt(a.id)}>
+                            <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => deleteAppt(a.id)} disabled={busy} title="Delete">
 
                               <Trash2 className="h-4 w-4" />
 
