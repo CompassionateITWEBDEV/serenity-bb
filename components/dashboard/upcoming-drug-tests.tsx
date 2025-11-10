@@ -2,7 +2,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { TestTube2, Calendar, Clock, AlertCircle } from "lucide-react";
+import { TestTube2, Calendar, Clock, AlertCircle, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export type DrugTestItem = {
@@ -71,9 +71,16 @@ export function UpcomingDrugTests({
 
   // Filter to show pending tests - show all pending tests, not just future ones
   // This includes tests scheduled for today and unscheduled tests
-  const upcomingTests = items.filter(
+  const pendingTests = items.filter(
     (test) => test.status === "pending"
   );
+
+  // Sort by creation date (newest first) to show latest at the top
+  const upcomingTests = [...pendingTests].sort((a, b) => {
+    const dateA = new Date(a.createdAt).getTime();
+    const dateB = new Date(b.createdAt).getTime();
+    return dateB - dateA; // Descending order (newest first)
+  });
 
   return (
     <Card className={className}>
@@ -100,21 +107,34 @@ export function UpcomingDrugTests({
           </div>
         ) : (
           <div className="space-y-4">
-            {upcomingTests.map((test) => {
+            {upcomingTests.map((test, index) => {
               const { date, time } = fmtDateTime(test.scheduledFor);
               const testType = test.testType || test.metadata?.test_type || "Random";
+              // Mark the first (newest) test as "Latest"
+              const isLatest = index === 0;
+              
               return (
                 <div 
                   key={test.id} 
-                  className="border rounded-lg p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                  className={`border rounded-lg p-4 hover:bg-gray-50 transition-colors cursor-pointer ${
+                    isLatest ? 'border-l-4 border-l-cyan-500 shadow-sm' : ''
+                  }`}
                   onClick={() => router.push(`/dashboard/drug-tests/${test.id}`)}
                 >
                   <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <h4 className="font-medium text-gray-900 flex items-center gap-2">
-                        <TestTube2 className="h-4 w-4 text-yellow-600" />
-                        {testType} Drug Test
-                      </h4>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                          <TestTube2 className="h-4 w-4 text-yellow-600" />
+                          {testType} Drug Test
+                        </h4>
+                        {isLatest && (
+                          <Badge className="bg-cyan-100 text-cyan-800 hover:bg-cyan-100 text-xs animate-pulse">
+                            <Sparkles className="h-3 w-3 mr-1" />
+                            Latest
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-600 mt-1">
                         Please be prepared to take the test at the scheduled time.
                       </p>
