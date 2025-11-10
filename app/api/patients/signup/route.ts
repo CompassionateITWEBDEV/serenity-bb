@@ -5,21 +5,21 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// SERVER-ONLY admin client
-const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-console.log("Environment check:", {
-  supabaseUrl: supabaseUrl ? "SET" : "MISSING",
-  serviceRoleKey: serviceRoleKey ? `SET (${serviceRoleKey.length} chars)` : "MISSING",
-  serviceRoleKeyStart: serviceRoleKey ? serviceRoleKey.substring(0, 20) + "..." : "N/A"
-});
-
-const admin = createClient(
-  supabaseUrl,
-  serviceRoleKey,
-  { auth: { persistSession: false, autoRefreshToken: false } }
-);
+// Lazy-load admin client to avoid build-time errors when env vars aren't available
+function getAdminClient() {
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Supabase configuration missing");
+  }
+  
+  return createClient(
+    supabaseUrl,
+    serviceRoleKey,
+    { auth: { persistSession: false, autoRefreshToken: false } }
+  );
+}
 
 function problem(status: number, title: string, detail?: string) {
   return new NextResponse(JSON.stringify({ title, detail, status }), {
@@ -38,6 +38,16 @@ const toISO = (s?: string | null) => {
 
 export async function POST(req: Request) {
   try {
+    const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    console.log("Environment check:", {
+      supabaseUrl: supabaseUrl ? "SET" : "MISSING",
+      serviceRoleKey: serviceRoleKey ? `SET (${serviceRoleKey.length} chars)` : "MISSING",
+      serviceRoleKeyStart: serviceRoleKey ? serviceRoleKey.substring(0, 20) + "..." : "N/A"
+    });
+    
+    const admin = getAdminClient();
     const raw = await req.json();
     console.log("Patient signup request:", JSON.stringify(raw, null, 2));
 

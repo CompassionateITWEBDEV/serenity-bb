@@ -2,11 +2,17 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// ✅ Use anon key for login, not service role
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Lazy-load supabase client to avoid build-time errors when env vars aren't available
+function getSupabaseClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  
+  if (!url || !anonKey) {
+    throw new Error("Supabase configuration missing");
+  }
+  
+  return createClient(url, anonKey);
+}
 
 type Body = {
   email: string;
@@ -15,6 +21,7 @@ type Body = {
 
 export async function POST(req: Request) {
   try {
+    const supabase = getSupabaseClient();
     const { email, password } = (await req.json()) as Body;
 
     if (!email || !password) {
