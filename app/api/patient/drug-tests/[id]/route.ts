@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs"; // Ensure Node.js runtime for Vercel (not Edge)
 // Increase timeout for Vercel Pro plan (60s) or Hobby plan (10s)
 // This route may need more time due to multiple database queries and RLS fallback
-export const maxDuration = 60; // Maximum for Pro plan, will be capped at 10s for Hobby
+export const maxDuration = 10; // Set to 10s for Hobby plan compatibility (Pro plan can use up to 60s)
 
 /**
  * GET /api/patient/drug-tests/[id]
