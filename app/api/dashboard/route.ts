@@ -157,8 +157,14 @@ export async function GET() {
     failedQueries.push("progress overview");
   }
   if (goals.error) {
-    console.warn("Dashboard: Failed to load weekly_goals:", goals.error);
-    failedQueries.push("goals");
+    // Suppress warning for missing table (PGRST205) - table doesn't exist yet
+    if (goals.error.code !== 'PGRST205') {
+      console.warn("Dashboard: Failed to load weekly_goals:", goals.error);
+      failedQueries.push("goals");
+    } else {
+      // Table doesn't exist - this is expected, just use empty array
+      console.log("Dashboard: weekly_goals table not found (PGRST205) - using empty array");
+    }
   }
   if (milestones.error) {
     console.warn("Dashboard: Failed to load milestones:", milestones.error);

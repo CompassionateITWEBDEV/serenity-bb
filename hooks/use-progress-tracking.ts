@@ -137,13 +137,19 @@ export function useProgressTracking() {
 
       // Handle results and errors
       const overview = overviewRes.status === 'fulfilled' ? overviewRes.value : { data: null, error: overviewRes.reason };
-      const goals = goalsRes.status === 'fulfilled' ? goalsRes.value : { data: [], error: goalsRes.reason };
+      let goals = goalsRes.status === 'fulfilled' ? goalsRes.value : { data: [], error: goalsRes.reason };
       const milestones = milestonesRes.status === 'fulfilled' ? milestonesRes.value : { data: [], error: milestonesRes.reason };
       const metrics = metricsRes.status === 'fulfilled' ? metricsRes.value : { data: [], error: metricsRes.reason };
       const weekly = weeklyRes.status === 'fulfilled' ? weeklyRes.value : { data: [], error: weeklyRes.reason };
       const checkIns = checkInsRes.status === 'fulfilled' ? checkInsRes.value : { data: [], error: checkInsRes.reason };
 
-      // Check for errors (only log warnings for missing tables)
+      // Handle missing weekly_goals table gracefully (PGRST205 = table not found)
+      if (goals.error?.code === 'PGRST205') {
+        console.log("Progress: weekly_goals table not found (PGRST205) - using empty array");
+        goals = { data: [], error: null };
+      }
+
+      // Check for errors (only log warnings for missing tables, exclude PGRST205)
       const errors = [
         overview.error,
         goals.error,
@@ -151,7 +157,7 @@ export function useProgressTracking() {
         metrics.error,
         weekly.error,
         checkIns.error,
-      ].filter(Boolean);
+      ].filter(err => err && err.code !== 'PGRST205');
 
       // Log warnings for missing tables but don't throw errors
       if (errors.length > 0) {
@@ -268,7 +274,12 @@ export function useProgressTracking() {
             .eq("patient_id", patientId);
 
           if (goalError) {
-            console.warn("Could not update goal:", goalError);
+            // Suppress error if table doesn't exist (PGRST205)
+            if (goalError.code !== 'PGRST205') {
+              console.warn("Could not update goal:", goalError);
+            } else {
+              console.log("weekly_goals table not found (PGRST205) - skipping update");
+            }
             return;
           }
           break;

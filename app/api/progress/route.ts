@@ -49,12 +49,14 @@ export async function GET(req: Request) {
     supabase.from("weekly_data").select("id,week,wellness,attendance,goals").eq("patient_id", pid).order("week", { ascending: true }),
   ]);
 
-  const dbErr = overview.error || goals.error || mls.error || metrics.error || weekly.error;
+  // Handle missing weekly_goals table gracefully (PGRST205 = table not found)
+  const goalsData = goals.error?.code === 'PGRST205' ? { data: [], error: null } : goals;
+  const dbErr = overview.error || (goalsData.error || null) || mls.error || metrics.error || weekly.error;
   if (dbErr) return json({ error: dbErr.message }, 500, "db");
 
   const payload = {
     overallProgress: Number(overview.data?.overall_progress ?? 0),
-    weeklyGoals: (goals.data ?? []).map((g) => ({
+    weeklyGoals: (goalsData.data ?? []).map((g) => ({
       id: g.id, name: g.name, current: Number(g.current ?? 0), target: Number(g.target ?? 0),
     })),
     milestones: (mls.data ?? []).map((m) => ({
