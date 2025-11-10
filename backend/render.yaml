@@ -2,6 +2,7 @@ services:
   - type: web
     name: serenity-rehab-api
     env: python
+    rootDir: backend
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
     healthCheckPath: /health
@@ -16,6 +17,11 @@ services:
         value: HS256
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: 30
+      # Add these in Render dashboard after deployment:
+      # NEXT_PUBLIC_SUPABASE_URL (from your Supabase project)
+      # NEXT_PUBLIC_SUPABASE_ANON_KEY (from your Supabase project)
+      # SUPABASE_SERVICE_ROLE_KEY (from your Supabase project)
+      # ENVIRONMENT=production
 
 databases:
   - name: serenity-db

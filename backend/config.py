@@ -21,7 +21,10 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://localhost:3001", 
         "https://src.health",
-        "https://serenity-b9.onrender.com"
+        "https://serenity-b9.onrender.com",
+        # Vercel URLs (add your production domain)
+        "https://serenity-bb.vercel.app",
+        "https://*.vercel.app",  # Allows all Vercel preview deployments
     ]
     
     # File Upload Configuration
