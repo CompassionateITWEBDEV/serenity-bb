@@ -17,15 +17,17 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
     
     # CORS Configuration
+    # Note: FastAPI CORS doesn't support wildcards, so we allow all in production
+    # For production, you can set ALLOW_ALL_ORIGINS=true or add specific Vercel URLs
+    allow_all_origins = os.getenv("ALLOW_ALL_ORIGINS", "false").lower() == "true"
     allowed_origins: List[str] = [
         "http://localhost:3000",
         "http://localhost:3001", 
         "https://src.health",
         "https://serenity-b9.onrender.com",
-        # Vercel URLs (add your production domain)
+        # Add your specific Vercel URLs here
         "https://serenity-bb.vercel.app",
-        "https://*.vercel.app",  # Allows all Vercel preview deployments
-    ]
+    ] if not allow_all_origins else ["*"]
     
     # File Upload Configuration
     max_file_size: int = int(os.getenv("MAX_FILE_SIZE", str(10 * 1024 * 1024)))  # 10MB
