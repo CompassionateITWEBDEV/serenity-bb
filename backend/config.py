@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     # CORS Configuration
     # Note: FastAPI CORS doesn't support wildcards, so we allow all in production
     # For production, you can set ALLOW_ALL_ORIGINS=true or add specific Vercel URLs
-    allow_all_origins = os.getenv("ALLOW_ALL_ORIGINS", "false").lower() == "true"
+    allow_all_origins: bool = os.getenv("ALLOW_ALL_ORIGINS", "false").lower() == "true"
     allowed_origins: List[str] = [
         "http://localhost:3000",
         "http://localhost:3001", 

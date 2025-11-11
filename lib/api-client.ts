@@ -271,6 +271,229 @@ export class ApiClient {
   async getStaffById(staffId: number): Promise<UserProfile> {
     return this.request<UserProfile>(`/api/staff/${staffId}`)
   }
+
+  // Facial Recognition
+  async registerFace(
+    userId: number,
+    imageData: string,
+    patientId?: number
+  ): Promise<{
+    id: number
+    user_id: number
+    patient_id?: number
+    is_active: boolean
+    confidence_score?: number
+    created_at: string
+  }> {
+    return this.request(`/api/facial-recognition/register?user_id=${userId}${patientId ? `&patient_id=${patientId}` : ''}`, {
+      method: "POST",
+      body: JSON.stringify({
+        image_data: imageData,
+      }),
+    })
+  }
+
+  async verifyFace(
+    imageData: string,
+    userId?: number,
+    patientId?: number
+  ): Promise<{
+    verified: boolean
+    confidence: number
+    matched_user_id?: number
+    matched_patient_id?: number
+    message: string
+  }> {
+    return this.request("/api/facial-recognition/verify", {
+      method: "POST",
+      body: JSON.stringify({
+        image_data: imageData,
+        user_id: userId,
+        patient_id: patientId,
+      }),
+    })
+  }
+
+  async matchFace(
+    imageData: string,
+    threshold: number = 0.6
+  ): Promise<{
+    matches: Array<{
+      user_id: number
+      patient_id?: number
+      encoding_id: number
+      distance: number
+      confidence: number
+      created_at: string
+    }>
+    best_match?: {
+      user_id: number
+      patient_id?: number
+      encoding_id: number
+      distance: number
+      confidence: number
+      created_at: string
+    }
+  }> {
+    return this.request("/api/facial-recognition/match", {
+      method: "POST",
+      body: JSON.stringify({
+        image_data: imageData,
+        threshold,
+      }),
+    })
+  }
+
+  async getUserFaceEncodings(userId: number): Promise<
+    Array<{
+      id: number
+      user_id: number
+      patient_id?: number
+      is_active: boolean
+      confidence_score?: number
+      created_at: string
+    }>
+  > {
+    return this.request(`/api/facial-recognition/encodings/${userId}`)
+  }
+
+  async deleteFaceEncoding(encodingId: number): Promise<void> {
+    return this.request(`/api/facial-recognition/encodings/${encodingId}`, {
+      method: "DELETE",
+    })
+  }
+
+  // Geolocation Tracking
+  async trackLocation(data: {
+    latitude: number
+    longitude: number
+    accuracy?: number
+    altitude?: number
+    speed?: number
+    heading?: number
+    tracking_type?: string
+    patient_id?: number
+    metadata?: Record<string, unknown>
+  }): Promise<{
+    id: number
+    user_id: number
+    patient_id?: number
+    latitude: number
+    longitude: number
+    accuracy?: number
+    altitude?: number
+    speed?: number
+    heading?: number
+    address?: string
+    city?: string
+    state?: string
+    country?: string
+    postal_code?: string
+    tracking_type: string
+    is_verified: boolean
+    verified_by?: number
+    created_at: string
+  }> {
+    return this.request("/api/geolocation/track", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async verifyLocation(
+    locationId: number,
+    verified: boolean = true,
+    notes?: string
+  ): Promise<{
+    id: number
+    user_id: number
+    latitude: number
+    longitude: number
+    is_verified: boolean
+    verified_by?: number
+  }> {
+    return this.request("/api/geolocation/verify", {
+      method: "POST",
+      body: JSON.stringify({
+        location_id: locationId,
+        verified,
+        notes,
+      }),
+    })
+  }
+
+  async getLocationHistory(params: {
+    user_id?: number
+    patient_id?: number
+    start_date?: string
+    end_date?: string
+    tracking_type?: string
+    limit?: number
+  }): Promise<{
+    locations: Array<{
+      id: number
+      user_id: number
+      patient_id?: number
+      latitude: number
+      longitude: number
+      address?: string
+      city?: string
+      state?: string
+      country?: string
+      tracking_type: string
+      is_verified: boolean
+      created_at: string
+    }>
+    total: number
+  }> {
+    const query = new URLSearchParams()
+    if (params.user_id) query.append("user_id", params.user_id.toString())
+    if (params.patient_id) query.append("patient_id", params.patient_id.toString())
+    if (params.start_date) query.append("start_date", params.start_date)
+    if (params.end_date) query.append("end_date", params.end_date)
+    if (params.tracking_type) query.append("tracking_type", params.tracking_type)
+    if (params.limit) query.append("limit", params.limit.toString())
+
+    return this.request(`/api/geolocation/history?${query.toString()}`, {
+      method: "POST",
+      body: JSON.stringify(params),
+    })
+  }
+
+  async getNearbyLocations(
+    latitude: number,
+    longitude: number,
+    radiusMeters: number = 1000,
+    limit: number = 50
+  ): Promise<
+    Array<{
+      id: number
+      user_id: number
+      latitude: number
+      longitude: number
+      address?: string
+      created_at: string
+    }>
+  > {
+    const query = new URLSearchParams()
+    query.append("latitude", latitude.toString())
+    query.append("longitude", longitude.toString())
+    query.append("radius_meters", radiusMeters.toString())
+    query.append("limit", limit.toString())
+
+    return this.request(`/api/geolocation/nearby?${query.toString()}`)
+  }
+
+  async getCurrentLocation(userId: number): Promise<{
+    id: number
+    user_id: number
+    latitude: number
+    longitude: number
+    address?: string
+    created_at: string
+  } | null> {
+    return this.request(`/api/geolocation/current/${userId}`)
+  }
 }
 
 export const apiClient = new ApiClient()

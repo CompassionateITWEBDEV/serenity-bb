@@ -5,7 +5,6 @@ import type { Metadata } from "next";
 import { Header } from "@/components/header";
 import { HeroSection } from "@/components/hero-section";
 import { Footer } from "@/components/footer";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 // Enable static generation for homepage
 export const dynamic = "error"; // Force static generation
@@ -60,55 +59,6 @@ export default function HomePage() {
       
       <Header />
       <HeroSection />
-      
-      {/* Services Section */}
-      <section className="py-16 bg-white">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">
-              Our Services
-            </h2>
-            <p className="text-gray-600 max-w-2xl mx-auto">
-              Comprehensive rehabilitation services designed to support your recovery journey
-            </p>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Individual Counseling</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600">
-                  One-on-one sessions with licensed clinicians to address personal challenges and develop coping strategies.
-                </p>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardHeader>
-                <CardTitle>Group Therapy</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600">
-                  Supportive group sessions that foster connection and shared learning experiences.
-                </p>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardHeader>
-                <CardTitle>Family Support</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600">
-                  Comprehensive family counseling to strengthen relationships and support systems.
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
       
       <Footer />
     </main>

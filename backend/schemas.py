@@ -260,3 +260,89 @@ class StaffUpdate(BaseModel):
     department: Optional[str] = None
     specialization: Optional[str] = None
     license_number: Optional[str] = None
+
+# Facial Recognition Schemas
+class FaceEncodingBase(BaseModel):
+    patient_id: Optional[int] = None
+    image_path: Optional[str] = None
+
+class FaceEncodingCreate(FaceEncodingBase):
+    pass
+
+class FaceEncodingResponse(FaceEncodingBase):
+    id: int
+    user_id: int
+    is_active: bool
+    confidence_score: Optional[float] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+class FaceVerificationRequest(BaseModel):
+    image_data: str  # Base64 encoded image
+    user_id: Optional[int] = None
+    patient_id: Optional[int] = None
+
+class FaceVerificationResponse(BaseModel):
+    verified: bool
+    confidence: float
+    matched_user_id: Optional[int] = None
+    matched_patient_id: Optional[int] = None
+    message: str
+
+class FaceMatchRequest(BaseModel):
+    image_data: str  # Base64 encoded image
+    threshold: float = 0.6  # Matching threshold (0.0 to 1.0)
+
+class FaceMatchResponse(BaseModel):
+    matches: List[Dict[str, Any]]
+    best_match: Optional[Dict[str, Any]] = None
+
+# Geolocation Tracking Schemas
+class LocationBase(BaseModel):
+    latitude: float = Field(..., ge=-90, le=90, description="Latitude between -90 and 90")
+    longitude: float = Field(..., ge=-180, le=180, description="Longitude between -180 and 180")
+    accuracy: Optional[float] = None
+    altitude: Optional[float] = None
+    speed: Optional[float] = None
+    heading: Optional[float] = None
+    tracking_type: str = "check_in"
+    metadata: Optional[Dict[str, Any]] = None  # This maps to tracking_metadata in the database
+
+class LocationCreate(LocationBase):
+    patient_id: Optional[int] = None
+
+class LocationResponse(LocationBase):
+    id: int
+    user_id: int
+    patient_id: Optional[int] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    postal_code: Optional[str] = None
+    is_verified: bool
+    verified_by: Optional[int] = None
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class LocationVerifyRequest(BaseModel):
+    location_id: int
+    verified: bool = True
+    notes: Optional[str] = None
+
+class LocationHistoryRequest(BaseModel):
+    user_id: Optional[int] = None
+    patient_id: Optional[int] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    tracking_type: Optional[str] = None
+    limit: int = 100
+
+class LocationHistoryResponse(BaseModel):
+    locations: List[LocationResponse]
+    total: int

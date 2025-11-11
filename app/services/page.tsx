@@ -19,7 +19,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-import { CheckCircle, Users, Heart, Shield } from "lucide-react";
+import { CheckCircle, Users, Heart, Shield, ArrowRight } from "lucide-react";
+import Link from "next/link";
 
 export const metadata: Metadata = {
   title:
@@ -42,7 +43,7 @@ function LeadGenerationSection() {
             Licensed Addiction Treatment Center
           </Badge>
           <h2 className="text-3xl md:text-4xl font-serif text-gray-900 mb-4">
-            Counseling & Methadone Dispensing Program
+            Our Services
           </h2>
           <p className="text-gray-600 max-w-2xl mx-auto">
             Comprehensive addiction treatment services tailored to your personal
@@ -121,6 +122,14 @@ function LeadGenerationSection() {
                   when it is ordered by the court.
                 </p>
               </div>
+              <div className="pt-4 border-t">
+                <Link
+                  href="/services/counseling"
+                  className="inline-flex items-center gap-2 text-cyan-600 hover:text-cyan-700 font-medium transition-colors"
+                >
+                  Learn More <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
             </CardContent>
           </Card>
 
@@ -177,6 +186,14 @@ function LeadGenerationSection() {
                   </li>
                 </ul>
               </div>
+              <div className="pt-4 border-t">
+                <Link
+                  href="/services/support"
+                  className="inline-flex items-center gap-2 text-green-600 hover:text-green-700 font-medium transition-colors"
+                >
+                  Learn More <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -202,11 +219,18 @@ function LeadGenerationSection() {
               certain prescription drugs.
             </p>
           </div>
-          <div className="text-center pt-4">
-            <a href={METHADONE_PDF_ROUTE} target="_blank" rel="noopener noreferrer">
+          <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
+            <Link href="/services/methadone">
               <Button className="bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-700 hover:to-cyan-800 text-white px-8 py-6 text-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300">
                 <span className="flex items-center gap-2">
-                  Get More Information Here
+                  Learn More <ArrowRight className="w-5 h-5" />
+                </span>
+              </Button>
+            </Link>
+            <a href={METHADONE_PDF_ROUTE} target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" className="border-cyan-600 text-cyan-600 hover:bg-cyan-50 px-8 py-6 text-lg">
+                <span className="flex items-center gap-2">
+                  Download Information
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"
@@ -244,3 +268,4 @@ export default function CombinedServicesPage() {
     </div>
   );
 }
+

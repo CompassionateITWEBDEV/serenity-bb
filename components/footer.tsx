@@ -1,12 +1,13 @@
 // components/footer.tsx
 import Link from "next/link";
+import { LocationMap } from "@/components/location-map";
 
 export function Footer() {
   const year = new Date().getFullYear(); // why: keeps copyright current
   return (
-    <footer className="bg-gray-900 text-white py-12">
+    <footer className="bg-gray-900 text-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid md:grid-cols-4 gap-8">
+        <div className="grid md:grid-cols-4 gap-8 py-12">
           <div className="md:col-span-2">
             <h3 className="text-2xl font-serif font-bold text-cyan-400 mb-4">
               Serenity Rehabilitation Center
@@ -46,16 +47,38 @@ export function Footer() {
           </div>
 
           <div>
-            <h4 className="font-semibold text-white mb-4">Emergency</h4>
-            <a href="tel:+12488383686" className="text-cyan-400 font-bold text-lg hover:underline">
-              (248) 838-3686
-            </a>
-            <p className="text-gray-300 text-sm mt-2">24/7 Crisis Support</p>
-            <p className="text-gray-300 text-sm mt-4">If this is a medical emergency, call 911 immediately.</p>
+            <h4 className="font-semibold text-white mb-4">Contact</h4>
+            <div className="space-y-3 text-gray-300 text-sm">
+              <div>
+                <p className="font-medium text-white mb-1">Address</p>
+                <p>673 Martin Luther King Jr Blvd N</p>
+                <p>Pontiac, MI 48342</p>
+              </div>
+              <div>
+                <p className="font-medium text-white mb-1">Phone</p>
+                <p>
+                  Main: <a href="tel:+12488383686" className="text-cyan-400 hover:underline">(248) 838-3686</a>
+                </p>
+              </div>
+              <div>
+                <p className="font-medium text-white mb-1">Fax</p>
+                <p>(248) 838-3686</p>
+              </div>
+              <div>
+                <p className="font-medium text-white mb-1">Email</p>
+                <p>
+                  <a href="mailto:info@src.health" className="text-cyan-400 hover:underline">info@src.health</a>
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-gray-800">
+              <p className="text-gray-300 text-xs">24/7 Crisis Support Available</p>
+              <p className="text-gray-400 text-xs mt-1">If this is a medical emergency, call 911 immediately.</p>
+            </div>
           </div>
         </div>
 
-        <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
+        <div className="border-t border-gray-800 pt-8 pb-8 text-center text-gray-400">
           <p>
             © {year} Serenity Rehabilitation Center. All rights reserved.{" "}
             {/* link placeholders if you add these pages later */}
@@ -65,6 +88,16 @@ export function Footer() {
             <Link href="/terms" className="hover:text-cyan-400">Terms of Service</Link>
           </p>
         </div>
+      </div>
+
+      {/* Map Section - Bottom (Rectangular) */}
+      <div className="w-full h-96 bg-gray-900">
+        <LocationMap
+          address="673 Martin Luther King Jr Blvd N, Pontiac, MI 48342"
+          latitude={42.6389}
+          longitude={-83.2917}
+          height="100%"
+        />
       </div>
     </footer>
   );

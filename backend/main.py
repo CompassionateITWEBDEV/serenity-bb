@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
 from database import engine, Base, check_database_connection
-from routers import auth, patients, appointments, messages, videos, groups, leads, staff
+from routers import auth, patients, appointments, messages, videos, groups, leads, staff, facial_recognition, geolocation
 from config import settings
 
 # Create database tables
@@ -39,6 +39,8 @@ app.include_router(videos.router, prefix="/api/videos", tags=["Videos"])
 app.include_router(groups.router, prefix="/api/groups", tags=["Groups"])
 app.include_router(leads.router, prefix="/api/leads", tags=["Leads"])
 app.include_router(staff.router, prefix="/api/staff", tags=["Staff"])
+app.include_router(facial_recognition.router, prefix="/api/facial-recognition", tags=["Facial Recognition"])
+app.include_router(geolocation.router, prefix="/api/geolocation", tags=["Geolocation"])
 
 @app.get("/")
 async def root():
@@ -67,7 +69,9 @@ async def api_info():
             "messages": "/api/messages",
             "videos": "/api/videos",
             "groups": "/api/groups",
-            "staff": "/api/staff"
+            "staff": "/api/staff",
+            "facial_recognition": "/api/facial-recognition",
+            "geolocation": "/api/geolocation"
         }
     }
 

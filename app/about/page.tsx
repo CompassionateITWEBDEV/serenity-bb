@@ -8,6 +8,7 @@ import { Footer } from "@/components/footer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Award, Users, Heart, Shield, Sparkles, Target, ArrowRight } from "lucide-react";
+import { LocationMap } from "@/components/location-map";
 
 /**
  * About & Goal summary in one paragraph with a catchy hero design.
@@ -162,6 +163,31 @@ export default function AboutPage() {
           <AboutSection />
           <ValuesSection />
           <CTASection />
+          
+          {/* Map Section */}
+          <section className="mt-16">
+            <Card>
+              <CardContent className="p-0">
+                <div className="p-6 pb-4">
+                  <h2 className="text-2xl font-serif font-bold text-gray-900 mb-2">Find Us</h2>
+                  <p className="text-gray-600">Visit us at our location in Pontiac, Michigan</p>
+                </div>
+                <div className="h-96 w-full">
+                  <LocationMap
+                    address="673 Martin Luther King Jr Blvd N, Pontiac, MI 48342"
+                    latitude={42.6389}
+                    longitude={-83.2917}
+                    height="100%"
+                  />
+                </div>
+                <div className="p-6 pt-4">
+                  <p className="text-sm text-gray-600">
+                    <strong>Address:</strong> 673 Martin Luther King Jr Blvd N, Pontiac, MI 48342
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </section>
         </div>
       </main>
       <Footer />

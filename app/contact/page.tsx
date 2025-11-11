@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { MapPin, Phone, Mail, Clock, AlertCircle } from "lucide-react";
 import { getSwal } from "@/lib/sweetalert";
-import GoogleMapEmbed from "@/components/google-map-embed";
+import { LocationMap } from "@/components/location-map";
 
 export default function ContactPage() {
   const [submitting, setSubmitting] = useState(false);
@@ -140,7 +140,7 @@ export default function ContactPage() {
                     <MapPin className="mt-1 h-6 w-6 text-cyan-600" />
                     <div>
                       <h3 className="font-semibold text-gray-900">Address</h3>
-                      <p className="text-gray-600">35 S Johnson Ave, Pontiac, MI 48341</p>
+                      <p className="text-gray-600">673 Martin Luther King Jr Blvd N, Pontiac, MI 48342</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-4">
@@ -218,19 +218,36 @@ export default function ContactPage() {
             </div>
           </div>
 
-          {/* Map (Google Maps embed) */}
+          {/* Map Section */}
           <div className="mt-16">
             <Card>
               <CardHeader>
                 <CardTitle className="text-2xl font-serif">Find Us</CardTitle>
               </CardHeader>
-              <CardContent>
-                <GoogleMapEmbed
-                  address="Martin Luther King Jr Blvd, Pontiac, MI 48341"
-                  center={[42.6389, -83.291]}
-                  zoom={15}
-                  height={420}
-                />
+              <CardContent className="p-0">
+                <div className="h-96 w-full">
+                  <LocationMap
+                    address="673 Martin Luther King Jr Blvd N, Pontiac, MI 48342"
+                    latitude={42.6389}
+                    longitude={-83.2917}
+                    height="100%"
+                  />
+                </div>
+                <div className="p-6 pt-4">
+                  <p className="text-sm text-gray-600">
+                    <strong>Address:</strong> 673 Martin Luther King Jr Blvd N, Pontiac, MI 48342
+                  </p>
+                  <p className="text-sm text-gray-600 mt-2">
+                    <a 
+                      href="https://www.openstreetmap.org/?mlat=42.6389&mlon=-83.2917&zoom=15"
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-cyan-600 hover:underline"
+                    >
+                      View on OpenStreetMap →
+                    </a>
+                  </p>
+                </div>
               </CardContent>
             </Card>
           </div>

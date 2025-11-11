@@ -234,3 +234,50 @@ class Lead(Base):
     subject = Column(String)
     message = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class FaceEncoding(Base):
+    __tablename__ = "face_encodings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=True)
+    encoding = Column(JSON, nullable=False)  # Store face encoding as JSON array
+    image_path = Column(String)  # Optional: path to reference image
+    is_active = Column(Boolean, default=True)
+    confidence_score = Column(Float)  # Quality score of the encoding
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    user = relationship("User")
+    patient = relationship("Patient")
+
+
+class LocationTracking(Base):
+    __tablename__ = "location_tracking"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=True)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    accuracy = Column(Float)  # GPS accuracy in meters
+    altitude = Column(Float, nullable=True)
+    speed = Column(Float, nullable=True)  # Speed in m/s
+    heading = Column(Float, nullable=True)  # Direction in degrees
+    address = Column(String)  # Reverse geocoded address
+    city = Column(String)
+    state = Column(String)
+    country = Column(String)
+    postal_code = Column(String)
+    tracking_type = Column(String, default="check_in")  # check_in, appointment, therapy, etc.
+    is_verified = Column(Boolean, default=False)  # Whether location was verified
+    verified_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # Staff who verified
+    tracking_metadata = Column(JSON)  # Additional tracking data (renamed from metadata to avoid SQLAlchemy conflict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id])
+    patient = relationship("Patient")
+    verifier = relationship("User", foreign_keys=[verified_by])
