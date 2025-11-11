@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import "leaflet/dist/leaflet.css";
 
 interface LocationMapProps {
   address: string;
@@ -23,8 +24,6 @@ export function LocationMap({ address, latitude, longitude, height = "320px" }: 
 
     // Dynamically import Leaflet only on client side
     import("leaflet").then((L) => {
-      // Import CSS
-      import("leaflet/dist/leaflet.css");
 
       // Fix for default marker icon in Next.js
       if (typeof window !== "undefined") {
