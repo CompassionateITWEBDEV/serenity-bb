@@ -174,15 +174,15 @@ export default function AboutPage() {
                 </div>
                 <div className="h-96 w-full">
                   <LocationMap
-                    address="673 Martin Luther King Jr Blvd N, Pontiac, MI 48342"
-                    latitude={42.6389}
-                    longitude={-83.2917}
+                    address="35 S Johnson Ave, Pontiac, MI 48341"
+                    latitude={42.63471}
+                    longitude={-83.30854}
                     height="100%"
                   />
                 </div>
                 <div className="p-6 pt-4">
                   <p className="text-sm text-gray-600">
-                    <strong>Address:</strong> 673 Martin Luther King Jr Blvd N, Pontiac, MI 48342
+                    <strong>Address:</strong> 35 S Johnson Ave, Pontiac, MI 48341
                   </p>
                 </div>
               </CardContent>

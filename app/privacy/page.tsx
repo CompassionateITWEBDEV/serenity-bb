@@ -161,7 +161,7 @@ export default function PrivacyPage() {
                     </a>
                   </p>
                   <p>
-                    <strong>Address:</strong> 673 Martin Luther King Jr Blvd N, Pontiac, MI 48342
+                    <strong>Address:</strong> 35 S Johnson Ave, Pontiac, MI 48341
                   </p>
                   <p className="mt-4 text-sm">
                     You also have the right to file a complaint with the U.S. Department of Health and Human Services if you believe your privacy rights have been violated.

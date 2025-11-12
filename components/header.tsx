@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import {
@@ -50,56 +51,16 @@ export function Header() {
                 className="flex items-center gap-3"
                 aria-label="Serenity Rehabilitation Center Home"
               >
-                <svg
-                  width="36"
-                  height="36"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  className="text-teal-800"
-                  aria-hidden="true"
-                >
-                  {/* Realistic Medical Facility Icon */}
-                  {/* Main Building Structure */}
-                  <path
-                    d="M3 21V8C3 7.44772 3.44772 7 4 7H20C20.5523 7 21 7.44772 21 8V21"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    fill="none"
+                <div className="relative w-12 h-12 lg:w-14 lg:h-14 flex-shrink-0">
+                  <Image
+                    src="/2023-08-15.png"
+                    alt="Serenity Rehabilitation Center Logo"
+                    width={56}
+                    height={56}
+                    className="object-contain"
+                    priority
                   />
-                  {/* Roof/Upper Structure */}
-                  <path
-                    d="M3 8L12 3L21 8"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    fill="none"
-                  />
-                  {/* Medical Cross Badge */}
-                  <circle cx="12" cy="6" r="3.5" fill="white" stroke="currentColor" strokeWidth="1.5" />
-                  <rect x="11.25" y="4" width="1.5" height="4" fill="currentColor" rx="0.75" />
-                  <rect x="9.5" y="5.25" width="5" height="1.5" fill="currentColor" rx="0.75" />
-                  {/* Windows - First Row */}
-                  <rect x="5.5" y="10" width="2.2" height="2.2" rx="0.4" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="0.5" />
-                  <rect x="9" y="10" width="2.2" height="2.2" rx="0.4" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="0.5" />
-                  <rect x="12.5" y="10" width="2.2" height="2.2" rx="0.4" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="0.5" />
-                  <rect x="16" y="10" width="2.2" height="2.2" rx="0.4" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="0.5" />
-                  {/* Windows - Second Row */}
-                  <rect x="5.5" y="13.5" width="2.2" height="2.2" rx="0.4" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="0.5" />
-                  <rect x="9" y="13.5" width="2.2" height="2.2" rx="0.4" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="0.5" />
-                  <rect x="12.5" y="13.5" width="2.2" height="2.2" rx="0.4" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="0.5" />
-                  <rect x="16" y="13.5" width="2.2" height="2.2" rx="0.4" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="0.5" />
-                  {/* Windows - Third Row */}
-                  <rect x="5.5" y="17" width="2.2" height="2.2" rx="0.4" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="0.5" />
-                  <rect x="9" y="17" width="2.2" height="2.2" rx="0.4" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="0.5" />
-                  <rect x="12.5" y="17" width="2.2" height="2.2" rx="0.4" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="0.5" />
-                  <rect x="16" y="17" width="2.2" height="2.2" rx="0.4" fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="0.5" />
-                  {/* Door */}
-                  <rect x="10.5" y="18" width="3" height="3" rx="0.3" fill="currentColor" fillOpacity="0.6" stroke="currentColor" strokeWidth="0.8" />
-                  <circle cx="12.5" cy="19.5" r="0.3" fill="currentColor" />
-                </svg>
+                </div>
                 <span className="text-[28px] lg:text-[34px] font-semibold text-teal-800 leading-tight whitespace-nowrap">
                   Serenity Rehabilitation Center
                 </span>

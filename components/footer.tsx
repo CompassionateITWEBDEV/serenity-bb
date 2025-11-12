@@ -1,5 +1,6 @@
 // components/footer.tsx
 import Link from "next/link";
+import Image from "next/image";
 import { LocationMap } from "@/components/location-map";
 
 export function Footer() {
@@ -9,9 +10,20 @@ export function Footer() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid md:grid-cols-4 gap-8 py-12">
           <div className="md:col-span-2">
-            <h3 className="text-2xl font-serif font-bold text-cyan-400 mb-4">
-              Serenity Rehabilitation Center
-            </h3>
+            <Link href="/" className="flex items-center gap-3 mb-4">
+              <div className="relative w-12 h-12 flex-shrink-0">
+                <Image
+                  src="/2023-08-15.png"
+                  alt="Serenity Rehabilitation Center Logo"
+                  width={48}
+                  height={48}
+                  className="object-contain"
+                />
+              </div>
+              <h3 className="text-2xl font-serif font-bold text-cyan-400">
+                Serenity Rehabilitation Center
+              </h3>
+            </Link>
             <p className="text-gray-300 leading-relaxed mb-4">
               Dedicated to helping individuals reclaim health and hope through personalized treatment, supportive counseling, and evidence-based care. At Serenity Rehabilitation Center, your healing journey is our mission.
             </p>
@@ -51,8 +63,8 @@ export function Footer() {
             <div className="space-y-3 text-gray-300 text-sm">
               <div>
                 <p className="font-medium text-white mb-1">Address</p>
-                <p>673 Martin Luther King Jr Blvd N</p>
-                <p>Pontiac, MI 48342</p>
+                <p>35 S Johnson Ave</p>
+                <p>Pontiac, MI 48341</p>
               </div>
               <div>
                 <p className="font-medium text-white mb-1">Phone</p>
@@ -93,9 +105,9 @@ export function Footer() {
       {/* Map Section - Bottom (Rectangular) */}
       <div className="w-full h-96 bg-gray-900">
         <LocationMap
-          address="673 Martin Luther King Jr Blvd N, Pontiac, MI 48342"
-          latitude={42.6389}
-          longitude={-83.2917}
+          address="35 S Johnson Ave, Pontiac, MI 48341"
+          latitude={42.63471}
+          longitude={-83.30854}
           height="100%"
         />
       </div>

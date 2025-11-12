@@ -44,10 +44,10 @@ export default function HomePage() {
     telephone: "+1-555-555-1212", // TODO: replace with real phone
     address: {
       "@type": "PostalAddress",
-      streetAddress: "123 Serenity Way",
-      addressLocality: "Detroit",
+      streetAddress: "35 S Johnson Ave",
+      addressLocality: "Pontiac",
       addressRegion: "MI",
-      postalCode: "48201",
+      postalCode: "48341",
       addressCountry: "US",
     },
   };

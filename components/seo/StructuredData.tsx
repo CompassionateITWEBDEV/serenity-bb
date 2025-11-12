@@ -16,14 +16,14 @@ export default function StructuredData({ type, data }: StructuredDataProps) {
           "@type": "Organization",
           name: "Serenity Rehabilitation Center",
           url: "https://serenity-b9.onrender.com",
-          logo: "https://serenity-b9.onrender.com/logo.png",
+          logo: "https://serenity-b9.onrender.com/2023-08-15.png",
           description: "Evidence-based rehabilitation in Detroit. Confidential assessments, licensed clinicians, and personalized recovery plans.",
           address: {
             "@type": "PostalAddress",
-            streetAddress: "123 Main Street",
-            addressLocality: "Detroit",
+            streetAddress: "35 S Johnson Ave",
+            addressLocality: "Pontiac",
             addressRegion: "MI",
-            postalCode: "48201",
+            postalCode: "48341",
             addressCountry: "US"
           },
           contactPoint: {
@@ -48,10 +48,10 @@ export default function StructuredData({ type, data }: StructuredDataProps) {
           url: "https://serenity-b9.onrender.com",
           address: {
             "@type": "PostalAddress",
-            streetAddress: "123 Main Street",
-            addressLocality: "Detroit",
+            streetAddress: "35 S Johnson Ave",
+            addressLocality: "Pontiac",
             addressRegion: "MI",
-            postalCode: "48201",
+            postalCode: "48341",
             addressCountry: "US"
           },
           telephone: "+1-313-555-0123",

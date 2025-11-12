@@ -44,8 +44,13 @@ export const metadata: Metadata = {
     images: [OG_IMAGE],
   },
   icons: {
-    icon: [{ url: "/favicon.ico" }, { url: "/icon-192.png", sizes: "192x192", type: "image/png" }, { url: "/icon-512.png", sizes: "512x512", type: "image/png" }],
-    apple: [{ url: "/apple-touch-icon.png" }],
+    icon: [
+      { url: "/2023-08-15.png", sizes: "any", type: "image/png" },
+      { url: "/2023-08-15.png", sizes: "32x32", type: "image/png" },
+      { url: "/2023-08-15.png", sizes: "16x16", type: "image/png" },
+    ],
+    apple: [{ url: "/2023-08-15.png" }],
+    shortcut: [{ url: "/2023-08-15.png" }],
   },
   category: "healthcare",
   referrer: "strict-origin-when-cross-origin",
@@ -58,6 +63,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${playfair.variable} ${sourceSans.variable} antialiased`}>
       <head>
+        {/* Logo/Favicon - Primary favicon */}
+        <link rel="icon" type="image/png" href="/2023-08-15.png" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/2023-08-15.png" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/2023-08-15.png" />
+        <link rel="shortcut icon" type="image/png" href="/2023-08-15.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/2023-08-15.png" />
+        <link rel="apple-touch-icon" href="/2023-08-15.png" />
+        
         {/* SweetAlert2 CSS via CDN (no npm needed) */}
         <link
           rel="stylesheet"
