@@ -75,7 +75,7 @@ export function LocationMap({ address, latitude, longitude, height = "320px" }: 
         // Create custom icon using the Serenity logo
         const logoIcon = L.default.divIcon({
           className: 'custom-logo-marker',
-          html: `<img src="/2023-08-15.png" alt="Serenity Rehabilitation Center" style="width: 48px; height: 48px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3); object-fit: contain; background: white;" />`,
+          html: `<img src="/2023-08-15 - Copy.png" alt="Serenity Rehabilitation Center" style="width: 48px; height: 48px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3); object-fit: contain; background: white;" />`,
           iconSize: [48, 48],
           iconAnchor: [24, 48],
           popupAnchor: [0, -48],

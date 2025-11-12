@@ -53,7 +53,7 @@ export function Header() {
               >
                 <div className="relative w-12 h-12 lg:w-14 lg:h-14 flex-shrink-0">
                   <Image
-                    src="/2023-08-15.png"
+                    src="/2023-08-15 - Copy.png"
                     alt="Serenity Rehabilitation Center Logo"
                     width={56}
                     height={56}

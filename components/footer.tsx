@@ -13,7 +13,7 @@ export function Footer() {
             <Link href="/" className="flex items-center gap-3 mb-4">
               <div className="relative w-12 h-12 flex-shrink-0">
                 <Image
-                  src="/2023-08-15.png"
+                  src="/2023-08-15 - Copy.png"
                   alt="Serenity Rehabilitation Center Logo"
                   width={48}
                   height={48}

@@ -45,12 +45,12 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/2023-08-15.png", sizes: "any", type: "image/png" },
-      { url: "/2023-08-15.png", sizes: "32x32", type: "image/png" },
-      { url: "/2023-08-15.png", sizes: "16x16", type: "image/png" },
+      { url: "/2023-08-15 - Copy.png", sizes: "any", type: "image/png" },
+      { url: "/2023-08-15 - Copy.png", sizes: "32x32", type: "image/png" },
+      { url: "/2023-08-15 - Copy.png", sizes: "16x16", type: "image/png" },
     ],
-    apple: [{ url: "/2023-08-15.png" }],
-    shortcut: [{ url: "/2023-08-15.png" }],
+    apple: [{ url: "/2023-08-15 - Copy.png" }],
+    shortcut: [{ url: "/2023-08-15 - Copy.png" }],
   },
   category: "healthcare",
   referrer: "strict-origin-when-cross-origin",
@@ -64,12 +64,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${playfair.variable} ${sourceSans.variable} antialiased`}>
       <head>
         {/* Logo/Favicon - Primary favicon */}
-        <link rel="icon" type="image/png" href="/2023-08-15.png" />
-        <link rel="icon" type="image/png" sizes="32x32" href="/2023-08-15.png" />
-        <link rel="icon" type="image/png" sizes="16x16" href="/2023-08-15.png" />
-        <link rel="shortcut icon" type="image/png" href="/2023-08-15.png" />
-        <link rel="apple-touch-icon" sizes="180x180" href="/2023-08-15.png" />
-        <link rel="apple-touch-icon" href="/2023-08-15.png" />
+        <link rel="icon" type="image/png" href="/2023-08-15 - Copy.png" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/2023-08-15 - Copy.png" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/2023-08-15 - Copy.png" />
+        <link rel="shortcut icon" type="image/png" href="/2023-08-15 - Copy.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/2023-08-15 - Copy.png" />
+        <link rel="apple-touch-icon" href="/2023-08-15 - Copy.png" />
         
         {/* SweetAlert2 CSS via CDN (no npm needed) */}
         <link

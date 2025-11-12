@@ -16,7 +16,7 @@ export default function StructuredData({ type, data }: StructuredDataProps) {
           "@type": "Organization",
           name: "Serenity Rehabilitation Center",
           url: "https://serenity-b9.onrender.com",
-          logo: "https://serenity-b9.onrender.com/2023-08-15.png",
+          logo: "https://serenity-b9.onrender.com/2023-08-15 - Copy.png",
           description: "Evidence-based rehabilitation in Detroit. Confidential assessments, licensed clinicians, and personalized recovery plans.",
           address: {
             "@type": "PostalAddress",
