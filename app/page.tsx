@@ -4,6 +4,13 @@ import type { Metadata } from "next";
 
 import { Header } from "@/components/header";
 import { HeroSection } from "@/components/hero-section";
+import { FeaturesSection } from "@/components/features-section";
+import { WhyChooseUsSection } from "@/components/why-choose-us-section";
+import { ServicesSection } from "@/components/services-section";
+import { WhoWeAreSection } from "@/components/who-we-are-section";
+import { ContactCTASection } from "@/components/contact-cta-section";
+import { TestimonialsSection } from "@/components/testimonials-section";
+import { RecoveryCTASection } from "@/components/recovery-cta-section";
 import { Footer } from "@/components/footer";
 
 // Enable static generation for homepage
@@ -59,7 +66,13 @@ export default function HomePage() {
       
       <Header />
       <HeroSection />
-      
+      <FeaturesSection />
+      <WhyChooseUsSection />
+      <WhoWeAreSection />
+      <ServicesSection />
+      <ContactCTASection />
+      <TestimonialsSection />
+      <RecoveryCTASection />
       <Footer />
     </main>
   );

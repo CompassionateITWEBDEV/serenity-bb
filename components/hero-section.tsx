@@ -1,11 +1,101 @@
 "use client"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
+import { useState, useEffect, useRef } from "react"
+import { getSwal } from "@/lib/sweetalert"
 
 export function HeroSection() {
+  const [submitting, setSubmitting] = useState(false)
+  const [isVisible, setIsVisible] = useState(false)
+  const sectionRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsVisible(entry.isIntersecting)
+      },
+      { threshold: 0.1 }
+    )
+
+    if (sectionRef.current) {
+      observer.observe(sectionRef.current)
+    }
+
+    return () => {
+      if (sectionRef.current) {
+        observer.unobserve(sectionRef.current)
+      }
+    }
+  }, [])
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (submitting) return
+    setSubmitting(true)
+
+    const fd = new FormData(e.currentTarget)
+    const name = ((fd.get("name") as string) || "").trim()
+    const nameParts = name.split(" ").filter(Boolean)
+    const first_name = nameParts[0] || ""
+    const last_name = nameParts.slice(1).join(" ") || ""
+    const hasPhone = Boolean((fd.get("phone") as string | null)?.trim())
+    const payload = {
+      first_name,
+      last_name: last_name || first_name,
+      email: ((fd.get("email") as string) || "").trim(),
+      phone: ((fd.get("phone") as string) || "").trim(),
+      subject: "",
+      message: ((fd.get("message") as string) || "").trim(),
+      contact_method: hasPhone ? "phone" : "email",
+      source: "hero_section",
+    }
+
+    if (!payload.first_name || !payload.email || !payload.message) {
+      getSwal()?.fire({
+        icon: "warning",
+        title: "Missing fields",
+        text: "Name, email and message are required.",
+      })
+      setSubmitting(false)
+      return
+    }
+
+    try {
+      const res = await fetch("/api/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) throw new Error((await res.text()) || "Submission failed")
+
+      getSwal()?.fire({
+        icon: "success",
+        title: "Message sent",
+        text: "Thanks for reaching out. We'll contact you shortly.",
+        confirmButtonColor: "#06b6d4",
+      })
+      ;(e.currentTarget as HTMLFormElement).reset()
+    } catch (err) {
+      getSwal()?.fire({
+        icon: "error",
+        title: "Could not send",
+        text: err instanceof Error ? err.message : "Please try again.",
+      })
+      console.error(err)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
     <>
-      <section className="hero-section">
+      <section ref={sectionRef} className={`hero-section ${isVisible ? 'fade-in-visible' : ''}`}>
+        {/* Background Image */}
+        <div className={`hero-bg-image ${isVisible ? 'bg-fade-in' : ''}`}></div>
+        
+        {/* Overlay for text readability */}
+        <div className="hero-bg-overlay"></div>
+
         {/* Animated Background Elements */}
         <div className="hero-bg-animation">
           <div className="floating-orb orb-1"></div>
@@ -15,6 +105,7 @@ export function HeroSection() {
 
         <div className="hero-container">
           <div className="hero-grid">
+            {/* Left Column - Content */}
             <div className="hero-content">
               <div className="hero-badge">
                 <span className="badge-icon">🏥</span>
@@ -28,19 +119,10 @@ export function HeroSection() {
               <p className="hero-description">
                 At Serenity Rehabilitation Center, we help individuals reclaim their health through personalized treatment, supportive counseling, and evidence-based care. We provide comprehensive, compassionate services that honor dignity and foster lasting recovery.
               </p>
+            </div>
 
-              <div className="hero-stats">
-                
-                <div className="stat-item">
-                  <div className="stat-number">3</div>
-                  <div className="stat-label">Years Experience</div>
-                </div>
-                <div className="stat-item">
-                  <div className="stat-number">24/7</div>
-                  <div className="stat-label">Care Available</div>
-                </div>
-              </div>
-              
+            {/* Right Column - Buttons */}
+            <div className="hero-right-section">
               <div className="hero-buttons">
                 <a
                   href="https://tally.so/r/n9ejEp"
@@ -54,56 +136,32 @@ export function HeroSection() {
                     <span className="btn-arrow">→</span>
                   </Button>
                 </a>
-                <Link href="/login" className="btn-secondary-link">
+                <Link href="/intake" className="btn-secondary-link">
                   <Button className="btn-secondary">
-                    <span className="btn-icon">🔐</span>
-                    Patient Portal Access
+                    <span className="btn-icon">📋</span>
+                    Patient Intake Form
                     <span className="btn-arrow">→</span>
                   </Button>
                 </Link>
-              </div>
-            </div>
-            
-            <div className="hero-image-section">
-              <div className="image-container">
-                <div className="image-glow"></div>
-                <img
-                  src="/professional-nurse-caring-for-patient-in-modern-he.jpg"
-                  alt="Professional nurse caring for patient in modern healthcare facility"
-                  className="hero-image"
-                />
-                
-                {/* Floating Cards */}
-                <div className="floating-card card-support">
-                  <div className="card-icon">
-                    <span>24/7</span>
-                  </div>
-                  <div className="card-content">
-                    <p className="card-title">Support Available</p>
-                    <p className="card-subtitle">We're here when you need us</p>
-                  </div>
-                  <div className="card-pulse"></div>
-                </div>
-
-                <div className="floating-card card-success">
-                  <div className="card-icon success-icon">
-                    <span>✓</span>
-                  </div>
-                  <div className="card-content">
-                    <p className="card-title">Proven Results</p>
-                    <p className="card-subtitle">Evidence-based care</p>
-                  </div>
-                </div>
-
-                <div className="floating-card card-team">
-                  <div className="card-icon team-icon">
-                    <span>👨‍⚕️</span>
-                  </div>
-                  <div className="card-content">
-                    <p className="card-title">Expert Team</p>
-                    <p className="card-subtitle">Certified professionals</p>
-                  </div>
-                </div>
+                <button
+                  onClick={() => {
+                    const formSection = document.querySelector('.features-section')
+                    if (formSection) {
+                      formSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                      setTimeout(() => {
+                        const formInput = formSection.querySelector('.features-form-input')
+                        if (formInput instanceof HTMLElement) {
+                          formInput.focus()
+                        }
+                      }, 500)
+                    }
+                  }}
+                  className="btn-tertiary"
+                >
+                  <span className="btn-icon">💬</span>
+                  Send Us a Message
+                  <span className="btn-arrow">→</span>
+                </button>
               </div>
             </div>
           </div>
@@ -122,12 +180,46 @@ export function HeroSection() {
         /* Hero Section Base Styles */
         .hero-section {
           position: relative;
-          background: linear-gradient(135deg, #f0fdfa 0%, #ecfeff 25%, #f0f9ff 50%, #f3f4f6 75%, #fdf4ff 100%);
           padding: 5rem 0 6rem 0;
           overflow: hidden;
           min-height: 90vh;
           display: flex;
           align-items: center;
+          opacity: 0;
+          transform: translateY(30px);
+          transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+        }
+
+        .hero-section.fade-in-visible {
+          opacity: 1;
+          transform: translateY(0);
+        }
+
+        /* Background Image */
+        .hero-bg-image {
+          position: absolute;
+          inset: 0;
+          background-image: url('/professional-nurse-caring-for-patient-in-modern-he.jpg');
+          background-size: cover;
+          background-position: center;
+          background-repeat: no-repeat;
+          z-index: 0;
+          opacity: 0;
+          transform: scale(1.1);
+          transition: opacity 1.2s ease-out, transform 1.2s ease-out;
+        }
+
+        .hero-bg-image.bg-fade-in {
+          opacity: 1;
+          transform: scale(1);
+        }
+
+        /* Overlay for text readability */
+        .hero-bg-overlay {
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.25) 25%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.25) 75%, rgba(255, 255, 255, 0.3) 100%);
+          z-index: 1;
         }
 
         /* Animated Background */
@@ -136,6 +228,7 @@ export function HeroSection() {
           inset: 0;
           overflow: hidden;
           pointer-events: none;
+          z-index: 2;
         }
 
         .floating-orb {
@@ -306,11 +399,25 @@ export function HeroSection() {
           font-weight: 500;
         }
 
+        /* Right Side Section */
+        .hero-right-section {
+          display: flex;
+          flex-direction: column;
+          gap: 2rem;
+          position: relative;
+          z-index: 10;
+          align-items: center;
+          justify-content: center;
+          height: 100%;
+        }
+
         /* Buttons */
         .hero-buttons {
           display: flex;
           flex-direction: column;
           gap: 1rem;
+          width: 100%;
+          max-width: 400px;
         }
 
         .btn-primary-link,
@@ -358,6 +465,44 @@ export function HeroSection() {
           transform: translateY(-3px);
           box-shadow: 0 20px 40px rgba(99, 102, 241, 0.4);
           background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        }
+
+        .btn-tertiary {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          padding: 1.25rem 2rem;
+          font-size: 1.125rem;
+          font-weight: 600;
+          border-radius: 16px;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          position: relative;
+          overflow: hidden;
+          border: none;
+          cursor: pointer;
+          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+          color: white;
+          box-shadow: 0 10px 30px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-tertiary:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 20px 40px rgba(16, 185, 129, 0.4);
+          background: linear-gradient(135deg, #059669 0%, #047857 100%);
+        }
+
+        .btn-tertiary .btn-icon {
+          font-size: 1.25rem;
+          transition: transform 0.3s ease;
+        }
+
+        .btn-tertiary:hover .btn-icon {
+          transform: scale(1.1);
+        }
+
+        .btn-tertiary:hover .btn-arrow {
+          transform: translateX(4px);
         }
 
         .btn-icon {
@@ -613,6 +758,14 @@ export function HeroSection() {
             max-width: 400px;
             margin-left: auto;
             margin-right: auto;
+          }
+
+          .hero-right-section {
+            align-items: center;
+          }
+
+          .hero-buttons {
+            max-width: 100%;
           }
 
           .card-support {
