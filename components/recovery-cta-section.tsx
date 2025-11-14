@@ -1,10 +1,11 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 export function RecoveryCTASection() {
   const [isVisible, setIsVisible] = useState(false)
   const sectionRef = useRef<HTMLElement>(null)
+  const router = useRouter()
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -34,12 +35,18 @@ export function RecoveryCTASection() {
             Let Us Help You On Your Journey To Recovery
           </h2>
           <div className="recovery-cta-buttons">
-            <Link href="/services" className="recovery-cta-button recovery-cta-button-primary">
+            <button 
+              onClick={() => router.push("/services")}
+              className="recovery-cta-button recovery-cta-button-primary"
+            >
               View Services
-            </Link>
-            <Link href="/contact" className="recovery-cta-button recovery-cta-button-secondary">
+            </button>
+            <button 
+              onClick={() => router.push("/contact")}
+              className="recovery-cta-button recovery-cta-button-secondary"
+            >
               Contact Us
-            </Link>
+            </button>
           </div>
         </div>
       </div>
@@ -107,7 +114,6 @@ export function RecoveryCTASection() {
           font-size: 1.25rem;
           font-weight: 700;
           border-radius: 12px;
-          text-decoration: none !important;
           transition: all 0.3s ease;
           display: inline-block;
           text-align: center;

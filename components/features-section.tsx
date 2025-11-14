@@ -1,13 +1,14 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
 import { Check } from "lucide-react"
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { getSwal } from "@/lib/sweetalert"
 
 export function FeaturesSection() {
   const [isVisible, setIsVisible] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const sectionRef = useRef<HTMLElement>(null)
+  const router = useRouter()
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -171,9 +172,12 @@ export function FeaturesSection() {
               ))}
             </div>
 
-            <Link href="/contact" className="features-button">
+            <button 
+              onClick={() => router.push("/contact")}
+              className="features-button"
+            >
               Read More
-            </Link>
+            </button>
           </div>
         </div>
       </div>
@@ -349,19 +353,25 @@ export function FeaturesSection() {
         .features-button {
           display: inline-flex;
           align-items: center;
-          padding: 0.75rem 1.5rem;
+          padding: 0.875rem 2rem;
           font-size: 1rem;
           font-weight: 600;
-          color: #0891b2;
-          text-decoration: none;
+          color: white;
+          background: #0891b2;
+          border: 3px solid #0891b2;
+          border-radius: 8px;
+          cursor: pointer;
           transition: all 0.3s ease;
           margin-top: 1rem;
           width: fit-content;
+          box-shadow: 0 2px 4px rgba(8, 145, 178, 0.2);
         }
 
         .features-button:hover {
-          color: #0e7490;
-          text-decoration: underline;
+          background: #0e7490;
+          border-color: #0e7490;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(8, 145, 178, 0.3);
         }
 
         @media (max-width: 1024px) {

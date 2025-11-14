@@ -4,7 +4,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 
 export interface StaffNotification {
   id: string;
-  type: 'submission' | 'message' | 'appointment' | 'emergency' | 'drug_test';
+  type: 'submission' | 'message' | 'appointment' | 'emergency' | 'drug_test' | 'lead';
   title: string;
   message: string;
   patient_id: string;
@@ -17,6 +17,7 @@ export interface StaffNotification {
     message_id?: string;
     conversation_id?: string;
     drug_test_id?: string;
+    lead_id?: string;
     priority?: 'low' | 'medium' | 'high' | 'urgent';
   };
 }
@@ -302,6 +303,113 @@ export async function createAppointmentNotificationServer(
     }
   } catch (error) {
     console.error('Error in createAppointmentNotificationServer:', error);
+  }
+}
+
+// Create notification for staff when new contact form/lead is submitted (server-side)
+export async function createLeadNotificationServer(
+  leadId: string,
+  leadName: string,
+  leadEmail: string,
+  leadPhone: string | null,
+  leadMessage: string,
+  leadSubject: string | null,
+  source: string
+): Promise<void> {
+  const supabase = await createClient();
+  
+  try {
+    // Get all active staff members who should receive notifications and their preferences
+    const { data: staffMembers, error: staffError } = await supabase
+      .from('staff')
+      .select('user_id, first_name, last_name, notification_preferences')
+      .eq('active', true);
+
+    if (staffError) {
+      console.error('Error fetching staff members:', staffError);
+      return;
+    }
+
+    // Filter staff by notification preferences - only create notifications for staff who have message_alerts enabled
+    // For contact forms, we'll use message_alerts preference since it's similar
+    const eligibleStaff = staffMembers?.filter((staff: any) => {
+      const prefs = staff.notification_preferences || {};
+      return prefs.message_alerts !== false; // Default to true if not set
+    }) || [];
+
+    // Format the message preview
+    const messagePreview = leadMessage.length > 100 ? `${leadMessage.substring(0, 100)}...` : leadMessage;
+    const contactInfo = leadPhone ? `Phone: ${leadPhone}` : `Email: ${leadEmail}`;
+    const fullMessage = `${messagePreview}\n\nContact: ${contactInfo}${leadSubject ? `\nSubject: ${leadSubject}` : ''}\nSource: ${source}`;
+
+    // Try to find if this email belongs to an existing patient
+    let patientUserId: string | null = null;
+    try {
+      const { data: existingPatient } = await supabase
+        .from('patients')
+        .select('user_id')
+        .eq('email', leadEmail)
+        .maybeSingle();
+      
+      patientUserId = existingPatient?.user_id || null;
+    } catch (e) {
+      // If we can't query, that's okay - we'll handle it below
+      console.log('Could not query patients table for lead email:', leadEmail);
+    }
+
+    // Since patient_id has a foreign key constraint to auth.users, we need a valid user ID
+    // If no existing patient found, we need a workaround. 
+    // Best practice: Create a system user for leads, or make patient_id nullable in notifications
+    // For now, we'll use a workaround: create notification with a valid UUID from staff
+    // The metadata will clearly indicate this is a lead, not a patient message
+    if (!patientUserId) {
+      // Check if there's a system/placeholder user we can use
+      // For now, we'll use the first eligible staff member's ID as a placeholder
+      // This satisfies the foreign key constraint but the metadata clearly marks it as a lead
+      if (eligibleStaff.length > 0) {
+        // Note: This is a workaround. In production, consider:
+        // 1. Creating a dedicated system user for leads
+        // 2. Making patient_id nullable in staff_notifications
+        // 3. Using a different notification mechanism for leads
+        patientUserId = eligibleStaff[0].user_id;
+        console.log(`Using staff user ${patientUserId} as placeholder for lead notification (lead: ${leadEmail})`);
+      } else {
+        console.warn('Cannot create notifications for lead - no staff members available');
+        return;
+      }
+    }
+    
+    const notifications = eligibleStaff.map((staff: any) => ({
+      type: 'message' as const, // Use 'message' type since 'lead' may not be in the constraint yet
+      title: `New Contact Form Submission from ${leadName}`,
+      message: fullMessage,
+      patient_id: patientUserId!, // Use found user ID or fallback
+      patient_name: leadName,
+      staff_id: staff.user_id,
+      read: false,
+      metadata: {
+        lead_id: leadId,
+        lead_email: leadEmail,
+        lead_phone: leadPhone,
+        source: source,
+        priority: 'medium',
+        is_lead: true // Flag to indicate this is a lead, not a patient message
+      }
+    })) || [];
+
+    if (notifications.length > 0) {
+      const { error: insertError } = await (supabase as any)
+        .from('staff_notifications')
+        .insert(notifications);
+
+      if (insertError) {
+        console.error('Error creating staff notifications for lead:', insertError);
+      } else {
+        console.log(`Created ${notifications.length} staff notifications for lead ${leadId}`);
+      }
+    }
+  } catch (error) {
+    console.error('Error in createLeadNotificationServer:', error);
   }
 }
 

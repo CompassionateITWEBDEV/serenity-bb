@@ -1,12 +1,13 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
-import { Check } from "lucide-react"
+import { Check, Shield, Heart, Clock, Users, Award } from "lucide-react"
 import Image from "next/image"
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 export function WhyChooseUsSection() {
   const [isVisible, setIsVisible] = useState(false)
   const sectionRef = useRef<HTMLElement>(null)
+  const router = useRouter()
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -34,6 +35,39 @@ export function WhyChooseUsSection() {
     "Proven Recovery Methods"
   ]
 
+  const sellingPoints = [
+    {
+      icon: Shield,
+      title: "Licensed & Accredited",
+      description: "Fully licensed medical facility with Joint Commission accreditation"
+    },
+    {
+      icon: Heart,
+      title: "Compassionate Care",
+      description: "Dedicated team committed to your recovery and well-being"
+    },
+    {
+      icon: Clock,
+      title: "Flexible Scheduling",
+      description: "Convenient appointment times to fit your schedule"
+    },
+    {
+      icon: Users,
+      title: "Expert Team",
+      description: "Experienced healthcare professionals with specialized training"
+    },
+    {
+      icon: Award,
+      title: "Proven Results",
+      description: "Evidence-based treatments with high success rates"
+    },
+    {
+      icon: Check,
+      title: "Comprehensive Support",
+      description: "Ongoing support throughout your entire recovery journey"
+    }
+  ]
+
   return (
     <section ref={sectionRef} className={`why-choose-us-section ${isVisible ? 'fade-in-visible' : ''}`}>
       <div className="why-choose-us-container">
@@ -57,10 +91,12 @@ export function WhyChooseUsSection() {
               ))}
             </div>
 
-            <Link href="/about" className="why-choose-us-button">
-              Learn More About Us
-              <span className="button-arrow">→</span>
-            </Link>
+            <button 
+              onClick={() => router.push("/about")}
+              className="why-choose-us-button-primary"
+            >
+              Learn More About Us→
+            </button>
           </div>
 
           {/* Right Column - Image with Stats */}
@@ -82,6 +118,24 @@ export function WhyChooseUsSection() {
                 <div className="stat-label">Support Available</div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Selling Points Section */}
+        <div className="selling-points-section">
+          <div className="selling-points-grid">
+            {sellingPoints.map((point, index) => {
+              const IconComponent = point.icon
+              return (
+                <div key={index} className="selling-point-card">
+                  <div className="selling-point-icon-wrapper">
+                    <IconComponent className="selling-point-icon" />
+                  </div>
+                  <h3 className="selling-point-title">{point.title}</h3>
+                  <p className="selling-point-description">{point.description}</p>
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>
@@ -173,35 +227,27 @@ export function WhyChooseUsSection() {
           flex-shrink: 0;
         }
 
-        .why-choose-us-button {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.5rem;
-          padding: 1rem 2rem;
-          font-size: 1.125rem;
+        .why-choose-us-button-primary {
+          margin-top: 1.5rem;
+          display: inline-block;
+          padding: 0.875rem 2rem;
+          font-size: 1rem;
           font-weight: 600;
-          background: linear-gradient(135deg, #0891b2 0%, #0ea5e9 100%);
+          background: #0891b2;
           color: white;
-          border-radius: 12px;
+          border: 2px solid #0891b2;
+          border-radius: 8px;
           text-decoration: none;
           transition: all 0.3s ease;
-          box-shadow: 0 10px 30px rgba(8, 145, 178, 0.3);
-          margin-top: 1rem;
+          cursor: pointer;
+          width: fit-content;
         }
 
-        .why-choose-us-button:hover {
+        .why-choose-us-button-primary:hover {
+          background: #0e7490;
+          border-color: #0e7490;
           transform: translateY(-2px);
-          box-shadow: 0 15px 40px rgba(8, 145, 178, 0.4);
-          background: linear-gradient(135deg, #0e7490 0%, #0284c7 100%);
-        }
-
-        .button-arrow {
-          font-size: 1.25rem;
-          transition: transform 0.3s ease;
-        }
-
-        .why-choose-us-button:hover .button-arrow {
-          transform: translateX(4px);
+          box-shadow: 0 4px 12px rgba(8, 145, 178, 0.3);
         }
 
         .why-choose-us-image-wrapper {
@@ -248,6 +294,68 @@ export function WhyChooseUsSection() {
           font-weight: 500;
         }
 
+        /* Selling Points Section */
+        .selling-points-section {
+          margin-top: 4rem;
+          padding-top: 3rem;
+          border-top: 1px solid #e5e7eb;
+        }
+
+        .selling-points-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 2rem;
+        }
+
+        .selling-point-card {
+          text-align: center;
+          padding: 2rem 1.5rem;
+          background: #f9fafb;
+          border-radius: 12px;
+          transition: all 0.3s ease;
+          border: 1px solid #e5e7eb;
+        }
+
+        .selling-point-card:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 10px 30px rgba(8, 145, 178, 0.15);
+          border-color: #0891b2;
+          background: #ffffff;
+        }
+
+        .selling-point-icon-wrapper {
+          width: 64px;
+          height: 64px;
+          margin: 0 auto 1.5rem;
+          background: linear-gradient(135deg, #0891b2 0%, #0ea5e9 100%);
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 4px 12px rgba(8, 145, 178, 0.3);
+        }
+
+        .selling-point-icon {
+          width: 32px;
+          height: 32px;
+          color: #ffffff;
+        }
+
+        .selling-point-title {
+          font-size: 1.25rem;
+          font-weight: 700;
+          color: #1f2937;
+          margin-bottom: 0.75rem;
+          font-family: 'Georgia', 'Times New Roman', serif;
+        }
+
+        .selling-point-description {
+          font-size: 0.95rem;
+          line-height: 1.6;
+          color: #6b7280;
+          margin: 0;
+        }
+
         @media (max-width: 1024px) {
           .why-choose-us-grid {
             grid-template-columns: 1fr;
@@ -268,6 +376,16 @@ export function WhyChooseUsSection() {
             left: auto;
             justify-content: center;
             margin-top: 2rem;
+          }
+
+          .selling-points-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+          }
+
+          .selling-points-section {
+            margin-top: 3rem;
+            padding-top: 2rem;
           }
         }
 
@@ -297,6 +415,39 @@ export function WhyChooseUsSection() {
           .stat-box {
             width: 100%;
             max-width: 200px;
+          }
+
+          .selling-points-grid {
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+          }
+
+          .selling-points-section {
+            margin-top: 2rem;
+            padding-top: 2rem;
+          }
+
+          .selling-point-card {
+            padding: 1.5rem 1rem;
+          }
+
+          .selling-point-icon-wrapper {
+            width: 56px;
+            height: 56px;
+            margin-bottom: 1rem;
+          }
+
+          .selling-point-icon {
+            width: 28px;
+            height: 28px;
+          }
+
+          .selling-point-title {
+            font-size: 1.125rem;
+          }
+
+          .selling-point-description {
+            font-size: 0.875rem;
           }
         }
       `}</style>

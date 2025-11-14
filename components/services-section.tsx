@@ -2,11 +2,12 @@
 import { useEffect, useRef, useState } from "react"
 import { MessageCircle, Heart, Pill } from "lucide-react"
 import Image from "next/image"
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 export function ServicesSection() {
   const [isVisible, setIsVisible] = useState(false)
   const sectionRef = useRef<HTMLElement>(null)
+  const router = useRouter()
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -87,9 +88,12 @@ export function ServicesSection() {
                 <div className="service-category">{service.category}</div>
                 <h3 className="service-title">{service.title}</h3>
                 <p className="service-description">{service.description}</p>
-                <Link href={service.link} className="service-button">
+                <button 
+                  onClick={() => router.push(service.link)}
+                  className="service-button"
+                >
                   Read More
-                </Link>
+                </button>
               </div>
             )
           })}
@@ -241,10 +245,10 @@ export function ServicesSection() {
           padding: 0.875rem 2rem;
           border-radius: 8px;
           font-weight: 600;
+          font-size: 1rem;
           cursor: pointer;
           transition: all 0.3s ease;
-          display: inline-block;
-          text-decoration: none;
+          display: block;
           box-shadow: 0 2px 4px rgba(8, 145, 178, 0.2);
         }
 

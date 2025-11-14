@@ -78,13 +78,13 @@ export function Header() {
                 aria-label="Serenity Rehabilitation Center Home"
               >
                 <div className="relative w-12 h-12 lg:w-14 lg:h-14 flex-shrink-0">
-                  <Image
+                  <img
                     src="/2023-08-15 - Copy.png"
                     alt="Serenity Rehabilitation Center Logo"
                     width={56}
                     height={56}
-                    className="object-contain"
-                    priority
+                    className="object-contain w-full h-full"
+                    style={{ display: 'block' }}
                   />
                 </div>
                 <span className="text-[28px] lg:text-[34px] font-semibold text-teal-800 leading-tight whitespace-nowrap">

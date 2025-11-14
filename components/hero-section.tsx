@@ -139,29 +139,10 @@ export function HeroSection() {
                 <Link href="/intake" className="btn-secondary-link">
                   <Button className="btn-secondary">
                     <span className="btn-icon">📋</span>
-                    Patient Intake Form
+                    Book an Appointment
                     <span className="btn-arrow">→</span>
                   </Button>
                 </Link>
-                <button
-                  onClick={() => {
-                    const formSection = document.querySelector('.features-section')
-                    if (formSection) {
-                      formSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                      setTimeout(() => {
-                        const formInput = formSection.querySelector('.features-form-input')
-                        if (formInput instanceof HTMLElement) {
-                          formInput.focus()
-                        }
-                      }, 500)
-                    }
-                  }}
-                  className="btn-tertiary"
-                >
-                  <span className="btn-icon">💬</span>
-                  Send Us a Message
-                  <span className="btn-arrow">→</span>
-                </button>
               </div>
             </div>
           </div>
@@ -332,6 +313,7 @@ export function HeroSection() {
         .badge-icon {
           font-size: 1rem;
         }
+
 
         .hero-title {
           font-size: 4rem;
@@ -753,6 +735,7 @@ export function HeroSection() {
             font-size: 3rem;
           }
 
+
           .hero-stats {
             justify-content: center;
             max-width: 400px;
@@ -788,6 +771,7 @@ export function HeroSection() {
           .hero-title {
             font-size: 2.5rem;
           }
+
 
           .hero-stats {
             flex-direction: column;

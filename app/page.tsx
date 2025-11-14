@@ -10,6 +10,7 @@ import { ServicesSection } from "@/components/services-section";
 import { WhoWeAreSection } from "@/components/who-we-are-section";
 import { ContactCTASection } from "@/components/contact-cta-section";
 import { TestimonialsSection } from "@/components/testimonials-section";
+import { FAQSection } from "@/components/faq-section";
 import { RecoveryCTASection } from "@/components/recovery-cta-section";
 import { Footer } from "@/components/footer";
 
@@ -72,6 +73,7 @@ export default function HomePage() {
       <ServicesSection />
       <ContactCTASection />
       <TestimonialsSection />
+      <FAQSection />
       <RecoveryCTASection />
       <Footer />
     </main>
