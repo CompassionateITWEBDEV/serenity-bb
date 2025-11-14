@@ -1,11 +1,12 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
 import { FAQAccordion } from "@/components/faq-accordion"
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 export function FAQSection() {
   const [isVisible, setIsVisible] = useState(false)
   const sectionRef = useRef<HTMLElement>(null)
+  const router = useRouter()
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -71,9 +72,12 @@ export function FAQSection() {
         </div>
 
         <div className="faq-footer">
-          <Link href="/faq" className="faq-link">
+          <button 
+            onClick={() => router.push("/faq")}
+            className="faq-button"
+          >
             View All FAQs →
-          </Link>
+          </button>
         </div>
       </div>
 
@@ -138,17 +142,25 @@ export function FAQSection() {
           margin-top: 3rem;
         }
 
-        .faq-link {
+        .faq-button {
           display: inline-block;
+          padding: 0.875rem 2rem;
           font-size: 1rem;
           font-weight: 600;
-          color: #0891b2;
-          text-decoration: none;
-          transition: color 0.2s ease;
+          color: white;
+          background: #0891b2;
+          border: 3px solid #0891b2;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          box-shadow: 0 2px 4px rgba(8, 145, 178, 0.2);
         }
 
-        .faq-link:hover {
-          color: #0e7490;
+        .faq-button:hover {
+          background: #0e7490;
+          border-color: #0e7490;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(8, 145, 178, 0.3);
         }
 
         @media (max-width: 1024px) {
