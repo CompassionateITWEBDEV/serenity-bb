@@ -1,9 +1,10 @@
-import { createClient } from "@supabase/supabase-js"
+"use client";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+// Use the singleton client from supabase-browser to avoid multiple GoTrueClient instances
+import { supabase as browserSupabase } from "@/lib/supabase-browser"
 
-export const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null
+// Re-export the singleton to maintain backward compatibility
+export const supabase = typeof window !== "undefined" ? browserSupabase : null
 
 export interface PatientRecord {
   id: string
