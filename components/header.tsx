@@ -75,12 +75,12 @@ export function Header() {
               <Link
                 href="/"
                 className="flex items-center gap-3"
-                aria-label="Serenity Rehabilitation Center Home"
+                aria-label="Serenity Rehab Home"
               >
                 <div className="relative w-12 h-12 lg:w-14 lg:h-14 flex-shrink-0">
                   <img
                     src="/2023-08-15 - Copy.png"
-                    alt="Serenity Rehabilitation Center Logo"
+                    alt="Serenity Rehab Logo"
                     width={56}
                     height={56}
                     className="object-contain w-full h-full"
@@ -88,7 +88,7 @@ export function Header() {
                   />
                 </div>
                 <span className="text-[28px] lg:text-[34px] font-semibold text-teal-800 leading-tight whitespace-nowrap">
-                  Serenity Rehabilitation Center
+                  Serenity Rehab
                 </span>
               </Link>
             </div>
