@@ -63,7 +63,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${playfair.variable} ${sourceSans.variable} antialiased`}>
       <head>
-        {/* Favicon is configured via metadata API above - no need for duplicate link tags */}
+        {/* Logo/Favicon - Handled by metadata API above, but explicit links for Vercel compatibility */}
+        <link rel="icon" type="image/png" sizes="any" href="/2023-08-15 - Copy.png" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/2023-08-15 - Copy.png" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/2023-08-15 - Copy.png" />
+        <link rel="apple-touch-icon" href="/2023-08-15 - Copy.png" />
+        <link rel="shortcut icon" href="/2023-08-15 - Copy.png" />
         
         {/* SweetAlert2 CSS via CDN (no npm needed) */}
         <link
