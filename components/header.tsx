@@ -44,7 +44,7 @@ export function Header() {
         <div className="mx-auto max-w-[1400px] px-6 lg:px-8">
           <div className="flex flex-col sm:flex-row items-center justify-between text-sm gap-2 sm:gap-0">
             <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
-              <a href="tel:+12488383686" className="flex items-center gap-2 hover:text-teal-200 transition-colors whitespace-nowrap">
+              <a href="https://wa.me/12488383686" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:text-teal-200 transition-colors whitespace-nowrap">
                 <Phone className="w-4 h-4" />
                 <span>(248) 838-3686</span>
               </a>
@@ -55,10 +55,10 @@ export function Header() {
               </a>
             </div>
             <div className="flex items-center gap-4">
-              <a href="https://facebook.com" target="_blank" rel="noopener noreferrer" className="hover:text-teal-200 transition-colors" aria-label="Facebook">
+              <a href="https://www.facebook.com/profile.php?id=100066899671960" target="_blank" rel="noopener noreferrer" className="hover:text-teal-200 transition-colors" aria-label="Facebook">
                 <Facebook className="w-5 h-5" />
               </a>
-              <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="hover:text-teal-200 transition-colors" aria-label="Instagram">
+              <a href="https://www.instagram.com/serenityrehabilitation/" target="_blank" rel="noopener noreferrer" className="hover:text-teal-200 transition-colors" aria-label="Instagram">
                 <Instagram className="w-5 h-5" />
               </a>
             </div>
@@ -75,12 +75,12 @@ export function Header() {
               <Link
                 href="/"
                 className="flex items-center gap-3"
-                aria-label="Serenity Rehab Home"
+                aria-label="Serenity Rehabilitation Center Home"
               >
                 <div className="relative w-12 h-12 lg:w-14 lg:h-14 flex-shrink-0">
                   <img
                     src="/2023-08-15 - Copy.png"
-                    alt="Serenity Rehab Logo"
+                    alt="Serenity Rehabilitation Center Logo"
                     width={56}
                     height={56}
                     className="object-contain w-full h-full"
@@ -88,7 +88,7 @@ export function Header() {
                   />
                 </div>
                 <span className="text-[28px] lg:text-[34px] font-semibold text-teal-800 leading-tight whitespace-nowrap">
-                  Serenity Rehab
+                  Serenity Rehabilitation Center
                 </span>
               </Link>
             </div>

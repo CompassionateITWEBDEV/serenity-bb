@@ -34,7 +34,8 @@ export default function StructuredData({ type, data }: StructuredDataProps) {
             availableLanguage: "English"
           },
           sameAs: [
-            "https://www.facebook.com/serenityrehab",
+            "https://www.facebook.com/profile.php?id=100066899671960",
+            "https://www.instagram.com/serenityrehabilitation/",
             "https://www.linkedin.com/company/serenity-rehab"
           ]
         }

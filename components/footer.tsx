@@ -69,7 +69,7 @@ export function Footer() {
               <div>
                 <p className="font-medium text-white mb-1">Phone</p>
                 <p>
-                  Main: <a href="tel:+12488383686" className="text-cyan-400 hover:underline">(248) 838-3686</a>
+                  Main: <a href="https://wa.me/12488383686" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline">(248) 838-3686</a>
                 </p>
               </div>
               <div>

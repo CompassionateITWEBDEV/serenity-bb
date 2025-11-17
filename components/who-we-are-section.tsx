@@ -71,7 +71,7 @@ export function WhoWeAreSection() {
                 </div>
                 <div className="contact-info-content">
                   <div className="contact-info-label">Call To Ask A Question</div>
-                  <a href="tel:+12488383686" className="contact-info-value">
+                  <a href="https://wa.me/12488383686" target="_blank" rel="noopener noreferrer" className="contact-info-value">
                     (248) 838-3686
                   </a>
                 </div>

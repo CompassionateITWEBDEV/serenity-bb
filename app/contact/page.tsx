@@ -20,7 +20,8 @@ export default function ContactPage() {
     if (submitting) return;
     setSubmitting(true);
 
-    const fd = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const fd = new FormData(form);
     const hasPhone = Boolean((fd.get("phone") as string | null)?.trim());
     const payload = {
       first_name: ((fd.get("firstName") as string) || "").trim(),
@@ -60,10 +61,10 @@ export default function ContactPage() {
       getSwal()?.fire({
         icon: "success",
         title: "Message sent",
-        text: "Thanks for reaching out. We’ll contact you shortly.",
+        text: "Thanks for reaching out. We'll contact you shortly.",
         confirmButtonColor: "#06b6d4",
       });
-      (e.currentTarget as HTMLFormElement).reset();
+      form?.reset();
     } catch (err) {
       getSwal()?.fire({
         icon: "error",
@@ -148,7 +149,7 @@ export default function ContactPage() {
                     <div>
                       <h3 className="font-semibold text-gray-900">Phone</h3>
                       <p className="text-gray-600">
-                        Main: <a className="underline" href="tel:+12488383686">(248) 838-3686</a>
+                        Main: <a className="underline" href="https://wa.me/12488383686" target="_blank" rel="noopener noreferrer">(248) 838-3686</a>
                       </p>
                       <p className="text-gray-600">Fax: (248) 838-3686</p>
                     </div>
@@ -209,7 +210,7 @@ export default function ContactPage() {
                         If you're experiencing a medical emergency or crisis, call 911 or go to your nearest emergency room.
                       </p>
                       <p className="text-red-800">
-                        24/7 crisis support: <strong>(248) 838-3686</strong>
+                        24/7 crisis support: <strong><a href="https://wa.me/12488383686" target="_blank" rel="noopener noreferrer" className="underline hover:text-red-600">(248) 838-3686</a></strong>
                       </p>
                     </div>
                   </div>

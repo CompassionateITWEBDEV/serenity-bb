@@ -34,7 +34,8 @@ export function FeaturesSection() {
     if (submitting) return
     setSubmitting(true)
 
-    const fd = new FormData(e.currentTarget)
+    const form = e.currentTarget
+    const fd = new FormData(form)
     const name = ((fd.get("name") as string) || "").trim()
     const nameParts = name.split(" ").filter(Boolean)
     const first_name = nameParts[0] || ""
@@ -69,13 +70,19 @@ export function FeaturesSection() {
       })
       if (!res.ok) throw new Error((await res.text()) || "Submission failed")
 
+      // @ts-ignore Optional GA
+      window.gtag?.("event", "generate_lead", {
+        form_type: "features_section",
+        contact_method: payload.contact_method,
+      })
+
       getSwal()?.fire({
         icon: "success",
         title: "Message sent",
         text: "Thanks for reaching out. We'll contact you shortly.",
         confirmButtonColor: "#06b6d4",
       })
-      ;(e.currentTarget as HTMLFormElement).reset()
+      form?.reset()
     } catch (err) {
       getSwal()?.fire({
         icon: "error",
