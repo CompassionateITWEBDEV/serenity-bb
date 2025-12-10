@@ -2,10 +2,12 @@
 import { useEffect, useRef, useState } from "react"
 import { Clock, Phone } from "lucide-react"
 import Image from "next/image"
+import { useRouter } from "next/navigation"
 
 export function WhoWeAreSection() {
   const [isVisible, setIsVisible] = useState(false)
   const sectionRef = useRef<HTMLElement>(null)
+  const router = useRouter()
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -82,6 +84,14 @@ export function WhoWeAreSection() {
                 </div>
               </div>
             </div>
+
+            {/* CTA Button */}
+            <button 
+              onClick={() => router.push("/about")}
+              className="who-we-are-cta-button"
+            >
+              Learn More About Our Mission
+            </button>
           </div>
         </div>
       </div>
@@ -220,6 +230,28 @@ export function WhoWeAreSection() {
           color: #0891b2;
         }
 
+        .who-we-are-cta-button {
+          margin-top: 2rem;
+          padding: 1rem 2rem;
+          font-size: 1.125rem;
+          font-weight: 600;
+          color: white;
+          background: #0891b2;
+          border: 3px solid #0891b2;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          box-shadow: 0 2px 4px rgba(8, 145, 178, 0.2);
+          width: fit-content;
+        }
+
+        .who-we-are-cta-button:hover {
+          background: #0e7490;
+          border-color: #0e7490;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(8, 145, 178, 0.3);
+        }
+
         @media (max-width: 1024px) {
           .who-we-are-grid {
             grid-template-columns: 1fr;
@@ -237,6 +269,11 @@ export function WhoWeAreSection() {
           .who-we-are-title {
             font-size: 2rem;
           }
+
+          .who-we-are-cta-button {
+            width: 100%;
+            text-align: center;
+          }
         }
 
         @media (max-width: 640px) {
@@ -250,6 +287,12 @@ export function WhoWeAreSection() {
 
           .who-we-are-description {
             font-size: 1rem;
+          }
+
+          .who-we-are-cta-button {
+            width: 100%;
+            font-size: 1rem;
+            padding: 0.875rem 1.5rem;
           }
         }
       `}</style>

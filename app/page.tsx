@@ -103,8 +103,8 @@ export default function HomePage() {
       <ServicesSection />
       <ContactCTASection />
       <TestimonialsSection />
-      <FAQSection />
       <RecoveryCTASection />
+      <FAQSection />
       <Footer />
     </main>
   );

@@ -120,7 +120,7 @@ export function HeroSection() {
               </div>
               
               <h1 className="hero-title">
-                <span className="title-highlight">Serenity Rehabilitation Center in Pontiac Michigan for Healing & Recovery</span>
+                <span className="title-highlight">Compassionate Rehabilitation Center in Pontiac Michigan for Healing & Recovery</span>
              </h1>
               
               <p className="hero-description">
