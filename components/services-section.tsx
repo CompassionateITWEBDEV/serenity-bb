@@ -82,7 +82,7 @@ export function ServicesSection() {
       category: "Management",
       title: "Medication Management",
       description: "Psychiatric and primary care medication management services for safe, effective treatment coordination.",
-      image: "/professional-nurse-caring-for-patient-in-modern-he.jpg",
+      image: "/What-is-Rehab-scaled.jpg",
       link: "/services/medication-management"
     },
     {
@@ -90,7 +90,7 @@ export function ServicesSection() {
       category: "Care",
       title: "Primary Care Services",
       description: "Comprehensive primary care services including general health, preventive care, and chronic disease management.",
-      image: "/rehabilitation-compassionate-care.png",
+      image: "/istockphoto-932074828-612x612.jpg",
       link: "/services/primary-care"
     }
   ]
