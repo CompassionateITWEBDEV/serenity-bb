@@ -42,7 +42,7 @@ export function ServicesSection() {
       category: "Management",
       title: "Case Management",
       description: "Behavioral Health and Medical Case Management services coordinating your care across all treatment providers.",
-      image: "/empathetic-help.png",
+      image: "/diverse-nurses-team.png",
       link: "/services/case-management"
     },
     {
@@ -66,7 +66,7 @@ export function ServicesSection() {
       category: "Treatment",
       title: "Suboxone Treatment",
       description: "Safe, effective Suboxone (Subox) treatment for opioid addiction recovery with medication-assisted care.",
-      image: "/caring-doctor.png",
+      image: "/happy-doctor-consultation.png",
       link: "/services/suboxone"
     },
     {
@@ -74,7 +74,7 @@ export function ServicesSection() {
       category: "Treatment",
       title: "Naltrexone & Antabuse",
       description: "Naltrexone and Antabuse treatment for alcohol and opioid addiction recovery.",
-      image: "/caring-doctor.png",
+      image: "/caring-nurse-helping-patient-in-medical-setting.jpg",
       link: "/services/naltrexone-antabuse"
     },
     {
@@ -82,7 +82,7 @@ export function ServicesSection() {
       category: "Management",
       title: "Medication Management",
       description: "Psychiatric and primary care medication management services for safe, effective treatment coordination.",
-      image: "/caring-doctor.png",
+      image: "/professional-nurse-caring-for-patient-in-modern-he.jpg",
       link: "/services/medication-management"
     },
     {
@@ -90,7 +90,7 @@ export function ServicesSection() {
       category: "Care",
       title: "Primary Care Services",
       description: "Comprehensive primary care services including general health, preventive care, and chronic disease management.",
-      image: "/empathetic-help.png",
+      image: "/rehabilitation-compassionate-care.png",
       link: "/services/primary-care"
     }
   ]

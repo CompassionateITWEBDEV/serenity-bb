@@ -54,7 +54,7 @@ export function ContactCTASection() {
               <div className="phone-icon-wrapper">
                 <Phone className="phone-icon" />
               </div>
-              <a href="https://wa.me/12488383686" target="_blank" rel="noopener noreferrer" className="phone-number">
+              <a href="tel:+12488383686" className="phone-number">
                 (248) 838-3686
               </a>
             </div>

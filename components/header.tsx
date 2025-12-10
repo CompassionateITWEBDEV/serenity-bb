@@ -50,13 +50,13 @@ export function Header() {
         <div className="mx-auto max-w-[1400px] px-6 lg:px-8">
           <div className="flex flex-col sm:flex-row items-center justify-between text-sm gap-2 sm:gap-0">
             <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
-              <a href="https://wa.me/12488383686" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:text-teal-200 transition-colors whitespace-nowrap">
+              <a href="tel:+12488383686" className="flex items-center gap-2 hover:text-teal-200 transition-colors whitespace-nowrap">
                 <Phone className="w-4 h-4" />
                 <span>(248) 838-3686</span>
               </a>
-              <a href="mailto:info@src.help" className="flex items-center gap-2 hover:text-teal-200 transition-colors whitespace-nowrap">
+              <a href="mailto:info@src.health" className="flex items-center gap-2 hover:text-teal-200 transition-colors whitespace-nowrap">
                 <Mail className="w-4 h-4" />
-                <span className="hidden sm:inline">info@src.help</span>
+                <span className="hidden sm:inline">info@src.health</span>
                 <span className="sm:hidden">Email Us</span>
               </a>
             </div>

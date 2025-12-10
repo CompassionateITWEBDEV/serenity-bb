@@ -156,7 +156,7 @@ export default function PrivacyPage() {
                   </p>
                   <p>
                     <strong>Phone:</strong>{" "}
-                    <a href="https://wa.me/12488383686" target="_blank" rel="noopener noreferrer" className="text-cyan-600 hover:underline">
+                    <a href="tel:+12488383686" className="text-cyan-600 hover:underline">
                       (248) 838-3686
                     </a>
                   </p>
