@@ -8,6 +8,7 @@ import type { Metadata } from "next";
 
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
+import { PageFadeWrapper } from "@/components/page-fade-wrapper";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -155,7 +156,11 @@ function LeadGenerationSection() {
                 <ul className="space-y-2 text-gray-700">
                   <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
                     <span className="text-green-600 mt-1">•</span>
-                    <span>Case management &amp; care coordination</span>
+                    <span>Behavioral Health Case Management</span>
+                  </li>
+                  <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
+                    <span className="text-green-600 mt-1">•</span>
+                    <span>Medical Case Management</span>
                   </li>
                   <li className="flex items-start gap-2 hover:translate-x-1 transition-transform duration-200">
                     <span className="text-green-600 mt-1">•</span>
@@ -258,8 +263,10 @@ export default function CombinedServicesPage() {
       </Suspense>
 
       <main>
+        <PageFadeWrapper>
         {/* Counseling & Methadone Dispensing Program */}
         <LeadGenerationSection />
+        </PageFadeWrapper>
       </main>
 
       <Suspense fallback={null}>

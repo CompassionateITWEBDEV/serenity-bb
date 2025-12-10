@@ -82,7 +82,7 @@ export default function StaffSelector({
 
   return (
     <Select value={value || undefined} onValueChange={onValueChange}>
-      <SelectTrigger>
+      <SelectTrigger className="!bg-white border border-white">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>

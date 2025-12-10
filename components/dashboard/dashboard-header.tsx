@@ -13,7 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { usePatientStatus } from "@/hooks/use-patient-status";
-import { Settings, LogOut, User, Heart, Menu, X } from "lucide-react";
+import { Settings, LogOut, User, Heart, Menu, X, Plus } from "lucide-react";
 import type { Patient } from "@/lib/auth";
 import { useProfileAvatar } from "@/hooks/use-profile-avatar";
 import SafeNotificationBell from "@/components/dashboard/SafeNotificationBell";
@@ -135,7 +135,7 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
                   />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56" align="end" forceMount>
+              <DropdownMenuContent className="!bg-white w-56" align="end" forceMount>
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
                     <div className="flex items-center gap-2">
@@ -149,6 +149,12 @@ export function DashboardHeader({ patient }: DashboardHeaderProps) {
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild><Link href="/dashboard/profile"><User className="mr-2 h-4 w-4" /><span>Profile</span></Link></DropdownMenuItem>
+                <DropdownMenuItem asChild className="bg-blue-600 text-white hover:bg-blue-700 focus:bg-blue-700">
+                  <Link href="/dashboard/appointments">
+                    <Plus className="mr-2 h-4 w-4" />
+                    <span>Book Appointment</span>
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem asChild><Link href="/dashboard/settings"><Settings className="mr-2 h-4 w-4" /><span>Settings</span></Link></DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout}><LogOut className="mr-2 h-4 w-4" /><span>Log out</span></DropdownMenuItem>

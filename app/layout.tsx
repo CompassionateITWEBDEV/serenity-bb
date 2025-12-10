@@ -6,7 +6,6 @@ import Script from "next/script"
 import { Playfair_Display, Source_Sans_3 as Source_Sans_Pro } from "next/font/google"
 import "./globals.css"
 import Analytics from "./analytics"
-import { OrganizationStructuredData } from "@/components/seo/StructuredData"
 import GoogleAnalytics from "@/components/seo/GoogleAnalytics"
 
 const SITE_URL = "https://src.health"
@@ -111,7 +110,40 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           strategy="beforeInteractive" /* why: allow early usage in client components */
         />
 
-        <OrganizationStructuredData />
+        {/* Organization Structured Data */}
+        <Script
+          id="organization-structured-data"
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "Organization",
+              name: "Serenity Rehabilitation Center",
+              url: "https://src.health",
+              logo: "https://src.health/2023-08-15 - Copy.png",
+              description: "Evidence-based rehabilitation in Pontiac, Michigan. Confidential assessments, licensed clinicians, and personalized recovery plans.",
+              address: {
+                "@type": "PostalAddress",
+                streetAddress: "35 S Johnson Ave",
+                addressLocality: "Pontiac",
+                addressRegion: "MI",
+                postalCode: "48341",
+                addressCountry: "US"
+              },
+              contactPoint: {
+                "@type": "ContactPoint",
+                telephone: "+1-248-838-3686",
+                contactType: "customer service",
+                areaServed: "US",
+                availableLanguage: "English"
+              },
+              sameAs: [
+                "https://www.facebook.com/profile.php?id=100066899671960",
+                "https://www.instagram.com/serenityrehabilitation/",
+              ]
+            }, null, 2)
+          }}
+        />
 
         {/* Google Analytics Page Tracking */}
         {GA_ID && <GoogleAnalytics gaId={GA_ID} />}

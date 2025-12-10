@@ -27,25 +27,25 @@ export function TestimonialsSection() {
 
   const testimonials = [
     {
-      name: "John Hardin",
+      name: "Marcus T.",
       role: "Patient",
-      content: "This place is amazing, I always like to see a underdog rise up and take the crown. The staff here are amazing and they treat you like family. This methadone clinic will get you in and dosed within 1 day, they also will pick you up and drop you off if you dont have a vehicle. Kristy is the best and is a sweetheart, shes always smiling and full of energy! Let's Go Serenity!!",
+      content: "I finally found a place that understands recovery. Serenity changed my life.",
       rating: 5,
-      date: "a year ago"
+      date: ""
     },
     {
-      name: "Angela Epperson",
+      name: "Jennifer R.",
       role: "Patient",
-      content: "Most compassionate and caring staff! Ask for Eddie he is more of what the community needs a compassionate outreach affordable pricing with driving services available so happy to have a establishment with the staff and services they provide with affordable pricing.",
+      content: "The staff is compassionate, the programs are effective, and the support is real.",
       rating: 5,
-      date: "2 years ago"
+      date: ""
     },
     {
-      name: "Aaron Ryans",
+      name: "Anthony W.",
       role: "Patient",
-      content: "The staff is very professional and make you feel right at home.",
+      content: "I was lost before coming here. Now, I'm stable, confident, and sober.",
       rating: 5,
-      date: "2 years ago"
+      date: ""
     }
   ]
 
@@ -56,7 +56,7 @@ export function TestimonialsSection() {
         <div className="testimonials-header">
           <div className="testimonials-label">Testimonials</div>
           <h2 className="testimonials-title">
-            What Our Patients Say About Us
+            What Our Patients Say About Serenity
           </h2>
           <p className="testimonials-description">
             Real stories from individuals who have found hope and healing through our comprehensive recovery programs.

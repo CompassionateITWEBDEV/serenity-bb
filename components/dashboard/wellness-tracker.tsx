@@ -2,12 +2,28 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Heart, Smile, Moon, Droplets } from "lucide-react"
+import { useRouter } from "next/navigation"
 
-export function WellnessTracker() {
+type WellnessSnapshot = {
+  mood?: number | null;
+  sleep?: number | null;
+  hydration?: number | null;
+  stress?: number | null;
+  lastUpdated?: string | null;
+} | null;
+
+type WellnessTrackerProps = {
+  snapshot?: WellnessSnapshot;
+};
+
+export function WellnessTracker({ snapshot }: WellnessTrackerProps) {
+  const router = useRouter();
+  
+  // Use real data if available, otherwise show defaults
   const metrics = [
     {
       title: "Mood",
-      value: 8,
+      value: snapshot?.mood ?? 8,
       max: 10,
       icon: Smile,
       color: "text-yellow-600",
@@ -15,7 +31,7 @@ export function WellnessTracker() {
     },
     {
       title: "Sleep",
-      value: 7,
+      value: snapshot?.sleep ?? 7,
       max: 10,
       icon: Moon,
       color: "text-indigo-600",
@@ -23,7 +39,7 @@ export function WellnessTracker() {
     },
     {
       title: "Hydration",
-      value: 6,
+      value: snapshot?.hydration ?? 6,
       max: 8,
       icon: Droplets,
       color: "text-blue-600",
@@ -31,7 +47,7 @@ export function WellnessTracker() {
     },
     {
       title: "Stress Level",
-      value: 3,
+      value: snapshot?.stress ?? 3,
       max: 10,
       icon: Heart,
       color: "text-green-600",
@@ -39,6 +55,10 @@ export function WellnessTracker() {
       inverted: true, // Lower is better
     },
   ]
+
+  const handleUpdateMetrics = () => {
+    router.push("/dashboard/progress");
+  };
 
   return (
     <Card>
@@ -75,7 +95,12 @@ export function WellnessTracker() {
             )
           })}
 
-          <Button variant="outline" size="sm" className="w-full mt-4 bg-transparent">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="w-full mt-4 bg-transparent"
+            onClick={handleUpdateMetrics}
+          >
             Update Today's Metrics
           </Button>
         </div>

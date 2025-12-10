@@ -410,7 +410,7 @@ export default function AppointmentRemindersPage() {
                     type="time" 
                     value={settings.timeOfDay} 
                     onChange={(e)=>saveSettings({timeOfDay:e.target.value})} 
-                    className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full max-w-xs" 
+                    className="px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full max-w-xs" 
                   />
                 </div>
               </div>

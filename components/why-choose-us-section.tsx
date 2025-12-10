@@ -29,10 +29,17 @@ export function WhyChooseUsSection() {
   }, [])
 
   const benefits = [
-    "Experienced Medical Team",
-    "Personalized Treatment Plans",
-    "Comprehensive Support Services",
-    "Proven Recovery Methods"
+    "Licensed psychiatrists & mental health professionals",
+    "Affordable and accessible treatment options",
+    "Holistic, evidence-based programs",
+    "Supportive, judgement-free environment",
+    "Personalized recovery plans",
+    "Coordination with hospitals & community resources",
+    "Long-term follow-up & continuity of care",
+    "Brain games in patient portal for therapeutic support",
+    "Home Health Notify - 24/7 communication system",
+    "Referral management features for seamless care coordination",
+    "Patient sustain care team 24/7"
   ]
 
   const sellingPoints = [
@@ -64,7 +71,7 @@ export function WhyChooseUsSection() {
     {
       icon: Check,
       title: "Comprehensive Support",
-      description: "Ongoing support throughout your entire recovery journey"
+      description: "Full spectrum of mental health and addiction recovery services"
     }
   ]
 
@@ -76,10 +83,10 @@ export function WhyChooseUsSection() {
           <div className="why-choose-us-content">
             <div className="why-choose-us-label">Why Choose Us</div>
             <h2 className="why-choose-us-title">
-              Your Trusted Partner in Recovery
+              Why Choose Our Mental Health Services in Pontiac MI
             </h2>
             <p className="why-choose-us-description">
-              We are committed to providing exceptional care that goes beyond treatment. Our comprehensive approach ensures that every patient receives personalized attention and ongoing support.
+              Our Mental Health Services in Pontiac MI are designed to support individuals through emotional, behavioral, and psychological challenges. Backed by licensed clinicians and proven treatment methods, our Mental Health Services in Pontiac MI provide the right balance of structure, compassion, and clinical expertise. With a patient-first approach, our Mental Health Services in Pontiac MI ensure every individual receives care tailored to their unique needs.
             </p>
 
             <div className="why-choose-us-list">
@@ -92,10 +99,10 @@ export function WhyChooseUsSection() {
             </div>
 
             <button 
-              onClick={() => router.push("/about")}
+              onClick={() => router.push("/services")}
               className="why-choose-us-button-primary"
             >
-              Learn More About Us→
+              Explore Our Treatment Approach →
             </button>
           </div>
 
@@ -103,7 +110,7 @@ export function WhyChooseUsSection() {
           <div className="why-choose-us-image-wrapper">
             <Image
               src="/diverse-nurses-team.png"
-              alt="Diverse healthcare team"
+              alt="Mental health professionals providing services in Pontiac MI"
               width={600}
               height={500}
               className="why-choose-us-image"

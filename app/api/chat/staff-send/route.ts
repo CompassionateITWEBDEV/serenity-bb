@@ -36,23 +36,51 @@ export async function POST(req: NextRequest) {
     conversationId = convId as unknown as string;
   }
 
-  const sender_name =
-    (me.user_metadata?.full_name as string | undefined) ?? me.email ?? "Staff";
+  // Get staff info for proper sender name and role (same as patient messages)
+  const { data: staff } = await supabase
+    .from("staff")
+    .select("first_name, last_name, role, department")
+    .eq("user_id", me.id)
+    .maybeSingle();
+
+  const sender_name = staff 
+    ? `${staff.first_name || ""} ${staff.last_name || ""}`.trim() || me.email || "Staff"
+    : (me.user_metadata?.full_name as string) || me.email || "Staff";
+
+  // Determine sender role (same logic as /api/chat/send)
+  const role = (staff?.role ?? staff?.department ?? "").toString().toLowerCase();
+  const sender_role = role.includes("doc") ? "doctor" 
+    : role.includes("counsel") ? "counselor" 
+    : "nurse";
+
+  // Get patient_id from conversation if not provided
+  let patientId = body.patientId;
+  if (!patientId) {
+    const { data: conv } = await supabase
+      .from("conversations")
+      .select("patient_id")
+      .eq("id", conversationId)
+      .single();
+    patientId = conv?.patient_id;
+  }
 
   const { data: msg, error: msgErr } = await supabase
     .from("messages")
     .insert({
       conversation_id: conversationId,
+      patient_id: patientId,
       sender_id: me.id,
       sender_name,
-      sender_role: "staff",
+      sender_role,
       content,
       read: false,
+      urgent: false,
     })
     .select("*")
     .single();
   if (msgErr) return NextResponse.json({ error: msgErr.message }, { status: 400 });
 
+  // Update conversation (same as patient messages)
   await supabase
     .from("conversations")
     .update({ last_message: msg.content, last_message_at: msg.created_at })

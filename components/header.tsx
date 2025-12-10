@@ -21,9 +21,15 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const SERVICES_MENU = [
-  { label: "Counseling Services", href: "/services/counseling" },
-  { label: "Support Services", href: "/services/support" },
+  { label: "Psychiatric Evaluation", href: "/services/psychiatric-evaluation" },
+  { label: "Case Management", href: "/services/case-management" },
+  { label: "Peer Recovery Support", href: "/services/peer-recovery-support" },
   { label: "Methadone Treatment", href: "/services/methadone" },
+  { label: "Suboxone Treatment", href: "/services/suboxone" },
+  { label: "Naltrexone & Antabuse", href: "/services/naltrexone-antabuse" },
+  { label: "Medication Management", href: "/services/medication-management" },
+  { label: "Primary Care", href: "/services/primary-care" },
+  { label: "Counseling Services", href: "/services/counseling" },
 ];
 
 const MORE_MENU = [
@@ -48,9 +54,9 @@ export function Header() {
                 <Phone className="w-4 h-4" />
                 <span>(248) 838-3686</span>
               </a>
-              <a href="mailto:info@serenityrehab.com" className="flex items-center gap-2 hover:text-teal-200 transition-colors whitespace-nowrap">
+              <a href="mailto:info@src.help" className="flex items-center gap-2 hover:text-teal-200 transition-colors whitespace-nowrap">
                 <Mail className="w-4 h-4" />
-                <span className="hidden sm:inline">info@serenityrehab.com</span>
+                <span className="hidden sm:inline">info@src.help</span>
                 <span className="sm:hidden">Email Us</span>
               </a>
             </div>

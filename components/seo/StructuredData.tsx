@@ -1,5 +1,3 @@
-"use client"
-
 import Script from "next/script"
 
 interface StructuredDataProps {
@@ -8,7 +6,7 @@ interface StructuredDataProps {
 }
 
 export default function StructuredData({ type, data }: StructuredDataProps) {
-  const getStructuredData = () => {
+  const getStructuredData = (): any => {
     switch (type) {
       case "organization":
         return {

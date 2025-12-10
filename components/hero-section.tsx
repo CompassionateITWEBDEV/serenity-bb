@@ -120,33 +120,28 @@ export function HeroSection() {
               </div>
               
               <h1 className="hero-title">
-                <span className="title-highlight"> We strive to deliver comprehensive care and counseling to patients in need. </span>
+                <span className="title-highlight">Compassionate Rehabilitation Center in Pontiac Michigan for Healing & Recovery</span>
              </h1>
               
               <p className="hero-description">
-                At Serenity Rehabilitation Center, we help individuals reclaim their health through personalized treatment, supportive counseling, and evidence-based care. We provide comprehensive, compassionate services that honor dignity and foster lasting recovery.
+                At Serenity Rehabilitation Center, our mission is to provide professional and compassionate care as a trusted Rehabilitation Center in Pontiac Michigan. Whether you're seeking mental health support or addiction treatment, our licensed team is dedicated to guiding you toward a healthier, more stable future. As a leading Rehabilitation Center in Pontiac Michigan, we prioritize personalized care, evidence-based treatment, and patient-centered healing.
               </p>
             </div>
 
             {/* Right Column - Buttons */}
             <div className="hero-right-section">
               <div className="hero-buttons">
-                <a
-                  href="https://tally.so/r/n9ejEp"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-primary-link"
-                >
+                <Link href="/intake" className="btn-primary-link">
                   <Button className="btn-primary">
-                    <span className="btn-icon">👥</span>
-                    Community Health Worker
+                    <span className="btn-icon">🚀</span>
+                    Start Your Recovery Today
                     <span className="btn-arrow">→</span>
                   </Button>
-                </a>
-                <Link href="/intake" className="btn-secondary-link">
+                </Link>
+                <Link href="/contact" className="btn-secondary-link">
                   <Button className="btn-secondary">
-                    <span className="btn-icon">📋</span>
-                    Book an Appointment
+                    <span className="btn-icon">📞</span>
+                    Schedule a Confidential Consultation
                     <span className="btn-arrow">→</span>
                   </Button>
                 </Link>
@@ -195,6 +190,13 @@ export function HeroSection() {
           opacity: 0;
           transform: scale(1.1);
           transition: opacity 1.2s ease-out, transform 1.2s ease-out;
+        }
+        
+        .hero-bg-image::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.1);
         }
 
         .hero-bg-image.bg-fade-in {

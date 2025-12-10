@@ -701,7 +701,17 @@ function ChatBoxInner(props: {
     if (error) {
       setMsgs((m) => m.filter((x) => x.id !== optimistic.id));
       alert(`Failed to send.\n\n${error.message}`);
+      return;
     }
+    
+    // Update conversation with last message (same as patient messages)
+    await supabase
+      .from("conversations")
+      .update({
+        last_message: optimistic.content || "",
+        last_message_at: optimistic.created_at,
+      })
+      .eq("id", optimistic.conversation_id);
   }
 
   async function uploadToChat(fileOrBlob: Blob, fileName?: string) {

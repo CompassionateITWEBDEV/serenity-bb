@@ -1393,7 +1393,7 @@ export default function AppointmentsPage() {
               </button>
 
               <Dialog open={isBookingOpen} onOpenChange={setIsBookingOpen}>
-                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogContent className="!bg-white max-w-2xl max-h-[90vh] overflow-y-auto">
 
                 <DialogHeader className="pb-4 border-b">
 
@@ -1429,7 +1429,7 @@ export default function AppointmentsPage() {
 
                         placeholder="e.g., Individual Therapy Session" 
 
-                        className="border-gray-300 focus:border-blue-500 focus:ring-blue-500"
+                        className="!bg-white border border-white focus:border-blue-500 focus:ring-blue-500"
 
                       />
 
@@ -1441,7 +1441,7 @@ export default function AppointmentsPage() {
 
                       <Select value={form.type} onValueChange={(v) => setForm((f) => ({ ...f, type: toType(v) }))}>
 
-                        <SelectTrigger className="border-gray-300 focus:border-blue-500 focus:ring-blue-500">
+                        <SelectTrigger className="!bg-white border border-white focus:border-blue-500 focus:ring-blue-500">
 
                           <SelectValue placeholder="Select appointment type" />
 
@@ -1506,7 +1506,7 @@ export default function AppointmentsPage() {
 
                         variant="outline" 
 
-                        className="w-full justify-start h-10 border-gray-300 hover:border-blue-500 focus:border-blue-500" 
+                        className="!bg-white w-full justify-start h-10 border border-white hover:border-blue-500 focus:border-blue-500" 
 
                         onClick={() => setOpenCreateCal((s) => !s)}
 
@@ -1556,7 +1556,7 @@ export default function AppointmentsPage() {
 
                         onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))} 
 
-                        className="h-10 border-gray-300 focus:border-blue-500 focus:ring-blue-500"
+                        className="!bg-white h-10 border border-white focus:border-blue-500 focus:ring-blue-500"
 
                       />
 
@@ -1582,7 +1582,7 @@ export default function AppointmentsPage() {
 
                         onChange={(e) => setForm((f) => ({ ...f, duration: e.target.value }))} 
 
-                        className="border-gray-300 focus:border-blue-500 focus:ring-blue-500"
+                        className="!bg-white border border-white focus:border-blue-500 focus:ring-blue-500"
 
                         placeholder="60"
 
@@ -1602,7 +1602,7 @@ export default function AppointmentsPage() {
 
                         placeholder="Room 205 / Virtual Meeting" 
 
-                        className="border-gray-300 focus:border-blue-500 focus:ring-blue-500"
+                        className="!bg-white border border-white focus:border-blue-500 focus:ring-blue-500"
 
                       />
 
@@ -1648,7 +1648,7 @@ export default function AppointmentsPage() {
 
                       placeholder="Any specific concerns, requests, or information you'd like to share with your provider..." 
 
-                      className="border-gray-300 focus:border-blue-500 focus:ring-blue-500 resize-none"
+                      className="!bg-white border border-white focus:border-blue-500 focus:ring-blue-500 resize-none"
 
                     />
 
@@ -2251,13 +2251,13 @@ export default function AppointmentsPage() {
 
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
 
-        <DialogContent className="max-w-md">
+        <DialogContent className="!bg-white max-w-md">
 
           <DialogHeader><DialogTitle>Edit / Reschedule</DialogTitle></DialogHeader>
 
           <div className="space-y-4">
 
-            <div className="space-y-2"><Label>Title</Label><Input value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} /></div>
+            <div className="space-y-2"><Label>Title</Label><Input value={editForm.title} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} className="!bg-white" /></div>
 
             <div className="space-y-2">
 
@@ -2265,7 +2265,7 @@ export default function AppointmentsPage() {
 
               <Select value={editForm.type} onValueChange={(v) => setEditForm((f) => ({ ...f, type: toType(v) }))}>
 
-                <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+                <SelectTrigger className="!bg-white"><SelectValue placeholder="Select type" /></SelectTrigger>
 
                 <SelectContent>{TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
 
@@ -2273,7 +2273,7 @@ export default function AppointmentsPage() {
 
             </div>
 
-            <div className="space-y-2"><Label>Provider</Label><Input value={editForm.provider} onChange={(e) => setEditForm((f) => ({ ...f, provider: e.target.value }))} /></div>
+            <div className="space-y-2"><Label>Provider</Label><Input value={editForm.provider} onChange={(e) => setEditForm((f) => ({ ...f, provider: e.target.value }))} className="!bg-white" /></div>
 
 
 
@@ -2283,7 +2283,7 @@ export default function AppointmentsPage() {
 
                 <Label>Date</Label>
 
-                <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setOpenEditCal((s) => !s)}>
+                <Button type="button" variant="outline" className="bg-white w-full justify-start" onClick={() => setOpenEditCal((s) => !s)}>
 
                   <CalendarIcon className="h-4 w-4 mr-2" />
 
@@ -2317,7 +2317,7 @@ export default function AppointmentsPage() {
 
 
 
-              <div className="space-y-2"><Label>Time</Label><Input type="time" value={editForm.time} onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))} /></div>
+              <div className="space-y-2"><Label>Time</Label><Input type="time" value={editForm.time} onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))} className="!bg-white" /></div>
 
             </div>
 
@@ -2325,9 +2325,9 @@ export default function AppointmentsPage() {
 
             <div className="grid grid-cols-2 gap-3">
 
-              <div className="space-y-2"><Label>Duration (min)</Label><Input type="number" min={5} value={editForm.duration} onChange={(e) => setEditForm((f) => ({ ...f, duration: e.target.value }))} /></div>
+              <div className="space-y-2"><Label>Duration (min)</Label><Input type="number" min={5} value={editForm.duration} onChange={(e) => setEditForm((f) => ({ ...f, duration: e.target.value }))} className="!bg-white" /></div>
 
-              <div className="space-y-2"><Label>Location</Label><Input value={editForm.location} onChange={(e) => setEditForm((f) => ({ ...f, location: e.target.value }))} /></div>
+              <div className="space-y-2"><Label>Location</Label><Input value={editForm.location} onChange={(e) => setEditForm((f) => ({ ...f, location: e.target.value }))} className="!bg-white" /></div>
 
             </div>
 
@@ -2339,7 +2339,7 @@ export default function AppointmentsPage() {
 
               <Select value={editForm.status} onValueChange={(v) => setEditForm((f) => ({ ...f, status: toStatus(v) }))}>
 
-                <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
+                <SelectTrigger className="!bg-white"><SelectValue placeholder="Select status" /></SelectTrigger>
 
                 <SelectContent>{["pending","scheduled","confirmed","completed","cancelled"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
 
@@ -2347,7 +2347,7 @@ export default function AppointmentsPage() {
 
             </div>
 
-            <div className="space-y-2"><Label>Notes</Label><Textarea rows={3} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+            <div className="space-y-2"><Label>Notes</Label><Textarea rows={3} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} className="!bg-white" /></div>
 
             <div className="flex gap-3 pt-4"><Button className="flex-1" onClick={saveEdit} disabled={busy || !editForm.id || !editForm.type || !editForm.date || !editForm.time}>Save</Button><Button variant="outline" onClick={() => setIsEditOpen(false)}>Close</Button></div>
 

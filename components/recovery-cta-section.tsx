@@ -32,20 +32,23 @@ export function RecoveryCTASection() {
       <div className="recovery-cta-container">
         <div className="recovery-cta-content">
           <h2 className="recovery-cta-title">
-            Let Us Help You On Your Journey To Recovery
+            Take the First Step Toward Healing Today
           </h2>
+          <p className="recovery-cta-description">
+            Your recovery starts with a single conversation. Our team is ready to support you — safely, respectfully, and professionally.
+          </p>
           <div className="recovery-cta-buttons">
             <button 
-              onClick={() => router.push("/services")}
+              onClick={() => router.push("/contact")}
               className="recovery-cta-button recovery-cta-button-primary"
             >
-              View Services
+              Call Now for Immediate Help
             </button>
             <button 
-              onClick={() => router.push("/contact")}
+              onClick={() => router.push("/intake")}
               className="recovery-cta-button recovery-cta-button-secondary"
             >
-              Contact Us
+              Book Your Appointment
             </button>
           </div>
         </div>
@@ -88,9 +91,11 @@ export function RecoveryCTASection() {
 
         .recovery-cta-content {
           display: flex;
+          flex-direction: column;
           align-items: center;
-          justify-content: space-between;
-          gap: 3rem;
+          justify-content: center;
+          text-align: center;
+          gap: 2rem;
         }
 
         .recovery-cta-title {
@@ -99,14 +104,24 @@ export function RecoveryCTASection() {
           line-height: 1.2;
           color: #ffffff;
           font-family: 'Georgia', 'Times New Roman', serif;
-          flex: 1;
+          margin-bottom: 1rem;
+        }
+
+        .recovery-cta-description {
+          font-size: 1.25rem;
+          line-height: 1.7;
+          color: rgba(255, 255, 255, 0.95);
+          max-width: 700px;
+          margin-bottom: 1rem;
         }
 
         .recovery-cta-buttons {
           display: flex;
-          flex-direction: column;
-          gap: 1rem;
+          flex-direction: row;
+          gap: 1.5rem;
           flex-shrink: 0;
+          flex-wrap: wrap;
+          justify-content: center;
         }
 
         .recovery-cta-button {

@@ -223,7 +223,7 @@ export default function BasicNotificationsPage() {
               <select
                 value={newNotification.type}
                 onChange={(e) => setNewNotification(prev => ({ ...prev, type: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="appointment">Appointment</option>
                 <option value="chat">Chat</option>
@@ -246,7 +246,7 @@ export default function BasicNotificationsPage() {
                 placeholder="Notification message"
                 value={newNotification.message}
                 onChange={(e) => setNewNotification(prev => ({ ...prev, message: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 rows={3}
               />
             </div>
@@ -285,7 +285,7 @@ export default function BasicNotificationsPage() {
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="px-3 py-2 border border-gray-300 rounded-md bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="all">All Types</option>
               <option value="appointment">Appointments</option>

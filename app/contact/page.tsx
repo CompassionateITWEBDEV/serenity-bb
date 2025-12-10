@@ -3,6 +3,7 @@
 import React, { useState, type FormEvent } from "react";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
+import { PageFadeWrapper } from "@/components/page-fade-wrapper";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -81,6 +82,7 @@ export default function ContactPage() {
     <div className="min-h-screen bg-gray-50">
       <Header />
       <main className="py-16">
+        <PageFadeWrapper>
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="mb-16 text-center">
             <h1 className="mb-4 text-4xl font-serif font-bold text-gray-900">Contact Us</h1>
@@ -253,6 +255,7 @@ export default function ContactPage() {
             </Card>
           </div>
         </div>
+        </PageFadeWrapper>
       </main>
       <Footer />
     </div>

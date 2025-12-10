@@ -14,9 +14,6 @@ import { UpcomingDrugTests } from "@/components/dashboard/upcoming-drug-tests";
 import { WellnessTracker } from "@/components/dashboard/wellness-tracker";
 import { VideoRecording } from "@/components/dashboard/video-recording";
 import { SubmissionHistory } from "@/components/dashboard/submission-history";
-import { HealthcareMessaging } from "@/components/dashboard/healthcare-messaging";
-import { GroupChat } from "@/components/dashboard/group-chat";
-import PatientVerificationStatus from "@/components/patient/PatientVerificationStatus";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getSwal } from "@/lib/sweetalert"; // <-- use CDN wrapper
 
@@ -112,7 +109,8 @@ export default function DashboardPage() {
         </div>
 
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="tracking">Tracking</TabsTrigger>
             <TabsTrigger value="recording">Recording</TabsTrigger>
           </TabsList>

@@ -5,6 +5,7 @@ export const revalidate = 86400; // ISR: 24h
 import Link from "next/link";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
+import { PageFadeWrapper } from "@/components/page-fade-wrapper";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Award, Users, Heart, Shield, Sparkles, Target, ArrowRight } from "lucide-react";
@@ -158,6 +159,7 @@ export default function AboutPage() {
     <div className="min-h-screen bg-white">
       <Header />
       <main>
+        <PageFadeWrapper>
         <AboutGoalSummary />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
           <AboutSection />
@@ -189,6 +191,7 @@ export default function AboutPage() {
             </Card>
           </section>
         </div>
+        </PageFadeWrapper>
       </main>
       <Footer />
     </div>

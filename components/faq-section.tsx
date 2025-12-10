@@ -29,28 +29,20 @@ export function FAQSection() {
 
   const faqs = [
     {
-      q: "Do you accept insurance?",
-      a: "Yes. We accept Medicare, BCBS, Aetna, McLaren, HAP, and Zing. Contact us to verify your benefits.",
+      q: "Do you accept walk-ins?",
+      a: "Yes. Walk-ins and scheduled appointments are both welcome.",
     },
     {
-      q: "How soon can I start?",
-      a: "Most patients can be assessed within 24–48 hours. Same-week starts are common.",
+      q: "Is your methadone program medically supervised?",
+      a: "Yes, all medication-assisted treatments are supervised by licensed medical staff.",
     },
     {
-      q: "Are assessments confidential?",
-      a: "Yes. All assessments are private and HIPAA-compliant.",
+      q: "Are your services confidential?",
+      a: "Yes, every service follows HIPAA compliance and strict confidentiality.",
     },
     {
-      q: "Do you offer personalized care plans?",
-      a: "Yes. Our licensed clinicians design individualized rehabilitation plans based on your needs.",
-    },
-    {
-      q: "What services do you provide?",
-      a: "We offer counseling services, support services, and methadone treatment programs. Visit our Services page to learn more about each program.",
-    },
-    {
-      q: "How do I schedule an appointment?",
-      a: "You can schedule an appointment by calling us at (248) 838-3686 or by filling out our contact form on the Contact page.",
+      q: "Do you help with long-term recovery planning?",
+      a: "Absolutely — we provide ongoing support and continuity of care.",
     },
   ]
 

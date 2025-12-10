@@ -850,7 +850,7 @@ function Meta({ form, setForm }: { form: { title: string; description: string; t
         <div><Label className="text-sm">Title</Label><Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Enter video title" /></div>
         <div>
           <Label className="text-sm">Type</Label>
-          <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as VideoType }))} className="w-full p-2 border rounded-md">
+          <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as VideoType }))} className="w-full p-2 border rounded-md bg-white">
             <option value="daily-checkin">Daily Check-in</option><option value="medication">Medication</option>
             <option value="therapy-session">Therapy Session</option><option value="progress-update">Progress Update</option>
           </select>

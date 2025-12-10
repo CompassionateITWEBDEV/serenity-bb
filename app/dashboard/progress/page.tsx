@@ -605,7 +605,7 @@ export default function ProgressPage() {
 
         {/* Add Check-in Dialog */}
         <Dialog open={isCheckInDialogOpen} onOpenChange={setIsCheckInDialogOpen}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="!bg-white max-w-md">
             <DialogHeader>
               <DialogTitle>Add Daily Check-in</DialogTitle>
             </DialogHeader>
@@ -618,6 +618,7 @@ export default function ProgressPage() {
                   max="10"
                   value={checkInData.mood}
                   onChange={(e) => setCheckInData(prev => ({ ...prev, mood: parseInt(e.target.value) || 5 }))}
+                  className="!bg-white border border-white"
                 />
               </div>
               <div className="space-y-2">
@@ -628,6 +629,7 @@ export default function ProgressPage() {
                   max="10"
                   value={checkInData.energy}
                   onChange={(e) => setCheckInData(prev => ({ ...prev, energy: parseInt(e.target.value) || 5 }))}
+                  className="!bg-white border border-white"
                 />
               </div>
               <div className="space-y-2">
@@ -638,6 +640,7 @@ export default function ProgressPage() {
                   max="24"
                   value={checkInData.sleep}
                   onChange={(e) => setCheckInData(prev => ({ ...prev, sleep: parseInt(e.target.value) || 8 }))}
+                  className="!bg-white border border-white"
                 />
               </div>
               <div className="space-y-2">
@@ -648,6 +651,7 @@ export default function ProgressPage() {
                   max="10"
                   value={checkInData.stress}
                   onChange={(e) => setCheckInData(prev => ({ ...prev, stress: parseInt(e.target.value) || 5 }))}
+                  className="!bg-white border border-white"
                 />
               </div>
               <div className="space-y-2">
@@ -657,6 +661,7 @@ export default function ProgressPage() {
                   onChange={(e) => setCheckInData(prev => ({ ...prev, notes: e.target.value }))}
                   placeholder="How are you feeling today?"
                   rows={3}
+                  className="!bg-white border border-white"
                 />
               </div>
             </div>

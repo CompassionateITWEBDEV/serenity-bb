@@ -31,27 +31,67 @@ export function ServicesSection() {
   const services = [
     {
       icon: MessageCircle,
-      category: "Counseling",
-      title: "Counseling Services",
-      description: "Professional counselors are available to help patients work through a wide variety of issues that they might be facing during their life experience. Comprehensive Counseling Programs Evidence-based counseling approaches tailored to your unique needs and recovery journey.",
+      category: "Evaluation",
+      title: "Psychiatric Evaluation",
+      description: "Comprehensive mental health assessments and psychiatric diagnosis to create personalized treatment plans.",
       image: "/counselor.png",
-      link: "/services/counseling"
+      link: "/services/psychiatric-evaluation"
+    },
+    {
+      icon: Heart,
+      category: "Management",
+      title: "Case Management",
+      description: "Behavioral Health and Medical Case Management services coordinating your care across all treatment providers.",
+      image: "/empathetic-help.png",
+      link: "/services/case-management"
     },
     {
       icon: Heart,
       category: "Support",
-      title: "Support Services",
-      description: "Holistic support services designed to help you maintain progress and achieve long-term recovery.",
+      title: "Peer Recovery Support",
+      description: "Peer support and mentorship services from trained specialists with lived recovery experience.",
       image: "/empathetic-help.png",
-      link: "/services"
+      link: "/services/peer-recovery-support"
     },
     {
       icon: Pill,
       category: "Treatment",
       title: "Methadone Treatment",
-      description: "Methadone is a long-acting opioid medication that is used as a pain reliever and, together with counseling and other psychosocial services, is used to treat individuals addicted to heroin and certain prescription drugs.",
+      description: "Medically supervised methadone treatment program for opioid addiction recovery with counseling support.",
       image: "/caring-doctor.png",
-      link: "/services"
+      link: "/services/methadone"
+    },
+    {
+      icon: Pill,
+      category: "Treatment",
+      title: "Suboxone Treatment",
+      description: "Safe, effective Suboxone (Subox) treatment for opioid addiction recovery with medication-assisted care.",
+      image: "/caring-doctor.png",
+      link: "/services/suboxone"
+    },
+    {
+      icon: Pill,
+      category: "Treatment",
+      title: "Naltrexone & Antabuse",
+      description: "Naltrexone and Antabuse treatment for alcohol and opioid addiction recovery.",
+      image: "/caring-doctor.png",
+      link: "/services/naltrexone-antabuse"
+    },
+    {
+      icon: Pill,
+      category: "Management",
+      title: "Medication Management",
+      description: "Psychiatric and primary care medication management services for safe, effective treatment coordination.",
+      image: "/caring-doctor.png",
+      link: "/services/medication-management"
+    },
+    {
+      icon: Heart,
+      category: "Care",
+      title: "Primary Care Services",
+      description: "Comprehensive primary care services including general health, preventive care, and chronic disease management.",
+      image: "/empathetic-help.png",
+      link: "/services/primary-care"
     }
   ]
 
@@ -61,10 +101,10 @@ export function ServicesSection() {
         <div className="services-header">
           <div className="services-label">Our Services</div>
           <h2 className="services-title">
-            Comprehensive Recovery Programs
+            Our Core Treatment & Support Services
           </h2>
           <p className="services-description">
-            We offer a range of evidence-based services designed to support your journey to recovery.
+            We offer comprehensive, evidence-based services designed to support your journey to recovery and long-term healing.
           </p>
         </div>
 
@@ -92,11 +132,20 @@ export function ServicesSection() {
                   onClick={() => router.push(service.link)}
                   className="service-button"
                 >
-                  Read More
+                  View Service Details
                 </button>
               </div>
             )
           })}
+        </div>
+        
+        <div className="services-cta">
+          <button 
+            onClick={() => router.push("/services")}
+            className="services-cta-button"
+          >
+            View All Services →
+          </button>
         </div>
       </div>
 
@@ -257,6 +306,30 @@ export function ServicesSection() {
           border-color: #0e7490;
           transform: translateY(-2px);
           box-shadow: 0 4px 12px rgba(8, 145, 178, 0.3);
+        }
+
+        .services-cta {
+          text-align: center;
+          margin-top: 3rem;
+        }
+
+        .services-cta-button {
+          background: linear-gradient(135deg, #0891b2 0%, #0ea5e9 100%);
+          color: white;
+          border: none;
+          padding: 1rem 2.5rem;
+          border-radius: 8px;
+          font-weight: 600;
+          font-size: 1.125rem;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          box-shadow: 0 4px 12px rgba(8, 145, 178, 0.3);
+        }
+
+        .services-cta-button:hover {
+          background: linear-gradient(135deg, #0e7490 0%, #0284c7 100%);
+          transform: translateY(-2px);
+          box-shadow: 0 6px 16px rgba(8, 145, 178, 0.4);
         }
 
         @media (max-width: 1024px) {

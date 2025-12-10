@@ -23,20 +23,20 @@ const SITE_URL =
   "https://serenity-b9.onrender.com";
 
 export const metadata: Metadata = {
-  title: "Serenity Rehabilitation Center – Rehab & Recovery in Detroit, MI",    
+  title: "Rehabilitation Center in Pontiac Michigan | Serenity Recovery",    
   description:
-    "Evidence-based rehabilitation in Detroit. Confidential assessments, licensed clinicians, and personalized recovery plans.",
+    "Serenity Rehabilitation Center in Pontiac Michigan offers mental health services, addiction recovery programs, and compassionate treatment for long-term healing.",
   alternates: { canonical: SITE_URL },
   openGraph: {
     url: SITE_URL,
-    title: "Serenity Rehabilitation Center – Rehab & Recovery in Detroit, MI",  
-    description: "Compassionate, evidence-based rehabilitation with licensed clinicians.",
+    title: "Rehabilitation Center in Pontiac Michigan | Serenity Recovery",  
+    description: "Serenity Rehabilitation Center in Pontiac Michigan offers mental health services, addiction recovery programs, and compassionate treatment for long-term healing.",
     images: [{ url: `${SITE_URL}/og-image.jpg`, width: 1200, height: 630 }],    
   },
   twitter: {
     card: "summary_large_image",
-    title: "Serenity Rehabilitation Center – Rehab & Recovery in Detroit, MI",
-    description: "Start your confidential assessment today.",
+    title: "Rehabilitation Center in Pontiac Michigan | Serenity Recovery",
+    description: "Serenity Rehabilitation Center in Pontiac Michigan offers mental health services, addiction recovery programs, and compassionate treatment for long-term healing.",
     images: [`${SITE_URL}/og-image.jpg`],
   },
 };
@@ -45,11 +45,11 @@ export default function HomePage() {
   // Why: JSON-LD for SEO only; safe and invisible.
   const orgLd = {
     "@context": "https://schema.org",
-    "@type": "MedicalClinic",
+    "@type": "MedicalBusiness",
     name: "Serenity Rehabilitation Center",
+    description: "Serenity Rehabilitation Center in Pontiac Michigan provides mental health services, addiction recovery programs, psychiatric evaluations, case management, peer recovery, and methadone treatment.",
     url: SITE_URL,
-    image: `${SITE_URL}/og-image.jpg`,
-    telephone: "+1-555-555-1212", // TODO: replace with real phone
+    telephone: "+1-248-838-3686",
     address: {
       "@type": "PostalAddress",
       streetAddress: "35 S Johnson Ave",
@@ -58,6 +58,36 @@ export default function HomePage() {
       postalCode: "48341",
       addressCountry: "US",
     },
+    openingHours: "Mo-Fr 09:00-17:00",
+    image: `${SITE_URL}/og-image.jpg`,
+    geo: {
+      "@type": "GeoCoordinates",
+      latitude: "42.6389",
+      longitude: "-83.2910",
+    },
+    sameAs: [
+      "https://www.facebook.com/profile.php?id=100066899671960",
+      "https://www.instagram.com/serenityrehabilitation/",
+    ],
+    medicalSpecialty: [
+      "Psychiatry",
+      "AddictionTreatment",
+      "BehavioralHealth",
+    ],
+    areaServed: [
+      "Pontiac MI",
+      "Auburn Hills MI",
+      "Waterford Township MI",
+      "Bloomfield Hills MI",
+      "Rochester Hills MI",
+      "Sylvan Lake MI",
+      "Lake Angelus MI",
+      "Orion Township MI",
+      "West Bloomfield MI",
+      "Clarkston MI",
+      "Madison Heights MI",
+      "Troy MI",
+    ],
   };
 
   return (

@@ -225,18 +225,18 @@ export default function NotificationCenter() {
                   <div className="grid gap-4 md:grid-cols-2">
                     <div>
                       <label className="text-sm font-medium text-gray-700 mb-2 block">Quiet Hours Start</label>
-                      <input type="time" value={prefs.quiet_start} onChange={(e) => upsertPrefs({ quiet_start: e.target.value })} className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-cyan-500" />
+                      <input type="time" value={prefs.quiet_start} onChange={(e) => upsertPrefs({ quiet_start: e.target.value })} className="w-full px-3 py-2 border rounded-md bg-white focus:ring-2 focus:ring-cyan-500" />
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700 mb-2 block">Quiet Hours End</label>
-                      <input type="time" value={prefs.quiet_end} onChange={(e) => upsertPrefs({ quiet_end: e.target.value })} className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-cyan-500" />
+                      <input type="time" value={prefs.quiet_end} onChange={(e) => upsertPrefs({ quiet_end: e.target.value })} className="w-full px-3 py-2 border rounded-md bg-white focus:ring-2 focus:ring-cyan-500" />
                     </div>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <div>
                       <label className="text-sm font-medium text-gray-700 mb-2 block">Max Daily Notifications</label>
-                      <input type="number" min={0} value={prefs.max_daily_notifications} onChange={(e) => upsertPrefs({ max_daily_notifications: Number(e.target.value) || 0 })} className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-cyan-500" />
+                      <input type="number" min={0} value={prefs.max_daily_notifications} onChange={(e) => upsertPrefs({ max_daily_notifications: Number(e.target.value) || 0 })} className="w-full px-3 py-2 border rounded-md bg-white focus:ring-2 focus:ring-cyan-500" />
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700 mb-2 block">Minimum Priority Level</label>

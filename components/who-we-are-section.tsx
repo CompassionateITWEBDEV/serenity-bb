@@ -34,7 +34,7 @@ export function WhoWeAreSection() {
           <div className="who-we-are-image-wrapper">
             <Image
               src="/peaceful-rehabilitation-center.png"
-              alt="Serenity Rehabilitation Center facility"
+              alt="Rehabilitation facility environment in Pontiac Michigan"
               width={600}
               height={500}
               className="who-we-are-image"
@@ -43,15 +43,20 @@ export function WhoWeAreSection() {
 
           {/* Right Column - Content */}
           <div className="who-we-are-content">
-            <div className="who-we-are-label">Who We Are</div>
+            <div className="who-we-are-label">About Us</div>
             <h2 className="who-we-are-title">
-              Transform Your Life Through Comprehensive Recovery
+              Trusted Addiction Recovery Programs Pontiac Focused on Long-Term Healing
             </h2>
             <p className="who-we-are-description">
-              At Serenity Rehabilitation Center, we are committed to providing exceptional care that goes beyond treatment. Our comprehensive approach ensures that every patient receives personalized attention, evidence-based therapies, and ongoing support throughout their recovery journey.
+              Our Addiction Recovery Programs Pontiac offer a structured pathway toward stability and sobriety. With a combination of medical support, counseling, therapy, and peer guidance, our Addiction Recovery Programs Pontiac help individuals rebuild their lives with confidence. Each of our Addiction Recovery Programs Pontiac is designed to empower long-term recovery and prevent relapse.
             </p>
             <p className="who-we-are-description">
-              In our treatment programs, we combine medication-assisted treatment, intensive therapy, and supportive counseling into personalized, family-involved plans. <strong>Our goal is to provide rapid, high-quality therapeutic interventions</strong>—up to six hours per day when needed—for children, adolescents, and adults, in the least restrictive setting, teaching proactive coping skills that build lasting wellness and independence.
+              <strong>About Serenity Rehabilitation Center</strong><br/><br/>
+              Located in the heart of Pontiac, Michigan, Serenity Rehabilitation Center is committed to restoring hope and transforming lives. Our team of psychiatrists, case managers, behavioral specialists, and recovery coaches work together to deliver high-quality, patient-focused care. We believe in honesty, compassion, and creating a safe environment for every person who walks through our doors.
+            </p>
+            <p className="who-we-are-description">
+              <strong>A Rehabilitation Center in Pontiac Michigan You Can Rely On</strong><br/><br/>
+              As a community-trusted Rehabilitation Center in Pontiac Michigan, we proudly support individuals dealing with addiction, mental health challenges, and behavioral concerns.
             </p>
 
             {/* Contact Information */}

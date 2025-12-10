@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
+import { PageFadeWrapper } from "@/components/page-fade-wrapper";
 import {
   Card,
   CardContent,
@@ -27,6 +28,7 @@ export default function SupportServicesPage() {
       </Suspense>
 
       <main>
+        <PageFadeWrapper>
         <section className="py-16">
           <div className="container mx-auto px-4">
             {/* Back Button */}
@@ -71,7 +73,11 @@ export default function SupportServicesPage() {
                     <ul className="space-y-3 text-gray-700">
                       <li className="flex items-start gap-3">
                         <span className="text-green-600 mt-1 font-bold">•</span>
-                        <span>Case management &amp; care coordination</span>
+                        <span>Behavioral Health Case Management</span>
+                      </li>
+                      <li className="flex items-start gap-3">
+                        <span className="text-green-600 mt-1 font-bold">•</span>
+                        <span>Medical Case Management</span>
                       </li>
                       <li className="flex items-start gap-3">
                         <span className="text-green-600 mt-1 font-bold">•</span>
@@ -123,6 +129,7 @@ export default function SupportServicesPage() {
             </Card>
           </div>
         </section>
+        </PageFadeWrapper>
       </main>
 
       <Suspense fallback={null}>

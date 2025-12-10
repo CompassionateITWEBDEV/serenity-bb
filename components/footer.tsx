@@ -27,9 +27,26 @@ export function Footer() {
             <p className="text-gray-300 leading-relaxed mb-4">
               Dedicated to helping individuals reclaim health and hope through personalized treatment, supportive counseling, and evidence-based care. At Serenity Rehabilitation Center, your healing journey is our mission.
             </p>
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-gray-400 mb-4">
               Licensed Medical Facility • Accredited by Joint Commission
             </p>
+            <div className="mt-6">
+              <h4 className="font-semibold text-white mb-3">We Proudly Serve</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm text-gray-300">
+                <div>📍 Pontiac, Michigan</div>
+                <div>📍 Auburn Hills</div>
+                <div>📍 Waterford Township</div>
+                <div>📍 Bloomfield Hills</div>
+                <div>📍 Rochester Hills</div>
+                <div>📍 Sylvan Lake</div>
+                <div>📍 Lake Angelus</div>
+                <div>📍 Orion Township</div>
+                <div>📍 West Bloomfield</div>
+                <div>📍 Clarkston</div>
+                <div>📍 Madison Heights</div>
+                <div>📍 Troy</div>
+              </div>
+            </div>
           </div>
 
           <div>
