@@ -2,6 +2,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { LocationMap } from "@/components/location-map";
+import { JointCommissionLogo } from "@/components/joint-commission-logo";
 
 export function Footer() {
   const year = new Date().getFullYear(); // why: keeps copyright current
@@ -31,25 +32,7 @@ export function Footer() {
               <p className="text-sm text-gray-400">
                 Licensed Medical Facility • Accredited by Joint Commission
               </p>
-              <a 
-                href="https://www.jointcommission.org" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="flex-shrink-0"
-                aria-label="Joint Commission Accreditation"
-              >
-                <Image
-                  src="/joint-commission-logo.png"
-                  alt="Joint Commission Accredited"
-                  width={80}
-                  height={80}
-                  className="object-contain opacity-80 hover:opacity-100 transition-opacity"
-                  onError={(e) => {
-                    // Hide image if it doesn't exist yet
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-              </a>
+              <JointCommissionLogo />
             </div>
             <div className="mt-6">
               <h4 className="font-semibold text-white mb-3">We Proudly Serve</h4>
