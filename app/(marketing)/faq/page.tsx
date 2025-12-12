@@ -64,7 +64,7 @@ const faqs = [
   },
   {
     q: "What are your operating hours?",
-    a: "We are open Monday through Friday from 6:00 AM to 5:00 PM, and Saturday from 8:00 AM to 11:00 AM. We are closed on Sundays.",
+    a: "We are open Monday through Friday from 9:00 AM to 5:00 PM. Saturday and Sunday are by appointment only.",
   },
   {
     q: "Is my information secure?",

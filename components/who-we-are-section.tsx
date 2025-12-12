@@ -69,7 +69,7 @@ export function WhoWeAreSection() {
                 </div>
                 <div className="contact-info-content">
                   <div className="contact-info-label">Operating Hours</div>
-                  <div className="contact-info-value">Everyday From 8:00 AM - 6:00 PM</div>
+                  <div className="contact-info-value">Mon-Fri: 9:00 AM - 5:00 PM<br />Sat & Sun: By appointment only</div>
                 </div>
               </div>
               <div className="contact-info-item">

@@ -27,9 +27,30 @@ export function Footer() {
             <p className="text-gray-300 leading-relaxed mb-4">
               Dedicated to helping individuals reclaim health and hope through personalized treatment, supportive counseling, and evidence-based care. At Serenity Rehabilitation Center, your healing journey is our mission.
             </p>
-            <p className="text-sm text-gray-400 mb-4">
-              Licensed Medical Facility • Accredited by Joint Commission
-            </p>
+            <div className="flex items-center gap-3 mb-4">
+              <p className="text-sm text-gray-400">
+                Licensed Medical Facility • Accredited by Joint Commission
+              </p>
+              <a 
+                href="https://www.jointcommission.org" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex-shrink-0"
+                aria-label="Joint Commission Accreditation"
+              >
+                <Image
+                  src="/joint-commission-logo.png"
+                  alt="Joint Commission Accredited"
+                  width={80}
+                  height={80}
+                  className="object-contain opacity-80 hover:opacity-100 transition-opacity"
+                  onError={(e) => {
+                    // Hide image if it doesn't exist yet
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </a>
+            </div>
             <div className="mt-6">
               <h4 className="font-semibold text-white mb-3">We Proudly Serve</h4>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm text-gray-300">
@@ -108,7 +129,7 @@ export function Footer() {
               </div>
               <div>
                 <p className="font-medium text-white mb-1">Fax</p>
-                <p>(248) 838-3686</p>
+                <p>(248) 621-9626</p>
               </div>
               <div>
                 <p className="font-medium text-white mb-1">Email</p>

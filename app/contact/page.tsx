@@ -153,7 +153,7 @@ export default function ContactPage() {
                       <p className="text-gray-600">
                         Main: <a className="underline" href="tel:+12488383686">(248) 838-3686</a>
                       </p>
-                      <p className="text-gray-600">Fax: (248) 838-3686</p>
+                      <p className="text-gray-600">Fax: (248) 621-9626</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-4">
@@ -181,21 +181,21 @@ export default function ContactPage() {
                       <Clock className="h-5 w-5 text-cyan-600" />
                       <div>
                         <p className="font-semibold">Mon–Fri</p>
-                        <p className="text-gray-600">6:00 AM – 5:00 PM</p>
+                        <p className="text-gray-600">9:00 AM – 5:00 PM</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
                       <Clock className="h-5 w-5 text-cyan-600" />
                       <div>
-                        <p className="font-semibold">Sat</p>
-                        <p className="text-gray-600">8:00 AM – 11:00 AM</p>
+                        <p className="font-semibold">Saturday</p>
+                        <p className="text-gray-600">By appointment only</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
                       <Clock className="h-5 w-5 text-cyan-600" />
                       <div>
-                        <p className="font-semibold">Sun</p>
-                        <p className="text-gray-600">Closed</p>
+                        <p className="font-semibold">Sunday</p>
+                        <p className="text-gray-600">By appointment only</p>
                       </div>
                     </div>
                   </div>
