@@ -21,8 +21,8 @@ export function JointCommissionLogo() {
       <Image
         src="/joint commission logo.png"
         alt="Joint Commission Accredited"
-        width={80}
-        height={80}
+        width={120}
+        height={120}
         className="object-contain opacity-80 hover:opacity-100 transition-opacity"
         onError={() => setImageError(true)}
       />
