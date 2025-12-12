@@ -310,6 +310,24 @@ export function PatientIntakeForm() {
                 </div>
               </div>
 
+              <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-4">
+                <h4 className="font-semibold text-gray-900 mb-3 text-sm">Accepted Insurance Providers</h4>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs font-medium text-cyan-700 mb-1">In Network:</p>
+                    <p className="text-xs text-gray-700 leading-relaxed">
+                      HAP, UHC, AETNA BETTER HEALTH, BCBS, BCBSM, BCN, MCLAREN, AMERIHEALTH CARITAS, CIGNA, MERIDIAN COMPLETE, WELLCARE, PRIORITY HEALTH PLAN, MOLINA, OPTUM VA CCN, AMBETTER, ZING, ZING HEALTH PLAN, NGS, MEDICAID
+                    </p>
+                  </div>
+                  <div className="pt-2 border-t border-cyan-200">
+                    <p className="text-xs font-medium text-cyan-700 mb-1">Out of Network:</p>
+                    <p className="text-xs text-gray-700 leading-relaxed">
+                      HUMANA, AETNA, HAP CARESOURCE, BCC - IN PROCESS, ALIGN SENIOR PLUS
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {formData.hasInsurance === "yes" && (
                 <div className="space-y-3">
                   <div>
