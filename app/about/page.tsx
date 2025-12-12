@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Award, Users, Heart, Shield, Sparkles, Target, ArrowRight } from "lucide-react";
 import { LocationMap } from "@/components/location-map";
+import { JointCommissionLogo } from "@/components/joint-commission-logo";
 
 /**
  * About & Goal summary in one paragraph with a catchy hero design.
@@ -164,6 +165,41 @@ export default function AboutPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
           <AboutSection />
           <ValuesSection />
+          
+          {/* Joint Commission Accreditation Section */}
+          <section className="mb-16">
+            <Card className="bg-gradient-to-br from-cyan-50 to-indigo-50 border-cyan-200">
+              <CardContent className="p-8">
+                <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
+                  <div className="flex-shrink-0">
+                    <JointCommissionLogo />
+                  </div>
+                  <div className="flex-1 text-center md:text-left">
+                    <h3 className="text-2xl font-serif font-bold text-gray-900 mb-3">
+                      Joint Commission Accredited
+                    </h3>
+                    <p className="text-gray-700 leading-relaxed mb-4">
+                      Serenity Rehabilitation Center is proud to be accredited by The Joint Commission, the nation's oldest and largest standards-setting and accrediting body in health care. This accreditation demonstrates our commitment to providing safe, high-quality care that meets rigorous national standards.
+                    </p>
+                    <p className="text-gray-700 leading-relaxed mb-4">
+                      The Joint Commission accreditation is a symbol of quality that reflects our organization's commitment to meeting certain performance standards. To earn and maintain The Joint Commission's Gold Seal of Approval®, an organization must undergo an on-site survey by a Joint Commission survey team at least every three years.
+                    </p>
+                    <p className="text-gray-700 leading-relaxed mb-4">
+                      This accreditation validates our dedication to continuous improvement in patient safety and quality of care. It means we have met the highest standards for health care quality and safety in the United States.
+                    </p>
+                    <div className="flex flex-wrap gap-3 justify-center md:justify-start">
+                      <Button asChild variant="outline" className="border-cyan-600 text-cyan-600 hover:bg-cyan-50">
+                        <a href="https://www.jointcommission.org" target="_blank" rel="noopener noreferrer">
+                          Learn More About Joint Commission
+                        </a>
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+          
           <CTASection />
           
           {/* Map Section */}
