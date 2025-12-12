@@ -223,37 +223,52 @@ export default function EmergencyDosingPage() {
           </div>
         </section>
 
-        {/* Operating Hours */}
+        {/* Location & Operating Hours */}
         <section className="py-16">
           <div className="container mx-auto px-4 max-w-7xl">
-            <Card className="max-w-2xl mx-auto">
-              <CardHeader>
-                <CardTitle className="text-2xl font-serif">Operating Hours</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center gap-4">
-                    <Clock className="h-5 w-5 text-cyan-600" />
-                    <div>
-                      <p className="font-semibold">Monday - Friday</p>
-                      <p className="text-gray-600">9:00 AM – 5:00 PM</p>
+            <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-2xl font-serif">Location</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <p className="font-semibold text-gray-900">Address</p>
+                    <p className="text-gray-700">673 Martin Luther King Jr Blvd N</p>
+                    <p className="text-gray-700">Pontiac, MI 48342</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-2xl font-serif">Operating Hours</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      <Clock className="h-5 w-5 text-cyan-600" />
+                      <div>
+                        <p className="font-semibold">Monday - Friday</p>
+                        <p className="text-gray-600">9:00 AM – 5:00 PM</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <Clock className="h-5 w-5 text-cyan-600" />
+                      <div>
+                        <p className="font-semibold">Saturday & Sunday</p>
+                        <p className="text-gray-600">By appointment only</p>
+                      </div>
+                    </div>
+                    <div className="pt-4 border-t">
+                      <p className="text-sm text-gray-600">
+                        <strong>Note:</strong> For emergency dosing outside regular hours, please call our 24/7 crisis support line at <a href="tel:+12488383686" className="text-cyan-600 hover:underline">(248) 838-3686</a>
+                      </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <Clock className="h-5 w-5 text-cyan-600" />
-                    <div>
-                      <p className="font-semibold">Saturday & Sunday</p>
-                      <p className="text-gray-600">By appointment only</p>
-                    </div>
-                  </div>
-                  <div className="pt-4 border-t">
-                    <p className="text-sm text-gray-600">
-                      <strong>Note:</strong> For emergency dosing outside regular hours, please call our 24/7 crisis support line at <a href="tel:+12488383686" className="text-cyan-600 hover:underline">(248) 838-3686</a>
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </section>
 
