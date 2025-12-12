@@ -101,8 +101,8 @@ export function Footer() {
             <div className="space-y-3 text-gray-300 text-sm">
               <div>
                 <p className="font-medium text-white mb-1">Address</p>
-                <p>35 S Johnson Ave</p>
-                <p>Pontiac, MI 48341</p>
+                <p>673 Martin Luther King Jr Blvd N</p>
+                <p>Pontiac, MI 48342</p>
               </div>
               <div>
                 <p className="font-medium text-white mb-1">Phone</p>
@@ -143,9 +143,9 @@ export function Footer() {
       {/* Map Section - Bottom (Rectangular) */}
       <div className="w-full h-96 bg-gray-900">
         <LocationMap
-          address="35 S Johnson Ave, Pontiac, MI 48341"
-          latitude={42.63471}
-          longitude={-83.30854}
+          address="673 Martin Luther King Jr Blvd N, Pontiac, MI 48342"
+          latitude={42.6420}
+          longitude={-83.2920}
           height="100%"
         />
       </div>

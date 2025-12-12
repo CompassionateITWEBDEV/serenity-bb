@@ -18,10 +18,10 @@ export default function StructuredData({ type, data }: StructuredDataProps) {
           description: "Evidence-based rehabilitation in Detroit. Confidential assessments, licensed clinicians, and personalized recovery plans.",
           address: {
             "@type": "PostalAddress",
-            streetAddress: "35 S Johnson Ave",
+            streetAddress: "673 Martin Luther King Jr Blvd N",
             addressLocality: "Pontiac",
             addressRegion: "MI",
-            postalCode: "48341",
+            postalCode: "48342",
             addressCountry: "US"
           },
           contactPoint: {
@@ -47,10 +47,10 @@ export default function StructuredData({ type, data }: StructuredDataProps) {
           url: "https://serenity-b9.onrender.com",
           address: {
             "@type": "PostalAddress",
-            streetAddress: "35 S Johnson Ave",
+            streetAddress: "673 Martin Luther King Jr Blvd N",
             addressLocality: "Pontiac",
             addressRegion: "MI",
-            postalCode: "48341",
+            postalCode: "48342",
             addressCountry: "US"
           },
           telephone: "+1-313-555-0123",

@@ -164,7 +164,7 @@ export default function TermsPage() {
                     </a>
                   </p>
                   <p>
-                    <strong>Address:</strong> 35 S Johnson Ave, Pontiac, MI 48341
+                    <strong>Address:</strong> 673 Martin Luther King Jr Blvd N, Pontiac, MI 48342
                   </p>
                 </div>
               </CardContent>

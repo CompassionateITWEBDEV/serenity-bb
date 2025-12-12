@@ -124,10 +124,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               description: "Evidence-based rehabilitation in Pontiac, Michigan. Confidential assessments, licensed clinicians, and personalized recovery plans.",
               address: {
                 "@type": "PostalAddress",
-                streetAddress: "35 S Johnson Ave",
+                streetAddress: "673 Martin Luther King Jr Blvd N",
                 addressLocality: "Pontiac",
                 addressRegion: "MI",
-                postalCode: "48341",
+                postalCode: "48342",
                 addressCountry: "US"
               },
               contactPoint: {

@@ -33,10 +33,10 @@ const structuredData = {
   url: `${SITE_URL}/services/methadone`,
   address: {
     "@type": "PostalAddress",
-    streetAddress: "35 S Johnson Ave",
+    streetAddress: "673 Martin Luther King Jr Blvd N",
     addressLocality: "Pontiac",
     addressRegion: "MI",
-    postalCode: "48340",
+    postalCode: "48342",
     addressCountry: "US",
   },
   medicalSpecialty: "Addiction Treatment",

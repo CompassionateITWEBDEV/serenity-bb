@@ -31,10 +31,10 @@ const structuredData = {
   description: "Professional counseling services in Pontiac Michigan offering mental health counseling, behavioral health therapy services, trauma support, addiction counseling, and emotional wellness programs.",
   address: {
     "@type": "PostalAddress",
-    streetAddress: "35 S Johnson Ave",
+    streetAddress: "673 Martin Luther King Jr Blvd N",
     addressLocality: "Pontiac",
     addressRegion: "MI",
-    postalCode: "48340",
+    postalCode: "48342",
     addressCountry: "US",
   },
   telephone: "(248) 838-3686",
@@ -42,8 +42,8 @@ const structuredData = {
   image: `${SITE_URL}/og-image.jpg`,
   geo: {
     "@type": "GeoCoordinates",
-    latitude: "42.6389",
-    longitude: "-83.2910",
+    latitude: "42.6420",
+    longitude: "-83.2920",
   },
   service: {
     "@type": "MedicalTherapy",

@@ -52,18 +52,18 @@ export default function HomePage() {
     telephone: "+1-248-838-3686",
     address: {
       "@type": "PostalAddress",
-      streetAddress: "35 S Johnson Ave",
+      streetAddress: "673 Martin Luther King Jr Blvd N",
       addressLocality: "Pontiac",
       addressRegion: "MI",
-      postalCode: "48341",
+      postalCode: "48342",
       addressCountry: "US",
     },
     openingHours: "Mo-Fr 09:00-17:00",
     image: `${SITE_URL}/og-image.jpg`,
     geo: {
       "@type": "GeoCoordinates",
-      latitude: "42.6389",
-      longitude: "-83.2910",
+      latitude: "42.6420",
+      longitude: "-83.2920",
     },
     sameAs: [
       "https://www.facebook.com/profile.php?id=100066899671960",
