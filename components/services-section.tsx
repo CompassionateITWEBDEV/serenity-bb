@@ -1,6 +1,6 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
-import { MessageCircle, Heart, Pill, Truck } from "lucide-react"
+import { MessageCircle, Heart, Pill, Truck, Eye } from "lucide-react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 
@@ -100,6 +100,14 @@ export function ServicesSection() {
       description: "Urgent medication dosing services. Schedule online or call immediately for emergency medication access when you need it most.",
       image: "/caring-doctor.png",
       link: "/services/emergency-dosing"
+    },
+    {
+      icon: Eye,
+      category: "Compliance",
+      title: "Directly Observed Therapy (DOT)",
+      description: "Supervised medication administration to ensure treatment compliance. Professional medication monitoring for substance use treatment programs.",
+      image: "/caring-doctor.png",
+      link: "/services/directly-observed-therapy"
     },
     {
       icon: Truck,
