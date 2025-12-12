@@ -231,6 +231,7 @@ export default function ContactPage() {
                         <div>• HAP</div>
                         <div>• UHC</div>
                         <div>• AETNA BETTER HEALTH</div>
+                        <div>• BCBS</div>
                         <div>• BCBSM</div>
                         <div>• BCN</div>
                         <div>• MCLAREN</div>
@@ -242,6 +243,7 @@ export default function ContactPage() {
                         <div>• MOLINA</div>
                         <div>• OPTUM VA CCN</div>
                         <div>• AMBETTER</div>
+                        <div>• ZING</div>
                         <div>• ZING HEALTH PLAN</div>
                         <div>• NGS</div>
                         <div>• MEDICAID</div>

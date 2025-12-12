@@ -79,7 +79,7 @@ export function Footer() {
                 <div>
                   <p className="text-xs font-medium text-cyan-400 mb-1">In Network</p>
                   <p className="text-xs text-gray-400 leading-relaxed">
-                    HAP, UHC, AETNA BETTER HEALTH, BCBSM, BCN, MCLAREN, AMERIHEALTH CARITAS, CIGNA, MERIDIAN COMPLETE, WELLCARE, PRIORITY HEALTH PLAN, MOLINA, OPTUM VA CCN, AMBETTER, ZING HEALTH PLAN, NGS, MEDICAID
+                    HAP, UHC, AETNA BETTER HEALTH, BCBS, BCBSM, BCN, MCLAREN, AMERIHEALTH CARITAS, CIGNA, MERIDIAN COMPLETE, WELLCARE, PRIORITY HEALTH PLAN, MOLINA, OPTUM VA CCN, AMBETTER, ZING, ZING HEALTH PLAN, NGS, MEDICAID
                   </p>
                 </div>
                 <div>
