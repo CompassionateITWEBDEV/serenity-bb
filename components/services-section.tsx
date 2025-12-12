@@ -92,6 +92,14 @@ export function ServicesSection() {
       description: "Comprehensive primary care services including general health, preventive care, and chronic disease management.",
       image: "/istockphoto-932074828-612x612.jpg",
       link: "/services/primary-care"
+    },
+    {
+      icon: MessageCircle,
+      category: "Emergency",
+      title: "Emergency Dosing",
+      description: "Urgent medication dosing services. Schedule online or call immediately for emergency medication access when you need it most.",
+      image: "/caring-doctor.png",
+      link: "/services/emergency-dosing"
     }
   ]
 

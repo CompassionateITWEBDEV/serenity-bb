@@ -30,6 +30,7 @@ const SERVICES_MENU = [
   { label: "Medication Management", href: "/services/medication-management" },
   { label: "Primary Care", href: "/services/primary-care" },
   { label: "Counseling Services", href: "/services/counseling" },
+  { label: "Emergency Dosing", href: "/services/emergency-dosing" },
 ];
 
 const MORE_MENU = [
