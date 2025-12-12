@@ -16,8 +16,8 @@ const Body = z.object({
     z.null(),
     z.string().length(0).transform(() => null) // Convert empty string to null
   ]).optional(),
-  testType: z.enum(["urine", "saliva", "hair", "blood"], {
-    errorMap: () => ({ message: "testType must be one of: urine, saliva, hair, blood" })
+  testType: z.enum(["urine", "saliva", "hair", "blood", "must-safety", "dot"], {
+    errorMap: () => ({ message: "testType must be one of: urine, saliva, hair, blood, must-safety, dot" })
   }).optional().default("urine"),
 });
 
@@ -310,7 +310,10 @@ export async function POST(req: Request) {
             collection_method: body.testType === "urine" ? "Urine Collection" 
               : body.testType === "saliva" ? "Oral Swab"
               : body.testType === "hair" ? "Hair Sample"
-              : "Blood Draw",
+              : body.testType === "blood" ? "Blood Draw"
+              : body.testType === "must-safety" ? "Urine Collection (MUST Safety)"
+              : body.testType === "dot" ? "Urine Collection (DOT)"
+              : "Urine Collection",
           }
         })
         .select(

@@ -31,6 +31,7 @@ const SERVICES_MENU = [
   { label: "Primary Care", href: "/services/primary-care" },
   { label: "Counseling Services", href: "/services/counseling" },
   { label: "Emergency Dosing", href: "/services/emergency-dosing" },
+  { label: "DOT Physicals", href: "/services/dot-physicals" },
 ];
 
 const MORE_MENU = [

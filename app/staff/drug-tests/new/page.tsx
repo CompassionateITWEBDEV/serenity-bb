@@ -71,6 +71,22 @@ const DRUG_TEST_TYPES: DrugTestType[] = [
     substances: ["THC", "Cocaine", "Amphetamines", "Opiates", "Benzodiazepines", "Alcohol"],
     collectionMethod: "Blood Draw",
     detectionWindow: "1-2 days"
+  },
+  {
+    id: "must-safety",
+    name: "MUST Safety Drug Screen",
+    description: "MUST safety compliant drug screening",
+    substances: ["THC", "Cocaine", "Amphetamines", "Opiates", "PCP", "Benzodiazepines", "Barbiturates", "Methadone"],
+    collectionMethod: "Urine Collection (MUST Safety)",
+    detectionWindow: "1-30 days"
+  },
+  {
+    id: "dot",
+    name: "DOT Drug Screen",
+    description: "Department of Transportation compliant drug screen",
+    substances: ["THC", "Cocaine", "Amphetamines", "Opiates", "PCP", "Amphetamines/Methamphetamines"],
+    collectionMethod: "Urine Collection (DOT)",
+    detectionWindow: "1-30 days"
   }
 ];
 

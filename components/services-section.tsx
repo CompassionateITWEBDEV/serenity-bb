@@ -1,6 +1,6 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
-import { MessageCircle, Heart, Pill } from "lucide-react"
+import { MessageCircle, Heart, Pill, Truck } from "lucide-react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 
@@ -100,6 +100,14 @@ export function ServicesSection() {
       description: "Urgent medication dosing services. Schedule online or call immediately for emergency medication access when you need it most.",
       image: "/caring-doctor.png",
       link: "/services/emergency-dosing"
+    },
+    {
+      icon: Truck,
+      category: "Certification",
+      title: "DOT Physicals",
+      description: "Department of Transportation physical examinations for commercial drivers. FMCSA certified medical exams. Schedule your DOT physical today.",
+      image: "/caring-doctor.png",
+      link: "/services/dot-physicals"
     }
   ]
 
