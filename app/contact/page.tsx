@@ -218,6 +218,48 @@ export default function ContactPage() {
                   </div>
                 </CardContent>
               </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-xl font-serif">Accepted Insurance</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="font-semibold text-gray-900 mb-2">In Network</h4>
+                      <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
+                        <div>• HAP</div>
+                        <div>• UHC</div>
+                        <div>• AETNA BETTER HEALTH</div>
+                        <div>• BCBSM</div>
+                        <div>• BCN</div>
+                        <div>• MCLAREN</div>
+                        <div>• AMERIHEALTH CARITAS</div>
+                        <div>• CIGNA</div>
+                        <div>• MERIDIAN COMPLETE</div>
+                        <div>• WELLCARE</div>
+                        <div>• PRIORITY HEALTH PLAN</div>
+                        <div>• MOLINA</div>
+                        <div>• OPTUM VA CCN</div>
+                        <div>• AMBETTER</div>
+                        <div>• ZING HEALTH PLAN</div>
+                        <div>• NGS</div>
+                        <div>• MEDICAID</div>
+                      </div>
+                    </div>
+                    <div className="pt-2 border-t border-gray-200">
+                      <h4 className="font-semibold text-gray-900 mb-2">Out of Network</h4>
+                      <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
+                        <div>• HUMANA</div>
+                        <div>• AETNA</div>
+                        <div>• HAP CARESOURCE</div>
+                        <div>• BCC - IN PROCESS</div>
+                        <div>• ALIGN SENIOR PLUS</div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
 
