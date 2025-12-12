@@ -74,6 +74,18 @@ export default function HomePage() {
       "AddictionTreatment",
       "BehavioralHealth",
     ],
+    award: "Joint Commission Accredited",
+    hasCredential: [
+      {
+        "@type": "EducationalOccupationalCredential",
+        credentialCategory: "accreditation",
+        recognizedBy: {
+          "@type": "Organization",
+          name: "The Joint Commission",
+          url: "https://www.jointcommission.org"
+        }
+      }
+    ],
     areaServed: [
       "Pontiac MI",
       "Auburn Hills MI",

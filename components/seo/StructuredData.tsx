@@ -16,6 +16,18 @@ export default function StructuredData({ type, data }: StructuredDataProps) {
           url: "https://serenity-b9.onrender.com",
           logo: "https://serenity-b9.onrender.com/2023-08-15 - Copy.png",
           description: "Evidence-based rehabilitation in Detroit. Confidential assessments, licensed clinicians, and personalized recovery plans.",
+          award: "Joint Commission Accredited",
+          hasCredential: [
+            {
+              "@type": "EducationalOccupationalCredential",
+              credentialCategory: "accreditation",
+              recognizedBy: {
+                "@type": "Organization",
+                name: "The Joint Commission",
+                url: "https://www.jointcommission.org"
+              }
+            }
+          ],
           address: {
             "@type": "PostalAddress",
             streetAddress: "673 Martin Luther King Jr Blvd N",
@@ -55,14 +67,26 @@ export default function StructuredData({ type, data }: StructuredDataProps) {
           },
           telephone: "+1-313-555-0123",
           medicalSpecialty: "Rehabilitation Medicine",
-          hasCredential: {
-            "@type": "EducationalOccupationalCredential",
-            credentialCategory: "license",
-            recognizedBy: {
-              "@type": "Organization",
-              name: "State of Michigan"
+          award: "Joint Commission Accredited",
+          hasCredential: [
+            {
+              "@type": "EducationalOccupationalCredential",
+              credentialCategory: "license",
+              recognizedBy: {
+                "@type": "Organization",
+                name: "State of Michigan"
+              }
+            },
+            {
+              "@type": "EducationalOccupationalCredential",
+              credentialCategory: "accreditation",
+              recognizedBy: {
+                "@type": "Organization",
+                name: "The Joint Commission",
+                url: "https://www.jointcommission.org"
+              }
             }
-          }
+          ]
         }
 
       case "service":

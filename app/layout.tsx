@@ -122,6 +122,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               url: "https://src.health",
               logo: "https://src.health/2023-08-15 - Copy.png",
               description: "Evidence-based rehabilitation in Pontiac, Michigan. Confidential assessments, licensed clinicians, and personalized recovery plans.",
+              award: "Joint Commission Accredited",
+              hasCredential: [
+                {
+                  "@type": "EducationalOccupationalCredential",
+                  credentialCategory: "accreditation",
+                  recognizedBy: {
+                    "@type": "Organization",
+                    name: "The Joint Commission",
+                    url: "https://www.jointcommission.org"
+                  }
+                }
+              ],
               address: {
                 "@type": "PostalAddress",
                 streetAddress: "673 Martin Luther King Jr Blvd N",
