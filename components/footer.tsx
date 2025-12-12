@@ -28,6 +28,18 @@ export function Footer() {
             <p className="text-gray-300 leading-relaxed mb-4">
               Dedicated to helping individuals reclaim health and hope through personalized treatment, supportive counseling, and evidence-based care. At Serenity Rehabilitation Center, your healing journey is our mission.
             </p>
+            <div className="text-cyan-400 font-serif text-lg font-semibold mb-4 leading-relaxed">
+              <div>The</div>
+              <div>quality</div>
+              <div>you</div>
+              <div>can</div>
+              <div>trust</div>
+              <div>&</div>
+              <div>The</div>
+              <div>service</div>
+              <div>you</div>
+              <div>Deserve</div>
+            </div>
             <div className="flex items-center gap-3 mb-4">
               <JointCommissionLogo />
               <p className="text-sm text-gray-400">
