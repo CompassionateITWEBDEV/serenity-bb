@@ -29,10 +29,10 @@ export function Footer() {
               Dedicated to helping individuals reclaim health and hope through personalized treatment, supportive counseling, and evidence-based care. At Serenity Rehabilitation Center, your healing journey is our mission.
             </p>
             <div className="flex items-center gap-3 mb-4">
+              <JointCommissionLogo />
               <p className="text-sm text-gray-400">
                 Licensed Medical Facility • Accredited by Joint Commission
               </p>
-              <JointCommissionLogo />
             </div>
             <div className="mt-6">
               <h4 className="font-semibold text-white mb-3">We Proudly Serve</h4>
