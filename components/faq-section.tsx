@@ -75,7 +75,7 @@ export function FAQSection() {
 
       <style jsx>{`
         .faq-section {
-          padding: 5rem 0;
+          padding: 3rem 0;
           background: #ffffff;
           opacity: 0;
           transform: translateY(30px);
@@ -90,12 +90,12 @@ export function FAQSection() {
         .faq-container {
           max-width: 1400px;
           margin: 0 auto;
-          padding: 3rem 2rem;
+          padding: 2rem 2rem;
         }
 
         .faq-header {
           text-align: center;
-          margin-bottom: 3rem;
+          margin-bottom: 2rem;
         }
 
         .faq-label {
@@ -131,7 +131,7 @@ export function FAQSection() {
 
         .faq-footer {
           text-align: center;
-          margin-top: 3rem;
+          margin-top: 2rem;
         }
 
         .faq-button {
@@ -167,7 +167,7 @@ export function FAQSection() {
 
         @media (max-width: 640px) {
           .faq-section {
-            padding: 3rem 0;
+            padding: 2rem 0;
           }
 
           .faq-title {
