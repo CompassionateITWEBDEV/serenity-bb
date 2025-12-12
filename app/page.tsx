@@ -47,7 +47,7 @@ export default function HomePage() {
     "@context": "https://schema.org",
     "@type": "MedicalBusiness",
     name: "Serenity Rehabilitation Center",
-    description: "Serenity Rehabilitation Center in Pontiac Michigan provides mental health services, addiction recovery programs, psychiatric evaluations, case management, peer recovery, and methadone treatment.",
+    description: "Serenity Rehabilitation Center in Pontiac Michigan provides mental health services, addiction recovery programs, psychiatric evaluations, case management, peer recovery, methadone treatment, suboxone treatment, naltrexone, antabuse, medication management, primary care, counseling services, emergency dosing, directly observed therapy, and DOT physicals.",
     url: SITE_URL,
     telephone: "+1-248-838-3686",
     address: {
@@ -73,6 +73,8 @@ export default function HomePage() {
       "Psychiatry",
       "AddictionTreatment",
       "BehavioralHealth",
+      "PrimaryCare",
+      "RehabilitationMedicine",
     ],
     award: "Joint Commission Accredited",
     hasCredential: [
@@ -100,6 +102,144 @@ export default function HomePage() {
       "Madison Heights MI",
       "Troy MI",
     ],
+    hasOfferCatalog: {
+      "@type": "OfferCatalog",
+      name: "Serenity Rehabilitation Center Services",
+      itemListElement: [
+        {
+          "@type": "OfferCatalog",
+          name: "Mental Health Services",
+          itemListElement: [
+            {
+              "@type": "Offer",
+              itemOffered: {
+                "@type": "Service",
+                name: "Psychiatric Evaluation",
+                description: "Comprehensive mental health assessments and psychiatric diagnosis",
+                url: `${SITE_URL}/services/psychiatric-evaluation`
+              }
+            },
+            {
+              "@type": "Offer",
+              itemOffered: {
+                "@type": "Service",
+                name: "Counseling Services",
+                description: "Professional mental health counseling, behavioral health therapy, and trauma support",
+                url: `${SITE_URL}/services/counseling`
+              }
+            },
+            {
+              "@type": "Offer",
+              itemOffered: {
+                "@type": "Service",
+                name: "Medication Management",
+                description: "Psychiatric and primary care medication management services",
+                url: `${SITE_URL}/services/medication-management`
+              }
+            }
+          ]
+        },
+        {
+          "@type": "OfferCatalog",
+          name: "Addiction Treatment Services",
+          itemListElement: [
+            {
+              "@type": "Offer",
+              itemOffered: {
+                "@type": "Service",
+                name: "Methadone Treatment",
+                description: "Medically supervised methadone treatment program for opioid addiction recovery",
+                url: `${SITE_URL}/services/methadone`
+              }
+            },
+            {
+              "@type": "Offer",
+              itemOffered: {
+                "@type": "Service",
+                name: "Suboxone Treatment",
+                description: "Safe, effective Suboxone treatment for opioid addiction recovery",
+                url: `${SITE_URL}/services/suboxone`
+              }
+            },
+            {
+              "@type": "Offer",
+              itemOffered: {
+                "@type": "Service",
+                name: "Naltrexone & Antabuse",
+                description: "Naltrexone and Antabuse treatment for alcohol and opioid addiction recovery",
+                url: `${SITE_URL}/services/naltrexone-antabuse`
+              }
+            },
+            {
+              "@type": "Offer",
+              itemOffered: {
+                "@type": "Service",
+                name: "Emergency Dosing",
+                description: "Urgent medication dosing services for emergency medication access",
+                url: `${SITE_URL}/services/emergency-dosing`
+              }
+            },
+            {
+              "@type": "Offer",
+              itemOffered: {
+                "@type": "Service",
+                name: "Directly Observed Therapy (DOT)",
+                description: "Supervised medication administration to ensure treatment compliance",
+                url: `${SITE_URL}/services/directly-observed-therapy`
+              }
+            }
+          ]
+        },
+        {
+          "@type": "OfferCatalog",
+          name: "Support & Care Services",
+          itemListElement: [
+            {
+              "@type": "Offer",
+              itemOffered: {
+                "@type": "Service",
+                name: "Case Management",
+                description: "Behavioral health and medical case management services",
+                url: `${SITE_URL}/services/case-management`
+              }
+            },
+            {
+              "@type": "Offer",
+              itemOffered: {
+                "@type": "Service",
+                name: "Peer Recovery Support",
+                description: "Peer support and mentorship services from trained specialists",
+                url: `${SITE_URL}/services/peer-recovery-support`
+              }
+            },
+            {
+              "@type": "Offer",
+              itemOffered: {
+                "@type": "Service",
+                name: "Primary Care Services",
+                description: "Comprehensive primary care including general health and preventive care",
+                url: `${SITE_URL}/services/primary-care`
+              }
+            }
+          ]
+        },
+        {
+          "@type": "OfferCatalog",
+          name: "Certification & Compliance Services",
+          itemListElement: [
+            {
+              "@type": "Offer",
+              itemOffered: {
+                "@type": "Service",
+                name: "DOT Physicals",
+                description: "Department of Transportation physical examinations for commercial drivers",
+                url: `${SITE_URL}/services/dot-physicals`
+              }
+            }
+          ]
+        }
+      ]
+    }
   };
 
   return (

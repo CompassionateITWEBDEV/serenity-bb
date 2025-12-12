@@ -121,7 +121,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               name: "Serenity Rehabilitation Center",
               url: "https://src.health",
               logo: "https://src.health/2023-08-15 - Copy.png",
-              description: "Evidence-based rehabilitation in Pontiac, Michigan. Confidential assessments, licensed clinicians, and personalized recovery plans.",
+              description: "Evidence-based rehabilitation in Pontiac, Michigan. Confidential assessments, licensed clinicians, and personalized recovery plans. Services include psychiatric evaluation, addiction treatment, case management, peer recovery support, medication management, primary care, counseling, emergency dosing, directly observed therapy, and DOT physicals.",
               award: "Joint Commission Accredited",
               hasCredential: [
                 {
@@ -152,7 +152,109 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               sameAs: [
                 "https://www.facebook.com/profile.php?id=100066899671960",
                 "https://www.instagram.com/serenityrehabilitation/",
-              ]
+              ],
+              hasOfferCatalog: {
+                "@type": "OfferCatalog",
+                name: "Serenity Rehabilitation Center Services",
+                itemListElement: [
+                  {
+                    "@type": "Offer",
+                    itemOffered: {
+                      "@type": "Service",
+                      name: "Psychiatric Evaluation",
+                      url: "https://src.health/services/psychiatric-evaluation"
+                    }
+                  },
+                  {
+                    "@type": "Offer",
+                    itemOffered: {
+                      "@type": "Service",
+                      name: "Case Management",
+                      url: "https://src.health/services/case-management"
+                    }
+                  },
+                  {
+                    "@type": "Offer",
+                    itemOffered: {
+                      "@type": "Service",
+                      name: "Peer Recovery Support",
+                      url: "https://src.health/services/peer-recovery-support"
+                    }
+                  },
+                  {
+                    "@type": "Offer",
+                    itemOffered: {
+                      "@type": "Service",
+                      name: "Methadone Treatment",
+                      url: "https://src.health/services/methadone"
+                    }
+                  },
+                  {
+                    "@type": "Offer",
+                    itemOffered: {
+                      "@type": "Service",
+                      name: "Suboxone Treatment",
+                      url: "https://src.health/services/suboxone"
+                    }
+                  },
+                  {
+                    "@type": "Offer",
+                    itemOffered: {
+                      "@type": "Service",
+                      name: "Naltrexone & Antabuse",
+                      url: "https://src.health/services/naltrexone-antabuse"
+                    }
+                  },
+                  {
+                    "@type": "Offer",
+                    itemOffered: {
+                      "@type": "Service",
+                      name: "Medication Management",
+                      url: "https://src.health/services/medication-management"
+                    }
+                  },
+                  {
+                    "@type": "Offer",
+                    itemOffered: {
+                      "@type": "Service",
+                      name: "Primary Care Services",
+                      url: "https://src.health/services/primary-care"
+                    }
+                  },
+                  {
+                    "@type": "Offer",
+                    itemOffered: {
+                      "@type": "Service",
+                      name: "Counseling Services",
+                      url: "https://src.health/services/counseling"
+                    }
+                  },
+                  {
+                    "@type": "Offer",
+                    itemOffered: {
+                      "@type": "Service",
+                      name: "Emergency Dosing",
+                      url: "https://src.health/services/emergency-dosing"
+                    }
+                  },
+                  {
+                    "@type": "Offer",
+                    itemOffered: {
+                      "@type": "Service",
+                      name: "Directly Observed Therapy (DOT)",
+                      url: "https://src.health/services/directly-observed-therapy"
+                    }
+                  },
+                  {
+                    "@type": "Offer",
+                    itemOffered: {
+                      "@type": "Service",
+                      name: "DOT Physicals",
+                      url: "https://src.health/services/dot-physicals"
+                    }
+                  }
+                ]
+              }
             }, null, 2)
           }}
         />
